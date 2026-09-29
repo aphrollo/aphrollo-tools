@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // The unattended half of the sweep: what runs without anyone typing
@@ -173,24 +175,46 @@ func maybeStartBackgroundGC(cwd string) {
 // spawnBackgroundGC launches this same binary as a detached sweep. Failure
 // is silent by design: disk hygiene must never disturb a session start.
 func spawnBackgroundGC(cwd string) {
-	exe, err := os.Executable()
+	exe, err := proc.SpawnableSelf(gcExeFn, os.Environ())
 	if err != nil {
 		return
 	}
-	cmd := exec.Command(exe, CmdName, "gc", "--apply", "--quiet", "--repo", cwd)
-	cmd.Dir = cwd
-	cmd.Env = cleanGitEnv()
+	gcStartFn(backgroundGCCommand(exe, os.Environ(), cwd))
+}
+
+// gcExeFn and gcStartFn are the process seams of the detached sweep: which
+// executable it re-enters, and how the command is started. A test replaces
+// both to state what the sweep does without starting anything.
+var (
+	gcExeFn   = os.Executable
+	gcStartFn = startDetachedGC
+)
+
+// startDetachedGC starts cmd detached from the hook that asked. Failure is
+// silent: disk hygiene must never disturb a session start.
+func startDetachedGC(cmd *exec.Cmd) {
 	closeStdio := silentStdio(cmd)
 	// Detached: the stamp fires before the work, so a sweep killed with the
 	// hook's process group would leave a half-deleted tree and no sweep due
 	// for another day.
 	cmd.SysProcAttr = detachedAttrs()
-	err = cmd.Start()
+	err := cmd.Start()
 	closeStdio()
 	if err != nil {
 		return
 	}
 	_ = cmd.Process.Release()
+}
+
+// backgroundGCCommand builds the detached sweep: exe re-entered as `gate gc`
+// in cwd. parentEnv is the environment of the process asking; the child's
+// carries one more generation of spawn depth (see proc.SpawnableSelf, which
+// decides whether exe may be started at all).
+func backgroundGCCommand(exe string, parentEnv []string, cwd string) *exec.Cmd {
+	cmd := exec.Command(exe, CmdName, "gc", "--apply", "--quiet", "--repo", cwd)
+	cmd.Dir = cwd
+	cmd.Env = proc.ChildEnv(parentEnv, cleanGitEnv())
+	return cmd
 }
 
 // backgroundGCSpawnDescription states the spawn's contract for a test that

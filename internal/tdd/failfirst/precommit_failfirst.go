@@ -242,6 +242,13 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 			return failFirstOutcome{notRunnable: why, cmd: cmdString(Runner{Cmd: npmTestTool(runner), Args: runner.Args[1:]}), runner: runner, res: SuiteResult{Output: why + "\n"}}
 		}
 	}
+	// A pytest root runs its tests under an interpreter that imports pytest,
+	// or the proof says which of the two is missing.
+	py, why := pytestExecRunner(root, execRunner)
+	if why != "" {
+		return failFirstOutcome{notRunnable: why, cmd: cmdString(runner), runner: runner, res: SuiteResult{Output: why + "\n"}}
+	}
+	execRunner = py
 	// The worktree lives OUTSIDE the repo, so cargo's default would put a
 	// brand-new target/ inside it and cold-build the world on every commit.
 	// Name the repo's own resolved target explicitly.
@@ -434,7 +441,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 			// measured nothing separately from the ones that proved a red.
 			verdict = AllTestsSkipped
 		case out.notRunnable != "":
-			// #904: the root's own test tool, or node, is not there to run,
+			// #904: the root's own test tool, node, or python is not there to run,
 			// and the proof never falls back to npx.
 			verdict = "inconclusive (tool-not-installed, fail-open)" // standdown-logged: logSuiteVerdict(verdict) after the switch
 		case out.notReached:
@@ -455,7 +462,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 			fmt.Fprintln(os.Stderr, notReachedNote(out.res.Output))
 		}
 		if out.notRunnable != "" {
-			fmt.Fprintln(os.Stderr, "  "+out.notRunnable)
+			fmt.Fprintf(os.Stderr, "gate precommit: fail-first in %s → NOT RUN — %s\n", root, out.notRunnable)
 		}
 		if out.vacuous {
 			return GateResult{Blocked: true, Message: vacuousFailFirstMessage(out.vacuousPkgs)}

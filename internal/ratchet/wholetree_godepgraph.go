@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -44,16 +43,13 @@ type goListPackage struct {
 // STREAM of concatenated JSON objects, not an array, so it is decoded one
 // value at a time — the same shape a checked-in copy of the real command's
 // output would have, unedited.
-func loadGoListPackages(root string) ([]goListPackage, error) {
+func loadGoListPackages(root string, law Law) ([]goListPackage, error) {
 	data, err := os.ReadFile(filepath.Join(root, goListFixtureFile))
 	if err != nil {
-		cmd := exec.Command("go", "list", "-deps", "-json", "./...")
-		cmd.Dir = root
-		out, runErr := cmd.Output()
-		if runErr != nil {
-			return nil, fmt.Errorf("go list -deps -json ./... in %s: %w", root, runErr)
+		data, err = goListCached(root, law.GoOverlay, law.CacheDir)
+		if err != nil {
+			return nil, err
 		}
-		data = out
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	var pkgs []goListPackage
@@ -109,7 +105,7 @@ func goWorkspaceRootNames(root, prefix string, pkgs []goListPackage) []string {
 // (a walk that resolved nothing, a wildcard that reached nothing) as the
 // cargo kind, over `go list`'s graph instead of `cargo metadata`'s.
 func goDepGraphHits(root string, law Law) ([]Hit, error) {
-	pkgs, err := loadGoListPackages(root)
+	pkgs, err := loadGoListPackages(root, law)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: %w", law.Name, err)
 	}

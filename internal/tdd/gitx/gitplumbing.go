@@ -47,7 +47,7 @@ func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
 	cmd.Dir = dir
 	cmd.Env = cleanGitEnv()
 	cmd.Stdin = stdin
-	out, err := cmd.Output()
+	out, err := outputGit(cmd)
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {

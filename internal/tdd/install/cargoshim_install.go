@@ -28,6 +28,9 @@ import (
 // "installed" from "already up to date", matching every other managed-shim
 // writer in this package (BuildInstallPlan, InitGitGate).
 func InstallCargoShim(dir, bin string) (bool, error) {
+	if err := refuseTestBinary(bin); err != nil {
+		return false, err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}
@@ -41,6 +44,9 @@ func InstallCargoShim(dir, bin string) (bool, error) {
 // SAME queue dir so a session that prepends one directory to PATH gets both
 // cargo and git queued. Same shape, same idempotency contract.
 func InstallGitShim(dir, bin string) (bool, error) {
+	if err := refuseTestBinary(bin); err != nil {
+		return false, err
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return false, err
 	}

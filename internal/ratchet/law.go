@@ -322,6 +322,9 @@ type Law struct {
 	// metadata` call, set by Check from the run's GraphTree.
 	CargoOffline   bool
 	CargoTargetDir string
+	// GoOverlay is the proposed content a go-dep-graph law's `go list`
+	// reads in place of the disk's, set by Check from the run's GraphTree.
+	GoOverlay map[string]string
 	// Extends names the preset this law was copied from (`preset:<group>/<name>`
 	// — see `internal/ratchet/presets`), purely for provenance and DRIFT
 	// checking: the law is otherwise a normal, fully self-contained file, and

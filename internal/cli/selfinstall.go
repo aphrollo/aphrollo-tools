@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -60,18 +61,59 @@ func commitAt(repo string) string {
 // the build's outcome without a toolchain run.
 var buildAphrollo = func(repo, out string) (string, error) {
 	args := buildArgs(repo, out, commitAt(repo), time.Now())
-	cmd := exec.Command("go", args...)
+	cmd, finish := boundedCommand(buildBudget, "go", args...)
 	cmd.Dir = repo
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	desc := "go " + strings.Join(args, " ")
-	if err := cmd.Run(); err != nil {
+	if err := finish(cmd.Run()); err != nil {
 		if said := strings.TrimSpace(stderr.String()); said != "" {
 			return desc, fmt.Errorf("%s: %w\n%s", desc, err, said)
 		}
 		return desc, fmt.Errorf("%s: %w", desc, err)
 	}
 	return desc, nil
+}
+
+// How long each subprocess `aphrollo update` starts may run before it is
+// killed. None of them had a clock of its own: one that hung held the update,
+// and everything it had started, for as long as it liked (#997). Generous —
+// a cold build is minutes, the self-check and init are seconds.
+var (
+	buildBudget      = mustDuration("15m")
+	smokeCheckBudget = mustDuration("1m")
+	initBudget       = mustDuration("5m")
+	// killGrace is how long after the kill the command waits for its
+	// output pipes to close: a killed shell leaves its own children holding
+	// them, and Wait would otherwise block on those.
+	killGrace = mustDuration("2s")
+)
+
+// mustDuration parses a duration written in this file; a typo is a panic at
+// startup, never a zero budget that kills every command at once.
+func mustDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
+
+// boundedCommand is exec.Command that is killed once budget has passed. The
+// returned finish releases the deadline and must wrap the error the command's
+// Run/Wait/CombinedOutput answered: a kill by the deadline says so, instead of
+// the bare "signal: killed".
+func boundedCommand(budget time.Duration, name string, args ...string) (cmd *exec.Cmd, finish func(error) error) {
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	cmd = exec.CommandContext(ctx, name, args...)
+	cmd.WaitDelay = killGrace
+	return cmd, func(err error) error {
+		defer cancel()
+		if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return fmt.Errorf("no answer within %s, killed: %w", budget, err)
+		}
+		return err
+	}
 }
 
 // stalePrefix names the renamed-aside copies, so the sweep can find them and
@@ -89,10 +131,13 @@ var selfCheckArgs = []string{"gate", "selfcheck"}
 // never builds one — buildAphrollo is stubbed everywhere it is reached — so
 // TestMain defaults this to permissive and only the refusal test overrides
 // it locally.
-var runSmokeCheckFn = func(candidate string) error {
-	cmd := exec.Command(candidate, selfCheckArgs...)
+var runSmokeCheckFn = func(candidate string) error { return runSmokeCheck(candidate, smokeCheckBudget) }
+
+// runSmokeCheck runs the candidate's self-check, killing it after budget.
+func runSmokeCheck(candidate string, budget time.Duration) error {
+	cmd, finish := boundedCommand(budget, candidate, selfCheckArgs...)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
+	if err = finish(err); err != nil {
 		return fmt.Errorf("%s %s: %w\n%s", candidate, strings.Join(selfCheckArgs, " "), err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -114,10 +159,15 @@ var runSmokeCheckFn = func(candidate string) error {
 // a real build on disk. It reports the child's exit code alongside the error,
 // because that code is what the installing verb exits with.
 var runInstalledInitFn = func(bin string, args []string, stdout, stderr io.Writer) (int, error) {
-	cmd := exec.Command(bin, args...)
+	return runInstalledInit(bin, args, stdout, stderr, initBudget)
+}
+
+// runInstalledInit runs the installed binary with args, killing it after budget.
+func runInstalledInit(bin string, args []string, stdout, stderr io.Writer, budget time.Duration) (int, error) {
+	cmd, finish := boundedCommand(budget, bin, args...)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	err := cmd.Run()
+	err := finish(cmd.Run())
 	if err == nil {
 		return 0, nil
 	}

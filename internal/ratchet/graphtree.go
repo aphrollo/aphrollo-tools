@@ -19,6 +19,13 @@ type GraphTree struct {
 	// CargoTargetDir is CARGO_TARGET_DIR for `cargo metadata`; empty
 	// inherits the environment's.
 	CargoTargetDir string
+	// Overlay is what `go list` reads in place of files on disk; see
+	// Options.GraphOverlay.
+	Overlay map[string]string
+	// atRoot marks the tree as the run's own Root, a path that outlives the
+	// run: the only kind a Go graph is cached under, because a checkout made
+	// per run would leave one cache file behind for each.
+	atRoot bool
 }
 
 // graphTreeOf is the tree a Check run's dep-graph laws query, resolved at
@@ -31,12 +38,14 @@ func graphTreeOf(opts Options) func() (GraphTree, error) {
 	return func() (GraphTree, error) {
 		once.Do(func() {
 			if opts.GraphTree == nil {
-				g = GraphTree{Dir: opts.Root}
+				g = GraphTree{Dir: opts.Root, Overlay: goOverlayOf(opts.GraphOverlay), atRoot: true}
 				return
 			}
 			if g, err = opts.GraphTree(); err != nil {
 				err = fmt.Errorf("the tree to query the dependency graph in: %w", err)
+				return
 			}
+			g.atRoot = g.Dir == opts.Root
 		})
 		return g, err
 	}
@@ -46,12 +55,24 @@ func graphTreeOf(opts Options) func() (GraphTree, error) {
 func graphLawHits(g GraphTree, law Law, cacheDir string) ([]Hit, error) {
 	law.CacheDir = cacheDir
 	law.CargoOffline, law.CargoTargetDir = g.CargoOffline, g.CargoTargetDir
+	law.GoOverlay = g.Overlay
 	switch law.Matcher.Kind {
 	case KindDepGraphForbids:
 		return depGraphHits(g.Dir, law)
 	case KindDepGraphCeiling:
 		return depGraphCeilingHits(g.Dir, law)
 	default:
+		if !g.atRoot {
+			law.CacheDir = ""
+		}
 		return goDepGraphHits(g.Dir, law)
 	}
+}
+
+// graphCacheDirOf is where a Check run keeps its dependency-graph cache.
+func graphCacheDirOf(opts Options) string {
+	if opts.GraphCacheDir != "" {
+		return opts.GraphCacheDir
+	}
+	return opts.CacheDir
 }
