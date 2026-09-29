@@ -531,8 +531,11 @@ mutants_prove_landed.go                            mutation
 mutants_prove_landed_test.go                       mutation
 mutants_prove_retain.go                            mutation
 mutants_prove_retain_test.go                       mutation
+mutants_prove_sandbox.go                           mutation
+mutants_prove_sandbox_test.go                      mutation
 mutants_prove_scope.go                             mutation
 mutants_prove_scope_test.go                        mutation
+mutants_prove_signal.go                            mutation
 mutants_prove_test.go                              mutation
 mutants_prove_untracked_test.go                    mutation
 mutants_prove_widen.go                             mutation

@@ -182,8 +182,10 @@ func classifyMutationDiff(relPathEscapesRepo bool, gitErr error, evidence string
 // (the replace itself must match --old exactly once) that names the same
 // class of failure without a subprocess.
 //
-// The file is restored byte-identically on every exit path once it has been
-// written at all — refused, killed, survived, wrong-failure or timed out.
+// The lane is only ever read. The mutation is written into a disposable copy
+// of the lane (mutants_prove_sandbox.go) and the tests run there, and the
+// copy is removed on every exit path — refused, killed, survived,
+// wrong-failure or timed out — and on a signal.
 func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr io.Writer) int {
 	absFile, err := filepath.Abs(opts.File)
 	if err != nil {
@@ -253,29 +255,13 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		return ExitMutantsProveRefused
 	}
 
-	perm := os.FileMode(0o644)
-	if fi, err := os.Stat(absFile); err == nil {
-		perm = fi.Mode().Perm()
-	}
-	restore := func() {
-		_ = os.WriteFile(absFile, origBytes, perm)
-	}
-
-	mutated := strings.Replace(orig, opts.Old, opts.New, 1)
-	if err := os.WriteFile(absFile, []byte(mutated), perm); err != nil {
-		fmt.Fprintf(stderr, "gate: mutants prove refused — cannot write the mutation to %s: %v\n", absFile, err)
-		return ExitMutantsProveRefused
-	}
-
 	if root == "" {
-		restore()
-		fmt.Fprintf(stderr, "gate: mutants prove refused — no project root found above %s; restored, nothing was run\n", absFile)
+		fmt.Fprintf(stderr, "gate: mutants prove refused — no project root found above %s; nothing was run\n", absFile)
 		return ExitMutantsProveRefused
 	}
 	if repoRoot == "" {
-		restore()
 		fmt.Fprintf(stderr, "gate: mutants prove refused — %s is not inside a git repository (or is outside it); "+
-			"restored, nothing was run\n", root)
+			"nothing was run\n", root)
 		return ExitMutantsProveRefused
 	}
 	// A caller mistake (the file genuinely lives outside repoRoot), not a
@@ -283,9 +269,40 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	// change" message below, which would otherwise assert the file did not
 	// change when it was never even in scope for git to report on.
 	if relPathEscapesRepo {
-		restore()
-		fmt.Fprintf(stderr, "gate: mutants prove refused — %s resolves outside the repository at %s (relative path "+
-			"%q escapes it); restored, nothing was proved\n", absFile, repoRoot, relPath)
+		const escapes = "gate: mutants prove refused — %s resolves outside the repository at %s (relative path %q escapes it); nothing was proved\n"
+		fmt.Fprintf(stderr, escapes, absFile, repoRoot, relPath)
+		return ExitMutantsProveRefused
+	}
+
+	// Everything from here on happens in a disposable copy of the lane: the
+	// mutation is written there and the tests run there, so a mutant that
+	// writes or resets the directory it runs in reaches the copy and never
+	// the lane (#972). The copy is removed on every return below, and by the
+	// signal handler on a signal.
+	box, err := newProveSandbox(repoRoot, root)
+	if err != nil {
+		fmt.Fprintf(stderr, "gate: mutants prove refused — a disposable copy of %s to prove in could not be made: %v; "+
+			"nothing was run, and the lane was not touched\n", repoRoot, err)
+		return ExitMutantsProveRefused
+	}
+	defer box.remove()
+	defer watchProveSignals(box.remove, stderr)()
+	laneRoot := root
+	run = buildOutsideTheCopy(run, repoRoot)
+	// relPath is already known to lie inside the repository, so the copy's
+	// file is inside the copy; the project root is found again from it, as
+	// it was in the lane.
+	absFile = filepath.Join(box.root, filepath.FromSlash(relPath))
+	repoRoot = box.root
+	if root = FindProjectRoot(absFile); root == "" {
+		root = box.root
+	}
+
+	// The copy already carries the file with the lane's mode, and writing an
+	// existing file keeps its mode; the one given here never applies.
+	mutated := strings.Replace(orig, opts.Old, opts.New, 1)
+	if err := os.WriteFile(absFile, []byte(mutated), 0o644); err != nil {
+		fmt.Fprintf(stderr, "gate: mutants prove refused — cannot write the mutation to %s: %v\n", absFile, err)
 		return ExitMutantsProveRefused
 	}
 
@@ -296,16 +313,13 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		// returned — but classifyMutationDiff stays the single place this
 		// three-way split is decided, so a future caller that skips the
 		// early check still gets the right message instead of "no change".
-		restore()
 		fmt.Fprintf(stderr, "gate: mutants prove refused — %s resolves outside the repository at %s (relative path "+
 			"%q escapes it); restored, nothing was proved\n", absFile, repoRoot, relPath)
 		return ExitMutantsProveRefused
 	case mutationDiffGitFailed:
-		restore()
 		fmt.Fprintf(stderr, "gate: mutants prove refused — cannot tell whether the mutation changed %s: %v\n", relPath, gitErr)
 		return ExitMutantsProveRefused
 	case mutationDiffNoChange:
-		restore()
 		fmt.Fprintf(stderr, "gate: mutants prove refused — the mutation left the content git reads for %s unchanged "+
 			"(the same object before and after the write), so nothing was mutated; restored, nothing was proved. "+
 			"An edit the repository's line-ending attributes or clean filters normalise away is not a mutation.%s\n",
@@ -315,8 +329,7 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 
 	runner, ok := DetectRunner(root)
 	if !ok {
-		restore()
-		fmt.Fprintf(stderr, "gate: mutants prove refused — no known test runner under %s; restored\n", root)
+		fmt.Fprintf(stderr, "gate: mutants prove refused — no known test runner under %s; restored\n", laneRoot)
 		return ExitMutantsProveRefused
 	}
 	runner = scopeToWantedTest(NarrowToRelatedTests(runner, absFile, root), opts.WantFail)
@@ -332,19 +345,18 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	narrow := runner
 	wider := widenSurvivorSelection(run, runner, root, res)
 	runner, res, widened := wider.runner, wider.res, wider.outcome
-	restore()
 
 	// The reach could not be established, so whether this selection was the
 	// whole story is unknown. Inconclusive, never a survivor.
 	if widened == widenUnknown {
 		fmt.Fprint(stdout, scopeUnknownAdvisory(narrow, relPath, wider.why))
-		return retainProveRun(root, narrow, res, ExitMutantsProveScopeUnknown)
+		return retainProveRun(laneRoot, narrow, res, ExitMutantsProveScopeUnknown)
 	}
 
 	if res.TimedOut {
 		fmt.Fprintf(stdout, "gate: mutants prove TIMED OUT — %s in %s never reached a verdict; restored, "+
-			"not proven either way\n", cmdString(runner), root)
-		return retainProveRun(root, runner, res, ExitMutantsProveTimedOut)
+			"not proven either way\n", cmdString(runner), laneRoot)
+		return retainProveRun(laneRoot, runner, res, ExitMutantsProveTimedOut)
 	}
 
 	// An empty SELECTION is judged before the pass/fail question, because it
@@ -377,8 +389,8 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		}
 		fmt.Fprintf(stderr, "gate: mutants prove refused — %s: %s in %s selected zero tests, so nothing "+
 			"exercised the mutation; restored, nothing was proved — this is NOT a survivor. %s\n",
-			strings.ToUpper(NoTestsSelected), cmdString(runner), root, hint)
-		return retainProveRun(root, runner, res, ExitMutantsProveNoTestsSelected)
+			strings.ToUpper(NoTestsSelected), cmdString(runner), laneRoot, hint)
+		return retainProveRun(laneRoot, runner, res, ExitMutantsProveNoTestsSelected)
 	}
 
 	failing := ExtractFailingTests(res.Output)
@@ -389,7 +401,7 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		fmt.Fprintf(stdout, "gate: mutant KILLED — %s failed as predicted (mutation: %q -> %q in %s; "+
 			"mutation landed: %s)%s\n", matched, opts.Old, opts.New, relPath, landed,
 			widenedProveNote(narrow, widened))
-		return retainProveRun(root, runner, res, ExitMutantsProveKilled)
+		return retainProveRun(laneRoot, runner, res, ExitMutantsProveKilled)
 	case !res.Passed && len(failing) == 0:
 		fmt.Fprintf(stdout, "gate: mutant UNREADABLE — unreadable red run: no failing test name could be read "+
 			"from the output, so nothing is proved either way about %q (mutation verified applied via "+
@@ -397,16 +409,16 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 			"extractor does not know — the run's own text says which, and `aphrollo gate output` serves "+
 			"it: this proof's run is the record kept for this root.\n",
 			opts.WantFail, landed)
-		return retainProveRun(root, runner, res, ExitMutantsProveUnreadable)
+		return retainProveRun(laneRoot, runner, res, ExitMutantsProveUnreadable)
 	case !res.Passed:
 		fmt.Fprintf(stdout, "gate: mutant WRONG FAILURE — the suite went red but not on %q; failing: %s "+
 			"(mutation verified applied: %s; restored)\n",
 			opts.WantFail, strings.Join(failing, ", "), landed)
-		return retainProveRun(root, runner, res, ExitMutantsProveWrongFailure)
+		return retainProveRun(laneRoot, runner, res, ExitMutantsProveWrongFailure)
 	default:
 		fmt.Fprintf(stdout, "gate: mutant SURVIVED — %s stayed green after a mutation VERIFIED applied "+
 			"(%s); this is a real survivor, not a no-op — restored.%s\n",
 			cmdString(runner), landed, widenedProveNote(narrow, widened))
-		return retainProveRun(root, runner, res, ExitMutantsProveSurvived)
+		return retainProveRun(laneRoot, runner, res, ExitMutantsProveSurvived)
 	}
 }

@@ -31,6 +31,11 @@ type Runner struct {
 	// shorter: its configured timeout, or the time remaining until
 	// Deadline).
 	Deadline time.Time
+	// Env is KEY=value bindings RunSuite adds to the command's environment,
+	// after everything it inherits, so a binding here wins. nil for every
+	// runner but a proof's cargo one, which points the build at a target
+	// directory outside the lane it copied.
+	Env []string
 }
 
 // cargoPackageName reads a Cargo.toml's `[package]` name, "" when the file is
