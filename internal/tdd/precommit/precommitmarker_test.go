@@ -11,6 +11,7 @@ import (
 // receipt) needs to tell a REAL run of this gate apart from a `git commit`
 // that hit no hook at all.
 func TestPrecommit_LeavesARanMarkerEvenOnTheDocsOnlyFastPath(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "NOTES.md", "# notes\n")
 	gitDo(t, root, "add", ".")
@@ -28,6 +29,7 @@ func TestPrecommit_LeavesARanMarkerEvenOnTheDocsOnlyFastPath(t *testing.T) {
 // A blocked run still ran — the marker records that the gate executed, not
 // that the commit landed.
 func TestPrecommit_LeavesARanMarkerEvenWhenBlocked(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "x_test.go", "package x\n\nfunc TestNothing() {}\n")
 	write(t, root, "x.go", "package x\n")
@@ -46,6 +48,7 @@ func TestPrecommit_LeavesARanMarkerEvenWhenBlocked(t *testing.T) {
 // No Precommit call for this root at all: PrecommitRanSince must say so
 // rather than default to "yes".
 func TestPrecommitRanSince_FalseWhenNothingWasEverLoggedForThisRoot(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	if PrecommitRanSince(root, time.Now().Add(-time.Hour)) {
 		t.Fatal("an untouched root must never read as having run the gate")
@@ -55,6 +58,7 @@ func TestPrecommitRanSince_FalseWhenNothingWasEverLoggedForThisRoot(t *testing.T
 // `at` is exclusive of entries strictly before it: a marker from a PRIOR
 // commit's run must not be read as evidence for a run that starts later.
 func TestPrecommitRanSince_FalseForAMarkerLoggedBeforeAt(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "NOTES.md", "# notes\n")
 	gitDo(t, root, "add", ".")

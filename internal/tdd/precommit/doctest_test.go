@@ -7,6 +7,7 @@ import (
 )
 
 func TestDoctestRunnersCoverOnlyTheCratesThatHaveDoctests(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	write(t, filepath.Join(ws, "crates", "shared"), "Cargo.toml", "[package]\nname = \"shared\"\n")
 	write(t, filepath.Join(ws, "crates", "shared", "src"), "lib.rs",
@@ -28,6 +29,7 @@ func TestDoctestRunnersCoverOnlyTheCratesThatHaveDoctests(t *testing.T) {
 }
 
 func TestPackageHasDoctestsIgnoresOrdinaryCodeFences(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "src"), "lib.rs", "fn f() {\n    let s = \"```\";\n}\n")
 	if packageHasDoctests(dir) {
@@ -42,7 +44,7 @@ func TestPackageHasDoctestsIgnoresOrdinaryCodeFences(t *testing.T) {
 // nextest never runs doctests, so the gate has to run them itself — otherwise
 // a `compile_fail` proof is a test that certifies what it never executed.
 func TestPrecommitRunsDoctestsForACrateThatHasThem(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs",
 		"/// Adds.\n///\n/// ```compile_fail\n/// let _: u8 = m::add();\n/// ```\npub fn add() {}\n")
@@ -59,7 +61,7 @@ func TestPrecommitRunsDoctestsForACrateThatHasThem(t *testing.T) {
 }
 
 func TestPrecommitSkipsDoctestsForACrateWithout(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "pub fn add() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")

@@ -15,7 +15,7 @@ import (
 // in history. The edit hook keeps the advisory behaviour; the gate rejects
 // and says how to recover.
 func TestPrecommit_TimeoutRejectsTheCommit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -42,6 +42,7 @@ func TestPrecommit_TimeoutRejectsTheCommit(t *testing.T) {
 // the assertion does not depend on whatever else is running on the box that
 // happens to execute this test; quality runners (vet/lint) pass so the
 // mechanical suite itself is what times out.
+// Serial: installs a process-wide test override (SetMachineLoadSampleForTest).
 func TestPrecommit_MechanicalTimeoutNamesTheBoxLoad(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
@@ -73,6 +74,7 @@ func TestPrecommit_MechanicalTimeoutNamesTheBoxLoad(t *testing.T) {
 // touches (vet/lint/fmt/doctest via goCheckStage, clippy/check via
 // qualityVerdict). Same stub, exercised directly against goCheckStage rather
 // than through the whole Precommit wall.
+// Serial: installs a process-wide test override (SetMachineLoadSampleForTest).
 func TestGoCheckStage_TimeoutNamesTheBoxLoad(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -97,7 +99,7 @@ func TestGoCheckStage_TimeoutNamesTheBoxLoad(t *testing.T) {
 // one place a timeout is still only a report. Blocking an EDIT on a slow
 // suite would wedge the session over a stopwatch.
 func TestPostEdit_TimeoutStaysAdvisory(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := mkProject(t, "go.mod")
 	got := PostEdit(postPayload("Edit", root+"/widget.go"), func(Runner, string) SuiteResult {
 		return SuiteResult{Passed: false, TimedOut: true, Duration: time.Second}
@@ -110,6 +112,7 @@ func TestPostEdit_TimeoutStaysAdvisory(t *testing.T) {
 // TestMechCache_NeverCachesATimedOutRun pins the cache's half of it: a run
 // that was killed proved nothing, so it must not stand in for a green next
 // time.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestMechCache_NeverCachesATimedOutRun(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)

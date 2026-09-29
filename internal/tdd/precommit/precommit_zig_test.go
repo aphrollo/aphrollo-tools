@@ -15,6 +15,7 @@ import (
 // must name the SAME target the mechanical stage uses — the environment's
 // CARGO_TARGET_DIR when set, else the repo's own target/ (one target per
 // repo, 2026-09-02). The operator's value is restored once the gate is done.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_FailFirst_ExportsTheResolvedTargetDir(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -28,10 +29,10 @@ func TestPrecommit_FailFirst_ExportsTheResolvedTargetDir(t *testing.T) {
 	var worktreeTarget, mechanicalTarget string
 	run := func(r Runner, dir string) SuiteResult {
 		if dir == root {
-			mechanicalTarget = os.Getenv("CARGO_TARGET_DIR")
+			mechanicalTarget = envBinding(r, "CARGO_TARGET_DIR")
 			return SuiteResult{Passed: true}
 		}
-		worktreeTarget = os.Getenv("CARGO_TARGET_DIR")
+		worktreeTarget = envBinding(r, "CARGO_TARGET_DIR")
 		// The applied test cannot compile without the staged source -> RED,
 		// which satisfies fail-first.
 		return SuiteResult{Passed: false, Output: "error[E0425]: cannot find function `widget`"}
@@ -46,7 +47,7 @@ func TestPrecommit_FailFirst_ExportsTheResolvedTargetDir(t *testing.T) {
 		t.Fatalf("mechanical run built in %q, want the resolved target %q", mechanicalTarget, shared)
 	}
 	if got := os.Getenv("CARGO_TARGET_DIR"); got != shared {
-		t.Fatalf("CARGO_TARGET_DIR must be restored after the gate, got %q", got)
+		t.Fatalf("CARGO_TARGET_DIR must be left as it was by the gate, got %q", got)
 	}
 }
 
@@ -55,6 +56,7 @@ func TestPrecommit_FailFirst_ExportsTheResolvedTargetDir(t *testing.T) {
 // OS temp dir, and at the SAME per-repo path on every invocation — a stable
 // worktree keeps build fingerprints warm across commits instead of
 // cold-compiling into a fresh MkdirTemp each time.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_FailFirst_StableWorktreeUnderStateDir(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -135,6 +137,7 @@ func recordAllRuns(seen *[]loggedRun, pass func(dir string) bool) SuiteRunner {
 // mechanical stage then runs the FULL `zig build test` suite — zig has no
 // related mode, so narrowing leaves it unchanged. The commit must not block.
 func TestPrecommit_Zig_InlineTestCommit_RunsFullSuite_NoFailFirst(t *testing.T) {
+	t.Parallel()
 	root := makeZigRepo(t)
 	// One new .zig file with an inline test alongside the code it exercises —
 	// the inline-test model. ClassifyFile → Source (not a *_test.zig, not under
@@ -177,6 +180,7 @@ func TestPrecommit_Zig_InlineTestCommit_RunsFullSuite_NoFailFirst(t *testing.T) 
 // passed for the worktree dir. A non-passing fail-first run is (violated=false):
 // it must fail OPEN, never a false block. The mechanical run at root passes.
 func TestPrecommit_Zig_ExplicitTestFile_FailsOpenNoFalseBlock(t *testing.T) {
+	t.Parallel()
 	root := makeZigRepo(t)
 	// A new src file plus an explicit integration test under tests/ that imports
 	// it. The test depends on the source, so applied alone (fail-first) it would

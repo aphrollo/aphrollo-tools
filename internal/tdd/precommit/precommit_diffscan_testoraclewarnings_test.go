@@ -19,6 +19,7 @@ const blindErrorTest = "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *te
 // call is denied, the same "warn at edit, deny at commit" shape the
 // lint/type/coverage suppressions already have.
 func TestNewSuppression_BlocksANewlyAddedBlindErrorCheck(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "widget_test.go", blindErrorTest)
@@ -34,6 +35,7 @@ func TestNewSuppression_BlocksANewlyAddedBlindErrorCheck(t *testing.T) {
 // half: a blind check already in the tree, untouched by this commit, must
 // never block a later, unrelated one — only a check the diff ADDS does.
 func TestNewSuppression_IgnoresABlindErrorCheckOutsideTheDiff(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "widget_test.go", blindErrorTest)
@@ -52,6 +54,7 @@ func TestNewSuppression_IgnoresABlindErrorCheckOutsideTheDiff(t *testing.T) {
 // `// any-error-ok:` escape reaches the commit-time gate too, not just the
 // edit-time warning.
 func TestNewSuppression_AnEscapedBlindErrorCheckIsAdmitted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n"+
@@ -67,6 +70,7 @@ func TestNewSuppression_AnEscapedBlindErrorCheckIsAdmitted(t *testing.T) {
 // test-oracle-scoped, like the smells above it — a require.Error call sitting
 // in ordinary source has no test to mislead.
 func TestNewSuppression_IgnoresABlindErrorCheckInASourceFile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "widget.go", "package m\n\nfunc CheckWidget(err error) { require.Error(nil, err) }\n")
@@ -89,6 +93,7 @@ const panicOnlyOracleTest = "package m\n\nimport \"testing\"\n\nfunc FuzzWidget(
 // half of panic-only-oracle: a fuzz test whose only assertion is inside its
 // own defer/recover, with the function under test discarded, is denied.
 func TestNewSuppression_BlocksANewlyAddedPanicOnlyOracle(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "widget_test.go", panicOnlyOracleTest)
@@ -104,6 +109,7 @@ func TestNewSuppression_BlocksANewlyAddedPanicOnlyOracle(t *testing.T) {
 // half: a pre-existing panic-only fuzz test, untouched by this commit, must
 // never block a later, unrelated one.
 func TestNewSuppression_IgnoresAPanicOnlyOracleOutsideTheDiff(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "widget_test.go", panicOnlyOracleTest)
@@ -124,6 +130,7 @@ func TestNewSuppression_IgnoresAPanicOnlyOracleOutsideTheDiff(t *testing.T) {
 // one thing that makes this a finding rather than a legitimate void-return
 // smoke check.
 func TestNewSuppression_AnEscapedPanicOnlyOracleIsAdmitted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc FuzzWidget(f *testing.F) {\n"+
@@ -140,6 +147,7 @@ func TestNewSuppression_AnEscapedPanicOnlyOracleIsAdmitted(t *testing.T) {
 // TestNewSuppression_IgnoresAPanicOnlyOracleInASourceFile: panic-only-oracle
 // is test-oracle-scoped, like the smells above it.
 func TestNewSuppression_IgnoresAPanicOnlyOracleInASourceFile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "widget.go", "package m\n\nfunc CheckWidget() {\n"+

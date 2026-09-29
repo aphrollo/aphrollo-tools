@@ -105,7 +105,26 @@ func runnerTargetDir(r Runner, root string) string {
 	if r.Dir != "" {
 		dir = r.Dir
 	}
-	return resolveTargetDir(os.Getenv, dir)
+	return resolveTargetDir(runnerEnvLookup(r), dir)
+}
+
+// runnerEnvLookup is the environment lookup a Runner's child build sees: the
+// runner's own KEY=value bindings first (the last one wins, as it does in the
+// child, where Runner.Env comes after everything inherited), the process
+// environment otherwise.
+func runnerEnvLookup(r Runner) func(string) string {
+	return func(key string) string {
+		val, bound := "", false
+		for _, kv := range r.Env {
+			if v, ok := strings.CutPrefix(kv, key+"="); ok {
+				val, bound = v, true
+			}
+		}
+		if bound {
+			return val
+		}
+		return os.Getenv(key)
+	}
 }
 
 // targetDirKey is the stable short key naming a target dir in a lock file

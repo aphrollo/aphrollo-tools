@@ -77,3 +77,49 @@ func TestSetBuildJobs_OverridesALooserCallerValueAndRestoresIt(t *testing.T) {
 		t.Fatalf("CARGO_BUILD_JOBS after restore = %q, want the caller's original 16 back", got)
 	}
 }
+
+// TestRunnerWithBuildJobs_CapsTheChildWithoutTouchingTheProcess pins the
+// per-runner form of the governor: an un-tuned process gets its slot's share
+// as a binding on the runner, and its own environment stays unset.
+func TestRunnerWithBuildJobs_CapsTheChildWithoutTouchingTheProcess(t *testing.T) {
+	setBuildJobsOwnEnv(t, "", false)
+
+	got := runnerWithBuildJobs(Runner{Cmd: "cargo", Env: []string{"FOO=1"}}, 4)
+	if !containsEnv(got.Env, "CARGO_BUILD_JOBS=4") || !containsEnv(got.Env, "FOO=1") {
+		t.Fatalf("Env = %v, want CARGO_BUILD_JOBS=4 beside the runner's own FOO=1", got.Env)
+	}
+	if _, had := os.LookupEnv("CARGO_BUILD_JOBS"); had {
+		t.Fatal("the process environment must stay unset")
+	}
+}
+
+// TestRunnerWithBuildJobs_KeepsTheStricterOfProcessAndSlot pins that the
+// process environment's own CARGO_BUILD_JOBS still counts: the runner's
+// binding is applied after everything inherited, so a larger slot share must
+// never loosen a smaller value the caller exported, and a larger exported
+// value must never loosen the slot's share.
+func TestRunnerWithBuildJobs_KeepsTheStricterOfProcessAndSlot(t *testing.T) {
+	setBuildJobsOwnEnv(t, "2", true)
+	if got := runnerWithBuildJobs(Runner{}, 4); !containsEnv(got.Env, "CARGO_BUILD_JOBS=2") || countEnv(got.Env, "CARGO_BUILD_JOBS") != 1 {
+		t.Fatalf("Env = %v, want exactly the caller's stricter CARGO_BUILD_JOBS=2", got.Env)
+	}
+
+	setBuildJobsOwnEnv(t, "16", true)
+	if got := runnerWithBuildJobs(Runner{}, 4); !containsEnv(got.Env, "CARGO_BUILD_JOBS=4") || countEnv(got.Env, "CARGO_BUILD_JOBS") != 1 {
+		t.Fatalf("Env = %v, want exactly the slot's stricter CARGO_BUILD_JOBS=4", got.Env)
+	}
+}
+
+// TestRunnerWithBuildJobs_DoesNotEditTheCallersEnvSlice pins that the input
+// runner's Env is copied, not appended in place: a runner value is shared by
+// value across stages, and a write through a shared backing array would leak
+// one run's cap into another's.
+func TestRunnerWithBuildJobs_DoesNotEditTheCallersEnvSlice(t *testing.T) {
+	setBuildJobsOwnEnv(t, "", false)
+	backing := make([]string, 1, 4)
+	backing[0] = "FOO=1"
+	runnerWithBuildJobs(Runner{Env: backing}, 4)
+	if extra := backing[:2][1]; extra != "" {
+		t.Fatalf("the caller's backing array gained %q", extra)
+	}
+}

@@ -78,54 +78,59 @@ func TestRunCargoLocked_OwnerFileUsesRunnerDir(t *testing.T) {
 	}
 }
 
-// TestRunCargoLocked_SetsAndRestoresBuildLockHeldEnv pins the deadlock guard
-// (task A7): while runCargoLocked holds the lock and the stub runs, the
-// BuildLockHeldEnv variable must read "1" in the CURRENT process's own
-// environment — RunSuite's suiteEnv() inherits os.Environ(), so this is what
-// lets a NESTED cargo invocation (resolved through the aphrollo cargo-queue
-// shim, if a session prepended it to PATH) recognize the lock is already
-// held by this process and pass straight through instead of deadlocking on
-// it. The env var must be restored to whatever it was before (unset, or a
-// pre-existing value) once runCargoLocked returns.
-func TestRunCargoLocked_SetsAndRestoresBuildLockHeldEnv(t *testing.T) {
+// ratchet: test_removed TestRunCargoLocked_SetsAndRestoresBuildLockHeldEnv: the marker rides the runner's Env now, so the process environment is never written; TestRunCargoLocked_TellsTheChildTheLockIsHeld pins the same guard
+// ratchet: test_removed TestRunCargoLocked_RestoresPriorBuildLockHeldEnvValue: there is no restore to test once the process environment is left alone; TestRunCargoLocked_LeavesAPriorBuildLockHeldValueAlone pins it
+
+// TestRunCargoLocked_TellsTheChildTheLockIsHeld pins the deadlock guard
+// (task A7): the child of a run holding the lock must see BuildLockHeldEnv=1,
+// so a NESTED cargo invocation (resolved through the aphrollo cargo-queue
+// shim, if a session prepended it to PATH) recognizes the lock is already
+// held and passes straight through instead of deadlocking on it. The marker
+// is the runner's own Env binding (suiteEnv applies it after everything
+// inherited) and the process environment is never touched: a second build in
+// the same process must not read this one's marker.
+func TestRunCargoLocked_TellsTheChildTheLockIsHeld(t *testing.T) {
 	withIsolatedBuildLock(t)
 
-	if _, had := os.LookupEnv(BuildLockHeldEnv); had {
-		t.Fatalf("test precondition: %s must not be set before this test", BuildLockHeldEnv)
-	}
-
-	var sawDuringRun string
-	stub := func(Runner, string) SuiteResult {
-		sawDuringRun = os.Getenv(BuildLockHeldEnv)
+	var childSaw, processSaw string
+	stub := func(r Runner, _ string) SuiteResult {
+		childSaw = envValue(r.Env, BuildLockHeldEnv)
+		processSaw = os.Getenv(BuildLockHeldEnv)
 		return SuiteResult{Passed: true}
 	}
 	r := Runner{Cmd: "cargo", Args: []string{"test"}}
 	if _, _, acquired := runCargoLocked(stub, r, t.TempDir(), time.Second, time.Second, 0); !acquired {
 		t.Fatal("expected the lock to be acquired")
 	}
-	if sawDuringRun != "1" {
-		t.Fatalf("%s during the run = %q, want \"1\"", BuildLockHeldEnv, sawDuringRun)
+	if childSaw != "1" {
+		t.Fatalf("the child's %s = %q, want \"1\"", BuildLockHeldEnv, childSaw)
 	}
-	if after := os.Getenv(BuildLockHeldEnv); after != "" {
-		t.Fatalf("%s after runCargoLocked returns = %q, want unset (restored)", BuildLockHeldEnv, after)
+	if processSaw != "" {
+		t.Fatalf("the process's %s during the run = %q, want it untouched (unset)", BuildLockHeldEnv, processSaw)
 	}
 }
 
-// TestRunCargoLocked_RestoresPriorBuildLockHeldEnvValue guards the restore
-// path when the env var was ALREADY set to some other value beforehand (e.g.
-// a nested aphrollo-in-aphrollo scenario) -- runCargoLocked must put back the
-// EXACT prior value, not just unset it.
-func TestRunCargoLocked_RestoresPriorBuildLockHeldEnvValue(t *testing.T) {
+// TestRunCargoLocked_LeavesAPriorBuildLockHeldValueAlone pins that a value
+// already in the process environment (a nested aphrollo-in-aphrollo scenario)
+// is neither overwritten nor cleared by the run.
+func TestRunCargoLocked_LeavesAPriorBuildLockHeldValueAlone(t *testing.T) {
 	withIsolatedBuildLock(t)
 	t.Setenv(BuildLockHeldEnv, "prior-value")
 
-	stub := func(Runner, string) SuiteResult { return SuiteResult{Passed: true} }
+	var processSaw string
+	stub := func(Runner, string) SuiteResult {
+		processSaw = os.Getenv(BuildLockHeldEnv)
+		return SuiteResult{Passed: true}
+	}
 	r := Runner{Cmd: "cargo", Args: []string{"test"}}
 	if _, _, acquired := runCargoLocked(stub, r, t.TempDir(), time.Second, time.Second, 0); !acquired {
 		t.Fatal("expected the lock to be acquired")
 	}
+	if processSaw != "prior-value" {
+		t.Fatalf("%s during the run = %q, want the process's own %q left alone", BuildLockHeldEnv, processSaw, "prior-value")
+	}
 	if got := os.Getenv(BuildLockHeldEnv); got != "prior-value" {
-		t.Fatalf("%s after runCargoLocked returns = %q, want the restored prior value %q", BuildLockHeldEnv, got, "prior-value")
+		t.Fatalf("%s after runCargoLocked returns = %q, want %q", BuildLockHeldEnv, got, "prior-value")
 	}
 }
 

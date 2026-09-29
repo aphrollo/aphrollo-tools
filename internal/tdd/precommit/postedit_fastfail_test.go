@@ -24,6 +24,7 @@ func withIsolatedBuildLockKeepingDeadlines(t *testing.T) {
 // sleep. The poll interval is 20ms and the old post-edit budget was 20s, so
 // a returned-instantly result is the only thing that distinguishes "single
 // try" from "polled at least once".
+// Serial: points the process-wide build lock at its own file.
 func TestAcquireBuildSlot_ZeroDeadlineIsOneTryNoSleep(t *testing.T) {
 	withIsolatedBuildLockKeepingDeadlines(t)
 	target := t.TempDir()
@@ -50,6 +51,7 @@ func TestAcquireBuildSlot_ZeroDeadlineIsOneTryNoSleep(t *testing.T) {
 //
 // Break this catches: buildLockPostEditDeadline going non-zero again (the
 // production value is what this test runs with — see the helper).
+// Serial: points the process-wide build lock at its own file.
 func TestPostEdit_QueuedSkippedIsImmediate(t *testing.T) {
 	withIsolatedBuildLockKeepingDeadlines(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -82,6 +84,7 @@ func TestPostEdit_QueuedSkippedIsImmediate(t *testing.T) {
 // exposes as APHROLLO_LOCK_WAIT_SECS: a commit's cargo stage waits as long
 // as the operator configured and no longer — and then REJECTS, rather than
 // letting an untested commit land.
+// Serial: points the process-wide build lock at its own file.
 func TestSetPrecommitLockWait_BoundsTheCommitGatesWait(t *testing.T) {
 	withIsolatedBuildLockKeepingDeadlines(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

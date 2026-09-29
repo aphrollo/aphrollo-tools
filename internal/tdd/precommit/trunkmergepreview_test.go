@@ -14,7 +14,8 @@ import (
 // GitHub's post-push merge-preview CI job. This proves the LOCAL gate now
 // catches it before the commit is even made.
 func TestPrecommit_TrunkMergePreview_BlocksWhenTrunkRenameBreaksLaneMerge(t *testing.T) {
-	withLinter(t, false)
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 
 	trunk := TrunkBranch(root)

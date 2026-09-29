@@ -1,7 +1,6 @@
 package suite
 
 import (
-	"os"
 	"time"
 )
 
@@ -88,7 +87,7 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 		r.Deadline = time.Now().Add(remaining)
 	}
 	if !racy {
-		defer setBuildJobs(slot.Jobs)()
+		r = runnerWithBuildJobs(r, slot.Jobs)
 		// The target lock above is exclusive per target dir, so nothing else
 		// can be writing into target while this runs — see
 		// buildlock_futuremtime.go. goRaceLockKey names no real directory, so
@@ -102,17 +101,10 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 	// THIS process and pass straight through, or it deadlocks on the same
 	// lock — true whether THIS process is holding it for a cargo build or
 	// for a `-race` Go run, since both draw from the same global slot pool.
-	// suiteEnv() inherits os.Environ(), so setting this in the process's own
-	// environment is what actually propagates it to the child.
-	prevHeld, hadHeld := os.LookupEnv(BuildLockHeldEnv)
-	os.Setenv(BuildLockHeldEnv, "1")
-	defer func() {
-		if hadHeld {
-			os.Setenv(BuildLockHeldEnv, prevHeld)
-		} else {
-			os.Unsetenv(BuildLockHeldEnv)
-		}
-	}()
+	// The marker rides on the runner's own Env (suiteEnv applies it after
+	// everything inherited), so it reaches this child and no other build in
+	// the process.
+	r.Env = append(append([]string(nil), r.Env...), BuildLockHeldEnv+"=1")
 
 	return run(r, root), waited, true
 }

@@ -30,7 +30,7 @@ func cargoArgsOf(r Runner) string { return strings.Join(r.Args, " ") }
 // crate — the check nobody runs by hand, which then lands as noise in the
 // next person's diff.
 func TestPrecommit_Quality_FmtCheckRunsForEveryTouchedCrate(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := cargoQualityRepo(t, "")
 
 	var seen []string
@@ -51,7 +51,7 @@ func TestPrecommit_Quality_FmtCheckRunsForEveryTouchedCrate(t *testing.T) {
 // what the tool actually reported — a block nobody can act on is a block
 // that gets bypassed.
 func TestPrecommit_Quality_FmtDiffBlocksAndNamesTheCrate(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := cargoQualityRepo(t, "")
 
 	res := Precommit(root, func(r Runner, _ string) SuiteResult {
@@ -73,8 +73,7 @@ func TestPrecommit_Quality_FmtDiffBlocksAndNamesTheCrate(t *testing.T) {
 // (most crates in a large tree carry warnings, and a commit gate that fails
 // on them is one nobody can use), while a declared crate is.
 func TestPrecommit_Quality_ClippyOnlyForDeclaredCrates(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-
+	t.Parallel()
 	undeclared := cargoQualityRepo(t, "")
 	var seen []string
 	Precommit(undeclared, func(r Runner, _ string) SuiteResult {
@@ -106,7 +105,7 @@ func TestPrecommit_Quality_ClippyOnlyForDeclaredCrates(t *testing.T) {
 // hand: the whole value of "this crate is clean" is that the FIRST warning
 // is the one being introduced now.
 func TestPrecommit_Quality_ClippyWarningBlocksAndNamesTheDiagnostic(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := cargoQualityRepo(t, "[workspace.metadata.aphrollo]\nclippy-clean = [\"m\"]\n")
 
 	res := Precommit(root, func(r Runner, _ string) SuiteResult {
@@ -126,7 +125,7 @@ func TestPrecommit_Quality_ClippyWarningBlocksAndNamesTheDiagnostic(t *testing.T
 // TestPrecommit_Quality_SkippedEntirelyForNonCargoCommits pins the scope: a
 // Go or Python commit must never pay for a cargo format/lint pass.
 func TestPrecommit_Quality_SkippedEntirelyForNonCargoCommits(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -147,6 +146,7 @@ func TestPrecommit_Quality_SkippedEntirelyForNonCargoCommits(t *testing.T) {
 // keys share: the workspace's own manifest declares which packages always
 // run and which are lint-gated, and an absent key is simply an empty list.
 func TestCargoAphrolloPackages_ReadsEitherKey(t *testing.T) {
+	t.Parallel()
 	ws := t.TempDir()
 	write(t, ws, "Cargo.toml",
 		"[workspace]\n[workspace.metadata.aphrollo]\nalways-run = [\"ratchet\"]\nclippy-clean = [\"server\", \"shared\"]\n")

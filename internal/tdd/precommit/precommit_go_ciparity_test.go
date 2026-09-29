@@ -16,6 +16,7 @@ import (
 // runs on is already contended, so precommit — paid on every commit — gets
 // only the two flags that cost nothing extra to run: -count=1, -shuffle=on.
 func TestWithGoCIParity_AtPrecommitInsertsCountAndShuffleOnly(t *testing.T) {
+	t.Parallel()
 	got := withGoCIParity(Runner{Cmd: "go", Args: []string{"test", "./internal/x"}}, false)
 	want := Runner{Cmd: "go", Args: []string{"test", "-count=1", "-shuffle=on", "./internal/x"}}
 	if !reflect.DeepEqual(got, want) {
@@ -28,6 +29,7 @@ func TestWithGoCIParity_AtPrecommitInsertsCountAndShuffleOnly(t *testing.T) {
 // is lowest, so it is the affordable place to pay for the one genuinely
 // expensive flag too.
 func TestWithGoCIParity_AtMergeAlsoInsertsRace(t *testing.T) {
+	t.Parallel()
 	got := withGoCIParity(Runner{Cmd: "go", Args: []string{"test", "./internal/x"}}, true)
 	want := Runner{Cmd: "go", Args: []string{"test", "-race", "-count=1", "-shuffle=on", "./internal/x"}}
 	if !reflect.DeepEqual(got, want) {
@@ -45,6 +47,7 @@ func TestWithGoCIParity_AtMergeAlsoInsertsRace(t *testing.T) {
 // enforced by RunSuite's own context timeout) is the one bound that belongs
 // locally; -timeout=180s must never ride along in EITHER mode.
 func TestWithGoCIParity_NeverCarriesCIsTimeout(t *testing.T) {
+	t.Parallel()
 	for _, atMerge := range []bool{false, true} {
 		got := withGoCIParity(Runner{Cmd: "go", Args: []string{"test", "./internal/x"}}, atMerge)
 		if slices.Contains(got.Args, "-timeout=180s") {
@@ -57,6 +60,7 @@ func TestWithGoCIParity_NeverCarriesCIsTimeout(t *testing.T) {
 // the doc comment claims: calling it twice (or handing it a Runner that
 // already names one of the flags) must not repeat a flag, in either mode.
 func TestWithGoCIParity_NeverDoublesAFlagAlreadyPresent(t *testing.T) {
+	t.Parallel()
 	for _, atMerge := range []bool{false, true} {
 		once := withGoCIParity(Runner{Cmd: "go", Args: []string{"test", "./..."}}, atMerge)
 		twice := withGoCIParity(once, atMerge)
@@ -70,6 +74,7 @@ func TestWithGoCIParity_NeverDoublesAFlagAlreadyPresent(t *testing.T) {
 // linter must never see these flags — go vet and golangci-lint do not
 // understand them, and cargo has its own command shape entirely.
 func TestWithGoCIParity_LeavesNonGoTestRunnersUntouched(t *testing.T) {
+	t.Parallel()
 	for _, r := range []Runner{
 		{Cmd: "cargo", Args: []string{"test", "-p", "alpha"}},
 		{Cmd: "go", Args: []string{"vet", "./..."}},
@@ -95,7 +100,7 @@ func TestWithGoCIParity_LeavesNonGoTestRunnersUntouched(t *testing.T) {
 // expensive flag (cold review on #421). -timeout=180s never rides along,
 // at either stage — see TestWithGoCIParity_NeverCarriesCIsTimeout.
 func TestMechanicalGoSuite_CarriesCIParityFlags(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")

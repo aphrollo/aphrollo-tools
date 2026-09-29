@@ -51,6 +51,7 @@ func makeProbedRepo(t *testing.T, extra map[string]string) string {
 // this commit's to answer for: holding it would refuse every commit to the
 // root until somebody fixed it. The report still counts it, and the HEAD
 // tree it was measured in leaves nothing behind.
+// Serial: captures the process-wide os.Stderr.
 func TestNpmBaseline_AnErrorAlreadyAtHeadInAnUntouchedFileDoesNotBlock(t *testing.T) {
 	root := makeProbedRepo(t, nil)
 	write(t, root, "src/b.ts", "export const b = 1\n")
@@ -75,6 +76,7 @@ func TestNpmBaseline_AnErrorAlreadyAtHeadInAnUntouchedFileDoesNotBlock(t *testin
 // A new error blocks, and the report lists it alone: the old one is a
 // count, not a line the author has to read past.
 func TestNpmBaseline_ANewErrorBlocksAndOnlyItIsListed(t *testing.T) {
+	t.Parallel()
 	root := makeProbedRepo(t, nil)
 	write(t, root, "src/b.ts", "export const probe2: number = \"new\"\n")
 	gitDo(t, root, "add", "src/b.ts")
@@ -94,6 +96,7 @@ func TestNpmBaseline_ANewErrorBlocksAndOnlyItIsListed(t *testing.T) {
 // Lines added above an old error move it down; it is the same error, and a
 // comparison that keyed on the line number would call it new.
 func TestNpmBaseline_AnOldErrorMovedDownByAnEditStaysOld(t *testing.T) {
+	t.Parallel()
 	root := makeProbedRepo(t, nil)
 	write(t, root, "src/a.ts", "export const x = 1\nexport const y = 2\nexport const probe: number = \"old\"\n")
 	gitDo(t, root, "add", "src/a.ts")
@@ -106,6 +109,7 @@ func TestNpmBaseline_AnOldErrorMovedDownByAnEditStaysOld(t *testing.T) {
 // A second copy of an error HEAD already had once is new: the comparison
 // counts, it does not just ask whether the kind was seen.
 func TestNewDiagnostics_CountsRepeatsOfOneKey(t *testing.T) {
+	t.Parallel()
 	d := func(key string) diagnostic { return diagnostic{Key: key, Line: key} }
 	fresh := newDiagnostics([]diagnostic{d("a"), d("a"), d("b")}, []diagnostic{d("a")})
 	if len(fresh) != 2 || fresh[0].Key != "a" || fresh[1].Key != "b" {
@@ -116,6 +120,7 @@ func TestNewDiagnostics_CountsRepeatsOfOneKey(t *testing.T) {
 // A repo with no commit yet has no HEAD to compare with, and the gate must
 // say so and hold everything, never pass on a baseline it does not have.
 func TestNpmBaseline_NoHeadCommitHoldsEveryErrorAndSaysSo(t *testing.T) {
+	t.Parallel()
 	requireNode(t)
 	root := t.TempDir()
 	gitInit(t, root)
@@ -135,6 +140,7 @@ func TestNpmBaseline_NoHeadCommitHoldsEveryErrorAndSaysSo(t *testing.T) {
 // A HEAD run that dies without a diagnostic measured nothing, and nothing
 // can be subtracted from it.
 func TestNpmBaseline_AHeadRunWithNoReadingHoldsEveryError(t *testing.T) {
+	t.Parallel()
 	root := makeProbedRepo(t, map[string]string{"CRASH": ""})
 	gitDo(t, root, "rm", "-q", "CRASH")
 	write(t, root, "src/b.ts", "export const b = 1\n")
@@ -149,7 +155,7 @@ func TestNpmBaseline_AHeadRunWithNoReadingHoldsEveryError(t *testing.T) {
 // The HEAD run is paid once per tree and command: the next commit on the
 // same HEAD reads the cached result.
 func TestNpmBaseline_TheHeadRunIsCachedByTreeAndCommand(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeProbedRepo(t, nil)
 	write(t, root, "src/b.ts", "export const b = 1\n")
 	gitDo(t, root, "add", "src/b.ts")
@@ -176,6 +182,7 @@ func TestNpmBaseline_TheHeadRunIsCachedByTreeAndCommand(t *testing.T) {
 // so one file compares equal from either tree, and a warning, which does
 // not fail the run, is not held against anyone.
 func TestParseEslintDiagnostics_KeysErrorsByRelativeFileRuleAndMessage(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "head")
 	out := "(node) a warning on stderr\n" + `[{"filePath": ` + eslintJSONPath(filepath.Join(dir, "src", "c.js")) + `, "messages": [` +
 		`{"ruleId": "no-unused-vars", "severity": 2, "message": "'u' is unused.", "line": 3, "column": 7},` +
@@ -202,7 +209,9 @@ func eslintJSONPath(s string) string {
 
 // A cache entry that cannot be read is a miss, run again, never an empty
 // baseline that would excuse nothing — or everything.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestReadHeadCache_AnUnreadableEntryIsAMiss(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	dir := t.TempDir()
 	write(t, dir, "garbage.json", "not json")
 	write(t, dir, "good.json", `[{"key": "k", "line": "l"}]`)
@@ -218,6 +227,7 @@ func TestReadHeadCache_AnUnreadableEntryIsAMiss(t *testing.T) {
 
 // The exit status is the verdict: a run that exits 0 passed, whatever
 // error-shaped text it printed, and costs no run at HEAD.
+// Serial: swaps the package-level node lookup.
 func TestNpmBaseline_ARunThatExitsZeroPassesWithoutAHeadRun(t *testing.T) {
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{

@@ -27,6 +27,7 @@ func rustDiffRepo(t *testing.T, before, after string) string {
 // qualifies for the fast path -- the exact shape issue #723 reported (a
 // re-pointed doc/line comment triggering a full clippy/check/suite).
 func TestCommentOnlyRustFile_PlainCommentChangeQualifies(t *testing.T) {
+	t.Parallel()
 	root := rustDiffRepo(t,
 		"// old note\npub fn f() -> i32 { 1 }\n",
 		"// new note, re-pointed\npub fn f() -> i32 { 1 }\n")
@@ -38,6 +39,7 @@ func TestCommentOnlyRustFile_PlainCommentChangeQualifies(t *testing.T) {
 // Decision: a doc comment carrying no fenced example has no doctest to
 // reshape, so it qualifies exactly like a plain `//` comment.
 func TestCommentOnlyRustFile_DocCommentWithoutFenceQualifies(t *testing.T) {
+	t.Parallel()
 	root := rustDiffRepo(t,
 		"/// Old summary.\npub fn f() -> i32 { 1 }\n",
 		"/// New summary, re-pointed.\npub fn f() -> i32 { 1 }\n")
@@ -50,6 +52,7 @@ func TestCommentOnlyRustFile_DocCommentWithoutFenceQualifies(t *testing.T) {
 // block can change what compiles and what runs, so a file carrying one never
 // takes the fast path -- token-identical outside the comment or not.
 func TestCommentOnlyRustFile_FencedDocCommentNeverQualifies(t *testing.T) {
+	t.Parallel()
 	root := rustDiffRepo(t,
 		"/// ```\n/// assert_eq!(f(), 1);\n/// ```\npub fn f() -> i32 { 1 }\n",
 		"/// ```\n/// assert_eq!(f(), 2 - 1);\n/// ```\npub fn f() -> i32 { 1 }\n")
@@ -61,6 +64,7 @@ func TestCommentOnlyRustFile_FencedDocCommentNeverQualifies(t *testing.T) {
 // `#[doc = "..."]` is an attribute, not a comment: it participates in
 // compilation, so changing its string content is a real token change.
 func TestCommentOnlyRustFile_DocAttributeIsNotAComment(t *testing.T) {
+	t.Parallel()
 	root := rustDiffRepo(t,
 		"#[doc = \"Old summary.\"]\npub fn f() -> i32 { 1 }\n",
 		"#[doc = \"New summary.\"]\npub fn f() -> i32 { 1 }\n")
@@ -73,6 +77,7 @@ func TestCommentOnlyRustFile_DocAttributeIsNotAComment(t *testing.T) {
 // quote state, so a real code change sitting after one in the same line must
 // still be seen as a token change, not hidden behind a false comment-opener.
 func TestCommentOnlyRustFile_SlashSlashInsideStringIsNotACommentOpener(t *testing.T) {
+	t.Parallel()
 	root := rustDiffRepo(t,
 		"pub fn f() -> i32 { let _s = \"a // b\"; 1 }\n",
 		"pub fn f() -> i32 { let _s = \"a // b\"; 2 }\n")
@@ -84,6 +89,7 @@ func TestCommentOnlyRustFile_SlashSlashInsideStringIsNotACommentOpener(t *testin
 // One file with a real code change alongside a comment-only one takes the
 // whole commit off the fast path.
 func TestCommentOnlyRust_MixedDiffDoesNotQualify(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "src/a.rs", "// old\npub fn a() -> i32 { 1 }\n")
@@ -102,6 +108,7 @@ func TestCommentOnlyRust_MixedDiffDoesNotQualify(t *testing.T) {
 
 // End to end: a comment-only Rust commit must reach no stage that could take
 // the machine-wide build slot, exactly like a docs-only one.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_CommentOnlyRustCommitRunsNoStageThatCouldQueue(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -122,6 +129,7 @@ func TestPrecommit_CommentOnlyRustCommitRunsNoStageThatCouldQueue(t *testing.T) 
 }
 
 // Same wiring at the merge gate.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_CommentOnlyRustMergeTakesTheFastPath(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -145,7 +153,7 @@ func TestMechanical_CommentOnlyRustMergeTakesTheFastPath(t *testing.T) {
 // block at commit even though the whole diff is otherwise comment-only, so
 // the anti-cheat scan cannot be skipped just because the build and suite are.
 func TestPrecommit_CommentOnlyRustStillRunsTheSuppressionScan(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "// eslint-disable pending review\npub fn base() -> i32 { 0 }\n")
 	gitDo(t, root, "add", ".")
@@ -159,6 +167,7 @@ func TestPrecommit_CommentOnlyRustStillRunsTheSuppressionScan(t *testing.T) {
 // Same for the declared laws: a directive a law reads must still be judged
 // even when the diff never leaves a comment.
 func TestPrecommit_CommentOnlyRustStillRunsTheRatchetLaws(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "no-todo-rs.toml"), `

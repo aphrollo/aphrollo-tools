@@ -20,6 +20,7 @@ import (
 // call list contains exactly the ONE scoped mechanical run (no run at a
 // worktree-shaped temp dir), and the fail-first worktree directory under the
 // state dir is never created at all.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_CargoMember_RunsScopedNeverSpawnsFailFirst(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -53,7 +54,7 @@ func TestMechanical_CargoMember_RunsScopedNeverSpawnsFailFirst(t *testing.T) {
 // via Message, rather than returning a bare empty result indistinguishable
 // from "the gate never ran at all".
 func TestMechanical_DocsOnlyMerge_NoOpWithNothingToTestLine(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "NOTES.md", "# notes\n")
 	gitDo(t, root, "add", ".")
@@ -84,8 +85,8 @@ func TestMechanical_DocsOnlyMerge_NoOpWithNothingToTestLine(t *testing.T) {
 // repo's test source for an introduced suppression when committing it — the
 // scanned target is the FIXTURE repo's staged content, never this file's.
 func TestMechanical_NeverBlocksOnSuppressionOrFailFirst(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	marker := strings.Join([]string{"no", "lint", ":unused"}, "")
 	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int { return 1 } //"+marker+"\n")
@@ -101,8 +102,8 @@ func TestMechanical_NeverBlocksOnSuppressionOrFailFirst(t *testing.T) {
 // no-op rubber stamp: a genuinely broken combined tree still blocks the
 // merge, via the SAME mechanical judgment Precommit uses.
 func TestMechanical_BlocksARealCompileFailure(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	write(t, root, "broken.go", "package m\n\nfunc Broken() int { return }\n")
 	gitDo(t, root, "add", ".")
