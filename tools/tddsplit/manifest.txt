@@ -855,6 +855,8 @@ tdd.go                                             core
 tddskill.go                                        install
 tddskill.md                                        install
 tddskill_test.go                                   install
+tddsplit_manifest.go                                precommit
+tddsplit_manifest_test.go                           precommit
 testdata/cargo_mutants_outcomes.json               mutation
 testdata/covershape/                               mutation
 testdata/fuzz/FuzzBashWriteTargets/                shell
