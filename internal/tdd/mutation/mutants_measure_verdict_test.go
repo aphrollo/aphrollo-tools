@@ -284,6 +284,9 @@ func TestMeasure_GoRepoUsesGremlinsScopedToMergeBase(t *testing.T) {
 	if v.Refused || v.Caught != 1 {
 		t.Errorf("verdict = %+v, want the one caught mutant read out of the report", v)
 	}
+	if !strings.Contains(" "+envValueOf((*calls)[0].Env, "GOFLAGS")+" ", " -count=1 ") {
+		t.Errorf("gremlins ran with GOFLAGS=%q, want -count=1 so its coverage gather is never a cache hit (#964)", envValueOf((*calls)[0].Env, "GOFLAGS"))
+	}
 }
 
 func makeGoMeasureRepo(t *testing.T) (root, base string) {
