@@ -294,7 +294,7 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base, re
 	// gremlins rewrites the source it mutates too, and is killed by the same
 	// things: the tree is snapshotted here for the same reason.
 	before := snapshotWorktree(root)
-	code, runOutput, err := runMutantsMeasured(ctx, root, measureEnv(root, cfg), argv, log)
+	code, runOutput, err := runMutantsMeasured(ctx, root, goMeasureEnv(root, cfg), argv, log)
 	if err != nil {
 		return Verdict{}, err
 	}

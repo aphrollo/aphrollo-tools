@@ -494,6 +494,7 @@ mutants_gitstreams_test.go                         mutation
 mutants_go.go                                      mutation
 mutants_go_covfail.go                              mutation
 mutants_go_covfail_test.go                         mutation
+mutants_go_env.go                                  mutation
 mutants_go_reach.go                                mutation
 mutants_go_reach_test.go                           mutation
 mutants_go_test.go                                 mutation
