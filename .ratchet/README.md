@@ -125,6 +125,11 @@ was a real suppression. Set both to read code with neither strings nor
 comments in it. A `.rs` file is lexed as Rust: `'` opens a char literal only
 in a char literal's shape on one line (`'x'`, `'\n'`, `'\u{1F600}'`), and a
 lifetime or label (`<'_>`, `&'a T`, `'static`, `break 'outer`) stays code.
+A `.py`, `.sh` or `.toml` file reads `#` outside a string as a comment to the
+end of the line, and a quote inside that comment opens no string; a `#`
+inside a string is text. Python and TOML strings include the triple-quoted
+`'''…'''` and `"""…"""` forms that span lines, and a shell `#` opens a
+comment only where a word starts (`$#` and `${#a}` are code).
 
 `direction` says WHERE the marker lives: `above` (default) is the
 comment-above-the-declaration shape, `below` is a block that carries its own
