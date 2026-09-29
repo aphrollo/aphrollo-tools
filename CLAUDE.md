@@ -101,6 +101,7 @@ internal/tdd/precommit/ the commit gate's stages and fast paths (L6)
 internal/tdd/merge/  commit-message gate, pre-merge PR gate, post-merge and prune (L7)
 internal/tdd/install/ install, init, agents, skills, CLAUDE.md block, doctor, shims, git gate (L7)
 internal/tdd/gc/     gc sweeps (L7)
+internal/argvbatch/  command-line budgets (cmd.exe 8 191, CreateProcess 32 767): split a path or package list into runs; a test lists every spread exec call site and what bounds it
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/depinstall/ dependency-install rule shared by workspace create and the PR merge gate; node_modules links

@@ -200,6 +200,7 @@ deferred_own_test.go                               core
 deferred_prompt.go                                 postedit
 deferred_robust_test.go                            postedit
 deferred_run.go                                    postedit
+deferred_run_batched_test.go                       postedit
 deferred_run_test.go                               postedit
 deferred_seams_test.go                             postedit
 deferred_selfspawn_test.go                          postedit
@@ -581,6 +582,7 @@ mutants_stale.go                                   mutation
 mutants_stale_test.go                              mutation
 mutants_stub_test.go                               mutation
 mutants_tombstones_test.go                         tdd
+mutants_tool_batched_test.go                       mutation
 mutants_unix.go                                    lock
 mutants_unix_core.go                               core      # created by P2
 mutants_unix_own_test.go                           core
@@ -760,12 +762,15 @@ runner_nextest_test.go                             suite
 runner_scope.go                                    suite
 runner_scope_argvbudget.go                         suite
 runner_scope_argvbudget_test.go                    suite
+runner_scope_failfirst_argvbudget_test.go          suite
 runner_scope_gorun.go                              suite
 runner_test.go                                     suite
 runner_testscope_test.go                           suite
 runscope.go                                        suite
 runscope_bashsuite_test.go                         postedit
 runscope_test.go                                   suite
+runsuite_batched.go                                suite
+runsuite_batched_test.go                           suite
 runsuite_killtree_test.go                          suite
 runsuite_waitdelay_test.go                         suite
 rustmask_test.go                                   smell

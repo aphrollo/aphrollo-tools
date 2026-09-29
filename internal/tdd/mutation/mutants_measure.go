@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
@@ -72,8 +73,37 @@ var mutantsExecFn = runMutantsTool
 // cmd.Cancel is therefore proc.KillTree (the same one a deferred build phase
 // uses) and WaitDelay bounds how long Wait stays for the output pipes to
 // drain after the kill.
+//
+// A line past the platform's command-line budget runs as several commands
+// (mutantsToolBatches): the first one that exits non-zero ends the run and
+// its code is the answer.
 func runMutantsTool(ctx context.Context, dir string, env []string, argv []string, log io.Writer) (int, error) {
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	for _, args := range mutantsToolBatches(argv, mutantsArgvBudgetFn(argv[0])) {
+		code, err := runMutantsToolOnce(ctx, dir, env, argv[0], args, log)
+		if err != nil || code != 0 {
+			return code, err
+		}
+	}
+	return 0, nil
+}
+
+// mutantsArgvBudgetFn is the longest command line a mutation tool is started
+// with, a seam so a test can hold it to Windows's figure on any platform.
+var mutantsArgvBudgetFn = argvbatch.BudgetFor
+
+// mutantsToolBatches is the argument lists argv runs as: the one it is, or,
+// for a `go test` package list or a `cargo clean -p` list past budget, the
+// several that each fit. cargo-mutants is never split: it must see every
+// package at once, and its one run is the whole measurement.
+func mutantsToolBatches(argv []string, budget int) [][]string {
+	if len(argv) > 1 && argv[0] == "cargo" && argv[1] == "mutants" {
+		return [][]string{argv[1:]}
+	}
+	return argvbatch.SplitCommand(argv[0], argv[1:], budget)
+}
+
+func runMutantsToolOnce(ctx context.Context, dir string, env []string, name string, args []string, log io.Writer) (int, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Dir = dir
 	cmd.Env = env
 	cmd.Stdout, cmd.Stderr = log, log
