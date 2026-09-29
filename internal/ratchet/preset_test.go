@@ -83,8 +83,8 @@ func TestListPresets_FindsTheKnownGroupsAndCapturesParams(t *testing.T) {
 	if !ok {
 		t.Fatal("common/comment_hygiene not found")
 	}
-	if len(hygiene.Params) != 1 || hygiene.Params[0] != "pattern" {
-		t.Errorf("comment_hygiene.Params = %v, want [pattern]", hygiene.Params)
+	if len(hygiene.Params) != 2 || hygiene.Params[0] != "pattern" || hygiene.Params[1] != "source_include" {
+		t.Errorf("comment_hygiene.Params = %v, want [pattern source_include]", hygiene.Params)
 	}
 }
 

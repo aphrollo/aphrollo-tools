@@ -155,6 +155,19 @@ func Check(opts Options) (Result, error) {
 		}
 		laws = kept
 	}
+	if len(opts.Laws) != 0 {
+		named := map[string]bool{}
+		for _, name := range opts.Laws {
+			named[name] = true
+		}
+		var kept []Law
+		for _, l := range laws {
+			if named[l.Name] {
+				kept = append(kept, l)
+			}
+		}
+		laws = kept
+	}
 	res := Result{UnusedScopeSets: unusedScopeSets}
 	var judged []Law
 	for _, l := range laws {

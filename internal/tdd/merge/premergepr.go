@@ -190,15 +190,22 @@ func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(),
 // prGateRemoveCheckout deletes the throwaway checkout wt and the measurement
 // area beside it. A seam, so a test can stand in a remover that follows links
 // and prove the node_modules links are gone before this ever runs.
+//
+// Every link in wt is unlinked first, not only the ones provisioning
+// recorded: git deletes an ignored node_modules with the tree, and through a
+// junction that is the lane's own install (#947). A link that cannot be
+// unlinked leaves the checkout in place for a later sweep.
 var prGateRemoveCheckout = func(laneWorktree, wt string) {
-	_, _ = git(laneWorktree, "worktree", "remove", "--force", wt)
-	_ = os.RemoveAll(wt)
+	if depinstall.RemoveLinks(wt) == nil {
+		_, _ = git(laneWorktree, "worktree", "remove", "--force", wt)
+		_ = os.RemoveAll(wt)
+	}
 	// measureTempDir puts the run's measurement area BESIDE wt, not
 	// inside it, precisely so a tree copy never shares a lock with the
 	// checkout it is copied from — which means removing wt alone leaves
 	// that area behind. Every merge through this gate builds and
 	// abandons one; this is what stops it from leaking.
-	_ = os.RemoveAll(measureTempDir(wt))
+	_ = depinstall.RemoveTree(measureTempDir(wt))
 }
 
 // PRGateHolderFile is the record prGateWriteHolder leaves in its own

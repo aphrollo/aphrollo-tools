@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // Disk hygiene for the build caches this binary's own gates create and use.
@@ -407,7 +409,9 @@ func ApplyGC(cands []GCCandidate) (freed int64, refused []string) {
 			freed += c.Size
 			continue
 		}
-		if err := os.RemoveAll(c.Path); err != nil {
+		// RemoveTree unlinks every link first, so a sweep never deletes
+		// through a linked node_modules into its target (#947).
+		if err := depinstall.RemoveTree(c.Path); err != nil {
 			refused = append(refused, fmt.Sprintf("%s (%v)", c.Path, err))
 			continue
 		}

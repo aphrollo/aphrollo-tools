@@ -1,6 +1,7 @@
 package escape
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -112,5 +113,31 @@ func TestCheckBodyCloses_CleanBodyNamesNothing(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "no closing-keyword issues") {
 		t.Errorf("expected the clean line:\n%s", out.String())
+	}
+}
+
+// #952: the refs a set of texts closes — every keyword spelling GitHub
+// honours, bare or repo-qualified — once each, in first-seen order; a bare
+// mention closes nothing.
+func TestClosingRefs_EveryKeywordSpellingOnceInFirstSeenOrder(t *testing.T) {
+	got := ClosingRefs(
+		"Fix the timer\n\nCloses #947",
+		"Fixes #952\nresolves #947",
+		"Resolved other/repo#3, related to #10",
+		"fixed other/repo#3",
+	)
+	want := []string{"#947", "#952", "other/repo#3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ClosingRefs = %q, want %q", got, want)
+	}
+}
+
+// One commit message routinely closes several issues, one trailer a line:
+// every one of them counts, not only the first in the text.
+func TestClosingRefs_EveryTrailerInOneText(t *testing.T) {
+	got := ClosingRefs("Split the gate\n\nCloses #886\nCloses #887\nFixes #888")
+	want := []string{"#886", "#887", "#888"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ClosingRefs = %q, want %q", got, want)
 	}
 }

@@ -28,6 +28,12 @@ func TestClassifyFile(t *testing.T) {
 		{"src/conftest.ts", Test},     // JS conftest
 		{"src/__tests__/widget.ts", Test},
 		{"src/widget.ts", Source},
+		// Components: behaviour lives in them, and a vitest test imports
+		// one like a .ts module. One under a test directory is a fixture a
+		// test mounts, never a test file itself.
+		{"src/routes/+page.svelte", Source},
+		{"src/components/Card.vue", Source},
+		{"src/__tests__/Fixture.svelte", Source},
 		// Zig — tests are `test "..." {}` blocks INLINE in ordinary src/*.zig
 		// files, so a .zig file is normally BOTH source and test. At file
 		// level it stays Source unless it is an EXPLICIT test file; inline-test

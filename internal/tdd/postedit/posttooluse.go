@@ -35,7 +35,9 @@ var gatedPostTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": t
 // hook found nothing to test (non-edit tool, no path, no project, no runner,
 // gate turned off), never "it ran and passed silently" — a session must be
 // able to tell "green" from "never ran" without re-reading the transcript.
-// PostToolUse never blocks and never errors out regardless.
+// The gate line also names every commit refusal the declared laws would
+// raise over the edited file (lawRefusalNote). PostToolUse never blocks and
+// never errors out regardless.
 func PostEdit(raw []byte, run SuiteRunner) string {
 	var in postToolUseInput
 	if err := json.Unmarshal(raw, &in); err != nil {
@@ -44,7 +46,13 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	text := ""
 	failed := in.ToolResponse.Success != nil && !*in.ToolResponse.Success
 	if gatedPostTools[in.ToolName] && in.ToolInput.FilePath != "" && !failed {
+		// Formatted before the suite runs, so the run judges the bytes the
+		// commit will carry.
+		note := gofmtEdited(in.ToolInput.FilePath)
 		text, _ = postEditFile(in.SessionID, in.ToolInput.FilePath, run)
+		text = withGateNote(text, note)
+		// Judged after gofmt, on the bytes the commit will carry.
+		text = withGateNote(text, lawRefusalNote([]string{in.ToolInput.FilePath}))
 	}
 	return withSessionHarvest(text, in.SessionID)
 }

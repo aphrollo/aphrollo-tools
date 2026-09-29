@@ -196,7 +196,10 @@ func appendGoPackageDirs(root string, dirs, add []string) []string {
 	return dirs
 }
 
-func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
+// narrowToStagedUnbounded is narrowToStaged before its command-line budget
+// (runner_scope_argvbudget.go): the related-tests runner for files, however
+// long its argv comes out.
+func narrowToStagedUnbounded(r Runner, root string, files []string) (Runner, bool) {
 	if len(files) == 0 {
 		return r, false
 	}

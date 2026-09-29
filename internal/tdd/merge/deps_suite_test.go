@@ -8,6 +8,8 @@ import (
 
 type SuiteResult = suite.SuiteResult
 
+func SetLookNodeForTest(p0 func() (string, error)) func() { return suite.SetLookNodeForTest(p0) }
+
 func cmdString(p0 Runner) string { return suite.CmdString(p0) }
 
 func mechCacheAdd(p0 string) { suite.MechCacheAdd(p0) }

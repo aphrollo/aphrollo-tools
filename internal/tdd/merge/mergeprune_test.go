@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // pruneRepo builds a main repo on `main` plus two linked worktrees: one on a
@@ -492,4 +494,43 @@ func TestPruneMergedLanesAfterMerge_LeavesAHiddenWorktreeRegistered(t *testing.T
 		t.Fatalf("admin entry of the hidden lane/fresh worktree %s was deleted; git lists:\n%s",
 			freshWT, gitOut(mainRepo, "worktree", "list", "--porcelain"))
 	}
+}
+
+// #947: the post-merge lane sweep unlinks a merged lane's linked node_modules
+// and never deletes through it into the primary checkout's install. The
+// junction case runs the Windows branch through the depinstall seam: a real
+// directory stands in for the junction, so a sweep that lets git delete it is
+// caught by its file going missing.
+func TestPruneMergedLanes_NeverDeletesThroughALinkedNodeModules(t *testing.T) {
+	const pkg = "node_modules/fakepkg/index.js"
+	t.Run("symlink", func(t *testing.T) {
+		mainRepo, mergedWT, _ := pruneRepo(t)
+		write(t, mainRepo, ".git/info/exclude", "node_modules\n")
+		write(t, mainRepo, pkg, "module.exports = 1\n")
+		if err := os.Symlink(filepath.Join(mainRepo, "node_modules"), filepath.Join(mergedWT, "node_modules")); err != nil {
+			t.Fatal(err)
+		}
+		var out, errb bytes.Buffer
+		PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+		if _, err := os.Lstat(mergedWT); !os.IsNotExist(err) {
+			t.Errorf("the merged lane must be pruned, lstat err = %v\n%s", err, errb.String())
+		}
+		if _, err := os.Stat(filepath.Join(mainRepo, pkg)); err != nil {
+			t.Errorf("the primary's node_modules must keep its contents: %v", err)
+		}
+	})
+	t.Run("junction", func(t *testing.T) {
+		mainRepo, mergedWT, _ := pruneRepo(t)
+		write(t, mainRepo, ".git/info/exclude", "node_modules\n")
+		write(t, mergedWT, pkg, "module.exports = 1\n")
+		t.Cleanup(depinstall.TreatAsJunction("node_modules"))
+		var out, errb bytes.Buffer
+		PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+		if _, err := os.Stat(filepath.Join(mergedWT, pkg)); err != nil {
+			t.Errorf("the junction's target must keep its contents: %v", err)
+		}
+		if !strings.Contains(errb.String(), "could not prune") {
+			t.Errorf("stderr = %q, want the lane reported as not pruned", errb.String())
+		}
+	})
 }

@@ -6,6 +6,8 @@ import (
 	lawgate "github.com/aphrollo/aphrollo-tools/internal/tdd/lawgate"
 )
 
+func editLawRefusals(p0 string, p1 []string) []string { return lawgate.EditLawRefusals(p0, p1) }
+
 func existingAncestorDir(p0 string) string { return lawgate.ExistingAncestorDir(p0) }
 
 func repoRootNear(p0 string) string { return lawgate.RepoRootNear(p0) }

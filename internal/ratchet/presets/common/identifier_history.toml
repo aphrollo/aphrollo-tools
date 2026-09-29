@@ -3,7 +3,7 @@ description = "A name says what a thing IS, never when it was written — no _v2
 severity    = "warn"
 
 [scope]
-include = ["**/*.rs", "**/*.go", "**/*.py", "**/*.ts"]
+include = [{{source_include|"**/*.rs", "**/*.go", "**/*.py", "**/*.ts"}}]
 exclude = ["**/target/**", "**/node_modules/**", "**/vendor/**"]
 
 [matcher]

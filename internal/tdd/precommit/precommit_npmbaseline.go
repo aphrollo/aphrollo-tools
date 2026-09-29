@@ -124,6 +124,7 @@ func headDiagnostics(repoRoot, root string, c npmCheck, r Runner, run SuiteRunne
 		if args == nil {
 			return nil
 		}
+		runPrelude(c.prelude, headRoot, run)
 		res := run(Runner{Cmd: r.Cmd, Args: append([]string{r.Args[0]}, args...)}, headRoot)
 		diags = c.parse(res.Output, headRoot)
 		if res.TimedOut || (!res.Passed && len(diags) == 0) {
@@ -136,6 +137,15 @@ func headDiagnostics(repoRoot, root string, c npmCheck, r Runner, run SuiteRunne
 	}
 	writeHeadCache(cache, diags)
 	return diags, nil
+}
+
+// runPrelude runs the setup a check's run reads, in dir. Its verdicts are
+// not judged here: each was judged as a run of its own on the staged tree,
+// and a setup that fails at HEAD leaves the run after it to say so.
+func runPrelude(prelude []Runner, dir string, run SuiteRunner) {
+	for _, p := range prelude {
+		run(p, dir)
+	}
 }
 
 // atHead checks HEAD out, detached, in a fresh directory under the gate

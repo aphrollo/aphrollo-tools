@@ -20,16 +20,20 @@ var rootMarkers = []string{
 
 // FindProjectRoot walks up from a file path to the nearest directory holding a
 // project marker, returning "" if none is found (the gates then do nothing).
+// A .svelte or .vue component only an npm package builds, so it resolves to
+// the nearest package.json and to nothing when none holds it.
 func FindProjectRoot(file string) string {
+	if isComponentFile(file) {
+		return findMarkerFrom(filepath.Dir(file), "package.json")
+	}
 	return findRootFrom(filepath.Dir(file))
 }
 
-// findRootFrom walks up from a directory (inclusive) to the nearest project
-// root. The session hooks start here with a cwd; the edit hooks reach it via
-// FindProjectRoot with the edited file's directory.
-func findRootFrom(dir string) string {
+// findMarkerFrom walks up from dir (inclusive) to the nearest directory
+// holding any of markers, "" when none does.
+func findMarkerFrom(dir string, markers ...string) string {
 	for {
-		for _, m := range rootMarkers {
+		for _, m := range markers {
 			if _, err := os.Stat(filepath.Join(dir, m)); err == nil {
 				return dir
 			}
@@ -40,6 +44,13 @@ func findRootFrom(dir string) string {
 		}
 		dir = parent
 	}
+}
+
+// findRootFrom walks up from a directory (inclusive) to the nearest project
+// root. The session hooks start here with a cwd; the edit hooks reach it via
+// FindProjectRoot with the edited file's directory.
+func findRootFrom(dir string) string {
+	return findMarkerFrom(dir, rootMarkers...)
 }
 
 // DetectRunner picks the test command for a project root from its build files.

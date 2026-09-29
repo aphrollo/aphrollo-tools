@@ -28,7 +28,10 @@ import (
 // 5: a Rust file's `mask_strings` view reads a lifetime's `'` as code, not as
 // a quote that blanked every line up to the next apostrophe. An entry written
 // at 4 can record no hits for lines the law never saw.
-const cacheVersion = 5
+// 6: a Python, shell or TOML file's `mask_strings` view reads `#` as a
+// comment, so a quote inside one no longer blanks the lines below it. An
+// entry written at 5 can record no hits for lines the law never saw.
+const cacheVersion = 6
 
 type cacheEntry struct {
 	Size  int64            `json:"size"`

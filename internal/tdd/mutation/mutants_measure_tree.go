@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 )
 
 // cargo-mutants mutates the tree IN PLACE. That is the whole reason the run
@@ -297,7 +299,17 @@ func writeMeasureDiff(root, base string, files []string) (string, error) {
 	// is handed to cargo-mutants as --in-diff and PARSED as a patch. A
 	// warning line lands ahead of the first `diff --git`, where a patch
 	// parser has nowhere to put it.
-	out, _, err := gitDiffOutFn(root, append([]string{"diff", base, "--"}, files...)...)
+	//
+	// One git call per argvbatch batch, so no call's length grows with the
+	// changed set. --no-renames keeps a rename pair from forming within one
+	// batch and not across two; the pair never forms unbatched either,
+	// since files is `diff --name-only` output, which names only a rename's
+	// new path, and a pathspec without the old path leaves the new one a
+	// plain addition.
+	out, err := argvbatch.Run([]string{"diff", base, "--no-renames", "--"}, files, func(args []string) (string, error) {
+		stdout, _, err := gitDiffOutFn(root, args...)
+		return stdout, err
+	})
 	if err != nil {
 		return "", err
 	}

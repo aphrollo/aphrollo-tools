@@ -21,8 +21,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
 
@@ -127,21 +130,33 @@ func TrackedPaths(root string) ([]string, error) {
 // pathspecs. Its stderr is carried into the error: `ls-files` says why it
 // refused (a root that is not a repository, a pathspec it cannot parse) on
 // stderr and nowhere else, and an exit status alone names none of it.
+//
+// The pathspecs go to git in argvbatch batches, so no call's length grows
+// with the list. Two batches can both match one file (a glob in one, the
+// file's own path in another), so the joined listing is put back in index
+// order with each path once: what one call over every pathspec lists.
 func lsFiles(root string, paths ...string) ([]string, error) {
-	cmd := exec.Command("git", append([]string{"-C", root, "ls-files", "-z", "--"}, paths...)...)
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := argvbatch.Run([]string{"-C", root, "ls-files", "-z", "--"}, paths, func(args []string) (string, error) {
+		cmd := exec.Command("git", args...)
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("git ls-files under %s: %w: %s", root, err, strings.TrimSpace(stderr.String()))
+		}
+		return string(out), nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("git ls-files under %s: %w: %s", root, err, strings.TrimSpace(stderr.String()))
+		return nil, err
 	}
 	var files []string
-	for f := range strings.SplitSeq(strings.TrimRight(string(out), "\x00"), "\x00") {
+	for f := range strings.SplitSeq(strings.TrimRight(out, "\x00"), "\x00") {
 		if f != "" {
 			files = append(files, f)
 		}
 	}
-	return files, nil
+	sort.Strings(files)
+	return slices.Compact(files), nil
 }
 
 // Check discovers tracked markdown under root (narrowed to paths if given),

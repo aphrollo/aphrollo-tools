@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -62,8 +63,15 @@ func probeWriteBackup(realGit, root, path string, doomed []probeFile) error {
 		}
 	}
 	if len(tracked) > 0 {
-		args := append([]string{"diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv", "HEAD", "--"}, tracked...)
-		diff, err := probeGit(realGit, root, args...)
+		// One git call per argvbatch batch, so no call's length grows with
+		// the list. --no-renames keeps a rename's two sides from pairing in
+		// one batch and not across two: the backup is only ever applied,
+		// and git apply lands a delete plus an add where it would land the
+		// rename.
+		prefix := []string{"--literal-pathspecs", "diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "HEAD", "--"}
+		diff, err := argvbatch.Run(prefix, tracked, func(args []string) (string, error) {
+			return runGitCapture(realGit, root, args...)
+		})
 		if err != nil {
 			return err
 		}

@@ -647,6 +647,7 @@ stage refused and for what without re-running anything.
 | `mutants-refused:tree-changed` | the run left the working tree different from how it found it |
 | `mutants-refused:git-failed` | git could not read the tree, so the tree that was measured cannot be compared with the one the run started from — the refusal carries git's own stderr |
 | `mutants-refused:no-verdict` | an exit status cargo-mutants does not use for a verdict; the message names disk exhaustion as the probable cause when the drive is, at that moment, below what one measurement process needs |
+| `mutants-refused:coverage-run-failed` | the Go runner's coverage gather failed on the lane's own tree — a build error or a failing test, with no box-side cause in go test's output; the refusal names each package go test failed and each test it named |
 | `mutants-refused:config` | a retired key, or a `mutants-after` naming a file that is not there |
 | `mutants-refused:no-lane-tip` | neither `MERGE_HEAD` nor `GIT_REFLOG_ACTION` named the branch coming in |
 | `mutants-refused:runner-failed` | the runner never started, so nothing was measured |
@@ -654,6 +655,7 @@ stage refused and for what without re-running anything.
 | `mutants-skipped:catch-up` | trunk merged INTO a lane; nothing lands, so nothing is measured |
 | `mutants-skipped:not-a-merge` | a conflicted cherry-pick or revert being concluded |
 | `mutants-skipped:nothing-to-measure` | the diff named no mutable source |
+| `mutants-unmeasured:coverage-run-box` | the Go runner's coverage gather failed because of the box — go test's output carries `signal: killed`, `no space left on device`, `cannot allocate memory` or `resource temporarily unavailable` — so nothing was measured and nothing is refused |
 | `mutants-unmeasured:gremlins-windows` | the Go runner cannot measure on this platform, so this merge carries no mutation evidence at all — counted under `unmeasured:` in `gate stats`, never beside a routine skip |
 
 A run that reached a verdict lands in the green/red columns of the `mutants`

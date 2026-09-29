@@ -77,6 +77,8 @@ func GoEmbedsFile(p0 string) bool { return goEmbedsFile(p0) }
 
 func IsCodeFile(p0 string) bool { return isCodeFile(p0) }
 
+func IsComponentFile(p0 string) bool { return isComponentFile(p0) }
+
 func LoadSession(p0 string) (*sessionState, string) { return loadSession(p0) }
 
 func Logf(p0 io.Writer, p1 string, p2 ...any) { logf(p0, p1, p2...) }

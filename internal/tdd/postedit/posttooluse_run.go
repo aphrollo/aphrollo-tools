@@ -28,22 +28,32 @@ func runPostEditSuite(run SuiteRunner, snap stateSnapshot, root, headSHA string,
 		AppendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
 		return res, queuedSkippedAdvisory(root, runnerTargetDir(snap.runner, root))
 	}
-	if res.TimedOut {
-		// A killed run proves nothing about the code — the last REAL outcome
-		// stays authoritative for the next delta (state is untouched beyond the
-		// timeout streak), but the run itself must be reported: silence here
-		// reads as "green" when it actually means "inconclusive, not tested".
-		if snap.state != nil {
-			snap.state.StampTimeout(root, headSHA)
-			_ = snap.state.Save(snap.statePath)
-		}
-		AppendGateLog("postedit", root, cmdString(snap.runner), "timeout", res.Duration)
-		return res, timeoutAdvisory(snap.runner, root, res.Duration)
+	if res.TimedOut || runnerTimeoutsOnly(res.Output) {
+		return res, postEditTimedOut(snap.runner, root, headSHA, res, snap.state, snap.statePath)
 	}
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
 	return res, ""
+}
+
+// postEditTimedOut reports a run that proved nothing about the code because
+// time ran out: the gate killed it at its deadline, or the runner ended its
+// only failing tests at its own per-test deadline (issue #945). The last REAL
+// outcome stays authoritative for the next delta (state is untouched beyond
+// the timeout streak), but the run itself must be reported and logged as
+// timeout: silence reads as "green", and a red would refuse the one targeted
+// rerun a TIMEOUT sanctions.
+func postEditTimedOut(r Runner, root, headSHA string, res SuiteResult, state *sessionState, statePath string) string {
+	if state != nil {
+		state.StampTimeout(root, headSHA)
+		_ = state.Save(statePath)
+	}
+	AppendGateLog("postedit", root, cmdString(r), "timeout", res.Duration)
+	if res.TimedOut {
+		return timeoutAdvisory(r, root, res.Duration)
+	}
+	return runnerTimeoutAdvisory(r, root, res.Duration)
 }
 
 // withNote appends an advisory's trailing note — today only the widening one

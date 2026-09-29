@@ -5,6 +5,8 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // PrunedLane names one worktree the post-merge sweep removed: its path and
@@ -358,7 +360,14 @@ func mergePruneWorktrees(mainRepo string) []mergePruneWorktree {
 // business overriding — a lock, or a tree that somehow turned dirty between
 // that check and this one — and a removal error from either is exactly what
 // the caller needs to report and skip, not force past.
+//
+// It unlinks every link in the lane first: git deletes an ignored
+// node_modules with the tree, and through a junction that is the primary
+// checkout's install (#947).
 func removeMergedLaneWorktree(mainRepo, path, branch string) error {
+	if err := depinstall.RemoveLinks(path); err != nil {
+		return err
+	}
 	if _, err := git(mainRepo, "worktree", "remove", path); err != nil {
 		return err
 	}

@@ -378,14 +378,8 @@ internal/workspace/status_test.go | func TestClassifyCheck(t *testing.T) {
 internal/workspace/verify_test.go | func TestApplyAllPass(t *testing.T) {
 internal/workspace/verify_test.go | func TestApplyRunsFromAppDir(t *testing.T) {
 internal/workspace/verify_test.go | func TestApplyStopsAtFirstFailure(t *testing.T) {
-internal/workspace/verify_test.go | func TestAppsForRepo(t *testing.T) {
-internal/workspace/verify_test.go | func TestBuildVerifyRlndxTrio(t *testing.T) {
-internal/workspace/verify_test.go | func TestBuildVerifyUnknownRepo(t *testing.T) {
 internal/workspace/verify_test.go | func TestRenderApplyHeaderTerse(t *testing.T) {
 internal/workspace/verify_test.go | func TestRenderDryRunListsCommands(t *testing.T) {
-internal/workspace/verify_test.go | func TestResolveAppsChangedPathsWin(t *testing.T) {
-internal/workspace/verify_test.go | func TestResolveAppsCwdFallback(t *testing.T) {
-internal/workspace/verify_test.go | func TestResolveAppsNoMatch(t *testing.T) {
 internal/workspace/verify_test.go | func TestVerifyDetectTestReusesTdd(t *testing.T) {
 internal/workspace/workspace_test.go | func TestDefaultWorktreeBase(t *testing.T) {
 internal/depinstall/depinstall_test.go | func TestDetectInstall(t *testing.T) {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 )
 
@@ -142,10 +143,15 @@ func stagedChanges(repoRoot string) ([]string, map[string]string, error) {
 	return files, renames, nil
 }
 
-// gitStaged returns the staged diff restricted to the given pathspecs.
+// gitStaged returns the staged diff restricted to the given pathspecs, one
+// git call per argvbatch batch so no call's length grows with the path
+// list. --no-renames keeps a rename's two sides from pairing within one
+// batch and not across two: the patch is only ever applied, and git apply
+// lands a delete plus an add where it would land the rename.
 func gitStaged(repoRoot string, paths []string) (string, error) {
-	args := append([]string{"diff", "--cached", "--"}, paths...)
-	return git(repoRoot, args...)
+	return argvbatch.Run([]string{"diff", "--cached", "--no-renames", "--"}, paths, func(args []string) (string, error) {
+		return git(repoRoot, args...)
+	})
 }
 
 // gitApply applies a unified diff to a worktree via `git apply` on stdin.

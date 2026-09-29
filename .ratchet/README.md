@@ -8,8 +8,8 @@ under 600 lines", "every env switch is registered", "every cited `.md` path
 resolves" — are **data**, not fifteen hand-written test files each
 re-deriving the same scan/baseline/escape machinery. They live in the
 consuming repo under `.ratchet/`, and this binary is the engine that runs
-them: at **pre-edit** time (before the write lands), at **commit** time, and
-by hand.
+them: at **pre-edit** time (before the write lands), at **post-edit** time
+(after any write, the shell's included), at **commit** time, and by hand.
 
 ```
 .ratchet/
@@ -125,6 +125,11 @@ was a real suppression. Set both to read code with neither strings nor
 comments in it. A `.rs` file is lexed as Rust: `'` opens a char literal only
 in a char literal's shape on one line (`'x'`, `'\n'`, `'\u{1F600}'`), and a
 lifetime or label (`<'_>`, `&'a T`, `'static`, `break 'outer`) stays code.
+A `.py`, `.sh` or `.toml` file reads `#` outside a string as a comment to the
+end of the line, and a quote inside that comment opens no string; a `#`
+inside a string is text. Python and TOML strings include the triple-quoted
+`'''…'''` and `"""…"""` forms that span lines, and a shell `#` opens a
+comment only where a word starts (`$#` and `${#a}` are code).
 
 `direction` says WHERE the marker lives: `above` (default) is the
 comment-above-the-declaration shape, `below` is a block that carries its own
@@ -526,6 +531,41 @@ payload, an unreadable file or a broken law file must never wedge a session
 over a rule that is itself broken. A narrowed run reports uses nobody
 registered but never claims a registry line is stale: that needs the whole
 tree.
+
+#### Post-edit judging
+
+The pre-edit denial sees only a `Write`/`Edit`/`MultiEdit` payload, one file,
+no base. The PostToolUse hook judges again after the write, on the files as
+they sit on disk — the edited file, or every file a Bash command changed — and
+puts each would-be commit refusal on the edit's `gate:` line, in the form
+above, escape included:
+
+```
+gate: go test ./pkg/x in /repo → green (3 passed, 1.2s) (ratchet would refuse the commit: test_removed: pkg/x/x_test.go  (baseline 0, now 1) — test removed without a tombstone; add `// ratchet: test_removed <name>: <why>` …)
+```
+
+Only a `deny` law is named, and nothing is blocked: the write has happened,
+and the commit gate still judges the whole staged tree. Each law in scope of
+an edited file is judged in the narrowest form that still gives the commit
+gate's answer, and skipped when the edit cannot have changed it:
+
+- a per-file law over the edited files, all such laws in one scan;
+- a `registry-both-ways` law over the edited files, which catches a use
+  nobody registered; over its whole scope when the edit touched the registry
+  file or took a use out of an edited file, the two ways an entry loses its
+  last use;
+- `symbol-removed` only when a name its pattern captured in an edited file at
+  HEAD is gone from that file; then over the whole tip against a base of the
+  edited files at HEAD, so a test moved to another file is no refusal;
+- `co-change` and `hunk-regex` over every file that differs from HEAD (the
+  set a commit made now would stage), naming only what lands in an edited
+  file;
+- the dependency-graph kinds are left to the pre-edit and commit gates: they
+  read the module graph, not a file.
+
+Measured on aphrollo-tools' own tree, the judging adds 40–55 ms to an edit of
+a Go file, 5–30 ms to a Markdown file, and about 2 ms to a file no law scopes. A refusal is logged as
+`ratchet-would-refuse:<n>` with the time it took.
 
 #### Adopting a baseline (`--adopt`)
 

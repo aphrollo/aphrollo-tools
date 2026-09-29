@@ -33,6 +33,31 @@ func TestFindProjectRoot(t *testing.T) {
 	}
 }
 
+// A component belongs to the npm package that builds it: it resolves to the
+// nearest package.json, past a nearer marker of another toolchain, and to no
+// root at all where no package.json holds it — a Go module's stray .svelte
+// must never select `go test`.
+func TestFindProjectRoot_AComponentResolvesToItsNearestPackageJSON(t *testing.T) {
+	t.Parallel()
+	app := mkProject(t, "package.json")
+	write(t, app, "src/lib/go.mod", "module x\n")
+	if got := FindProjectRoot(filepath.Join(app, "src", "lib", "Card.svelte")); got != app {
+		t.Fatalf("FindProjectRoot(Card.svelte) = %q, want the package.json dir %q", got, app)
+	}
+	if got := FindProjectRoot(filepath.Join(app, "src", "lib", "Card.vue")); got != app {
+		t.Fatalf("FindProjectRoot(Card.vue) = %q, want the package.json dir %q", got, app)
+	}
+	if got := FindProjectRoot(filepath.Join(app, "src", "lib", "card.go")); got != filepath.Join(app, "src", "lib") {
+		t.Fatalf("FindProjectRoot(card.go) = %q, want its own go.mod dir", got)
+	}
+
+	goOnly := mkProject(t, "go.mod")
+	write(t, goOnly, "web/App.svelte", "<p>hi</p>\n")
+	if got := FindProjectRoot(filepath.Join(goOnly, "web", "App.svelte")); got != "" {
+		t.Fatalf("FindProjectRoot(App.svelte in a Go module) = %q, want no root", got)
+	}
+}
+
 // TestZigRunner pins the zig project contract end to end: a build.zig (or
 // build.zig.zon) root is found and runs `zig build test`, and because that
 // command has no related-tests mode, every narrowing path leaves it unchanged
@@ -139,6 +164,18 @@ func TestNarrowToRelatedTests_SourceEdits(t *testing.T) {
 			runner: Runner{Cmd: "npx", Args: []string{"vitest", "run"}, Dir: "", Deadline: time.Time{}},
 			target: "/proj/src/widget.ts",
 			want:   Runner{Cmd: "npx", Args: []string{"vitest", "related", "src/widget.ts", "--run"}, Dir: "", Deadline: time.Time{}},
+		},
+		{
+			name:   "vitest svelte component → related --run",
+			runner: Runner{Cmd: "npx", Args: []string{"vitest", "run"}, Dir: "", Deadline: time.Time{}},
+			target: "/proj/src/routes/+page.svelte",
+			want:   Runner{Cmd: "npx", Args: []string{"vitest", "related", "src/routes/+page.svelte", "--run"}, Dir: "", Deadline: time.Time{}},
+		},
+		{
+			name:   "jest vue component → --findRelatedTests",
+			runner: Runner{Cmd: "npx", Args: []string{"jest"}, Dir: "", Deadline: time.Time{}},
+			target: "/proj/src/Card.vue",
+			want:   Runner{Cmd: "npx", Args: []string{"jest", "--findRelatedTests", "src/Card.vue"}, Dir: "", Deadline: time.Time{}},
 		},
 		{
 			name:   "jest source → --findRelatedTests",

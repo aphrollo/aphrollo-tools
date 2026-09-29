@@ -3,7 +3,7 @@ description = "Every env switch prefixed {{prefixes}} is registered, and every r
 severity    = "deny"
 
 [scope]
-include = ["**/*.rs", "**/*.go", "**/*.md"]
+include = [{{source_include|"**/*.rs", "**/*.go"}}, "**/*.md"]
 exclude = ["**/target/**", "**/node_modules/**"]
 
 [matcher]

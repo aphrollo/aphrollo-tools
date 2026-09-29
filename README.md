@@ -48,7 +48,8 @@ aphrollo update                       # rebuild from origin/main and swap it in
 ## The gate in one screen
 
 - **Edit:** after every Edit/Write the hook runs the related tests and prints
-  one `gate:` line (`green`, `red-missing-impl`, `red`, `TIMEOUT`, …).
+  one `gate:` line (`green`, `red-missing-impl`, `red`, `TIMEOUT`, …), which
+  also names every ratchet refusal the commit would raise, with its escape.
 - **Commit:** staged-baseline guard → ratchet laws → docs → vet/lint →
   fail-first (the staged test must be RED without the change). Suites are
   `NOT RUN` here and run at the merge.
@@ -88,7 +89,9 @@ With `undercover = true` a tool identity is refused at commit, pre-push and `wor
 | `retro-on`, `retro-slow-merge-minutes`, `retro-sinks` | post-merge retro triggers and questions |
 | `issue-labels`, `upstream` | labels `aphrollo issue` accepts; tracker for `aphrollo feedback` |
 | `docs-check`, `baselines`, `prune-lanes-on-merge`, `sdd-dir` | docs on commit, guarded baselines, lane sweep, spec root |
-| `[aphrollo.precommit]` (`aphrollo.toml` only) | `"<root>" = [["tsc", "--noEmit"], ["eslint", "src"]]`: argv arrays (no shell) run in order in that non-cargo root, replacing its built-in checks (go vet/lint, tsc/eslint); first failure refuses. A declared command has no HEAD baseline unless it is written `{ argv = [...], baseline = "lines" }`: then a failure is run again on HEAD's tree and refuses only over output lines HEAD's run did not print (paths and trailing whitespace aside), or when HEAD's run cannot be made |
+| `[aphrollo.precommit]` (`aphrollo.toml` only) | `"<root>" = [["tsc", "--noEmit"], ["eslint", "src"]]`: argv arrays (no shell) run in order in that non-cargo root, replacing its built-in checks (go vet/lint, the npm typecheck and lint); first failure refuses. A declared command has no HEAD baseline unless it is written `{ argv = [...], baseline = "lines" }`: then a failure is run again on HEAD's tree and refuses only over output lines HEAD's run did not print (paths and trailing whitespace aside), or when HEAD's run cannot be made |
+| `[aphrollo.typecheck]` (`aphrollo.toml` only) | `"<root>" = ["svelte-check", "--tsconfig", "./tsconfig.json"]`: one argv whose first word is an npm bin, run as `node <its entry>` from that npm root's node_modules at commit, merge and `aphrollo check`. Undeclared, a root's typecheck is its package.json `typecheck` script, else its `check` script (each `&&` step run without a shell; a script that needs one is NOT RUN), else svelte-check (after `svelte-kit sync` in a SvelteKit app) when it depends on it, else tsc, those two only with a tsconfig.json. tsc, vue-tsc, svelte-check and eslint are judged by the diagnostics they add over HEAD, any other tool by the output lines it adds over HEAD's run |
+| `[aphrollo.lint]` (`aphrollo.toml` only) | `"<root>" = ["eslint", "src"]`: the npm root's lint, run the same way, in place of eslint over the staged files |
 
 ## Known limitations
 
