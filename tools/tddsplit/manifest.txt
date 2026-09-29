@@ -304,6 +304,8 @@ failfirst_ledger_test.go                           failfirst
 failfirst_node.go                                  failfirst
 failfirst_node_test.go                             failfirst
 failfirst_outcome.go                               failfirst
+failfirst_pytest.go                                failfirst
+failfirst_pytest_test.go                           failfirst
 failfirst_reach.go                                 failfirst
 failfirst_reach_test.go                            failfirst
 failfirst_refuse.go                                failfirst
@@ -642,6 +644,7 @@ precommit_failfirst_args_test.go                   failfirst
 precommit_failfirst_green_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_inputs_test.go                 precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_npm_test.go                    precommit # prefix says failfirst; its test body reaches precommit
+precommit_failfirst_pytest_test.go                 precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_reach_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_rust.go                        failfirst
 precommit_failfirst_scope_test.go                  precommit # prefix says failfirst; its test body reaches precommit
@@ -753,6 +756,8 @@ runner_core_own_test.go                            core
 runner_lock.go                                     lock      # created by P2
 runner_lock_own_test.go                            lock
 runner_nextest_test.go                             suite
+runner_pytest.go                                   suite
+runner_pytest_test.go                              suite
 runner_scope.go                                    suite
 runner_scope_argvbudget.go                         suite
 runner_scope_argvbudget_test.go                    suite
