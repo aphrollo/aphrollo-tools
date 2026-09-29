@@ -28,7 +28,8 @@ Subcommands:
            (--repo, --only name[,name...], --format text|json)
   init     Copy embedded law presets into .ratchet/laws/ (--repo, --preset
            group[,group...], --param name=value, repeatable)
-  presets  List every embedded preset and the params its template asks for
+  presets  List every embedded preset and the params its template asks for;
+           an optional one shows the default init renders when it is unset
 
 A law is DATA: .ratchet/laws/<name>.toml names a scope, a matcher and a
 severity. check compares what it measures to the law's checked-in baseline —
@@ -463,9 +464,24 @@ func runRatchetPresets(args []string, stdout, stderr io.Writer) int {
 	for _, e := range entries {
 		line := e.Group + "/" + e.Name
 		if len(e.Params) > 0 {
-			line += "  params: " + strings.Join(e.Params, ", ")
+			line += "  params: " + strings.Join(presetParamList(e), ", ")
 		}
 		fmt.Fprintln(stdout, line)
 	}
 	return 0
+}
+
+// presetParamList is a preset's params as the listing shows them: the ones
+// init requires first, then each optional one with the default it renders
+// when --param leaves it unset.
+func presetParamList(e ratchet.PresetEntry) []string {
+	var required, optional []string
+	for _, p := range e.Params {
+		if def, ok := e.Defaults[p]; ok {
+			optional = append(optional, p+" [default "+def+"]")
+			continue
+		}
+		required = append(required, p)
+	}
+	return append(required, optional...)
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -247,8 +248,10 @@ func probeRestore(realGit, root string, doomed []probeFile) error {
 		}
 	}
 	if len(tracked) > 0 {
-		args := append([]string{"restore", "--source=HEAD", "--worktree", "--"}, tracked...)
-		if _, err := probeGit(realGit, root, args...); err != nil {
+		// The paths go on stdin, so the line is the same length whatever
+		// the list.
+		paths := strings.NewReader(strings.Join(tracked, "\x00"))
+		if _, err := probeGitStdin(realGit, root, paths, "restore", "--source=HEAD", "--worktree", "--pathspec-from-file=-", "--pathspec-file-nul"); err != nil {
 			return fmt.Errorf("git restore failed: %w", err)
 		}
 	}
@@ -266,6 +269,22 @@ func probeRestore(realGit, root string, doomed []probeFile) error {
 // file, never a pattern git expands.
 func probeGit(realGit, root string, args ...string) (string, error) {
 	return runGitCapture(realGit, root, append([]string{"--literal-pathspecs"}, args...)...)
+}
+
+// probeGitStdin is probeGit with stdin fed from in. git's stderr is carried
+// into the error, where it names the path git refused.
+func probeGitStdin(realGit, root string, in io.Reader, args ...string) (string, error) {
+	cmd := exec.Command(realGit, append([]string{"--literal-pathspecs"}, args...)...)
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
+	cmd.Stdin = in
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return string(out), fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	return string(out), nil
 }
 
 func probeFail(stderr io.Writer, err error) int {

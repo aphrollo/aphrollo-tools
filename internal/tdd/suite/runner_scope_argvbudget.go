@@ -3,9 +3,10 @@ package suite
 import (
 	"fmt"
 	"os"
-	"slices"
 	"strings"
 	"sync"
+
+	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 )
 
 // Issue #951: narrowToStaged puts the changed set on the command line —
@@ -25,14 +26,12 @@ import (
 //
 // A check whose runs are already independent per file takes the other road:
 // ESLint's runs are each compared with the same run at HEAD on their own, so
-// its changed files split into batches (argvBatches) at no cost in ground.
+// its changed files split into batches (argvbatch.Split) at no cost in ground.
 
 // stagedArgvBudget is the longest command line narrowToStaged builds, in
-// characters. cmd.exe's 8 191 less room for what is applied after it:
-// nodeToolRunner replacing `npx` with the absolute node binary and the
-// tool's entry script, CI flags a Go run gains, and the quotes Windows adds
-// around a path with a space in it.
-const stagedArgvBudget = 6000
+// characters: the one budget every command built from a changed-path list
+// keeps to.
+const stagedArgvBudget = argvbatch.Budget
 
 // stagedArgvFallbacks records each fallback already announced by this
 // process, so a gate that resolves the same root's runner at more than one
@@ -55,24 +54,4 @@ func narrowToStaged(r Runner, root string, files []string) (Runner, bool) {
 			root, len(files), len(line), stagedArgvBudget, cmdString(r))
 	}
 	return r, true
-}
-
-// argvBatches splits files into argument lists that each start with prefix
-// and keep their words, joined by single spaces, within budget characters.
-// Files keep their order and each lands in exactly one batch; a file too long
-// for any batch gets one of its own rather than being dropped. No files is no
-// batch.
-func argvBatches(prefix, files []string, budget int) [][]string {
-	var out [][]string
-	base := len(strings.Join(prefix, " "))
-	size := base
-	for _, f := range files {
-		if len(out) == 0 || size+1+len(f) > budget {
-			out = append(out, slices.Clone(prefix))
-			size = base
-		}
-		out[len(out)-1] = append(out[len(out)-1], f)
-		size += 1 + len(f)
-	}
-	return out
 }

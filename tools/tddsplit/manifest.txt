@@ -57,7 +57,6 @@ agent_researcher.md                                install
 agent_reviewer.md                                  install
 agents.go                                          install
 agents_test.go                                     install
-argvbatches_test.go                                suite
 autoescape.go                                      escape
 autoescape_override_test.go                        tdd       # prefix says escape; its test body reaches tdd
 autoescape_suite.go                                suite     # created by P2
@@ -78,6 +77,7 @@ bashedit_cdtilde_test.go                           postedit
 bashedit_core.go                                   core      # created by P2
 bashedit_mergeinprogress_test.go                   postedit
 bashedit_mergescope.go                             postedit
+bashedit_mergescope_batch_unix_test.go             postedit
 bashedit_mergescope_test.go                        postedit
 bashedit_primary.go                                postedit
 bashedit_primarydirt_test.go                       postedit
@@ -379,6 +379,7 @@ gitgate_core.go                                    core      # created by P2
 gitgate_test.go                                    install
 gitplumbing.go                                     gitx
 gitplumbing_stdout_test.go                         gitx
+gitstaged_batch_unix_test.go                       gitx
 gitqueue_test.go                                   gitx
 go_reverse_scope.go                                suite
 go_reverse_scope_test.go                           suite
@@ -510,6 +511,7 @@ mutants_measure_judge.go                           mutation
 mutants_measure_rerun.go                           mutation
 mutants_measure_test.go                            mutation
 mutants_measure_tree.go                            mutation
+mutants_measure_tree_batch_unix_test.go            mutation
 mutants_measure_tree_test.go                       mutation
 mutants_measure_verdict_test.go                    mutation
 mutants_newlines.go                                mutation
@@ -597,6 +599,9 @@ posttooluse.go                                     postedit
 posttooluse_advisory.go                            postedit
 posttooluse_advisory_test.go                       postedit
 posttooluse_failfirst.go                           failfirst # created by P2
+posttooluse_gofmt.go                               postedit
+posttooluse_gofmt_test.go                          postedit
+posttooluse_gofmt_unix_test.go                     postedit
 posttooluse_notrun_test.go                         postedit
 posttooluse_run.go                                 postedit
 posttooluse_runnertimeout_test.go                  postedit

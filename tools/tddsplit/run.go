@@ -124,7 +124,7 @@ func apply(repo string, a *Analysis, out io.Writer) (int, error) {
 		changed++
 	}
 	if len(stage) > 0 {
-		if _, err := gitOut(repo, append([]string{"add", "--"}, stage...)...); err != nil {
+		if err := gitAdd(repo, stage); err != nil {
 			return 0, err
 		}
 	}
@@ -220,6 +220,17 @@ func gitOut(repo string, args ...string) (string, error) {
 		return "", fmt.Errorf("git %s: %v\n%s", strings.Join(args, " "), err, msg)
 	}
 	return string(out), nil
+}
+
+// gitAdd stages paths, handed to git on stdin so the command line is the
+// same length whatever the list.
+func gitAdd(repo string, paths []string) error {
+	cmd := exec.Command("git", "-C", repo, "add", "--pathspec-from-file=-", "--pathspec-file-nul")
+	cmd.Stdin = strings.NewReader(strings.Join(paths, "\x00"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git add: %v\n%s", err, out)
+	}
+	return nil
 }
 
 func sortedKeys(m map[string][]byte) []string {

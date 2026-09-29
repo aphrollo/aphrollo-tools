@@ -4,7 +4,7 @@ severity    = "deny"
 escape      = "// path-literal-ok:"
 
 [scope]
-include = ["**/*.go", "**/*.rs", "**/*.py"]
+include = [{{source_include|"**/*.go", "**/*.rs", "**/*.py"}}]
 exclude = ["**/target/**", "**/node_modules/**", "**/vendor/**"]
 
 [matcher]

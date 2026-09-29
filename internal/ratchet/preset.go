@@ -12,8 +12,11 @@ import (
 // Presets ships known-good law bodies as embedded data — the way a consuming
 // repo starts a law family (`aphrollo ratchet init --preset common,rust`)
 // instead of hand-copying one from another repo's `.ratchet/laws/`. A preset
-// is a normal law TOML file, except a matcher field may carry a `{{name}}`
-// slot: the value a local law's own `[params]` table supplies for it. Once
+// is a normal law TOML file, except a field may carry a `{{name}}` slot: the
+// value a local law's own `[params]` table supplies for it. A
+// `{{name|default}}` slot is optional and renders its default when nothing
+// is supplied — the common presets' `source_include` is one, so a repo
+// outside Rust and Go rescopes them at init. Once
 // written the local file is a fully self-contained, ordinary law — `extends`
 // and `[params]` never change how it is scanned, only how `ratchet check`
 // re-renders the preset to warn on drift.
@@ -24,15 +27,19 @@ var presetsFS embed.FS
 const presetsRoot = "presets"
 
 // PresetEntry names one embedded preset and the parameters its template asks
-// for, in the order they first appear.
+// for, in the order they first appear. Defaults holds the value a
+// `{{name|default}}` slot renders when --param leaves it unset; a param
+// absent from it is required.
 type PresetEntry struct {
-	Group  string
-	Name   string
-	Params []string
+	Group    string
+	Name     string
+	Params   []string
+	Defaults map[string]string
 }
 
-// placeholderPattern matches a `{{name}}` template slot.
-var placeholderPattern = regexp.MustCompile(`\{\{(\w+)\}\}`)
+// placeholderPattern matches a `{{name}}` template slot, or a
+// `{{name|default}}` one whose default renders when no value is supplied.
+var placeholderPattern = regexp.MustCompile(`\{\{(\w+)(\|[^{}]*)?\}\}`)
 
 // ListPresets returns every embedded preset, sorted by group then name.
 func ListPresets() ([]PresetEntry, error) {
@@ -58,7 +65,7 @@ func ListPresets() ([]PresetEntry, error) {
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, PresetEntry{Group: g.Name(), Name: name, Params: presetPlaceholders(raw)})
+			out = append(out, PresetEntry{Group: g.Name(), Name: name, Params: presetPlaceholders(raw), Defaults: presetDefaults(raw)})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -93,20 +100,38 @@ func presetPlaceholders(raw string) []string {
 	return out
 }
 
-// RenderPresetText substitutes every `{{name}}` slot with params[name],
-// returning the rendered text and every slot params left unfilled (in the
-// order presetPlaceholders lists them) — the caller decides whether a
-// missing slot blocks the write or is just noted.
-func RenderPresetText(raw string, params map[string]string) (rendered string, missing []string) {
-	rendered = raw
-	for _, name := range presetPlaceholders(raw) {
-		v, ok := params[name]
-		if !ok {
-			missing = append(missing, name)
-			continue
+// presetDefaults maps each `{{name|default}}` slot's name to its default.
+func presetDefaults(raw string) map[string]string {
+	out := map[string]string{}
+	for _, m := range placeholderPattern.FindAllStringSubmatch(raw, -1) {
+		if def, ok := strings.CutPrefix(m[2], "|"); ok {
+			out[m[1]] = def
 		}
-		rendered = strings.ReplaceAll(rendered, "{{"+name+"}}", v)
 	}
+	return out
+}
+
+// RenderPresetText substitutes every `{{name}}` slot with params[name], and a
+// `{{name|default}}` slot params leaves unset with its default, returning the
+// rendered text and every slot left unfilled (in the order
+// presetPlaceholders lists them) — the caller decides whether a missing slot
+// blocks the write or is just noted. An unfilled slot stays as it is.
+func RenderPresetText(raw string, params map[string]string) (rendered string, missing []string) {
+	owed := map[string]bool{}
+	rendered = placeholderPattern.ReplaceAllStringFunc(raw, func(slot string) string {
+		m := placeholderPattern.FindStringSubmatch(slot)
+		if v, ok := params[m[1]]; ok {
+			return v
+		}
+		if def, ok := strings.CutPrefix(m[2], "|"); ok {
+			return def
+		}
+		if !owed[m[1]] {
+			owed[m[1]] = true
+			missing = append(missing, m[1])
+		}
+		return slot
+	})
 	return rendered, missing
 }
 
@@ -115,7 +140,9 @@ func RenderPresetText(raw string, params map[string]string) (rendered string, mi
 // inserted right after `name = ...`, and a `[params]` table appended holding
 // only the params THIS preset actually used — so a later `ratchet check` can
 // re-render the same preset and compare, without guessing which of a
-// multi-preset `init` run's `--param` flags belonged to this law.
+// multi-preset `init` run's `--param` flags belonged to this law. A
+// defaulted slot the run left unset has no value to record, so it is left
+// out, and a re-render fills it from the same default.
 func WithExtends(rendered, group, name string, params map[string]string, usedParamNames []string) string {
 	lines := strings.Split(rendered, "\n")
 	out := make([]string, 0, len(lines)+4)
@@ -128,10 +155,15 @@ func WithExtends(rendered, group, name string, params map[string]string, usedPar
 		}
 	}
 	text := strings.TrimRight(strings.Join(out, "\n"), "\n") + "\n"
-	if len(usedParamNames) == 0 {
+	var names []string
+	for _, n := range usedParamNames {
+		if _, ok := params[n]; ok {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
 		return text
 	}
-	names := append([]string{}, usedParamNames...)
 	sort.Strings(names)
 	var b strings.Builder
 	b.WriteString(text)
