@@ -93,6 +93,11 @@ Subcommands:
                     (docs-only, comment-only, workflow-only, code) from the
                     commit gate's own per-file rules; any failure prints code.
                     CI's changes job sizes the run by it
+  split-commit      [--apply] [-m <message>]: when fail-first refuses a commit because
+                    its staged tests already pass at HEAD, commit those tests alone
+                    and leave the rest staged. Dry run by default (names both
+                    commits); --apply writes the first from the index only and
+                    never touches the working tree
   probe             discard [--apply] <file>...: restore exactly the named files
                     to HEAD, the route for stripping a refused probe arm. Dry
                     run by default (prints each file's loss and the backup
@@ -331,6 +336,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if args[0] == "classify-diff" {
 		// Read-only: the class CI's `changes` job sizes the run by.
 		return runGateClassifyDiff(args[1:], stdout, stderr)
+	}
+	if args[0] == "split-commit" {
+		// Splits a mixed commit whose tests already pass at HEAD into a
+		// test-only commit and the rest: dry-run by default, --apply writes.
+		return runGateSplitCommit(args[1:], stdout, stderr)
 	}
 	if args[0] == "probe" {
 		// The sanctioned route back to HEAD for a refused probe arm:

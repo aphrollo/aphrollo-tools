@@ -6,6 +6,10 @@ import (
 	gitx "github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
+func CommitStagedSubset(p0 string, p1 []string, p2 string) (string, error) {
+	return gitx.CommitStagedSubset(p0, p1, p2)
+}
+
 func TrunkBranch(p0 string) string { return gitx.TrunkBranch(p0) }
 
 func branchIsTrunk(p0 string, p1 string) bool { return gitx.BranchIsTrunk(p0, p1) }

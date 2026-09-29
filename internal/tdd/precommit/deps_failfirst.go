@@ -8,6 +8,12 @@ import (
 
 const DefaultPrecommitTimeout = failfirst.DefaultPrecommitTimeout
 
+type HeadGreen = failfirst.HeadGreen
+
+func ProveGreenAtHead(p0 string, p1 string, p2 []string, p3 []string, p4 SuiteRunner) (HeadGreen, bool) {
+	return failfirst.ProveGreenAtHead(p0, p1, p2, p3, p4)
+}
+
 func failFirstStage(p0 string, p1 string, p2 []string, p3 []string, p4 SuiteRunner) GateResult {
 	return failfirst.FailFirstStage(p0, p1, p2, p3, p4)
 }
