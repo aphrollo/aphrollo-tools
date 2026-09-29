@@ -118,3 +118,46 @@ pattern = "mass / \\(sub_dt \\* sub_dt\\)"
 		}
 	}
 }
+
+// forbiddenWordLaw hits FORBIDDEN wherever the string-masked view still shows
+// it, in any file kind: the probe for which lexer a file is read with.
+func forbiddenWordLaw(t *testing.T) Law {
+	t.Helper()
+	l, err := ParseLaw(`name = "forbidden-word"
+description = "the word appears only in quoted text"
+severity = "deny"
+mask_strings = true
+
+[scope]
+include = ["**/*"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "FORBIDDEN"
+`, "forbidden-word")
+	if err != nil {
+		t.Fatalf("ParseLaw: %v", err)
+	}
+	return l
+}
+
+// Go, JS and Rust keep the lexers they had: a `#` is code in all three, so a
+// string after it is still blanked, and the comments stay readable prose.
+func TestLawMaskStrings_CFamilyFilesKeepTheirLexers(t *testing.T) {
+	l := forbiddenWordLaw(t)
+	cases := map[string]struct {
+		file, src string
+		want      []string
+	}{
+		"a JS private field before a string": {"a.ts", "this.#x = \"FORBIDDEN\";\n", nil},
+		"a JS comment is prose":              {"a.js", "f(); // FORBIDDEN it's\ng('x');\n", []string{"a.js:1"}},
+		"a Go rune before a string":          {"a.go", "r := '#'\ns := \"FORBIDDEN\"\n", nil},
+		"a Rust attribute before a string":   {"a.rs", "#[cfg(test)]\nconst S: &str = \"FORBIDDEN\";\n", nil},
+		"a Go comment with an apostrophe":    {"a.go", "// it's\nx := 1 // FORBIDDEN\n", []string{"a.go:2"}},
+	}
+	for name, c := range cases {
+		if got := lineKeys(l.HitsIn(c.file, c.src)); !sameStrings(got, c.want) {
+			t.Errorf("%s: hits = %v, want %v", name, got, c.want)
+		}
+	}
+}
