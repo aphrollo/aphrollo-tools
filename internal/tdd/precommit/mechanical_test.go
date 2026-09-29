@@ -84,10 +84,9 @@ func TestMechanical_DocsOnlyMerge_NoOpWithNothingToTestLine(t *testing.T) {
 // included) so aphrollo-tools' own anti-cheat gate never mistakes this
 // repo's test source for an introduced suppression when committing it — the
 // scanned target is the FIXTURE repo's staged content, never this file's.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestMechanical_NeverBlocksOnSuppressionOrFailFirst(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	marker := strings.Join([]string{"no", "lint", ":unused"}, "")
 	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int { return 1 } //"+marker+"\n")
@@ -102,10 +101,9 @@ func TestMechanical_NeverBlocksOnSuppressionOrFailFirst(t *testing.T) {
 // TestMechanical_BlocksARealCompileFailure guards that Mechanical is not a
 // no-op rubber stamp: a genuinely broken combined tree still blocks the
 // merge, via the SAME mechanical judgment Precommit uses.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestMechanical_BlocksARealCompileFailure(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	write(t, root, "broken.go", "package m\n\nfunc Broken() int { return }\n")
 	gitDo(t, root, "add", ".")

@@ -65,10 +65,9 @@ func TestMechanical_DocsOnlyMergeTakesTheFastPath(t *testing.T) {
 
 // The fast path is keyed on the file KINDS, so one staged source file takes
 // the commit back onto the full wall however much prose rides with it.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_OneStagedSourceFileLeavesTheFastPath(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	withLinter(t, false)
+	t.Parallel()
+	linterAbsent(t)
 	root := docsRepo(t, map[string]string{
 		"README.md": "# notes\n",
 		"widget.go": "package m\n\nfunc Widget() int { return 1 }\n",

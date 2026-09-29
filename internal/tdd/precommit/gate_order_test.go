@@ -144,9 +144,8 @@ func TestPrecommit_GateLogNamesTheRejectingStage(t *testing.T) {
 // TestPrecommit_AlwaysRunResultIsCached pins that the guard crate's green is
 // remembered under the same content key as everything else: an identical
 // tree at merge must not re-run it.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_AlwaysRunResultIsCached(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := orderedGateRepo(t)
 
 	count := func() int {

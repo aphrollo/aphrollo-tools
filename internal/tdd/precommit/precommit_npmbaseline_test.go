@@ -154,9 +154,8 @@ func TestNpmBaseline_AHeadRunWithNoReadingHoldsEveryError(t *testing.T) {
 
 // The HEAD run is paid once per tree and command: the next commit on the
 // same HEAD reads the cached result.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestNpmBaseline_TheHeadRunIsCachedByTreeAndCommand(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeProbedRepo(t, nil)
 	write(t, root, "src/b.ts", "export const b = 1\n")
 	gitDo(t, root, "add", "src/b.ts")

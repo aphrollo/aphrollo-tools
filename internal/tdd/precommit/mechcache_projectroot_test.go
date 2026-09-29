@@ -37,10 +37,9 @@ func twoModuleMerge(t *testing.T) string {
 	return root
 }
 
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestMechanical_AGreenInOneProjectRootIsNoCacheHitForAnother(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := twoModuleMerge(t)
 
 	res := Mechanical(root, RunSuite(precommitTestTimeout))

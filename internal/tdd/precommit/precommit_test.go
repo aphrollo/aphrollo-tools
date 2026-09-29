@@ -70,9 +70,9 @@ func makeJSRepo(t *testing.T, pkgJSON string) string {
 	return root
 }
 
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_FailFirst_BlocksTestThatPassesWithoutImpl(t *testing.T) {
-	withLinter(t, false)
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	// A test that asserts nothing about new code — it passes against HEAD.
 	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) { _ = 1 }\n")
@@ -85,9 +85,9 @@ func TestPrecommit_FailFirst_BlocksTestThatPassesWithoutImpl(t *testing.T) {
 	}
 }
 
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_FailFirst_AllowsTestThatNeedsImpl(t *testing.T) {
-	withLinter(t, false)
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	// The test references Widget(), which does not exist at HEAD → it fails to
 	// compile without the staged source → fail-first satisfied → allowed.
@@ -101,9 +101,9 @@ func TestPrecommit_FailFirst_AllowsTestThatNeedsImpl(t *testing.T) {
 	}
 }
 
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_BlocksNewlyAddedSuppression(t *testing.T) {
-	withLinter(t, false)
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	// A compiling source file whose only sin is a freshly-added linter
 	// suppression: mechanical would pass, but the anti-cheat gate blocks first.
@@ -116,9 +116,9 @@ func TestPrecommit_BlocksNewlyAddedSuppression(t *testing.T) {
 	}
 }
 
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
-	withLinter(t, false)
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	// Commit a file that already carries a suppression.
 	write(t, root, "old.go", "package m\n\nfunc Old() int { return 2 } //nolint:unused\n")
@@ -143,9 +143,9 @@ func TestPrecommit_IgnoresPreexistingSuppression(t *testing.T) {
 // and blocks. The inert quote lives inside a pre-existing block comment, so the
 // file still compiles and mechanical alone would let it through.
 // (reason: this is the exact case the bypass test below exists to catch.)
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_MaskingBypass_FullFilePostImage(t *testing.T) {
-	withLinter(t, false)
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	// Base: a func carrying an empty block comment whose */ closer is committed.
 	write(t, root, "gizmo.go", "package m\n\nfunc Gizmo() int {\n\t/* note\n\t*/\n\treturn 1\n}\n")
@@ -167,9 +167,9 @@ func TestPrecommit_MaskingBypass_FullFilePostImage(t *testing.T) {
 	}
 }
 
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_Mechanical_BlocksFailingSuite(t *testing.T) {
-	withLinter(t, false)
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	// A committed test that passes, then a source-only change that breaks it:
 	// the code still compiles and vets clean, so the SUITE is what rejects,
@@ -408,9 +408,8 @@ func makeCargoRepo(t *testing.T) string { t.Helper(); return tddtest.MakeCargoRe
 // A green mechanical run must be remembered: a second Precommit over the
 // IDENTICAL worktree state and runner must not re-run the suite (the retry
 // after a hook timeout, or an amend that changes nothing tested).
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_Mechanical_GreenResultCached(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -429,9 +428,8 @@ func TestPrecommit_Mechanical_GreenResultCached(t *testing.T) {
 
 // Any content change invalidates the cached green — the hash covers the
 // worktree, so an edit between commits forces a fresh run.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_Mechanical_CacheMissAfterEdit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")

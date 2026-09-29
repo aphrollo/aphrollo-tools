@@ -21,7 +21,7 @@ import (
 func clippyCleanServerWorkspace(t *testing.T) string {
 	t.Helper()
 	tddtest.RequireRealCargo(t)
-	withLinter(t, false)
+	linterAbsent(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
 	gitInit(t, root)

@@ -20,10 +20,9 @@ import (
 // Formatting is a parse, not a process spawn, so widening the set costs
 // nothing measurable — and only gofmt widens. Lint and the suites stay scoped
 // to the commit.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_GofmtJudgesAFileAnEarlierCommitInTheLaneLeftUnformatted(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 
 	gitDo(t, root, "branch", "-f", "main")
@@ -54,10 +53,9 @@ func TestPrecommit_GofmtJudgesAFileAnEarlierCommitInTheLaneLeftUnformatted(t *te
 // already unformatted on the base. Blocking a lane for a violation it did not
 // introduce makes the gate unpassable and teaches people to bypass it; the
 // merge gate does not judge those either.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_GofmtLeavesAFileTheLaneNeverTouchedToItsOwnLane(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 
 	// Unformatted on the base branch, before the lane exists.

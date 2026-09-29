@@ -218,9 +218,8 @@ process.exit(n > 0 ? 1 : 0);
 // svelte-check checks the whole project, so an error standing at HEAD is
 // measured there too, after the same svelte-kit sync, and only an error
 // the commit adds refuses it.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestNpmTypecheck_SvelteCheckHoldsOnlyWhatTheCommitAddsAfterSyncAtHead(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	requireNode(t)
 	root := makeTSRepo(t, map[string]string{
 		".gitignore":          "node_modules/\n.svelte-kit/\n",
@@ -398,9 +397,8 @@ process.exit(bad.length > 0 ? 1 : 0);
 // A declared tool the gate cannot read is judged by its output lines over
 // HEAD's run of the same command: a line HEAD already printed passes, a new
 // one refuses.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestNpmTypecheck_AnUnreadableToolIsJudgedByTheLinesItAdds(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	requireNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"aphrollo.toml": "[aphrollo.typecheck]\n\".\" = [\"checker\"]\n",

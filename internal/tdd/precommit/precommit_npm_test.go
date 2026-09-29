@@ -361,7 +361,7 @@ func TestNpmChecks_EslintGetsOnlyStagedLintableFilesThatExist(t *testing.T) {
 // tsconfig.json is judged by vet and lint, not by a tsc it never declared.
 // Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestNpmChecks_ARootWithoutPackageJSONIsNotTypechecked(t *testing.T) {
-	withLinter(t, false)
+	linterAbsent(t)
 	withFakeNode(t)
 	root := makeGoRepo(t)
 	write(t, root, "tsconfig.json", plainTsconfig)

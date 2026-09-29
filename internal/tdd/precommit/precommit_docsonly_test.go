@@ -19,9 +19,8 @@ func refuseToRun(t *testing.T) SuiteRunner {
 // A commit that stages nothing but a hand-raised ceiling is the exact shape
 // the baseline guard exists for, and it was the one shape that skipped it: no
 // staged source or test meant the gate returned before the guard ran.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_RejectsARaisedBaselineInACommitWithNoCode(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := baselineRepo(t, ".ratchet/baselines/module_size.txt",
 		"# header\ncrates/a.rs | 1048\n",
 		"# header\ncrates/a.rs | 1049\n")
@@ -67,9 +66,8 @@ pattern = "TODO"
 }
 
 // The merge gate carries the same two stages and had the same early return.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestMechanical_RejectsARaisedBaselineInAMergeWithNoCode(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := baselineRepo(t, ".ratchet/baselines/module_size.txt",
 		"# header\ncrates/a.rs | 1048\n",
 		"# header\ncrates/a.rs | 1049\n")

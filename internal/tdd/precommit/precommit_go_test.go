@@ -26,9 +26,24 @@ func newDriftVersionPair() (pinned, local string) {
 	return fmt.Sprintf("2.12.%d", n), fmt.Sprintf("2.9.%d", n)
 }
 
+// linterAbsent states what TestMain already set for the whole run: no
+// golangci-lint on the box. It changes nothing, so a test that calls it may run
+// in parallel.
+func linterAbsent(t *testing.T) { t.Helper() }
+
+// withLinter installs the linter probe for one test: a process-wide override,
+// so a test that calls it runs serially. The doctor's tests in install reach it
+// through their generated wrappers.
 func withLinter(t *testing.T, present bool) {
 	t.Helper()
 	t.Cleanup(SetLookLinterForTest(func() bool { return present }))
+}
+
+// withLinterPresent installs a present linter for one test: a process-wide
+// override, so the test runs serially.
+func withLinterPresent(t *testing.T) {
+	t.Helper()
+	withLinter(t, true)
 }
 
 func withLinterVersion(t *testing.T, version string) {
@@ -52,7 +67,7 @@ func cmdLine(r Runner) string { return strings.TrimSpace(r.Cmd + " " + strings.J
 // Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitGo_RootRunsVetThenLintAndStopsThere(t *testing.T) {
 	root := makeGoRepo(t)
-	withLinter(t, true)
+	withLinterPresent(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
 
@@ -79,7 +94,7 @@ func TestPrecommitGo_RootRunsVetThenLintAndStopsThere(t *testing.T) {
 // Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitLint_scopesToTheTouchedPackagesNotTheWholeModule(t *testing.T) {
 	root := makeGoRepo(t)
-	withLinter(t, true)
+	withLinterPresent(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	write(t, root, "sub/thing.go", "package sub\n\nfunc Thing() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -108,7 +123,7 @@ func TestPrecommitLint_scopesToTheTouchedPackagesNotTheWholeModule(t *testing.T)
 // runs while other sessions build, needs it more.
 // Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitPassesAllowSerialRunnersToTheLinter(t *testing.T) {
-	withLinter(t, true)
+	withLinterPresent(t)
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -138,7 +153,7 @@ func TestPrecommitPassesAllowSerialRunnersToTheLinter(t *testing.T) {
 func TestPrecommitLogsLintVersionDriftAndStillRuns(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	withLinter(t, true)
+	withLinterPresent(t)
 	pinned, local := newDriftVersionPair()
 	withLinterVersion(t, local)
 	root := makeGoRepo(t)
@@ -165,7 +180,7 @@ func TestPrecommitLogsLintVersionDriftAndStillRuns(t *testing.T) {
 func TestPrecommitIsQuietWhenTheLinterMatchesTheWorkflowPin(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	withLinter(t, true)
+	withLinterPresent(t)
 	withLinterVersion(t, "2.12.2")
 	root := makeGoRepo(t)
 	write(t, root, ".github/workflows/pipeline.yml",
@@ -186,7 +201,7 @@ func TestPrecommitIsQuietWhenTheLinterMatchesTheWorkflowPin(t *testing.T) {
 func TestPrecommitSkipsTheLinterWhenItIsNotOnPath(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	withLinter(t, false)
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -209,7 +224,7 @@ func TestPrecommitSkipsTheLinterWhenItIsNotOnPath(t *testing.T) {
 // Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitRejectsWhenTheLinterFails(t *testing.T) {
 	root := makeGoRepo(t)
-	withLinter(t, true)
+	withLinterPresent(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
 
@@ -243,7 +258,7 @@ func TestPrecommitRejectsWhenTheLinterFails(t *testing.T) {
 // Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_ClassifiesLintContentionAsNotALintFailure(t *testing.T) {
 	root := makeGoRepo(t)
-	withLinter(t, true)
+	withLinterPresent(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
 
@@ -298,9 +313,8 @@ func TestPrecommitPassesStagedMarkdownThatResolves(t *testing.T) {
 
 // A repo that is neither a Go module nor opted in never sees the stage: the
 // doc conventions it enforces are not universal.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommitSkipsDocsCheckForARepoThatDidNotOptIn(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeJSRepo(t, `{"name":"x","scripts":{"test":"vitest run"}}`)
 	write(t, root, "NOTES.md", "see [the plan](docs/nowhere.md)\n")
 	gitDo(t, root, "add", ".")

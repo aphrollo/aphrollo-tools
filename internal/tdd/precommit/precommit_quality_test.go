@@ -72,9 +72,8 @@ func TestPrecommit_Quality_FmtDiffBlocksAndNamesTheCrate(t *testing.T) {
 // workspace that never declared `clippy-clean` is not lint-gated at all
 // (most crates in a large tree carry warnings, and a commit gate that fails
 // on them is one nobody can use), while a declared crate is.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_Quality_ClippyOnlyForDeclaredCrates(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	undeclared := cargoQualityRepo(t, "")
 	var seen []string
 	Precommit(undeclared, func(r Runner, _ string) SuiteResult {

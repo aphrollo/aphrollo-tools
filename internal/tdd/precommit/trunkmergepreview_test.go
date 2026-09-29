@@ -13,9 +13,9 @@ import (
 // Mechanical's doc comment names, and the ONLY prior evidence for it was
 // GitHub's post-push merge-preview CI job. This proves the LOCAL gate now
 // catches it before the commit is even made.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_TrunkMergePreview_BlocksWhenTrunkRenameBreaksLaneMerge(t *testing.T) {
-	withLinter(t, false)
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 
 	trunk := TrunkBranch(root)

@@ -170,7 +170,7 @@ func TestMechanical_RunsTheSuiteOfAPackageWhoseOnlyChangeIsANonGoFile(t *testing
 // Serial: captures the process-wide os.Stderr.
 func TestPrecommit_NamesThePackageOfAStagedNonGoFileAsNotRun(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	withLinter(t, false)
+	linterAbsent(t)
 	root := nonGoFileRepo(t, "p/testdata/golden.json")
 
 	var seen []Runner
