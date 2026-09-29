@@ -61,6 +61,41 @@ func TestMain_TheStdlibHomeLookupsResolveInsideTheTempRoot(t *testing.T) {
 	}
 }
 
+// Moving the home must not move the toolchain: with the caches pinned to where
+// they resolved before the move, no `go` a test spawns rebuilds the world.
+func TestPinToolchainHomes_KeepsTheGoCachesOutOfTheTempHome(t *testing.T) {
+	root := filepath.Dir(os.Getenv("CLAUDE_CONFIG_DIR"))
+	for _, name := range []string{"GOPATH", "GOCACHE", "GOMODCACHE", "GOENV"} {
+		v := os.Getenv(name)
+		if v == "" || inside(root, v) {
+			t.Errorf("%s = %q, want the toolchain's own location, outside the temp root %q", name, v, root)
+		}
+	}
+}
+
+func TestPinToolchainHomes_LeavesTheEnvironmentAloneWhenGoCannotAnswer(t *testing.T) {
+	t.Setenv("PATH", "")
+	t.Setenv("GOCACHE", "/keep/this")
+	pinToolchainHomes()
+	if got := os.Getenv("GOCACHE"); got != "/keep/this" {
+		t.Fatalf("GOCACHE = %q after a failed lookup, want it untouched", got)
+	}
+}
+
+func TestPinToolchainHomes_PointsRustupAtTheHomeItReplaces_ButKeepsOneThatIsSet(t *testing.T) {
+	t.Setenv("RUSTUP_HOME", "")
+	pinToolchainHomes()
+	home, _ := os.UserHomeDir()
+	if got, want := os.Getenv("RUSTUP_HOME"), filepath.Join(home, ".rustup"); got != want {
+		t.Fatalf("RUSTUP_HOME = %q, want %q", got, want)
+	}
+	t.Setenv("RUSTUP_HOME", "/opt/rustup")
+	pinToolchainHomes()
+	if got := os.Getenv("RUSTUP_HOME"); got != "/opt/rustup" {
+		t.Fatalf("RUSTUP_HOME = %q, want the one that was already set", got)
+	}
+}
+
 func TestHomeLayout_PutsEveryVariableUnderTheFakeHome(t *testing.T) {
 	fake := filepath.Join(t.TempDir(), "home")
 	layout := homeLayout(fake)

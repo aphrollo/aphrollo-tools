@@ -50,6 +50,19 @@ func CheckSelfSpawn(exe string, env []string) error {
 	return nil
 }
 
+// SpawnableSelf is the path exeFn (os.Executable in production) names, refused
+// when CheckSelfSpawn refuses it against env.
+func SpawnableSelf(exeFn func() (string, error), env []string) (string, error) {
+	exe, err := exeFn()
+	if err != nil {
+		return "", err
+	}
+	if err := CheckSelfSpawn(exe, env); err != nil {
+		return "", err
+	}
+	return exe, nil
+}
+
 // ChildEnv returns base with the spawn depth one generation deeper than
 // parent's: a child built from a scrubbed copy of the environment still counts
 // the generation it is.

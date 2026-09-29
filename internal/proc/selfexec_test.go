@@ -51,6 +51,32 @@ func TestCheckSelfSpawn_RefusesPastTheDepthCap(t *testing.T) {
 	}
 }
 
+func TestSpawnableSelf_AnswersTheExecutableItWasHanded(t *testing.T) {
+	got, err := SpawnableSelf(func() (string, error) { return "/usr/local/bin/aphrollo", nil }, nil)
+	if err != nil || got != "/usr/local/bin/aphrollo" {
+		t.Fatalf("SpawnableSelf = %q, %v; want the path and no error", got, err)
+	}
+}
+
+func TestSpawnableSelf_PassesOnAnExecutableLookupFailure(t *testing.T) {
+	boom := errors.New("no /proc")
+	got, err := SpawnableSelf(func() (string, error) { return "/usr/local/bin/aphrollo", boom }, nil)
+	if !errors.Is(err, boom) || got != "" {
+		t.Fatalf("SpawnableSelf = %q, %v; want no path and the lookup error", got, err)
+	}
+}
+
+func TestSpawnableSelf_RefusesATestBinaryAndADeepChain(t *testing.T) {
+	testBin := func() (string, error) { return "/tmp/go-build1/b001/tdd.test", nil }
+	if got, err := SpawnableSelf(testBin, nil); !errors.Is(err, ErrTestBinary) || got != "" {
+		t.Fatalf("test binary: %q, %v; want ErrTestBinary and no path", got, err)
+	}
+	real := func() (string, error) { return "/usr/local/bin/aphrollo", nil }
+	if got, err := SpawnableSelf(real, []string{SpawnDepthEnv + "=2"}); !errors.Is(err, ErrSpawnDepth) || got != "" {
+		t.Fatalf("deep chain: %q, %v; want ErrSpawnDepth and no path", got, err)
+	}
+}
+
 func TestChildEnv_CountsOneGenerationDeeperThanTheParent(t *testing.T) {
 	// The base is a scrubbed copy: it does not carry the parent's depth.
 	got := ChildEnv([]string{"P=1", SpawnDepthEnv + "=1"}, []string{"A=1", "B=2"})

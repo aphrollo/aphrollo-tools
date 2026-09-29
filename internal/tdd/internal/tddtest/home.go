@@ -1,10 +1,11 @@
 package tddtest
 
 import (
+	"cmp"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 )
 
 // homeVars is every variable a Go program, git, or a tool the tests spawn
@@ -64,21 +65,15 @@ func isolateHome(dir string) string {
 
 // pinToolchainHomes writes the Go toolchain's resolved cache and env-file
 // locations, and the rustup home, into the environment where they default
-// under the home dir being replaced.
+// under the home dir being replaced. A toolchain that cannot answer leaves the
+// variables as they were.
 func pinToolchainHomes() {
-	names := []string{"GOPATH", "GOCACHE", "GOMODCACHE", "GOENV"}
-	out, err := exec.Command("go", append([]string{"env"}, names...)...).Output() // stderr-ok: a failed lookup leaves the variables unpinned, and go says nothing a caller could use
-	if err == nil {
-		lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(string(out)), "\r\n", "\n"), "\n")
-		for i, name := range names {
-			if i < len(lines) && strings.TrimSpace(lines[i]) != "" {
-				_ = os.Setenv(name, strings.TrimSpace(lines[i]))
-			}
-		}
+	out, _ := exec.Command("go", "env", "-json", "GOPATH", "GOCACHE", "GOMODCACHE", "GOENV").Output() // stderr-ok: a failed lookup leaves the variables unpinned, and go says nothing a caller could use
+	var resolved map[string]string
+	_ = json.Unmarshal(out, &resolved)
+	for name, value := range resolved {
+		_ = os.Setenv(name, value)
 	}
-	if _, set := os.LookupEnv("RUSTUP_HOME"); !set {
-		if home, err := os.UserHomeDir(); err == nil {
-			_ = os.Setenv("RUSTUP_HOME", filepath.Join(home, ".rustup"))
-		}
-	}
+	home, _ := os.UserHomeDir()
+	_ = os.Setenv("RUSTUP_HOME", cmp.Or(os.Getenv("RUSTUP_HOME"), filepath.Join(home, ".rustup")))
 }

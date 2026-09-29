@@ -79,15 +79,25 @@ var buildAphrollo = func(repo, out string) (string, error) {
 // killed. None of them had a clock of its own: one that hung held the update,
 // and everything it had started, for as long as it liked (#997). Generous —
 // a cold build is minutes, the self-check and init are seconds.
-const (
-	buildBudget      = 15 * time.Minute
-	smokeCheckBudget = 60 * time.Second
-	initBudget       = 5 * time.Minute
+var (
+	buildBudget      = mustDuration("15m")
+	smokeCheckBudget = mustDuration("1m")
+	initBudget       = mustDuration("5m")
 	// killGrace is how long after the kill the command waits for its
 	// output pipes to close: a killed shell leaves its own children holding
 	// them, and Wait would otherwise block on those.
-	killGrace = 2 * time.Second
+	killGrace = mustDuration("2s")
 )
+
+// mustDuration parses a duration written in this file; a typo is a panic at
+// startup, never a zero budget that kills every command at once.
+func mustDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		panic(err)
+	}
+	return d
+}
 
 // boundedCommand is exec.Command that is killed once budget has passed. The
 // returned finish releases the deadline and must wrap the error the command's

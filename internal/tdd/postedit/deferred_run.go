@@ -30,11 +30,8 @@ const phasePollEvery = 200 * time.Millisecond
 // phases again — #997) or the chain of self-spawns is already at the cap. The
 // refusal comes before anything is saved.
 func spawnPhase(j DeferredJob) (DeferredJob, bool) {
-	self, err := selfExeFn()
+	self, err := proc.SpawnableSelf(selfExeFn, os.Environ())
 	if err != nil {
-		return j, false
-	}
-	if err := proc.CheckSelfSpawn(self, os.Environ()); err != nil {
 		return j, false
 	}
 	saveDeferredJob(j)
