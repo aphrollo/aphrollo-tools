@@ -2,6 +2,7 @@ package precommit
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
@@ -23,11 +24,18 @@ func TestMain(m *testing.M) {
 			// wants stated. A test that needs it present installs its own
 			// (withLinterPresent) and so runs serially.
 			defer SetLookLinterForTest(func() bool { return false })()
+			// Git is isolated once for the run, not per test, so a test that
+			// builds its repos from the fixture helpers may call t.Parallel.
+			dir, err := os.MkdirTemp("", "aphrollo-precommit-git-")
+			if err != nil {
+				panic(err)
+			}
+			defer os.RemoveAll(dir)
+			defer tddtest.SharedGit(filepath.Join(dir, "gitconfig"))()
 			return m.Run()
 		},
 		GitBinary:        gitx.GitBinary,
 		GitQueuedEnv:     gitx.GitQueuedEnv,
-		SharedGitConfig:  true,
 		BuildLockHeldEnv: lock.BuildLockHeldEnv,
 		SetLockDir:       lock.SetLockDirForTest,
 		SetLockDirName:   lock.SetSharedLockDirForTest,

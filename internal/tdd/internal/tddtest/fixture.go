@@ -210,6 +210,26 @@ func MakeCargoRepo(t *testing.T) string {
 	return CopyFixture(t, root, cargoFixture)
 }
 
+// sharedGitConfig is the package-lifetime empty git config SharedGit points git
+// at, "" when no run-wide isolation is in force.
+var sharedGitConfig string
+
+// SharedGit keeps git isolated for a whole package run instead of per test: the
+// hook's repo-pointing GIT_* variables are dropped and git's global config is
+// the one empty file at configPath, until the returned restore runs. While it
+// holds, IsolateGitConfig changes no environment, so a test that builds its
+// repos through the fixture helpers may call t.Parallel. A test that needs its
+// own global config writes it through git -c or stays serial. A package's
+// TestMain calls it from its Run closure, after Main has built the fixtures.
+func SharedGit(configPath string) (restore func()) {
+	sharedGitConfig = configPath
+	undo := isolateGitConfigEnv(configPath)
+	return func() {
+		undo()
+		sharedGitConfig = ""
+	}
+}
+
 // IsolateGitConfig points git's global + system config at temp/empty files so
 // the test never reads or writes the real ~/.gitconfig.
 func IsolateGitConfig(t *testing.T) string {
