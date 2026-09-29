@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // gatePRMergeHolderFile matches PRGateHolderFile
@@ -418,7 +420,13 @@ func worktreeClean(wt string) bool {
 // successful remove has already deleted that worktree's admin entry; it never
 // follows up with `git worktree prune`, which would also delete the entry of
 // every OTHER worktree whose directory this process cannot see.
+//
+// It unlinks every link in wt first: git deletes an ignored node_modules with
+// the tree, and through a junction that is the primary checkout's install.
 func removeWorktree(repo, wt string, force bool) error {
+	if err := depinstall.RemoveLinks(wt); err != nil {
+		return fmt.Errorf("unlink the links before removing the tree: %v", err)
+	}
 	args := []string{"-C", repo, "worktree", "remove"}
 	if force {
 		args = append(args, "--force")

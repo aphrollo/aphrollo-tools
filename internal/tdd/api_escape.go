@@ -40,6 +40,8 @@ func CheckPRCloses(p0 string, p1 string, p2 io.Writer) (bool, error) {
 	return escape.CheckPRCloses(p0, p1, p2)
 }
 
+func ClosingRefs(p0 ...string) []string { return escape.ClosingRefs(p0...) }
+
 func DemoteCandidateLines(p0 []DemoteCandidate) string { return escape.DemoteCandidateLines(p0) }
 
 func DemoteCandidates(p0 io.Reader, p1 time.Time) []DemoteCandidate {

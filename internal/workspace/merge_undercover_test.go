@@ -204,3 +204,38 @@ func TestMerge_RefusesWhenThePRCommitsCannotBeListed(t *testing.T) {
 		t.Error("the merge ran anyway")
 	}
 }
+
+// #952: the squash body is the PR body, and GitHub closes an issue only from
+// a keyword in it, so every issue a lane commit closes and the body does not
+// is appended as a trailer, once. A body that already closes every one of
+// them goes through unchanged.
+func TestMerge_CarriesTheLaneCommitsClosingTrailersIntoTheSquashBody(t *testing.T) {
+	for _, c := range []struct {
+		name, body, want string
+	}{
+		{"missing from the body", "Fix the timer (#886). Resolves #887",
+			"Fix the timer (#886). Resolves #887\n\nCloses #886\nCloses #889"},
+		{"body ending in a newline", "Fix the timer.\n",
+			"Fix the timer.\n\nCloses #886\nCloses #887\nCloses #889"},
+		{"all in the body", "Fixes #886, fixes #887 and closes #889",
+			"Fixes #886, fixes #887 and closes #889"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			repo, commit := mergeUndercoverRepo(t, true)
+			commit(nil, "-m", "Closes #886\nFixes #887")
+			commit(nil, "-m", "Closes #886\nResolves #889")
+			_, withBody := stubMergeUndercover(t, "Fix the timer", c.body)
+			m, err := MergePlan(targetFor(repo, "lane/x"), "squash", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out, errb bytes.Buffer
+			if err := m.Apply(&out, &errb); err != nil {
+				t.Fatalf("Apply: %v\n%s", err, errb.String())
+			}
+			if *withBody != c.want {
+				t.Errorf("squash body = %q, want %q", *withBody, c.want)
+			}
+		})
+	}
+}

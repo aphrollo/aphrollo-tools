@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // gatePRMergeHolderFile matches PRGateHolderFile
@@ -76,7 +78,14 @@ func readGatePRMergeHolderPID(wt string) (int, bool) {
 // removed. A GCCandidate carries no repo root to run `-C <repo>` with, and
 // git resolves the shared repository data from the worktree itself either
 // way.
+//
+// It unlinks every link in the checkout first: a forced `worktree remove`
+// deletes an untracked node_modules, and through a junction that is the
+// lane's own install (#947).
 func removeGatePRMergeWorktree(path string) error {
+	if err := depinstall.RemoveLinks(path); err != nil {
+		return err
+	}
 	out, err := exec.Command("git", "-C", path, "worktree", "remove", "--force", ".").CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))

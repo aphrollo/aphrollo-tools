@@ -31,16 +31,36 @@ type Hit struct {
 type FileLines struct {
 	raw  []string
 	code map[string][]string
-	// rust masks strings the way Rust spells them: `'` opens a char literal
-	// only in a char literal's shape, and is otherwise a lifetime or a label.
-	rust bool
+	// mask blanks the strings of the whole file the way its language spells
+	// them (see maskerFor).
+	mask func(src string) string
 }
 
 // newFileLines splits content once. Cheap enough to call for a single
 // HitsIn as well as a scanner's per-file loop. The path decides the
 // language the string masker reads the content as.
 func newFileLines(file, content string) *FileLines {
-	return &FileLines{raw: splitLines(content), rust: strings.EqualFold(filepath.Ext(file), ".rs")}
+	return &FileLines{raw: splitLines(content), mask: maskerFor(file)}
+}
+
+// maskerFor picks the string masker a file's extension calls for. Rust reads
+// a lifetime's `'` as code, not as a quote that blanks every line up to the
+// next apostrophe. Python, shell and TOML read `#` as a comment, so an
+// apostrophe or a quote inside one opens no string; read as code, it blanks
+// the lines below it just the same, and a law reports nothing over code it
+// never saw. Every other file keeps the language-neutral lexer.
+func maskerFor(file string) func(string) string {
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".rs":
+		return func(src string) string { return mask.RustTokens(src, true, false) }
+	case ".py":
+		return func(src string) string { return mask.PythonTokens(src, true, false) }
+	case ".sh":
+		return func(src string) string { return mask.ShellTokens(src, true, false) }
+	case ".toml":
+		return func(src string) string { return mask.TOMLTokens(src, true, false) }
+	}
+	return func(src string) string { return mask.Tokens(src, true, false, false) }
 }
 
 // codeFor returns l's view of the file — comment-stripped for a CodeOnly law,
@@ -63,7 +83,7 @@ func (fl *FileLines) codeFor(l Law) []string {
 	}
 	lines := fl.raw
 	if l.MaskStrings {
-		lines = maskStringLines(lines, fl.rust)
+		lines = maskStringLines(lines, fl.mask)
 	}
 	code := lines
 	if l.CodeOnly {
@@ -87,15 +107,9 @@ func (fl *FileLines) codeFor(l Law) []string {
 // block comment spans lines, and a per-line pass would read the tail of one
 // as code. It preserves length and newlines, so the masked slice has the same
 // lines in the same order and a hit still reports the line the reader sees.
-// A Rust file is lexed as Rust, where a lifetime's `'` is code: read as a
-// quote it blanks every line up to the next apostrophe, and a law then
-// reports nothing over code it never read.
-func maskStringLines(raw []string, rust bool) []string {
+// lex is the file's own language's masker.
+func maskStringLines(raw []string, lex func(string) string) []string {
 	src := strings.Join(raw, "\n") + "\n"
-	lex := func(src string) string { return mask.Tokens(src, true, false, false) }
-	if rust {
-		lex = func(src string) string { return mask.RustTokens(src, true, false) }
-	}
 	masked := splitLines(lex(src))
 	if len(masked) != len(raw) {
 		// Cannot happen — the lexer only ever replaces bytes with spaces — but

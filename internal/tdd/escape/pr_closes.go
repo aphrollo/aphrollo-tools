@@ -74,6 +74,24 @@ func closingKeywordFindings(body string) (warnings, errors []string) {
 	return warnings, errors
 }
 
+// ClosingRefs is every issue the texts close through a closing keyword, as
+// GitHub writes the reference ("#12", or "owner/name#12" for another repo),
+// once each in first-seen order. A bare mention closes nothing.
+func ClosingRefs(texts ...string) []string {
+	var refs []string
+	seen := map[string]bool{}
+	for _, text := range texts {
+		for _, m := range closesRe.FindAllStringSubmatch(text, -1) {
+			ref := m[1] + "#" + m[2]
+			if !seen[ref] {
+				seen[ref] = true
+				refs = append(refs, ref)
+			}
+		}
+	}
+	return refs
+}
+
 // blankSpan blanks out work[start:end] with spaces, preserving length and
 // byte offsets so a later regex pass never sees the masked text but
 // positions found in earlier passes stay valid.

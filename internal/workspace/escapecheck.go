@@ -42,7 +42,11 @@ func closureChecksBeforePR(wt, base, branch, title, body string, w io.Writer) (s
 		fmt.Fprintf(w, "escape-closure: no merge base with origin/%s — not checked locally, judged again at merge\n", base)
 		return title, body, nil
 	}
-	texts := append([]string{body}, commitMessagesSince(wt, mergeBase, "HEAD")...)
+	commits := commitMessagesSince(wt, mergeBase, "HEAD")
+	for _, ref := range missingCloses(body, commits) {
+		fmt.Fprintf(w, "warning: a commit closes %s but the PR body does not; `workspace merge` adds it to the squash message, and \"Closes %s\" in the body says so on the PR itself\n", ref, ref)
+	}
+	texts := append([]string{body}, commits...)
 	ok, err := verifyClosureLocal(wt, texts, mergeBase, "HEAD", w)
 	if err != nil {
 		return title, body, fmt.Errorf("escape closure check: %w", err)

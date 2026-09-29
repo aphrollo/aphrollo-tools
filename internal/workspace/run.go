@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // Render returns the human-readable plan. With apply=false it is the dry-run
@@ -326,6 +328,11 @@ func (r *Removal) removeWorktree(stdout io.Writer) error {
 		dropMissingWorktree(r.top, r.worktree)
 		fmt.Fprintf(stdout, "[skip] worktree %s — already gone\n", r.worktree)
 		return nil
+	}
+	// Links go first: git deletes an ignored node_modules with the tree, and
+	// through a junction that is the primary checkout's install (#947).
+	if err := depinstall.RemoveLinks(r.worktree); err != nil {
+		return fmt.Errorf("unlink the links in %s before removing it: %v", r.worktree, err)
 	}
 	args := []string{"-C", r.top, "worktree", "remove"}
 	if r.Force {
