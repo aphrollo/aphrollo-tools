@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // managedEvent is one Claude Code hook event aphrollo tdd installs into
@@ -183,12 +185,29 @@ func StripSettings(existing []byte) ([]byte, bool, error) {
 	return after, !bytes.Equal(before, after), nil
 }
 
+// refuseTestBinary is the guard every writer of a command that re-enters the
+// gate runs first: a hook, shim or settings entry naming a Go test binary makes
+// each later git call or hook exec that binary with gate arguments, and a test
+// binary answers by running its whole suite (#997). It holds in every mode, not
+// only under test.
+func refuseTestBinary(bin string) error {
+	if proc.IsGoTestBinary(bin) {
+		return fmt.Errorf("refusing to wire the gate to %s: %w", bin, proc.ErrTestBinary)
+	}
+	return nil
+}
+
 // InitSettings installs (or, with uninstall=true, removes) the aphrollo tdd
 // session hooks in configDir/settings.json, pointing them at the bin path. It
 // creates the file when installing into a fresh dir, backs up any existing file
 // before rewriting it, and is a no-op when nothing would change. Returns whether
 // the file was modified.
 func InitSettings(configDir, bin string, uninstall bool) (bool, error) {
+	if !uninstall {
+		if err := refuseTestBinary(bin); err != nil {
+			return false, err
+		}
+	}
 	path := filepath.Join(configDir, "settings.json")
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {

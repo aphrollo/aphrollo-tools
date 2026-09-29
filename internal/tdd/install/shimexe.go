@@ -46,6 +46,9 @@ func shimExeNames() []string {
 // InstallShimExes copies exe into dir under every shim name this platform
 // needs, refreshing a copy whose size or mtime no longer matches the source.
 func InstallShimExes(dir, exe string) (ShimExeResult, error) {
+	if err := refuseTestBinary(exe); err != nil {
+		return ShimExeResult{}, err
+	}
 	return installShimExes(dir, exe, shimExeNames())
 }
 

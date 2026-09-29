@@ -24,8 +24,12 @@ func absorbMoved(p0 string, p1 lang, p2 map[int]bool, p3 map[string]int) map[int
 
 func concatPolicies(p0 ...[]policy) []policy { return smell.ConcatPolicies(p0...) }
 
-func evaluateAdded(p0 string, p1 map[int]bool, p2 lang, p3 []policy, p4 phase) Decision {
-	return smell.EvaluateAdded(p0, p1, p2, p3, p4)
+func coveredDirectives(p0 string, p1 lang, p2 map[int]bool, p3 map[int]bool, p4 map[string]int) map[int]bool {
+	return smell.CoveredDirectives(p0, p1, p2, p3, p4)
+}
+
+func evaluateCovered(p0 string, p1 map[int]bool, p2 map[int]bool, p3 lang, p4 []policy, p5 phase) Decision {
+	return smell.EvaluateCovered(p0, p1, p2, p3, p4, p5)
 }
 
 func introducedLines(p0 string, p1 string, p2 lang) map[int]bool {
@@ -33,6 +37,10 @@ func introducedLines(p0 string, p1 string, p2 lang) map[int]bool {
 }
 
 func langOf(p0 string) lang { return smell.LangOf(p0) }
+
+func removedDirectives(p0 string, p1 string, p2 lang) map[string]int {
+	return smell.RemovedDirectives(p0, p1, p2)
+}
 
 func removedTexts(p0 string, p1 string, p2 lang) map[string]int {
 	return smell.RemovedTexts(p0, p1, p2)

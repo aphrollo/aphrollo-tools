@@ -30,7 +30,8 @@ type failFirstOutcome struct {
 	// proof nor a violation.
 	notReached bool
 	// notRunnable is why the proof could not start its runner at all: an
-	// npm root's test tool is not installed, or node is not on PATH (#904).
+	// npm root's test tool is not installed or node is not on PATH (#904), or
+	// a pytest root has no interpreter that imports pytest.
 	notRunnable string
 	// res is the proof run's own result, kept so its output is retained
 	// for `aphrollo gate output`; zero when nothing ran.

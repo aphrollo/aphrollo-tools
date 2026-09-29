@@ -129,6 +129,9 @@ func (s Scope) ExplicitPaths() []string {
 // Matches reports whether one repo-relative path is in scope.
 func (s Scope) Matches(path string) bool {
 	p := normalizeSlashes(path)
+	if inFixtures(p) {
+		return false
+	}
 	for _, pattern := range s.Exclude {
 		if matchGlob(pattern, p) {
 			return false
@@ -148,6 +151,9 @@ func (s Scope) Matches(path string) bool {
 // directory is not a match.
 func (s Scope) couldMatchUnder(dir string) bool {
 	d := normalizeSlashes(dir)
+	if inFixtures(d + "/") {
+		return false
+	}
 	for _, pattern := range s.Exclude {
 		if matchGlob(pattern, d) || matchGlob(pattern, d+"/") {
 			return false
@@ -159,6 +165,13 @@ func (s Scope) couldMatchUnder(dir string) bool {
 		}
 	}
 	return false
+}
+
+// inFixtures reports whether a repo-relative path lies under the repo's own
+// law fixtures. Fixtures are test data for the engine, never code of the repo,
+// so no scope reaches them: a new law cannot fire on its own hit fixture.
+func inFixtures(p string) bool {
+	return strings.HasPrefix(p, FixturesDir+"/")
 }
 
 func normalizeSlashes(p string) string {

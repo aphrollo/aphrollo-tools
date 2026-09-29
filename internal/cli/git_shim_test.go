@@ -533,6 +533,20 @@ func TestResolveRealGit_HonorsOverride(t *testing.T) {
 	}
 }
 
+// The shim execs whatever the override names as git. A Go test binary there
+// answers `git <verb>` by running its whole suite, whose git calls come back
+// through the shim with the same override in their environment (#997).
+func TestResolveRealGit_RefusesAGoTestBinaryOverride(t *testing.T) {
+	t.Setenv("APHROLLO_REAL_GIT", "/tmp/go-build1/b001/cli.test")
+	got, err := resolveRealGit()
+	if err == nil {
+		t.Fatalf("resolveRealGit() = %q, want a refusal", got)
+	}
+	if !strings.Contains(err.Error(), "Go test binary") {
+		t.Fatalf("refusal does not say why: %v", err)
+	}
+}
+
 // TestResolveRealGit_FindsGitOnPATH pins the actual defect: resolveRealGit
 // used to name only two hardcoded Windows install paths, so on any other
 // OS (Linux CI) it failed outright even with a perfectly good git sitting

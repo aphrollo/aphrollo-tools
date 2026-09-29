@@ -82,15 +82,15 @@ var coverageSuppressRe = regexp.MustCompile(`istanbul\s+ignore|\b[cv]8\s+ignore|
 
 var (
 	lintSuppressPolicy = policy{
-		name: "lint-suppress", category: suppressionCat, reason: lintSuppressReason,
+		name: "lint-suppress", category: suppressionCat, reason: lintSuppressReason, directive: true,
 		hit: func(v view) bool { return lintSuppressed(v.directives) },
 	}
 	typeSuppressPolicy = policy{
-		name: "type-suppress", category: suppressionCat, reason: typeSuppressReason,
+		name: "type-suppress", category: suppressionCat, reason: typeSuppressReason, directive: true,
 		hit: func(v view) bool { return typeSuppressRe.MatchString(v.directives) },
 	}
 	coverageSuppressPolicy = policy{
-		name: "coverage-suppress", category: suppressionCat, reason: coverageSuppressReason,
+		name: "coverage-suppress", category: suppressionCat, reason: coverageSuppressReason, directive: true,
 		hit: func(v view) bool { return coverageSuppressRe.MatchString(v.directives) },
 	}
 )
