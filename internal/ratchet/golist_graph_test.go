@@ -39,9 +39,10 @@ func liveGraphRepo(t *testing.T) string {
 	return root
 }
 
-// countGoList puts a `go` on PATH that logs every invocation before running
-// the real one, and returns a func reading how many `go list` runs happened.
-func countGoList(t *testing.T) func() int {
+// goCallLog puts a `go` on PATH that logs each invocation's arguments before
+// running the real one, and returns the wrapper's path and a reader of the
+// `go list` lines logged so far.
+func goCallLog(t *testing.T) (string, func() []string) {
 	t.Helper()
 	real, err := exec.LookPath("go")
 	if err != nil {
@@ -49,24 +50,32 @@ func countGoList(t *testing.T) func() int {
 	}
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls.log")
-	script := "#!/bin/sh\necho \"$1\" >> '" + log + "'\nexec '" + real + "' \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "go"), []byte(script), 0o755); err != nil {
+	wrapper := filepath.Join(dir, "go")
+	if err := os.WriteFile(wrapper, []byte(wrapperScript(real, log, "")), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return func() int {
-		data, err := os.ReadFile(log)
-		if err != nil {
-			return 0
-		}
-		n := 0
+	return wrapper, func() []string {
+		data, _ := os.ReadFile(log)
+		var out []string
 		for _, line := range strings.Split(string(data), "\n") {
-			if line == "list" {
-				n++
+			if strings.HasPrefix(line, "list ") {
+				out = append(out, line)
 			}
 		}
-		return n
+		return out
 	}
+}
+
+func wrapperScript(real, log, note string) string {
+	return "#!/bin/sh\n" + note + "echo \"$*\" >> '" + log + "'\nexec '" + real + "' \"$@\"\n"
+}
+
+// countGoList is goCallLog's count of `go list` runs.
+func countGoList(t *testing.T) func() int {
+	t.Helper()
+	_, lines := goCallLog(t)
+	return func() int { return len(lines()) }
 }
 
 func TestGoDepGraph_JudgesAProposedImportThroughAnOverlay(t *testing.T) {
@@ -291,4 +300,125 @@ func TestGoDepGraph_ErrorCarriesWhatGoListSaidOnStderr(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "example.com/m/nowhere") {
 		t.Fatalf("err = %v, want go's own stderr naming the missing package", err)
 	}
+}
+
+func TestGoDepGraph_PassesNoOverlayFlagWhenThereIsNoOverlay(t *testing.T) {
+	root := liveGraphRepo(t)
+	_, lines := goCallLog(t)
+	if _, err := Check(Options{Root: root}); err != nil {
+		t.Fatal(err)
+	}
+	got := lines()
+	if len(got) != 1 || strings.Contains(got[0], "-overlay") {
+		t.Fatalf("go list calls = %q, want one without -overlay", got)
+	}
+}
+
+// changesCacheKey runs the graph once, applies change, runs it again and
+// reports whether the second run had to ask go.
+func changesCacheKey(t *testing.T, root string, change func()) bool {
+	t.Helper()
+	calls := countGoList(t)
+	opts := Options{Root: root, CacheDir: t.TempDir()}
+	if _, err := Check(opts); err != nil {
+		t.Fatal(err)
+	}
+	change()
+	if _, err := Check(opts); err != nil {
+		t.Fatal(err)
+	}
+	return calls() == 2
+}
+
+func TestGoDepGraph_CacheKeyMovesWithGoSumAndVendorModules(t *testing.T) {
+	root := liveGraphRepo(t)
+	write(t, filepath.Join(root, "vendor", "modules.txt"), "")
+	if !changesCacheKey(t, root, func() { write(t, filepath.Join(root, "go.sum"), "example.com/x v1.0.0 h1:abc=\n") }) {
+		t.Error("a go.sum change did not move the key")
+	}
+	if !changesCacheKey(t, root, func() { write(t, filepath.Join(root, "vendor", "modules.txt"), "# example.com/x v1.0.0\n") }) {
+		t.Error("a vendor/modules.txt change did not move the key")
+	}
+}
+
+func TestGoDepGraph_CacheKeyIgnoresDirectoriesGoDoesNotList(t *testing.T) {
+	for _, dir := range []string{".hidden", "_skipped", "testdata"} {
+		root := liveGraphRepo(t)
+		write(t, filepath.Join(root, dir, "x.go"), "package x\n")
+		if changesCacheKey(t, root, func() { write(t, filepath.Join(root, dir, "x.go"), "package x\n\nvar V = 1\n") }) {
+			t.Errorf("a change under %s moved the key, but go never lists that directory", dir)
+		}
+	}
+}
+
+func TestGoDepGraph_CachesAModuleWhoseRootDirectoryStartsWithADot(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, ".mod")
+	write(t, filepath.Join(root, ".ratchet", "laws", "no_reach_b.toml"), liveGraphLaw)
+	write(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.21\n")
+	write(t, filepath.Join(root, "a", "a.go"), aClean)
+	write(t, filepath.Join(root, "b", "b.go"), "package b\n")
+	if !changesCacheKey(t, root, func() { write(t, filepath.Join(root, "a", "a.go"), aBroken) }) {
+		t.Error("a change in a dot-named module root did not move the key: its files were never hashed")
+	}
+}
+
+func TestGoDepGraph_CacheKeyMovesWhenTheGoBinaryChanges(t *testing.T) {
+	root := liveGraphRepo(t)
+	wrapper, lines := goCallLog(t)
+	opts := Options{Root: root, CacheDir: t.TempDir()}
+	if _, err := Check(opts); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(wrapper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(wrapper, append(data, []byte("# a different toolchain\n")...), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Check(opts); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(lines()); n != 2 {
+		t.Fatalf("go list ran %d times across a change of the go binary, want 2", n)
+	}
+}
+
+func TestGoDepGraph_NeverCachesUnderAGoWorkFile(t *testing.T) {
+	t.Run("named by GOWORK", func(t *testing.T) {
+		root := liveGraphRepo(t)
+		work := filepath.Join(t.TempDir(), "go.work")
+		write(t, work, "go 1.21\n\nuse "+root+"\n")
+		t.Setenv("GOWORK", work)
+		if !changesCacheKey(t, root, func() {}) {
+			t.Error("a GOWORK workspace was cached, but its other modules are inputs nobody hashed")
+		}
+	})
+	t.Run("GOWORK=off still caches", func(t *testing.T) {
+		root := liveGraphRepo(t)
+		t.Setenv("GOWORK", "off")
+		if changesCacheKey(t, root, func() {}) {
+			t.Error("GOWORK=off disabled the cache")
+		}
+	})
+	t.Run("in a parent directory", func(t *testing.T) {
+		parent := t.TempDir()
+		root := filepath.Join(parent, "m")
+		write(t, filepath.Join(root, ".ratchet", "laws", "no_reach_b.toml"), liveGraphLaw)
+		write(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.21\n")
+		write(t, filepath.Join(root, "a", "a.go"), aClean)
+		write(t, filepath.Join(root, "b", "b.go"), "package b\n")
+		write(t, filepath.Join(parent, "go.work"), "go 1.21\n\nuse ./m\n")
+		if !changesCacheKey(t, root, func() {}) {
+			t.Error("a go.work above the module was cached")
+		}
+	})
+	t.Run("in the module root", func(t *testing.T) {
+		root := liveGraphRepo(t)
+		write(t, filepath.Join(root, "go.work"), "go 1.21\n\nuse .\n")
+		if !changesCacheKey(t, root, func() {}) {
+			t.Error("a go.work in the module root was cached")
+		}
+	})
 }

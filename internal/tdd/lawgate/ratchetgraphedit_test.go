@@ -150,6 +150,7 @@ func TestGraphMayChange_ByWhatTheEditTouches(t *testing.T) {
 		{"first import added to a file with none", "a/a.go", true, "package a\n\nfunc F() {}\n", "package a\n\nimport \"os\"\n\nfunc F() {}\n", true},
 		{"unparseable after", "a/a.go", true, pkg, "package a\n\nimport (\n", true},
 		{"unparseable before", "a/a.go", true, "import (\n", pkg, true},
+		{"a byte after the last import differs", "a/a.go", true, "package a\n\nimport \"fmt\"\nfunc F() {}\n", "package a\n\nimport \"fmt\" \nfunc F() {}\n", false},
 		{"markdown", "README.md", true, "a", "b", false},
 		{"go.mod", "go.mod", true, "module m\n", "module m\n\nrequire x v1\n", true},
 		{"go.work", "go.work", true, "go 1.21\n", "go 1.22\n", true},
