@@ -1,0 +1,118 @@
+name: Windows smoke
+
+# CI otherwise runs only on Linux, so Windows behaviour (drive-letter path
+# forms, junction/symlink removal, the queue shims, argv batching, and the
+# /dev/null that `gate probe discard` hands to `git diff --no-index`) was first
+# exercised on the operator's own box. This job runs a small slice of the
+# platform tests plus one end-to-end probe discard on that box.
+#
+# The runner is registered on this repo only, as a dedicated non-admin local
+# service user, with ONE label and no default labels: every other workflow
+# here uses a bare `runs-on: self-hosted`, and a Windows runner carrying that
+# label would be eligible for all of them. The box is not always on, so this
+# check is not required; a run queued while it is off simply waits.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    # The repo is public: a fork's pull request must never run on the box.
+    if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true)
+    runs-on: [windows-smoke]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build the CLI
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo.exe ./cmd/aphrollo
+
+      - name: Platform tests
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Each entry is one package and the tests it runs. A filter that
+          # matches nothing fails the step: a renamed test must not turn this
+          # job into a silent pass.
+          $suites = [ordered]@{
+            # argv batching (#951)
+            './internal/argvbatch'  = '.'
+            # junction/symlink removal (#947)
+            './internal/depinstall' = '^(TestRemoveTree_|TestIsLink_|TestLinkDir_|TestJunctionCmdLine_)'
+            './internal/workspace'  = 'NeverDeletesThroughALinkedNodeModules'
+            # queue shims, and probe discard's /dev/null (#839)
+            './internal/cli'        = '^(TestProbeDiscard_|TestDefaultCargoShimDir_|TestPathListSep_|TestDispatchArgs_ShimName|TestRunCargoShim_|TestQueueBypass_|TestBinExtForOS_|TestResolveBinPath_)'
+            # C:\ and C:/ path forms
+            './internal/refactor'   = '^(TestSamePath|TestPathToURI_|TestResolveWriteTarget_)'
+            './internal/lsp'        = '^TestURIToPath_'
+            './internal/ratchet'    = '^TestScopeMatchesNormalizesWindowsSeparators$'
+            './internal/tdd/gc'     = '^TestGC_RegisteredWorktreeMatchIsCaseInsensitiveOnWindows$'
+          }
+          $failed = $false
+          foreach ($pkg in $suites.Keys) {
+            $filter = $suites[$pkg]
+            Write-Host "=== $pkg -run $filter"
+            $out = go test $pkg -run $filter -count=1 -v 2>&1 | Out-String
+            $code = $LASTEXITCODE
+            Write-Host $out
+            if ($code -ne 0) { $failed = $true }
+            if ($out -notmatch '(?m)^--- PASS') {
+              Write-Host "::error::$pkg -run $filter ran no passing test"
+              $failed = $true
+            }
+          }
+          if ($failed) { exit 1 }
+
+      - name: Probe discard round trip
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $aphrollo = Join-Path $PWD 'bin/aphrollo.exe'
+          $repo = Join-Path $env:RUNNER_TEMP 'probe-discard'
+          if (Test-Path $repo) { Remove-Item -Recurse -Force $repo }
+          New-Item -ItemType Directory $repo | Out-Null
+          Set-Location $repo
+          git init -q
+          # Git for Windows ships core.autocrlf=true system-wide; the round
+          # trip compares exact bytes, so line endings stay as written.
+          git config core.autocrlf false
+          git -c user.name=smoke -c user.email=smoke@localhost commit -q --allow-empty -m base
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Set-Content -NoNewline -Path new.txt -Value "hello`n"
+
+          # An untracked file is backed up through `git diff --no-index
+          # /dev/null new.txt`, then removed.
+          $out = & $aphrollo gate probe discard --apply new.txt 2>&1 | Out-String
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::probe discard exited $LASTEXITCODE"; exit 1 }
+          if (Test-Path new.txt) { Write-Host "::error::new.txt survived the discard"; exit 1 }
+          $m = [regex]::Match($out, '(?m)^backup: (.+?)(?: \(|\r?$)')
+          if (-not $m.Success) { Write-Host "::error::no backup: line in the output"; exit 1 }
+          $backup = $m.Groups[1].Value.Trim()
+
+          # The backup must apply back to the exact bytes it took away.
+          git apply $backup
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error::git apply of $backup failed"; exit 1 }
+          $got = [IO.File]::ReadAllText((Join-Path $repo 'new.txt'))
+          if ($got -cne "hello`n") {
+            $bytes = [BitConverter]::ToString([Text.Encoding]::UTF8.GetBytes($got))
+            Write-Host "::error::new.txt after apply = $bytes, want 68-65-6C-6C-6F-0A"
+            exit 1
+          }
+          Write-Host "round trip ok: $backup"
