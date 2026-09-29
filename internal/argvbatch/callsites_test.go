@@ -70,6 +70,7 @@ var spreadCallSites = map[string]string{
 	"internal/tdd/gitx/gitplumbing.go:gitStaged":                     "batched: Run splits the staged-path list (#960)",
 	"internal/tdd/gitx/gitplumbing.go:gitStdin":                      "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",
 	"internal/tdd/gitx/gitplumbing.go:stagedChanges":                 "bounded: fixed diff --cached arguments; the path list, when a caller passes one, goes through Run in gitStaged",
+	"internal/tdd/gitx/splitcommit.go:gitIndexed":                    "bounded: a leaf spawn that runs the arguments its caller built; each call passes fixed arguments and at most one path",
 	"internal/tdd/gitx/state_gitx.go:gitOut":                         "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",
 	"internal/tdd/merge/commitmsg_identity.go:identGit":              "bounded: fixed rev-parse and var arguments",
 	"internal/tdd/mutation/mutants_measure.go:runMutantsToolOnce":    "batched: runMutantsTool splits a go test or cargo clean package list with SplitCommand; cargo-mutants runs whole and mutation stands down on Windows",
