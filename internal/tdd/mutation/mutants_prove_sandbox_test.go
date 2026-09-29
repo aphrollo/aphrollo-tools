@@ -498,3 +498,45 @@ func TestRunMutantsProve_ADeadProofsCopyIsReclaimed(t *testing.T) {
 	}
 	assertNoSandboxLeft(t, lane)
 }
+
+// A copy that cannot be made refuses the proof before anything is written or
+// run: no copy means no place to run a mutant but the lane.
+func TestRunMutantsProve_ACopyThatCannotBeMadeRefusesBeforeRunning(t *testing.T) {
+	lane := laneWithWork(t)
+	// A file where the area's parent directory belongs.
+	write(t, filepath.Dir(lane), ".mutants", "not a directory\n")
+
+	ran := false
+	var out, errb bytes.Buffer
+	code := proveReset(lane, func(Runner, string) SuiteResult { ran = true; return SuiteResult{Passed: true} }, &out, &errb)
+
+	if code != ExitMutantsProveRefused || ran {
+		t.Fatalf("exit = %d (ran %v), want a refusal before any run\nstdout: %s\nstderr: %s",
+			code, ran, out.String(), errb.String())
+	}
+	if !strings.Contains(errb.String(), "lane was not touched") {
+		t.Fatalf("the refusal does not say the lane was left alone: %s", errb.String())
+	}
+	assertLaneIntact(t, lane)
+}
+
+// A red run on another test than the predicted one is a wrong failure, and
+// its copy goes the same way as a kill's.
+func TestRunMutantsProve_AWrongFailureLeavesTheLaneIntact(t *testing.T) {
+	lane := laneWithWork(t)
+
+	var out, errb bytes.Buffer
+	code := proveReset(lane, func(Runner, string) SuiteResult {
+		return SuiteResult{Passed: false, Output: "--- FAIL: TestSomethingElse_Broke (0.00s)\nFAIL\n"}
+	}, &out, &errb)
+
+	if code != ExitMutantsProveWrongFailure {
+		t.Fatalf("exit = %d, want ExitMutantsProveWrongFailure (%d)\nstdout: %s\nstderr: %s",
+			code, ExitMutantsProveWrongFailure, out.String(), errb.String())
+	}
+	if !strings.Contains(out.String(), "TestSomethingElse_Broke") {
+		t.Fatalf("the report does not name the test that did fail: %s", out.String())
+	}
+	assertLaneIntact(t, lane)
+	assertNoSandboxLeft(t, lane)
+}
