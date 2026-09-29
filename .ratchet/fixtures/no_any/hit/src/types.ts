@@ -1,0 +1,10 @@
+export let a: any = 1;
+export const b = c as any;
+export const d = <any>e;
+export let f: any[] = [];
+export let g: Array<any> = [];
+export let h: Record<string, any> = {};
+export type U = string | any;
+export const k = (x: any) => x;
+export const m = (x: number): any => x;
+export type Fn<T extends any> = T;

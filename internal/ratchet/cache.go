@@ -31,7 +31,10 @@ import (
 // 6: a Python, shell or TOML file's `mask_strings` view reads `#` as a
 // comment, so a quote inside one no longer blanks the lines below it. An
 // entry written at 5 can record no hits for lines the law never saw.
-const cacheVersion = 6
+// 7: `code_only` on a `//`-comment language blanks block comments too, so a
+// `/* ... */` line no longer counts as code. An entry written at 6 can record
+// hits on comment text.
+const cacheVersion = 7
 
 type cacheEntry struct {
 	Size  int64            `json:"size"`
