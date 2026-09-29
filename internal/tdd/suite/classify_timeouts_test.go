@@ -68,6 +68,19 @@ FAIL	ex/c [build failed]
 FAIL
 `
 
+const goTwoPackagesTimedOutOut = `=== RUN   TestSlow
+panic: test timed out after 2s
+	running tests:
+		TestSlow (2s)
+FAIL	ex/a	2.006s
+=== RUN   TestSlower
+panic: test timed out after 2s
+	running tests:
+		TestSlower (2s)
+FAIL	ex/c	2.004s
+FAIL
+`
+
 const goFailureThenTimeoutInOnePackageOut = `=== RUN   TestBad
     a_test.go:3: want 1
 --- FAIL: TestBad (0.00s)
@@ -182,6 +195,7 @@ func TestRunnerTimeoutsOnly_ReadsEachRunnersOwnTimeoutShape(t *testing.T) {
 		{"nextest, a failure beside a timeout", nextestFailAndTimeoutOut, false},
 		{"nextest, a failure alone", nextestFailOnlyOut, false},
 		{"go, one package timed out and the other passed", goTimeoutOnlyOut, true},
+		{"go, two packages timed out and none failed", goTwoPackagesTimedOutOut, true},
 		{"go, a timeout beside an assertion failure", goTimeoutAndAssertionOut, false},
 		{"go, a timeout beside a package that did not build", goTimeoutAndBuildFailureOut, false},
 		{"go, a failure then a timeout in one package", goFailureThenTimeoutInOnePackageOut, false},
