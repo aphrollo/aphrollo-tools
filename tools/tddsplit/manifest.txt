@@ -658,6 +658,7 @@ precommit_npmbaseline_test.go                      precommit
 precommit_quality.go                               precommit
 precommit_quality_test.go                          precommit
 precommit_reject_test.go                           precommit
+precommit_svelte_test.go                           precommit
 precommit_test.go                                  precommit
 precommit_wsmanifest.go                            precommit
 precommit_wsmanifest_test.go                       precommit

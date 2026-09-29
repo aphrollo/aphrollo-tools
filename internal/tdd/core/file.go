@@ -84,6 +84,22 @@ var sourceExts = map[string]bool{
 	// test, whatever directory it sits in) and its owning package resolves
 	// through the nearest ancestor Cargo.toml, exactly as a .rs does.
 	".ron": true,
+	// Single-file components: a SvelteKit or Vue app keeps much of its
+	// behaviour in them, and vitest's `related` and jest's
+	// `--findRelatedTests` follow an import through one like a .ts module.
+	// Their root is the nearest package.json (suite.FindProjectRoot).
+	".svelte": true, ".vue": true,
+}
+
+// componentExts are the sourceExts a JS/TS test directory never makes a
+// test: a component under __tests__ is a fixture a test mounts, and no
+// runner collects one as a test file.
+var componentExts = map[string]bool{".svelte": true, ".vue": true}
+
+// isComponentFile reports whether p is a single-file component, which
+// belongs to the npm package whose package.json is nearest to it.
+func isComponentFile(p string) bool {
+	return componentExts[strings.ToLower(path.Ext(p))]
 }
 
 // isCodeFile reports whether p carries one of the code extensions in
@@ -280,7 +296,7 @@ func isTestFile(p, base string) bool {
 	}
 
 	for seg := range strings.SplitSeq(path.Dir(p), "/") {
-		if testDirs[seg] && sourceExts[ext] {
+		if testDirs[seg] && sourceExts[ext] && !componentExts[ext] {
 			return true
 		}
 	}
