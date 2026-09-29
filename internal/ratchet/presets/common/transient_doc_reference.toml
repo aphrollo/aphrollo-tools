@@ -4,7 +4,7 @@ severity    = "deny"
 escape      = "// sdd-ok:"
 
 [scope]
-include = ["**/*.md", "**/*.rs", "**/*.go"]
+include = ["**/*.md", {{source_include|"**/*.rs", "**/*.go"}}]
 exclude = ["docs/sdd/**", "**/target/**", "**/node_modules/**"]
 
 [matcher]

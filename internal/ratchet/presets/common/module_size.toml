@@ -3,7 +3,7 @@ description = "A module stays under its line ceiling — split by execution phas
 severity    = "deny"
 
 [scope]
-include = ["**/*.rs", "**/*.go"]
+include = [{{source_include|"**/*.rs", "**/*.go"}}]
 exclude = ["**/target/**", "**/node_modules/**", "**/vendor/**"]
 
 [matcher]
