@@ -13,6 +13,7 @@ import (
 const precommitTestTimeout = tddtest.PrecommitTestTimeout
 
 func TestSplitKinds(t *testing.T) {
+	t.Parallel()
 	tests, srcs := splitKinds([]string{"a_test.go", "a.go", "README.md", "b.test.ts", "b.ts"})
 	if strings.Join(tests, ",") != "a_test.go,b.test.ts" {
 		t.Fatalf("tests = %v", tests)
@@ -194,6 +195,7 @@ func recordableRun(r Runner) (Runner, bool) {
 }
 
 func TestPrecommit_Mechanical_ScopedToStagedGoPackages(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	// Stage a source file in a sub-package; the mechanical run must scope to that
 	// package, not `./...`.
@@ -215,6 +217,7 @@ func TestPrecommit_Mechanical_ScopedToStagedGoPackages(t *testing.T) {
 }
 
 func TestPrecommit_ChangesGate_SkipsDocsOnlyCommit(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	// Only a doc file is staged — no source, no test. The mechanical stage must
 	// be skipped entirely (no suite run).
@@ -236,6 +239,7 @@ func TestPrecommit_ChangesGate_SkipsDocsOnlyCommit(t *testing.T) {
 // `./...` suite. The fail-first stage never triggers (no staged source), so the
 // only run recorded at root is the scoped mechanical one.
 func TestPrecommit_Mechanical_ScopedToStagedGoTestOnly(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	// A self-contained test in a sub-package — no source file staged alongside it.
 	write(t, root, "internal/x/x_test.go", "package x\n\nimport \"testing\"\n\nfunc TestX(t *testing.T) { _ = 1 }\n")
@@ -354,6 +358,7 @@ func TestPrecommit_Mechanical_RefusesAVitestRootWithoutTheToolInstalled(t *testi
 // yaml-only (Ignore-classified) commit: no source AND no test staged, so the
 // changes-gate skips the mechanical stage entirely (zero suite runs).
 func TestPrecommit_ChangesGate_SkipsYAMLOnlyCommit(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "config.yaml", "key: value\n")
 	gitDo(t, root, "add", ".")
@@ -376,7 +381,7 @@ func makeCargoRepo(t *testing.T) string { t.Helper(); return tddtest.MakeCargoRe
 // IDENTICAL worktree state and runner must not re-run the suite (the retry
 // after a hook timeout, or an amend that changes nothing tested).
 func TestPrecommit_Mechanical_GreenResultCached(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -396,7 +401,7 @@ func TestPrecommit_Mechanical_GreenResultCached(t *testing.T) {
 // Any content change invalidates the cached green — the hash covers the
 // worktree, so an edit between commits forces a fresh run.
 func TestPrecommit_Mechanical_CacheMissAfterEdit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -414,7 +419,7 @@ func TestPrecommit_Mechanical_CacheMissAfterEdit(t *testing.T) {
 // A red run is never cached: the same failing state re-runs (and re-blocks
 // with fresh output) every time.
 func TestPrecommit_Mechanical_RedNeverCached(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -446,7 +451,7 @@ func TestPrecommit_Mechanical_RedNeverCached(t *testing.T) {
 // commit gate runs `-p <crate>`, and a narrower green must never satisfy the
 // broader check.
 func TestPostEdit_GreenRunSeedsMechanicalCache(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeZigRepo(t)
 	write(t, root, "src/root.zig", "pub fn add(a: i32, b: i32) i32 {\n\treturn a + b + 0;\n}\n")
 

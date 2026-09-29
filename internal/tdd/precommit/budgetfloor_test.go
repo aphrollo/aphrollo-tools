@@ -77,6 +77,7 @@ func TestRunCargoLocked_BudgetUnderLoadNeverFallsBelowTheRecordedFloor(t *testin
 // somebody else's bad night; the nearest-rank p90 tracks the tail while
 // needing more than one slow run to move.
 func TestSuiteFloorFrom_TakesTheSlowTailNotTheMedian(t *testing.T) {
+	t.Parallel()
 	got := suiteFloorFrom([]float64{352.3, 357.0, 429.1, 431.3, 261.5})
 
 	if got.Runs != 5 {
@@ -141,6 +142,7 @@ func TestRecordedSuiteFloor_NoRecordedRunMeansNoFloorAtAll(t *testing.T) {
 // suite recorded at 590s asks for 885s, and what the run may actually have
 // is still the stage budget.
 func TestSuiteFloorFrom_NeverOutgrowsTheStageBudget(t *testing.T) {
+	t.Parallel()
 	got := suiteFloorFrom([]float64{590})
 
 	if got.Budget <= DefaultPrecommitTimeout {

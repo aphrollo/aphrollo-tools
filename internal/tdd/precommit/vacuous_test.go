@@ -51,6 +51,7 @@ func TestRunSuite_GoTestJSONCanBeJudgedByVacuousGoPackages(t *testing.T) {
 // RunSuite's -json invocation must not manufacture a false vacuous reading
 // for a package whose tests genuinely ran.
 func TestRunSuite_GoTestWithRealPassingTestsIsNeverVacuous(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, dir, "go.mod", "module example.com/vacuous\n\ngo 1.21\n")
 	write(t, dir, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")

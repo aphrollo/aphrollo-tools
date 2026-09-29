@@ -71,6 +71,7 @@ func TestMechRejectMessage_NamesTheFirstCompileErrorNotAnEarlierWarning(t *testi
 }
 
 func TestMechRejectMessage_NamesTheFirstGoCompileError(t *testing.T) {
+	t.Parallel()
 	r := Runner{Cmd: "go", Args: []string{"test", "-count=1", "./..."}}
 	msg := mechRejectMessage(r, SuiteResult{Passed: false, Err: "exit status 1", Output: goBuildFailedTranscript})
 

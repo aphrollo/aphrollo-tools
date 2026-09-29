@@ -19,6 +19,7 @@ func TestMain(m *testing.M) {
 		Run:              func() int { return m.Run() },
 		GitBinary:        gitx.GitBinary,
 		GitQueuedEnv:     gitx.GitQueuedEnv,
+		SharedGitConfig:  true,
 		BuildLockHeldEnv: lock.BuildLockHeldEnv,
 		SetLockDir:       lock.SetLockDirForTest,
 		SetLockDirName:   lock.SetSharedLockDirForTest,

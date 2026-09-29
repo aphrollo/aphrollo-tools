@@ -187,6 +187,7 @@ func TestPrecommit_Mechanical_CargoMember_RunsFromWorkspaceRoot(t *testing.T) {
 // marker file that exists ONLY in Dir, never in the (different) root passed
 // alongside it.
 func TestRunSuite_UsesRunnerDirOverRoot(t *testing.T) {
+	t.Parallel()
 	dirWithFile := t.TempDir()
 	write(t, dirWithFile, "marker.txt", "present\n")
 	otherDir := t.TempDir() // deliberately does NOT contain marker.txt
@@ -206,6 +207,7 @@ func TestRunSuite_UsesRunnerDirOverRoot(t *testing.T) {
 // no Dir set (every runner except a resolved cargo one) must still run in
 // the root parameter, exactly as before Runner.Dir existed.
 func TestRunSuite_FallsBackToRootWhenDirUnset(t *testing.T) {
+	t.Parallel()
 	dirWithFile := t.TempDir()
 	write(t, dirWithFile, "marker.txt", "present\n")
 

@@ -46,7 +46,7 @@ func goLaneMerge(t *testing.T, dirty func(root string)) string {
 }
 
 func TestMechanical_RefusesAnUntrackedTestFileInsideABuiltGoPackage(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := goLaneMerge(t, func(root string) {
 		write(t, root, "internal/a/wip_test.go", "package a\n\nfunc TestWip(t *testing.T) { A( }\n")
 	})
@@ -61,7 +61,7 @@ func TestMechanical_RefusesAnUntrackedTestFileInsideABuiltGoPackage(t *testing.T
 }
 
 func TestMechanical_AllowsAModifiedFileInAGoPackageTheMergeDoesNotBuild(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := goLaneMerge(t, func(root string) {
 		write(t, root, "internal/b/b.go", "package b\n\nfunc B() int { return 2 }\n")
 	})
@@ -72,7 +72,7 @@ func TestMechanical_AllowsAModifiedFileInAGoPackageTheMergeDoesNotBuild(t *testi
 }
 
 func TestMechanical_AllowsAnIgnoredFileInsideABuiltGoPackage(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := goLaneMerge(t, func(root string) {
 		excludeLocally(t, root, "internal/a/scratch.go")
 		write(t, root, "internal/a/scratch.go", "package a\n")
@@ -148,6 +148,7 @@ func TestMechanical_RefusesADirtyFileInAnyCrateWhenTheWorkspaceManifestMoved(t *
 }
 
 func TestGoRunnerBuilds_CoversNamedPackagesAndPatternsOnly(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		args []string
 		dir  string
@@ -173,6 +174,7 @@ func TestGoRunnerBuilds_CoversNamedPackagesAndPatternsOnly(t *testing.T) {
 // A root's plan speaks only for files beneath it. A file outside the Go
 // root reads as "../…" from it, which a `./...` run must not claim.
 func TestRootPlanBuilds_NothingOutsideItsGoRoot(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	write(t, repo, "svc/go.mod", "module example.com/svc\n\ngo 1.26\n")
 	write(t, repo, "svc/a.go", "package svc\n")

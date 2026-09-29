@@ -52,6 +52,7 @@ func TestMechanical_AGreenInOneProjectRootIsNoCacheHitForAnother(t *testing.T) {
 // The key-level statement of the same fact, and its other half: two
 // worktrees of one repo still share a key for the same project root.
 func TestMechKey_DistinctPerProjectRootSharedAcrossWorktrees(t *testing.T) {
+	t.Parallel()
 	root := twoModuleMerge(t)
 	lane := filepath.Join(t.TempDir(), "lane")
 	gitDo(t, root, "worktree", "add", "-q", "-b", "lane/x", lane)

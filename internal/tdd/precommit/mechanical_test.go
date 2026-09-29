@@ -53,7 +53,7 @@ func TestMechanical_CargoMember_RunsScopedNeverSpawnsFailFirst(t *testing.T) {
 // via Message, rather than returning a bare empty result indistinguishable
 // from "the gate never ran at all".
 func TestMechanical_DocsOnlyMerge_NoOpWithNothingToTestLine(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "NOTES.md", "# notes\n")
 	gitDo(t, root, "add", ".")

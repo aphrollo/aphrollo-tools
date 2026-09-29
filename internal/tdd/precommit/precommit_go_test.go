@@ -260,6 +260,7 @@ func TestPrecommit_ClassifiesLintContentionAsNotALintFailure(t *testing.T) {
 // docs-only commit stages no source at all — so the check has to run before
 // the has-code gate, not inside a per-root suite stage.
 func TestPrecommitChecksStagedMarkdownOnADocsOnlyCommit(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "NOTES.md", "see [the plan](docs/nowhere.md)\n")
 	gitDo(t, root, "add", ".")
@@ -276,6 +277,7 @@ func TestPrecommitChecksStagedMarkdownOnADocsOnlyCommit(t *testing.T) {
 }
 
 func TestPrecommitPassesStagedMarkdownThatResolves(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "docs/plan.md", "# plan\n")
 	write(t, root, "NOTES.md", "see [the plan](docs/plan.md)\n")
@@ -325,6 +327,7 @@ func TestPrecommitReadsDocsCheckFromTheWorkspaceManifest(t *testing.T) {
 // gate compared the linter against a Go toolchain version and reported drift
 // on every commit.
 func TestPinnedLinterVersion_ReadsTheActionsOwnVersionNotTheStepBelowIt(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, ".github", "workflows", "pipeline.yml"), `jobs:
   lint:
@@ -345,6 +348,7 @@ func TestPinnedLinterVersion_ReadsTheActionsOwnVersionNotTheStepBelowIt(t *testi
 // The same file with the steps the other way round: a `go-version:` BEFORE
 // the action must not be read either, and the action's own key still is.
 func TestPinnedLinterVersion_IgnoresAGoVersionAboveTheLintAction(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, ".github", "workflows", "pipeline.yml"), `jobs:
   lint:
@@ -367,6 +371,7 @@ func TestPinnedLinterVersion_IgnoresAGoVersionAboveTheLintAction(t *testing.T) {
 // then report drift on every commit against a number that is not a linter
 // version at all.
 func TestPinnedLinterVersion_IsEmptyWhenTheActionPinsNothing(t *testing.T) {
+	t.Parallel()
 	for _, next := range []string{"go-version: 1.25.1", "version: 1.36.0"} {
 		root := t.TempDir()
 		mustWrite(t, filepath.Join(root, ".github", "workflows", "pipeline.yml"), `jobs:

@@ -81,7 +81,7 @@ func TestPrecommit_OneStagedSourceFileLeavesTheFastPath(t *testing.T) {
 }
 
 func TestDocsOnly_ReadsTheStagedKindsNotTheExtensions(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := docsRepo(t, map[string]string{"README.md": "# notes\n"})
 	if !docsOnly(root) {
 		t.Fatal("a Markdown-only staged set is docs-only")

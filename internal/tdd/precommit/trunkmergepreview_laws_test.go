@@ -38,6 +38,7 @@ max  = `+strconv.Itoa(max)+`
 // already builds exactly that combination and vetted it; a law is not a
 // compiler error, so nothing looked.
 func TestTrunkMergePreview_BlocksALawOnlyTheMergedTreeBreaks(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	trunk := TrunkBranch(root)
 	if trunk == "" {
@@ -77,6 +78,7 @@ func TestTrunkMergePreview_BlocksALawOnlyTheMergedTreeBreaks(t *testing.T) {
 // law trunk ALREADY breaks is not the lane's doing, and refusing every commit
 // in every lane until somebody else fixes main is a block no lane can clear.
 func TestTrunkMergePreview_AllowsALawTrunkAlreadyBreaks(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	trunk := TrunkBranch(root)
 	if trunk == "" {

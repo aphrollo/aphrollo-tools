@@ -37,6 +37,7 @@ func TestPostEdit_GoTestFileWithNoTestYet_PrintsWritingTestNeverGreen(t *testing
 // second, at the commit and merge gates: one package ran a test, one ran
 // none, and the line reports the test that ran rather than "0 tests".
 func TestMechResultLine_GoRunWithAnEmptyPackagePrintsItsRealCount(t *testing.T) {
+	t.Parallel()
 	out := "=== RUN   TestOneIsOne\n--- PASS: TestOneIsOne (0.00s)\nPASS\n" +
 		"ok  \texample.com/m/internal/a\t0.004s\n" +
 		"testing: warning: no tests to run\nok  \texample.com/m/internal/b\t0.002s [no tests to run]\n"

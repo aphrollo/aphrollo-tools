@@ -15,6 +15,7 @@ import (
 // function in place and reports the suppressed line as added, yet the commit
 // adds no suppression.
 func TestNewSuppression_IgnoresASuppressionMovedWithinItsFile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "gizmo.go", "package m\n\nfunc A() int { return 1 } //nolint:unused\n\n"+
@@ -35,6 +36,7 @@ func TestNewSuppression_IgnoresASuppressionMovedWithinItsFile(t *testing.T) {
 // comparison counts copies. One suppressed line before and two after is one
 // suppression introduced.
 func TestNewSuppression_BlocksASecondCopyOfAnExistingSuppression(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "gizmo.go", "package m\n\nfunc F() {\n\t_ = 0 //nolint:unused\n}\n")
@@ -55,6 +57,7 @@ func TestNewSuppression_BlocksASecondCopyOfAnExistingSuppression(t *testing.T) {
 // compared in the view the detector reads, where the string was blank, so the
 // suppression is introduced.
 func TestNewSuppression_BlocksDirectiveTextThatLeavesAString(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "gizmo.go", "package m\n\nvar s = `\n_ = 0 //nolint:unused\n`\n")
@@ -74,6 +77,7 @@ func TestNewSuppression_BlocksDirectiveTextThatLeavesAString(t *testing.T) {
 // same commit. Its directive text is removed exactly where it is added, so
 // the commit introduces no suppression.
 func TestNewSuppression_IgnoresASuppressionMovedToAnotherFile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "a.go", "package m\n\nfunc A() int { return 1 } //nolint:unused\n\nfunc Keep() int { return 2 }\n")
@@ -92,6 +96,7 @@ func TestNewSuppression_IgnoresASuppressionMovedToAnotherFile(t *testing.T) {
 // TestNewSuppression_IgnoresASuppressionWhoseFileWasRenamed: a rename is a
 // move of every line, the old path deleted and the new one added.
 func TestNewSuppression_IgnoresASuppressionWhoseFileWasRenamed(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "a.go", "package m\n\nfunc A() int { return 1 } //nolint:unused\n")
@@ -109,6 +114,7 @@ func TestNewSuppression_IgnoresASuppressionWhoseFileWasRenamed(t *testing.T) {
 // one addition. Removing the suppression from a.go and adding it to both b.go
 // and c.go is one move and one new suppression.
 func TestNewSuppression_BlocksASecondCopyWhenOnlyOneMoved(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "a.go", "package m\n\nfunc A() int { return 1 } //nolint:unused\n")
@@ -129,6 +135,7 @@ func TestNewSuppression_BlocksASecondCopyWhenOnlyOneMoved(t *testing.T) {
 // removed text sat inside a string literal, where no directive lives, so its
 // removal cannot pay for a live directive added elsewhere.
 func TestNewSuppression_BlocksASuppressionWhoseRemovalWasOnlyInAString(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "a.go", "package m\n\nvar s = `\n_ = 0 //nolint:unused\n`\n")
@@ -148,6 +155,7 @@ func TestNewSuppression_BlocksASuppressionWhoseRemovalWasOnlyInAString(t *testin
 // file's removals form the pool. Text deleted from a document holds no live
 // directive, so it cannot pay for one added to code.
 func TestNewSuppression_BlocksASuppressionPaidForByANonCodeFile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "notes.md", "func A() int { return 1 } //nolint:unused\n")

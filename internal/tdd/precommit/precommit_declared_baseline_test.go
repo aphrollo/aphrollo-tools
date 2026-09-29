@@ -229,6 +229,7 @@ func TestDeclaredBaseline_ARootWithoutNodeModulesRunsHeadOutsideIt(t *testing.T)
 // trailing whitespace trimmed, so the same error printed from two
 // checkouts is one line. Nothing else is normalised.
 func TestNewOutputLines_TheSameErrorAtTwoCheckoutsIsEqual(t *testing.T) {
+	t.Parallel()
 	now, head := filepath.Join("/", "w", "lane"), filepath.Join("/", "tmp", "head-1")
 	nowOut := oldError(now) + " \r\n" + "Error: Old\n"
 	headOut := oldError(head) + "\n" + "error: old\n"

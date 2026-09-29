@@ -293,6 +293,7 @@ func TestNarrowFailFirstTests_CargoNoPackageFallback(t *testing.T) {
 // non-cargo path: a runner with a related mode (go's package granularity)
 // gets exactly what narrowToStaged already produces for the staged test file.
 func TestNarrowFailFirstTests_NonCargoDelegatesToNarrowToStaged(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "go.mod", "module m\n\ngo 1.21\n")
 	write(t, root, "internal/x/x_test.go", "package x\n")
@@ -308,6 +309,7 @@ func TestNarrowFailFirstTests_NonCargoDelegatesToNarrowToStaged(t *testing.T) {
 // TestNarrowFailFirstTests_NonCargoUnnarrowedFallback guards a runner with NO
 // related mode (pytest): the command must stay the full unnarrowed runner.
 func TestNarrowFailFirstTests_NonCargoUnnarrowedFallback(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "pyproject.toml", "[tool]\n")
 	write(t, root, "test_thing.py", "def test_thing(): pass\n")

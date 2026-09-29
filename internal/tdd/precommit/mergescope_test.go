@@ -60,7 +60,7 @@ func TestMechanical_TrunkSyncIntoDocsOnlyLaneTakesTheDocsFastPath(t *testing.T) 
 }
 
 func TestMechanical_TrunkSyncJudgesOnlyTheLanesOwnPackages(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root, trunk := syncRepo(t,
 		map[string]string{"internal/a/a.go": "package a\n\nfunc A() int { return 1 }\n"},
 		map[string]string{"internal/b/b.go": "package b\n\nfunc B() int { return 1 }\n"})
@@ -136,7 +136,7 @@ func goTestRun(pkgs ...string) Runner {
 
 // A lane landing on trunk is the merge that must judge everything it brings.
 func TestMechanical_LaneIntoTrunkJudgesEverythingItBringsIn(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root, trunk := syncRepo(t,
 		map[string]string{"internal/a/a.go": "package a\n\nfunc A() int { return 1 }\n"},
 		map[string]string{"internal/b/b.go": "package b\n\nfunc B() int { return 1 }\n"})
@@ -151,7 +151,7 @@ func TestMechanical_LaneIntoTrunkJudgesEverythingItBringsIn(t *testing.T) {
 // Trunk taking its own remote (a pull on the primary) is not a lane sync:
 // HEAD is trunk, so the incoming change is judged even though trunk holds it.
 func TestMechanical_TrunkPullingItsRemoteJudgesTheIncomingChange(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := originTrunkRepo(t)
 	gitDo(t, root, "update-ref", "refs/remotes/origin/main", "main")
 	gitDo(t, root, "reset", "-q", "--hard", "main~1")
@@ -164,7 +164,7 @@ func TestMechanical_TrunkPullingItsRemoteJudgesTheIncomingChange(t *testing.T) {
 
 // One lane merged into another brings work no gate has judged on trunk.
 func TestMechanical_LaneIntoLaneJudgesTheIncomingLane(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root, trunk := syncRepo(t,
 		map[string]string{"docs/decisions.md": "# decisions\n"},
 		map[string]string{"README.md": "# readme\n"})
@@ -184,7 +184,7 @@ func TestMechanical_LaneIntoLaneJudgesTheIncomingLane(t *testing.T) {
 // A lane lands on the primary's local trunk before anything is pushed, so a
 // sync names local main while trunk resolves as origin/main.
 func TestMechanical_SyncFromLocalTrunkAheadOfOriginIsScopedToTheLane(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := originTrunkRepo(t)
 	gitDo(t, root, "checkout", "-q", "lane/work")
 	gitDo(t, root, "merge", "--no-commit", "--no-ff", "main")

@@ -14,6 +14,7 @@ import (
 // A Go root owes its staged package's suite under CI's flags, keyed at the
 // module root.
 func TestCommitOwedSuites_AGoRootOwesItsStagedPackageSuite(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")

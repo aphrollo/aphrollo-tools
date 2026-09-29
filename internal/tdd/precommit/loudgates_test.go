@@ -100,7 +100,7 @@ func TestEmptyPass_TableDriven(t *testing.T) {
 // in history. What has not changed is that it is never silent, and never
 // dressed up as a failing suite.
 func TestPrecommit_MechanicalTimeout_IsLoudAndRefuses(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")

@@ -214,6 +214,9 @@ func MakeCargoRepo(t *testing.T) string {
 // the test never reads or writes the real ~/.gitconfig.
 func IsolateGitConfig(t *testing.T) string {
 	t.Helper()
+	if sharedGitConfig != "" {
+		return sharedGitConfig
+	}
 	// Drop the repo-pointing GIT_* vars a git hook exports (GIT_DIR,
 	// GIT_INDEX_FILE, …). Under the aphrollo tdd pre-commit gate they point at
 	// the REAL repo; without this, fixture git ops would target (and can

@@ -41,6 +41,14 @@ type Seams struct {
 	// GitQueuedEnv is set for the run, so the fixtures' bare git calls skip
 	// the box's git queue.
 	GitQueuedEnv string
+	// SharedGitConfig keeps git isolated for the whole run instead of per
+	// test: the hook's repo-pointing GIT_* variables are dropped, git's
+	// global config is one empty package-lifetime file and the hooks-dir
+	// override is set, once, before any test runs. IsolateGitConfig then
+	// changes no environment, so a test that builds its repos through the
+	// fixture helpers may call t.Parallel. A test that needs its own global
+	// config writes it through git -c or stays serial.
+	SharedGitConfig bool
 	// SetLockDir points the package's build locks at dir and returns the undo.
 	SetLockDir func(dir string) (restore func())
 	// SetLockDirName replaces the package's resolver of the machine-wide lock
@@ -53,6 +61,10 @@ type Seams struct {
 
 // active is the Seams the running Main was handed.
 var active Seams
+
+// sharedGitConfig is the package-lifetime empty git config Main points git
+// at when the package asked for SharedGitConfig, "" otherwise.
+var sharedGitConfig string
 
 // tempDirs holds every directory RegisterTempDir was handed, for sweepTempDirs
 // to remove once the whole package's run is over.
@@ -224,6 +236,17 @@ func Main(m *testing.M, s Seams) int {
 	if s.GitBinary != nil {
 		buildFixtures(dir)
 	}
+	// One isolation for the whole run, for a package whose tests share it.
+	restoreGit := func() {}
+	if s.SharedGitConfig && s.GitBinary != nil {
+		sharedGitConfig = filepath.Join(dir, "shared-gitconfig")
+		restoreGit = isolateGitConfigEnv(sharedGitConfig)
+		if s.HooksDirUnsafeEnv != "" {
+			os.Setenv(s.HooksDirUnsafeEnv, "1")
+			prev := restoreGit
+			restoreGit = func() { os.Unsetenv(s.HooksDirUnsafeEnv); prev() }
+		}
+	}
 	// Nor is the box's CI. Every measurement waits for busy runner jobs
 	// before it starts; this suite runs inside one on CI, beside sibling
 	// runners that may be busy, and on an operator box beside all of them.
@@ -246,6 +269,8 @@ func Main(m *testing.M, s Seams) int {
 		}
 	}
 	restoreRunners()
+	restoreGit()
+	sharedGitConfig = ""
 	restoreLocks()
 	os.RemoveAll(dir)
 	return code

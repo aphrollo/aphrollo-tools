@@ -422,6 +422,7 @@ func TestTscArgvs_OnlyAConfigThatChecksNothingItselfIsSplitIntoItsReferences(t *
 // tsconfig's comments go and its strings stay whole, including the ones
 // that look like comments: Vite writes "src/**/*" and "@/*" paths.
 func TestJsoncToJSON_StripsCommentsButNeverStringContent(t *testing.T) {
+	t.Parallel()
 	cases := []struct{ in, want string }{
 		{`{"a": 1} // trailing`, `{"a": 1} `},
 		{"{\n// line\n\"a\": 1}", "{\n\n\"a\": 1}"},
@@ -446,6 +447,7 @@ func TestJsoncToJSON_StripsCommentsButNeverStringContent(t *testing.T) {
 // commit adds had no diagnostics before it, and naming it would fail the
 // HEAD run on a path.
 func TestEslintHeadArgs_KeepsOnlyTheFilesHeadHad(t *testing.T) {
+	t.Parallel()
 	head := t.TempDir()
 	write(t, head, "src/old.ts", "")
 	args := []string{"--format", "json", "src/old.ts", "src/new.ts"}

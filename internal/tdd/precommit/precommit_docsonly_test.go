@@ -33,6 +33,7 @@ func TestPrecommit_RejectsARaisedBaselineInACommitWithNoCode(t *testing.T) {
 // Same hole one stage over: the laws judge the tree, and a docs-only commit
 // walked past them entirely.
 func TestPrecommit_RunsTheLawsInACommitWithNoCode(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "no-todo.toml"), `

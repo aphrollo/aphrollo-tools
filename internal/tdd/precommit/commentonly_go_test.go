@@ -14,6 +14,7 @@ import (
 // A re-worded line comment and doc comment change no compiled token: the
 // build is byte-identical, so the suite has nothing new to prove.
 func TestCommentOnlyChange_GoCommentEditQualifies(t *testing.T) {
+	t.Parallel()
 	pre := "package p\n\n// F returns one.\nfunc F() int {\n\treturn 1 // the answer\n}\n"
 	post := "package p\n\n// F returns one, re-pointed at the new doc.\nfunc F() int {\n\treturn 1 // still the answer\n}\n"
 	if !commentOnlyChange("internal/p/p.go", pre, post) {
@@ -24,6 +25,7 @@ func TestCommentOnlyChange_GoCommentEditQualifies(t *testing.T) {
 // Adding or removing a whole comment block, including a block comment,
 // qualifies the same way.
 func TestCommentOnlyChange_GoAddedBlockCommentQualifies(t *testing.T) {
+	t.Parallel()
 	pre := "package p\n\nfunc F() int { return 1 }\n"
 	post := "package p\n\n/*\nF is documented now.\n*/\nfunc F() int { return /* inline */ 1 }\n"
 	if !commentOnlyChange("internal/p/p.go", pre, post) {
@@ -32,6 +34,7 @@ func TestCommentOnlyChange_GoAddedBlockCommentQualifies(t *testing.T) {
 }
 
 func TestCommentOnlyChange_GoCodeChangeDoesNotQualify(t *testing.T) {
+	t.Parallel()
 	pre := "package p\n\n// F returns one.\nfunc F() int { return 1 }\n"
 	post := "package p\n\n// F returns one.\nfunc F() int { return 2 }\n"
 	if commentOnlyChange("internal/p/p.go", pre, post) {
@@ -42,6 +45,7 @@ func TestCommentOnlyChange_GoCodeChangeDoesNotQualify(t *testing.T) {
 // A `//` inside a string literal is not a comment: the change after it on
 // the same line is code, and a line-shape regex would miss it.
 func TestCommentOnlyChange_GoSlashSlashInsideStringIsNotAComment(t *testing.T) {
+	t.Parallel()
 	pre := "package p\n\nvar S = \"a // b\" + \"x\"\n"
 	post := "package p\n\nvar S = \"a // b\" + \"y\"\n"
 	if commentOnlyChange("internal/p/p.go", pre, post) {
@@ -52,6 +56,7 @@ func TestCommentOnlyChange_GoSlashSlashInsideStringIsNotAComment(t *testing.T) {
 // Build constraints are read by the go tool: flipping one changes which
 // files compile.
 func TestCommentOnlyChange_GoBuildConstraintIsNotAComment(t *testing.T) {
+	t.Parallel()
 	pre := "//go:build linux\n\npackage p\n"
 	post := "//go:build windows\n\npackage p\n"
 	if commentOnlyChange("internal/p/p_os.go", pre, post) {
@@ -61,6 +66,7 @@ func TestCommentOnlyChange_GoBuildConstraintIsNotAComment(t *testing.T) {
 
 // The legacy `// +build` line is a build constraint too, space and all.
 func TestCommentOnlyChange_GoLegacyPlusBuildIsNotAComment(t *testing.T) {
+	t.Parallel()
 	pre := "// +build linux\n\npackage p\n"
 	post := "// +build windows\n\npackage p\n"
 	if commentOnlyChange("internal/p/p_os.go", pre, post) {
@@ -70,6 +76,7 @@ func TestCommentOnlyChange_GoLegacyPlusBuildIsNotAComment(t *testing.T) {
 
 // A //go:embed directive decides what bytes ship in the binary.
 func TestCommentOnlyChange_GoEmbedDirectiveIsNotAComment(t *testing.T) {
+	t.Parallel()
 	pre := "package p\n\nimport _ \"embed\"\n\n//go:embed a.md\nvar doc string\n"
 	post := "package p\n\nimport _ \"embed\"\n\n//go:embed b.md\nvar doc string\n"
 	if commentOnlyChange("internal/p/p.go", pre, post) {
@@ -80,6 +87,7 @@ func TestCommentOnlyChange_GoEmbedDirectiveIsNotAComment(t *testing.T) {
 // A lint directive changes what the lint stage reports, so it is judged as
 // a token rather than waved through with the prose around it.
 func TestCommentOnlyChange_GoNolintDirectiveIsNotAComment(t *testing.T) {
+	t.Parallel()
 	pre := "package p\n\nfunc F() { g() }\n\nfunc g() error { return nil }\n"
 	post := "package p\n\nfunc F() { g() } //nolint:errcheck\n\nfunc g() error { return nil }\n"
 	if commentOnlyChange("internal/p/p.go", pre, post) {
@@ -90,6 +98,7 @@ func TestCommentOnlyChange_GoNolintDirectiveIsNotAComment(t *testing.T) {
 // The comment directly above `import "C"` is the cgo preamble: C source the
 // toolchain compiles. Any file importing "C" sits out the fast path.
 func TestCommentOnlyChange_GoCgoPreambleIsCode(t *testing.T) {
+	t.Parallel()
 	pre := "package p\n\n// int one(void) { return 1; }\nimport \"C\"\n"
 	post := "package p\n\n// int one(void) { return 2; }\nimport \"C\"\n"
 	if commentOnlyChange("internal/p/p.go", pre, post) {
@@ -101,6 +110,7 @@ func TestCommentOnlyChange_GoCgoPreambleIsCode(t *testing.T) {
 // newline, which inserts a semicolon: the token stream changes and the
 // comparison has to see it.
 func TestCommentOnlyChange_GoCommentThatInsertsASemicolonIsNotCommentOnly(t *testing.T) {
+	t.Parallel()
 	pre := "package p\n\nvar X = a /* note */ + b\n"
 	post := "package p\n\nvar X = a /* note\n*/ + b\n"
 	if commentOnlyChange("internal/p/p.go", pre, post) {
@@ -111,6 +121,7 @@ func TestCommentOnlyChange_GoCommentThatInsertsASemicolonIsNotCommentOnly(t *tes
 // A file the scanner cannot read cleanly has no trustworthy token stream to
 // compare, so the answer is the safe one.
 func TestCommentOnlyChange_GoUnscannableSourceDoesNotQualify(t *testing.T) {
+	t.Parallel()
 	pre := "package p\n\nvar S = \"unterminated\n"
 	post := "package p\n\n// note\nvar S = \"unterminated\n"
 	if commentOnlyChange("internal/p/p.go", pre, post) {
@@ -131,6 +142,7 @@ func TestCommentOnlyChange_RustRoutesThroughTheRustComparison(t *testing.T) {
 
 // Any other language has no comparison here, so it is never comment-only.
 func TestCommentOnlyChange_OtherLanguagesNeverQualify(t *testing.T) {
+	t.Parallel()
 	if commentOnlyChange("web/app.ts", "// a\nexport const x = 1\n", "// b\nexport const x = 1\n") {
 		t.Fatal("a language without a token comparison must never read as comment-only")
 	}

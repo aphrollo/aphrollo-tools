@@ -15,7 +15,7 @@ import (
 // in history. The edit hook keeps the advisory behaviour; the gate rejects
 // and says how to recover.
 func TestPrecommit_TimeoutRejectsTheCommit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -97,7 +97,7 @@ func TestGoCheckStage_TimeoutNamesTheBoxLoad(t *testing.T) {
 // one place a timeout is still only a report. Blocking an EDIT on a slow
 // suite would wedge the session over a stopwatch.
 func TestPostEdit_TimeoutStaysAdvisory(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := mkProject(t, "go.mod")
 	got := PostEdit(postPayload("Edit", root+"/widget.go"), func(Runner, string) SuiteResult {
 		return SuiteResult{Passed: false, TimedOut: true, Duration: time.Second}

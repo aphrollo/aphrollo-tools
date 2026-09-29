@@ -142,6 +142,7 @@ func TestClippyScope_StaysSilentWhenTheGraphHasNoEdges(t *testing.T) {
 // keeps only intra-workspace edges: a registry dependency is not a crate this
 // gate can select with -p.
 func TestParseWorkspaceDeps_KeepsOnlyIntraWorkspaceEdges(t *testing.T) {
+	t.Parallel()
 	const doc = `{"packages":[
 	  {"name":"forge","dependencies":[{"name":"forge_math"},{"name":"serde"}]},
 	  {"name":"forge_math","dependencies":[{"name":"libm"}]}
@@ -162,6 +163,7 @@ func TestParseWorkspaceDeps_KeepsOnlyIntraWorkspaceEdges(t *testing.T) {
 // Malformed metadata output must surface as an error, not a silent empty
 // graph — the two look identical to a caller that only checks len(map).
 func TestParseWorkspaceDeps_ErrorsOnUnparsableJSON(t *testing.T) {
+	t.Parallel()
 	_, err := parseWorkspaceDeps([]byte("not json"))
 	if err == nil {
 		t.Fatal("parseWorkspaceDeps returned nil error for unparsable input")

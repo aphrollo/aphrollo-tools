@@ -14,7 +14,6 @@ func nextestWorkspace(t *testing.T, config string) string {
 }
 
 func TestHasGateProfileReadsTheTableHeader(t *testing.T) {
-	t.Parallel()
 	cases := map[string]struct {
 		config string
 		want   bool

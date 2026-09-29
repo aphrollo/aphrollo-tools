@@ -106,6 +106,7 @@ func TestNpmBaseline_AnOldErrorMovedDownByAnEditStaysOld(t *testing.T) {
 // A second copy of an error HEAD already had once is new: the comparison
 // counts, it does not just ask whether the kind was seen.
 func TestNewDiagnostics_CountsRepeatsOfOneKey(t *testing.T) {
+	t.Parallel()
 	d := func(key string) diagnostic { return diagnostic{Key: key, Line: key} }
 	fresh := newDiagnostics([]diagnostic{d("a"), d("a"), d("b")}, []diagnostic{d("a")})
 	if len(fresh) != 2 || fresh[0].Key != "a" || fresh[1].Key != "b" {
@@ -203,6 +204,7 @@ func eslintJSONPath(s string) string {
 // A cache entry that cannot be read is a miss, run again, never an empty
 // baseline that would excuse nothing — or everything.
 func TestReadHeadCache_AnUnreadableEntryIsAMiss(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, dir, "garbage.json", "not json")
 	write(t, dir, "good.json", `[{"key": "k", "line": "l"}]`)

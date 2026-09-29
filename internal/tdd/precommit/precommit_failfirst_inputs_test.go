@@ -68,7 +68,7 @@ func TestPrecommit_FailFirst_WithholdsAStagedDataFileNoTestNames(t *testing.T) {
 }
 
 func TestProofInputs_TakesTheDataATestNamesAndLeavesCodeBehind(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "skill.go", "package m\n\nimport _ \"embed\"\n\n//go:embed skill.md\nvar skill string\n")
 	write(t, root, "skill.md", "body\n")
@@ -97,7 +97,7 @@ func TestProofInputs_TakesTheDataATestNamesAndLeavesCodeBehind(t *testing.T) {
 // new test pass there, and a correct commit is rejected as a fail-first
 // violation. It stays withheld, exactly like the .rs beside it.
 func TestProofInputs_WithholdsARonTableThisCommitChanged(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "tables/items.ron", "(items: [])\n")
 	write(t, root, "items_test.go", "package m\n\n// reads tables/items.ron\n")
@@ -114,7 +114,7 @@ func TestProofInputs_WithholdsARonTableThisCommitChanged(t *testing.T) {
 // correct commit is rejected as a fail-first violation. Changed, it stays
 // withheld, exactly like a .ron table.
 func TestProofInputs_WithholdsAWorkflowThisCommitChanged(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, ".github/workflows/pipeline.yml", "jobs:\n  deploy:\n    steps: []\n")
 	gitDo(t, root, "add", ".")
@@ -133,7 +133,7 @@ func TestProofInputs_WithholdsAWorkflowThisCommitChanged(t *testing.T) {
 // reads, and withholding it fails the new test for a stale path rather than
 // for missing code.
 func TestProofInputs_CarriesARonTableThisCommitOnlyMoved(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "tables/items.ron", "(items: [])\n")
 	gitDo(t, root, "add", ".")
@@ -152,6 +152,7 @@ func TestProofInputs_CarriesARonTableThisCommitOnlyMoved(t *testing.T) {
 // carries a file the tests never read -- and a file that IS the change under
 // test carried in is a correct commit rejected as a fail-first violation.
 func TestNamesPath_WantsTheWholeName(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		text string
@@ -177,7 +178,7 @@ func TestNamesPath_WantsTheWholeName(t *testing.T) {
 // reads, and withholding it fails the test for a missing path rather than for
 // missing code.
 func TestProofInputs_CarriesAnEmbeddedTemplateThisCommitOnlyMoved(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "skill.go", "package m\n\nimport _ \"embed\"\n\n//go:embed skill.md\nvar skill string\n")
 	write(t, root, "skill.md", "body\n")

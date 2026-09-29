@@ -13,7 +13,7 @@ import (
 // diff-scoped law refused the sync over work the lane never did. The staged
 // set and its pre-images come from one base.
 func TestRatchetStage_TrunkSyncReadsPreImagesAtTheTrunkTip(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, ".ratchet/laws/test_removed.toml", strings.Join([]string{
 		`name        = "test_removed"`,
