@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -148,6 +149,9 @@ func mechCacheCovers(root, stateHash string, want Runner) bool {
 	return provenCovers(have, wantScope)
 }
 
+// mechCacheWrite serialises mechCacheAdd's read-modify-write of the cache file.
+var mechCacheWrite sync.Mutex
+
 // mechCacheAdd records a green run under key, pruning the oldest entries
 // beyond mechCacheMax. Best-effort: any I/O failure just loses the cache win.
 func mechCacheAdd(key string) {
@@ -158,6 +162,11 @@ func mechCacheAdd(key string) {
 	if path == "" {
 		return
 	}
+	// One writer at a time within this process: two gates recording at once
+	// would each read the file before the other's rename and the later write
+	// would drop the earlier green.
+	mechCacheWrite.Lock()
+	defer mechCacheWrite.Unlock()
 	c := loadMechCache(path)
 	if c.newer {
 		return
