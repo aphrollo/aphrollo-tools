@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -454,6 +455,9 @@ func gitRevParseDir(realGit string, args []string, cwd, flag string) (string, bo
 // equivalent on Linux/macOS, where a git absent from PATH is just absent.
 func resolveRealGit() (string, error) {
 	if override := os.Getenv("APHROLLO_REAL_GIT"); override != "" {
+		if proc.IsGoTestBinary(override) {
+			return "", fmt.Errorf("resolve git: APHROLLO_REAL_GIT names %s, a Go test binary, not git", override)
+		}
 		return override, nil
 	}
 	if c, ok := tdd.GitBinaryOnPath(); ok {
