@@ -147,6 +147,7 @@ cargo_workspace_root_test.go                       precommit
 cargoshim_install.go                               install
 cargoshim_install_test.go                          install
 classify.go                                        suite
+classify_assertion_test.go                            suite
 classify_attribution.go                            suite
 classify_attribution_test.go                       postedit  # prefix says suite; its test body reaches postedit
 classify_color_test.go                             suite
