@@ -144,3 +144,11 @@ func TestPostEdit_GofmtSkipsAFailedToolCall(t *testing.T) {
 		t.Fatalf("a failed edit was formatted: %q", body)
 	}
 }
+
+// The note goes at the end of the first line even when that line is empty:
+// the text's first newline ends it, wherever that newline sits.
+func TestWithGofmtNote_EndsTheFirstLineEvenWhenItIsEmpty(t *testing.T) {
+	if got, want := withGofmtNote("\nbody", "gofmt formatted x.go"), " (gofmt formatted x.go)\nbody"; got != want {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+}

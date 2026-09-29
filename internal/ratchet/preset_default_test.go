@@ -58,8 +58,16 @@ func TestListPresets_ListsADefaultedSlotByNameWithItsDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, e := range entries {
-		if _, ok := e.Defaults["pattern"]; ok && e.Group+"/"+e.Name == "common/comment_hygiene" {
+		if e.Group+"/"+e.Name != "common/comment_hygiene" {
+			continue
+		}
+		// pattern comes first in the file and has no default; source_include
+		// comes after it and has one, so every slot is read, not only the first.
+		if _, ok := e.Defaults["pattern"]; ok {
 			t.Errorf("comment_hygiene's pattern has no default, yet Defaults carries one: %v", e.Defaults)
+		}
+		if got := e.Defaults["source_include"]; got != `"**/*.rs", "**/*.go", "**/*.py", "**/*.ts"` {
+			t.Errorf("comment_hygiene Defaults[source_include] = %q", got)
 		}
 	}
 	for _, e := range entries {
