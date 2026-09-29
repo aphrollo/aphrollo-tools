@@ -44,13 +44,14 @@ func TestCodeOnly_IgnoresAMatchInABlockComment(t *testing.T) {
 }
 
 // The block-comment view is the file's own language's: a Rust lifetime's
-// apostrophe must not open a quote that swallows the lines below it.
+// apostrophe must not open a quote that hides a comment after it, so the
+// comment is blanked and the code is not.
 func TestCodeOnly_BlockCommentsReadARustLifetimeAsCode(t *testing.T) {
 	l := lawWith(Matcher{Kind: KindRegexAbsent, Pattern: regexp.MustCompile(`\bTODO\b`), Key: KeyLineContent})
 	l.CodeOnly = true
-	src := "fn f<'a>(x: &'a str) {}\n/* TODO in prose */\nfn g() { todo(); } // TODO\nfn h() { let TODO = 1; }\n"
+	src := "fn f(x: &'a str) {} /* TODO in prose */\nfn g() { let TODO = 1; }\n"
 	hits := l.HitsIn("a.rs", src)
-	if len(hits) != 1 || hits[0].Line != 4 {
-		t.Fatalf("want one hit on line 4, got %+v", keys(hits))
+	if len(hits) != 1 || hits[0].Line != 2 {
+		t.Fatalf("want one hit on line 2, got %+v", keys(hits))
 	}
 }

@@ -24,11 +24,11 @@ func commentBlankerFor(file string) func(string, bool) string {
 // line inside a `/* ... */` block, or carrying one, is spaces where the block
 // was. Only the bytes the per-line cut kept are taken from lexed: a line the
 // lexer reads identically stays byte-for-byte what it was, so a baseline keyed
-// on that line's content never moves.
+// on that line's content never moves. The lexer only ever replaces bytes with
+// spaces, and maskStringLines hands back the raw lines should it ever not, so
+// lexed lines up with code line for line and byte for byte.
 func blankBlockComments(code, lexed []string) {
 	for i := range code {
-		if i < len(lexed) && len(lexed[i]) >= len(code[i]) {
-			code[i] = lexed[i][:len(code[i])]
-		}
+		code[i] = lexed[i][:len(code[i])]
 	}
 }
