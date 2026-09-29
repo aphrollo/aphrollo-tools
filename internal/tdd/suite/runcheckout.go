@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 )
 
@@ -102,13 +103,11 @@ func suiteRunDirs(cwd, cmd string) []string {
 	var outer []string
 	for _, seg := range shellSegmentsTokens(stripHeredocBodies(cmd)) {
 		inner, opened, closed := unwrapGroups(seg, len(outer))
-		for i := 0; i < opened; i++ {
-			outer = append(outer, cur)
-		}
+		outer = append(outer, slices.Repeat([]string{cur}, opened)...)
 		cur = followSegment(cur, inner, &dirs)
-		for i := 0; i < closed; i++ {
-			cur = outer[len(outer)-1]
-			outer = outer[:len(outer)-1]
+		if closed > 0 {
+			cur = outer[len(outer)-closed]
+			outer = outer[:len(outer)-closed]
 		}
 	}
 	return dirs

@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 )
@@ -20,6 +19,7 @@ import (
 // Only a PROVEN-missing checkout qualifies, the rule gcStaleGateDirs applies
 // to a gate dir: any other Stat error is "could not look", and a cache with
 // no recorded root is unknown and left alone.
+// Candidates come in filepath.Glob's lexical order.
 func gcGraphCaches(stateDir string) []GCCandidate {
 	if stateDir == "" {
 		return nil
@@ -48,6 +48,5 @@ func gcGraphCaches(stateDir string) []GCCandidate {
 			Kind:   GCKindTempLitter,
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
 	return out
 }
