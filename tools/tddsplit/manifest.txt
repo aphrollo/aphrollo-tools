@@ -824,6 +824,7 @@ suiteoutput_dir_test.go                            postedit  # prefix says suite
 suiteoutput_record_test.go                         suite
 suiteoutput_test.go                                install   # prefix says suite; its test body reaches install
 suiteproof.go                                      suite
+suiteproof_npm_test.go                             merge
 suiteproof_test.go                                 merge     # prefix says suite; its test body reaches merge
 suiteseams_test.go                                 suite
 suitetimeout_test.go                               precommit

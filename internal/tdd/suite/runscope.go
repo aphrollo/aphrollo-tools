@@ -68,8 +68,77 @@ func scopeOfSuiteCommand(words []string) (runScope, bool) {
 		return cargoRunScope(words[2:]), true
 	case len(words) >= 3 && words[0] == "cargo" && words[1] == "nextest" && words[2] == "run":
 		return cargoRunScope(words[3:]), true
+	case len(words) >= 2:
+		// `npx vitest …` and `node <…/node_modules/vitest/…> …` alike: the
+		// tool's own arguments start after its second word either way.
+		return npmRunScope(npmTestToolOf(Runner{Cmd: words[0], Args: words[1:]}), words[2:])
 	}
 	return runScope{}, false
+}
+
+// vitestSuiteVerbs are the vitest subcommands that run the suite once:
+// `run` over the whole suite or a file filter, `related` over the tests
+// that import the files it names.
+var vitestSuiteVerbs = map[string]bool{"run": true, "related": true}
+
+// npmNameFilterFlags narrow a vitest or jest run to tests by name.
+var npmNameFilterFlags = map[string]bool{"-t": true, "--testNamePattern": true}
+
+// npmScopeNeutralValueFlags consume a following word that is neither a file
+// nor a filter.
+var npmScopeNeutralValueFlags = map[string]bool{
+	"--reporter": true, "--config": true, "-c": true, "--root": true, "-r": true,
+	"--dir": true, "--project": true, "--environment": true, "--pool": true,
+}
+
+// npmRunScope reads the words after a vitest or jest invocation's tool. A
+// related run (vitest `related`, jest `--findRelatedTests`) covers the files
+// it names; any other positional word is a filename filter, and a run with
+// none covers the whole suite. Any other tool, or a vitest subcommand that
+// does not run the suite, cannot be read.
+func npmRunScope(tool string, args []string) (runScope, bool) {
+	related := false
+	switch tool {
+	case "vitest":
+		if len(args) == 0 || !vitestSuiteVerbs[args[0]] {
+			return runScope{}, false
+		}
+		related = args[0] == "related"
+		args = args[1:]
+	case "jest":
+	default:
+		return runScope{}, false
+	}
+	s := runScope{pkgs: map[string]bool{}}
+	filterFlag, skip := "", false
+	for _, w := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		if filterFlag != "" {
+			s.filters = append(s.filters, filterFlag+" "+w)
+			filterFlag = ""
+			continue
+		}
+		name, val, inline := splitFlagValue(w)
+		switch {
+		case npmNameFilterFlags[name] && inline:
+			s.filters = append(s.filters, name+" "+val)
+		case npmNameFilterFlags[name]:
+			filterFlag = name
+		case npmScopeNeutralValueFlags[name]:
+			skip = !inline
+		case name == "--findRelatedTests":
+			related = true
+		case strings.HasPrefix(w, "-"):
+		case related:
+			s.pkgs[w] = true
+		default:
+			s.filters = append(s.filters, w)
+		}
+	}
+	return settleScope(s), true
 }
 
 // cargoRunScope reads the words after `cargo test` / `cargo nextest run`.
