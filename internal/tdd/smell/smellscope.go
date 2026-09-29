@@ -141,6 +141,14 @@ func escapedLines(directives, marker string) map[int]bool {
 // admitted escape so the caller can record it: a waiver nobody counts is a
 // waiver nobody manages.
 func evaluateAdded(post string, lines map[int]bool, l lang, policies []policy, p phase) Decision {
+	return evaluateCovered(post, lines, nil, l, policies, p)
+}
+
+// evaluateCovered is evaluateAdded with the lines whose suppression directives
+// the change only carried over from lines it removed (coveredDirectives): the
+// policies that judge directives skip them, every other policy still reads
+// them.
+func evaluateCovered(post string, lines, covered map[int]bool, l lang, policies []policy, p phase) Decision {
 	full := newView(post, l)
 	best := Decision{Action: Allow}
 	var escapes []string
@@ -152,6 +160,9 @@ func evaluateAdded(post string, lines map[int]bool, l lang, policies []policy, p
 				escapes = append(escapes, "smell-escape:"+pol.name)
 			}
 			judged = withoutLines(lines, admitted)
+		}
+		if pol.directive {
+			judged = withoutLines(judged, covered)
 		}
 		if len(judged) == 0 || !pol.hit(restrict(full, judged)) {
 			continue

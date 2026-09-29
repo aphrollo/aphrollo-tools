@@ -34,10 +34,22 @@ func AddedLines(p0 string, p1 string) map[int]bool { return addedLines(p0, p1) }
 
 func ConcatPolicies(p0 ...[]policy) []policy { return concatPolicies(p0...) }
 
+func CoveredDirectives(p0 string, p1 lang, p2 map[int]bool, p3 map[int]bool, p4 map[string]int) map[int]bool {
+	return coveredDirectives(p0, p1, p2, p3, p4)
+}
+
+func EditCovered(p0 string, p1 string, p2 lang, p3 map[int]bool) map[int]bool {
+	return editCovered(p0, p1, p2, p3)
+}
+
 func EditImages(p0 preToolUseInput, p1 string) (string, string) { return editImages(p0, p1) }
 
 func EvaluateAdded(p0 string, p1 map[int]bool, p2 lang, p3 []policy, p4 phase) Decision {
 	return evaluateAdded(p0, p1, p2, p3, p4)
+}
+
+func EvaluateCovered(p0 string, p1 map[int]bool, p2 map[int]bool, p3 lang, p4 []policy, p5 phase) Decision {
+	return evaluateCovered(p0, p1, p2, p3, p4, p5)
 }
 
 func IntersectLines(p0 map[int]bool, p1 map[int]bool) map[int]bool { return intersectLines(p0, p1) }
@@ -50,6 +62,10 @@ func NewView(p0 string, p1 lang) view { return newView(p0, p1) }
 
 func QualityNotesOn(p0 string, p1 string, p2 map[int]bool) []string {
 	return qualityNotesOn(p0, p1, p2)
+}
+
+func RemovedDirectives(p0 string, p1 string, p2 lang) map[string]int {
+	return removedDirectives(p0, p1, p2)
 }
 
 func RemovedTexts(p0 string, p1 string, p2 lang) map[string]int { return removedTexts(p0, p1, p2) }

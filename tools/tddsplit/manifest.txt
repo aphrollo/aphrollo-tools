@@ -632,6 +632,7 @@ precommit_declared_test.go                         precommit
 precommit_diffscan.go                              precommit
 precommit_diffscan_failfirst.go                    failfirst # created by P2
 precommit_diffscan_moved_test.go                   precommit
+precommit_diffscan_reason_test.go                  precommit
 precommit_diffscan_suite.go                        suite     # created by P2
 precommit_diffscan_testoraclewarnings_test.go      precommit
 precommit_docsonly_fastpath_test.go                precommit
@@ -687,6 +688,7 @@ premergepr_test.go                                 merge
 prepr.go                                           postedit
 prepr_test.go                                      postedit
 pretooluse.go                                      postedit
+pretooluse_covered_test.go                         postedit
 pretooluse_smell.go                                smell     # created by P2
 pretooluse_test.go                                 postedit
 primary.go                                         postedit
@@ -843,6 +845,8 @@ suiteproof_test.go                                 merge     # prefix says suite
 suiteseams_test.go                                 suite
 suitetimeout_test.go                               precommit
 suppress.go                                        smell
+suppress_covered.go                                smell
+suppress_covered_test.go                           smell
 suppress_test.go                                   smell
 tdd.go                                             core
 tddskill.go                                        install
