@@ -18,10 +18,13 @@ import (
 // `// ratchet: <law name> "<name>": <reason>`, is always one symbol and may
 // hold any text but its own quote and a newline: a test runner that names a
 // test by a free-form string captures names with spaces, which the bare form
-// cannot carry. Groups 1 and 2 hold a quoted name, group 3 a bare one.
+// cannot carry. A bare name holding spaces needs no quotes: it runs up to the
+// first `:` that a space follows, the reason separator, and is always one
+// symbol, never a path. Groups 1 and 2 hold a quoted name, group 3 a bare
+// identifier or path, group 4 a bare name holding spaces.
 func symbolRemovedTombstoneRe(lawName string) *regexp.Regexp {
 	return regexp.MustCompile(`(?m)^[ \t]*(?://|#)[ \t]*ratchet:[ \t]*` + regexp.QuoteMeta(lawName) +
-		`[ \t]+(?:"([^"\n]+)"|'([^'\n]+)'|([A-Za-z0-9_][A-Za-z0-9_./-]*)):[ \t]*\S`)
+		`[ \t]+(?:"([^"\n]+)":[ \t]*\S|'([^'\n]+)':[ \t]*\S|([A-Za-z0-9_][A-Za-z0-9_./-]*):[ \t]*\S|([^\s"'][^\n]*?)[ \t]*:[ \t]+\S)`)
 }
 
 // symbolRemovedClaimsAPath tells the two things a tombstone can name apart: a
@@ -113,6 +116,8 @@ func symbolRemovedHits(law Law, base BaseReader, files []string, content map[str
 			switch quoted := m[1] + m[2]; {
 			case quoted != "":
 				tombstoned[quoted] = true
+			case m[4] != "":
+				tombstoned[m[4]] = true
 			case symbolRemovedClaimsAPath(m[3]):
 				fileTombstoned[m[3]] = true
 			default:

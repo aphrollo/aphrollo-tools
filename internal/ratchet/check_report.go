@@ -103,7 +103,7 @@ func remedyFor(law Law, hasRow bool) string {
 		return fmt.Sprintf("split the file; the ceiling is %d", law.Matcher.Max)
 	}
 	if law.Matcher.Kind == KindSymbolRemoved {
-		return fmt.Sprintf("test removed without a tombstone; add `// ratchet: %s <name>: <why>` where it stood (quote a name holding spaces: `\"<name>\"`) — or, when the whole test FILE went away with its subject, one `// ratchet: %s <path>: <why>` anywhere in scope — or restore it", law.Name, law.Name)
+		return fmt.Sprintf("test removed without a tombstone; add `// ratchet: %s <name>: <why>` where it stood (a name may hold spaces, up to the `: `; quote one that contains `: `) — or, when the whole test FILE went away with its subject, one `// ratchet: %s <path>: <why>` anywhere in scope — or restore it", law.Name, law.Name)
 	}
 	if law.Matcher.Kind == KindCoChange {
 		return fmt.Sprintf("escape: %s <why> on the marker line, or update the twin", coChangeEscapeToken)
