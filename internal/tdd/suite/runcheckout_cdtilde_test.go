@@ -1,6 +1,7 @@
 package suite
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -80,5 +81,44 @@ func TestSuiteRunDirs_ForeignUserTildeCdTargetIsDropped(t *testing.T) {
 	got := suiteRunDirs(cwd, cmd)
 	if len(got) != 1 || got[0] != "" {
 		t.Fatalf("suiteRunDirs(%q) = %v, want [\"\"] — a run after an unresolvable cd is not known to be in any tree", cmd, got)
+	}
+}
+
+// A command that runs no suite this scanner recognises names no tree of its
+// own, so the root is the session cwd's; with no cwd either there is none.
+func TestEffectiveRunRoot_NoSuiteRunFallsBackToTheCwdsRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module m\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := effectiveRunRoot(root, "echo hi"); got != root {
+		t.Fatalf("effectiveRunRoot(%q, echo) = %q, want the cwd's root %q", root, got, root)
+	}
+	if got := effectiveRunRoot("", "echo hi"); got != "" {
+		t.Fatalf("effectiveRunRoot with no cwd = %q, want no root", got)
+	}
+}
+
+// A directory change the scanner does not follow leaves the run directory
+// unknown; a plain word or a lone bracket changes nothing.
+func TestMovesShellUnfollowed_NamesOnlyTheDirectoryChangesItDoesNotFollow(t *testing.T) {
+	for _, tc := range []struct {
+		words []string
+		want  bool
+	}{
+		{[]string{"pushd", "x"}, true},
+		{[]string{"popd"}, true},
+		{[]string{"(cd", "x"}, true},
+		{[]string{"{", "cd", "x"}, true},
+		{[]string{"(", "cd", "x"}, true},
+		{[]string{"go", "test"}, false},
+		{[]string{"(go", "test"}, false},
+		{[]string{"(", "go", "test"}, false},
+		{[]string{"("}, false},
+		{nil, false},
+	} {
+		if got := movesShellUnfollowed(tc.words); got != tc.want {
+			t.Errorf("movesShellUnfollowed(%q) = %v, want %v", tc.words, got, tc.want)
+		}
 	}
 }
