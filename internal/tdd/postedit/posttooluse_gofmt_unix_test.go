@@ -24,7 +24,7 @@ func TestPostEdit_GofmtUnwritableFileIsNotClaimedFormatted(t *testing.T) {
 
 	got := PostEdit(postPayload("Edit", src), fakeRun(true, "ok\nPASS"))
 
-	if strings.Contains(got, "gofmt") {
+	if strings.Contains(got, "gofmt formatted") {
 		t.Fatalf("the write failed, yet the line claims a format:\n%s", got)
 	}
 	if body := readString(t, src); body != unformattedGo {

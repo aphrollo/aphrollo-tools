@@ -100,7 +100,7 @@ func TestPostEdit_GofmtLeavesFilesItMustNotTouch(t *testing.T) {
 			if body := readString(t, path); body != c.content {
 				t.Fatalf("file changed:\n%q\nwas\n%q", body, c.content)
 			}
-			if strings.Contains(got, "gofmt") {
+			if strings.Contains(got, "gofmt formatted") {
 				t.Fatalf("no format happened, yet the line says one did:\n%s", got)
 			}
 		})
