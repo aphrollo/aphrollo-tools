@@ -4,13 +4,8 @@ name: Windows smoke
 # forms, junction/symlink removal, the queue shims, argv batching, and the
 # /dev/null that `gate probe discard` hands to `git diff --no-index`) was first
 # exercised on the operator's own box. This job runs a small slice of the
-# platform tests plus one end-to-end probe discard on that box.
-#
-# The runner is registered on this repo only, as a dedicated non-admin local
-# service user, with ONE label and no default labels: every other workflow
-# here uses a bare `runs-on: self-hosted`, and a Windows runner carrying that
-# label would be eligible for all of them. The box is not always on, so this
-# check is not required; a run queued while it is off simply waits.
+# platform tests plus one end-to-end probe discard on a GitHub-hosted Windows
+# runner. It is not a required check.
 
 on:
   pull_request:
@@ -26,9 +21,8 @@ concurrency:
 
 jobs:
   smoke:
-    # The repo is public: a fork's pull request must never run on the box.
-    if: github.event_name == 'push' || (github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.draft != true)
-    runs-on: [windows-smoke]
+    if: github.event.pull_request.draft != true
+    runs-on: windows-latest
     timeout-minutes: 10
     defaults:
       run:
