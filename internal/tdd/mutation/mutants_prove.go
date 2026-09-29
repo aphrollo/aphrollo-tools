@@ -269,8 +269,8 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	// change" message below, which would otherwise assert the file did not
 	// change when it was never even in scope for git to report on.
 	if relPathEscapesRepo {
-		fmt.Fprintf(stderr, "gate: mutants prove refused — %s resolves outside the repository at %s (relative path "+
-			"%q escapes it); nothing was proved\n", absFile, repoRoot, relPath)
+		const escapes = "gate: mutants prove refused — %s resolves outside the repository at %s (relative path %q escapes it); nothing was proved\n"
+		fmt.Fprintf(stderr, escapes, absFile, repoRoot, relPath)
 		return ExitMutantsProveRefused
 	}
 
@@ -298,13 +298,10 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		root = box.root
 	}
 
-	perm := os.FileMode(0o644)
-	if fi, err := os.Stat(absFile); err == nil {
-		perm = fi.Mode().Perm()
-	}
-
+	// The copy already carries the file with the lane's mode, and writing an
+	// existing file keeps its mode; the one given here never applies.
 	mutated := strings.Replace(orig, opts.Old, opts.New, 1)
-	if err := os.WriteFile(absFile, []byte(mutated), perm); err != nil {
+	if err := os.WriteFile(absFile, []byte(mutated), 0o644); err != nil {
 		fmt.Fprintf(stderr, "gate: mutants prove refused — cannot write the mutation to %s: %v\n", absFile, err)
 		return ExitMutantsProveRefused
 	}
