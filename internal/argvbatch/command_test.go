@@ -171,3 +171,148 @@ func TestSplitCommand_ExtensionAndPathOfTheCommandAreIgnored(t *testing.T) {
 		}
 	}
 }
+
+func batchesEqual(got, want [][]string) bool {
+	return slices.EqualFunc(got, want, slices.Equal[[]string])
+}
+
+// TestSplitCommand_TheBudgetIsInclusiveAtTheWholeLineAndAtEachRun pins the
+// edge in both places: a line of exactly the budget stays whole and one
+// character more splits; a run that fills to exactly the budget keeps its
+// last item and the next one starts a new run.
+func TestSplitCommand_TheBudgetIsInclusiveAtTheWholeLineAndAtEachRun(t *testing.T) {
+	args := []string{"test", "./a", "./b", "./c"} // "go test ./a ./b ./c" is 19 chars
+	cases := []struct {
+		budget int
+		want   [][]string
+	}{
+		{19, [][]string{{"test", "./a", "./b", "./c"}}},
+		{18, [][]string{{"test", "./a", "./b"}, {"test", "./c"}}},
+		{15, [][]string{{"test", "./a", "./b"}, {"test", "./c"}}},
+		{14, [][]string{{"test", "./a"}, {"test", "./b"}, {"test", "./c"}}},
+	}
+	for _, c := range cases {
+		if got := SplitCommand("go", args, c.budget); !batchesEqual(got, c.want) {
+			t.Errorf("budget %d: %q, want %q", c.budget, got, c.want)
+		}
+	}
+}
+
+// TestSplitCommand_ARunWithNoFixedArgumentsCountsOnlyTheCommandAndItems pins
+// the base of a run whose list is the whole line: "cargo -p a -p b" is 15.
+func TestSplitCommand_ARunWithNoFixedArgumentsCountsOnlyTheCommandAndItems(t *testing.T) {
+	args := []string{"-p", "a", "-p", "b", "-p", "c"} // 20 chars with cargo
+	for _, c := range []struct {
+		budget int
+		want   [][]string
+	}{
+		{15, [][]string{{"-p", "a", "-p", "b"}, {"-p", "c"}}},
+		{14, [][]string{{"-p", "a"}, {"-p", "b"}, {"-p", "c"}}},
+	} {
+		if got := SplitCommand("cargo", args, c.budget); !batchesEqual(got, c.want) {
+			t.Errorf("budget %d: %q, want %q", c.budget, got, c.want)
+		}
+	}
+}
+
+// TestSplitCommand_FixedArgumentsBeforeAndAfterTheListCountInEveryRun pins
+// that head and tail words are charged to each run: "go test -v ./a ./b -run
+// X" is 25 chars, so two of three items fit at 25 and only one at 24.
+func TestSplitCommand_FixedArgumentsBeforeAndAfterTheListCountInEveryRun(t *testing.T) {
+	args := []string{"test", "-v", "./a", "./b", "./c", "-run", "X"} // 29 chars
+	got := SplitCommand("go", args, 25)
+	want := [][]string{{"test", "-v", "./a", "./b", "-run", "X"}, {"test", "-v", "./c", "-run", "X"}}
+	if !batchesEqual(got, want) {
+		t.Fatalf("budget 25: got %q, want %q", got, want)
+	}
+	if got := SplitCommand("go", args, 24); len(got) != 3 {
+		t.Fatalf("budget 24: %d runs, want 3", len(got))
+	}
+}
+
+// TestSplitCommand_GoArgsAfterDashArgsAreTheTestBinarysOwn pins that package
+// patterns after -args belong to the test binary, and that `--` means
+// nothing to go.
+func TestSplitCommand_GoArgsAfterDashArgsAreTheTestBinarysOwn(t *testing.T) {
+	long := strings.Repeat("x", 50)
+	args := []string{"test", "./a", "./b", "-args", "./c", "./d"}
+	got := SplitCommand("go", args, 28)
+	want := [][]string{{"test", "./a", "-args", "./c", "./d"}, {"test", "./b", "-args", "./c", "./d"}}
+	if !batchesEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	viaDash := []string{"test", "./a", "./b", "--", "./" + long}
+	if got := SplitCommand("go", viaDash, 12); len(got) != 3 {
+		t.Fatalf("go with a bare -- gave %d runs, want the ./ after it counted too (3)", len(got))
+	}
+	if got := SplitCommand("cargo", []string{"-p", "a", "-p", "b", "-args", "-p", "c"}, 20); len(got) != 3 {
+		t.Fatalf("cargo saw -args as a stop: %d runs, want 3 packages", len(got))
+	}
+}
+
+// TestSplitCommand_CargoPackageSpellingsAndATrailingFlag pins the three
+// spellings, and that a -p with no value after it is no item.
+func TestSplitCommand_CargoPackageSpellingsAndATrailingFlag(t *testing.T) {
+	long := strings.Repeat("y", 20)
+	args := []string{"test", "--package", "a" + long, "--package=b" + long, "-p", "c" + long}
+	got := SplitCommand("cargo", args, 60)
+	want := [][]string{
+		{"test", "--package", "a" + long},
+		{"test", "--package=b" + long},
+		{"test", "-p", "c" + long},
+	}
+	if !batchesEqual(got, want) {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	trailing := []string{"test", "-p", strings.Repeat("z", 30), "-p"}
+	if got := SplitCommand("cargo", trailing, 10); len(got) != 1 {
+		t.Fatalf("one package and a dangling -p gave %d runs, want the one run", len(got))
+	}
+}
+
+// TestSplitCommand_AnOtherwiseSplittableCommandNeedsItsVerb pins that a list
+// of ./ words is only packages after go test/vet/... or golangci-lint run.
+func TestSplitCommand_AnOtherwiseSplittableCommandNeedsItsVerb(t *testing.T) {
+	long := []string{"./" + strings.Repeat("a", 30), "./" + strings.Repeat("b", 30), "./" + strings.Repeat("c", 30)}
+	for _, c := range []struct {
+		cmd  string
+		args []string
+		runs int
+	}{
+		{"go", slices.Concat([]string{"run"}, long), 1},
+		{"go", slices.Concat([]string{"fmt"}, long), 1},
+		{"golangci-lint", slices.Concat([]string{"cache"}, long), 1},
+		{"golangci-lint", slices.Concat([]string{"run"}, long), 3},
+		{"go", slices.Concat([]string{"vet"}, long), 3},
+		{"go", slices.Concat([]string{"build"}, long), 3},
+		{"go", slices.Concat([]string{"install"}, long), 3},
+		{"go", slices.Concat([]string{"list"}, long), 3},
+		{"go", slices.Concat([]string{"test"}, long), 3},
+		{"go", nil, 1},
+		{"cargo", slices.Concat([]string{"test"}, long), 1},
+	} {
+		if got := SplitCommand(c.cmd, c.args, 50); len(got) != c.runs {
+			t.Errorf("%s %s: %d runs, want %d", c.cmd, c.args[:min(1, len(c.args))], len(got), c.runs)
+		}
+	}
+	if got := SplitCommand("go", []string{"test", ".", "./bb"}, 8); len(got) != 2 {
+		t.Fatalf("a bare . is a package: %d runs, want 2", len(got))
+	}
+	if got := SplitCommand("go", []string{"./" + strings.Repeat("a", 60), "./b", "./c"}, 20); len(got) != 1 {
+		t.Fatalf("a verbless list split into %d runs, want it left whole", len(got))
+	}
+}
+
+// TestBudgetOn_ACommandWithADirectoryIsNotLookedUp pins that a path is judged
+// as written: the lookup only resolves a bare name.
+func TestBudgetOn_ACommandWithADirectoryIsNotLookedUp(t *testing.T) {
+	look := func(string) (string, error) { return `C:\shims\tool.cmd`, nil }
+	for _, cmd := range []string{`C:\bin\tool.exe`, `bin/tool.exe`, `bin\tool.exe`} {
+		if got := BudgetOn("windows", cmd, look); got != ProcessBudget {
+			t.Errorf("BudgetOn(%q) = %d, want the .exe as written (%d)", cmd, got, ProcessBudget)
+		}
+	}
+	if got := BudgetOn("windows", "tool", look); got != Budget {
+		t.Errorf("a bare name resolving to a .cmd = %d, want %d", got, Budget)
+	}
+}
