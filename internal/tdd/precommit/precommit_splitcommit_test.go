@@ -170,3 +170,30 @@ func TestApplySplit_RefusesAPlanWithNoTests(t *testing.T) {
 		t.Errorf("HEAD moved to %s", got)
 	}
 }
+
+func TestSplitMessage_NamesTheTestsWhenItKnowsThem(t *testing.T) {
+	got := splitMessage([]string{"TestA", "TestB"}, []string{"a_test.go"})
+
+	want := "Add tests that pass against the current code\n\nTests: TestA, TestB"
+	if got != want {
+		t.Fatalf("splitMessage = %q, want %q", got, want)
+	}
+}
+
+// With no test names (a runner whose filter names none) the files carry it.
+func TestSplitMessage_FallsBackToTheFilesWhenNoNameIsKnown(t *testing.T) {
+	got := splitMessage(nil, []string{"a_test.go", "b_test.go"})
+
+	want := "Add tests that pass against the current code\n\nFiles: a_test.go, b_test.go"
+	if got != want {
+		t.Fatalf("splitMessage = %q, want %q", got, want)
+	}
+}
+
+func TestAppendNew_SkipsWhatTheListAlreadyHolds(t *testing.T) {
+	got := appendNew([]string{"a", "b"}, "b", "c", "a")
+
+	if !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+		t.Fatalf("appendNew = %v, want [a b c]", got)
+	}
+}

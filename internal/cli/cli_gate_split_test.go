@@ -119,3 +119,42 @@ func TestGateSplitCommit_RefusesABadFlag(t *testing.T) {
 		t.Fatalf("exit %d, want 2 for an unknown flag", code)
 	}
 }
+
+func TestPrintSplitPlan_ShowsTheGivenMessageElseThePlansDefault(t *testing.T) {
+	plan := tdd.SplitPlan{
+		Tests:   []string{"a_test.go"},
+		Names:   []string{"TestA"},
+		Rest:    []string{"a.go"},
+		Message: "Default subject\n\nTests: TestA",
+	}
+	cases := []struct {
+		name, msg, want string
+	}{
+		{"given", "Given subject", "  message: Given subject\n"},
+		{"empty", "", "  message: Default subject\n"},
+		{"blank", " \t\n", "  message: Default subject\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			printSplitPlan(&out, plan, tc.msg)
+			if !strings.Contains(out.String(), tc.want) {
+				t.Fatalf("output lacks %q:\n%s", tc.want, out.String())
+			}
+		})
+	}
+}
+
+func TestPrintSplitPlan_OmitsTheTestsLineWhenNoNameIsKnown(t *testing.T) {
+	var out bytes.Buffer
+
+	printSplitPlan(&out, tdd.SplitPlan{Tests: []string{"a_test.go"}, Rest: []string{"a.go"}, Message: "Subject"}, "")
+
+	if strings.Contains(out.String(), "tests:") {
+		t.Fatalf("no names known, yet the output lists tests:\n%s", out.String())
+	}
+	want := "commit 1 (tests only, already green at HEAD):\n    a_test.go\n  message: Subject\ncommit 2 (the rest, still staged afterwards):\n    a.go\n"
+	if out.String() != want {
+		t.Fatalf("output = %q, want %q", out.String(), want)
+	}
+}
