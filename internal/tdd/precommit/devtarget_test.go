@@ -42,6 +42,17 @@ func TestPinMechCargoTarget_LeavesANonCargoRunnerAlone(t *testing.T) {
 	}
 }
 
+// TestPinMechCargoTarget_ARunnerWithNoRepoRootIsLeftUnpinned pins the guard: with
+// no repo root there is no target to resolve, and an empty binding must not be
+// handed to cargo in its place.
+func TestPinMechCargoTarget_ARunnerWithNoRepoRootIsLeftUnpinned(t *testing.T) {
+	t.Parallel()
+	got := pinMechCargoTarget(Runner{Cmd: "cargo"}, "")
+	if len(got.Env) != 0 {
+		t.Fatalf("Env = %v, want none for an empty repo root", got.Env)
+	}
+}
+
 // TestPinMechCargoTarget_KeepsTheRunnersOtherBindings pins that the target
 // binding is added beside a runner's own Env, not over it.
 func TestPinMechCargoTarget_KeepsTheRunnersOtherBindings(t *testing.T) {
