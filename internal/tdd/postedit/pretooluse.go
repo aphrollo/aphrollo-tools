@@ -34,11 +34,12 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 	// it leaves an author with no move but to stop working in that file.
 	pre, post := editImages(in, path)
 	added := addedLines(pre, post)
+	covered := editCovered(pre, post, langOf(path), added)
 	var d Decision
 	if kind == Test {
-		d = evaluateAdded(post, added, langOf(path), testPolicies, editPhase)
+		d = evaluateCovered(post, added, covered, langOf(path), testPolicies, editPhase)
 	} else {
-		d = evaluateSourceAdded(post, added, path, editPhase)
+		d = evaluateSourceAdded(post, added, covered, path, editPhase)
 	}
 	full := withQualityNotes(d, path, post, added)
 	full.Escapes = d.Escapes
@@ -73,12 +74,12 @@ func withQualityNotes(d Decision, path, post string, added map[int]bool) Decisio
 // "..." {}` blocks INLINE in ordinary src/*.zig files, so the smells are
 // evaluated over the added lines that fall inside such a block, and a real
 // std.time.sleep in a production function still flows.
-func evaluateSourceAdded(post string, added map[int]bool, path string, p phase) Decision {
+func evaluateSourceAdded(post string, added, covered map[int]bool, path string, p phase) Decision {
 	l := langOf(path)
 	if !isZigPath(path) {
-		return evaluateAdded(post, added, l, sourcePolicies, p)
+		return evaluateCovered(post, added, covered, l, sourcePolicies, p)
 	}
-	best := evaluateAdded(post, added, l, sourcePolicies, p)
+	best := evaluateCovered(post, added, covered, l, sourcePolicies, p)
 	if best.Action == Block {
 		return best // a suppression already blocks; nothing outranks Block
 	}
