@@ -130,7 +130,7 @@ func TestMutantsRerun_AddsOnlyTheNameFilterAndNeverAShardFlag(t *testing.T) {
 	}
 	rerun := (*calls)[2].Argv
 	want := []string{
-		"cargo", "mutants", "--copy-target=false", "--in-diff",
+		"cargo", "mutants", "--copy-target=false", "--copy-vcs=false", "--in-diff",
 		filepath.Join(measureTempDir(root), "changed.diff"), "--no-shuffle", "--test-tool=nextest",
 		"--minimum-test-timeout", "120", "--timeout-multiplier", "3", "--package", "a",
 		"--jobs", "1", "--output", mutantsShardDir(root, 0),
@@ -139,4 +139,20 @@ func TestMutantsRerun_AddsOnlyTheNameFilterAndNeverAShardFlag(t *testing.T) {
 	if strings.Join(rerun, " ") != strings.Join(want, " ") {
 		t.Fatalf("re-run argv =\n  %v\nwant the run's own argv, unsharded, plus only the name filter\n  %v", rerun, want)
 	}
+}
+
+// cargo-mutants copies `.git` only when told to (`--copy-vcs`), and a
+// `copy_vcs = true` in the repo's own .cargo/mutants.toml would tell it to:
+// a lane worktree's `.git` file then names the lane's own git dir, and a
+// mutant's git command in the copy acts on the lane. The flag is passed so
+// the copy never carries a git dir, whatever the repo's config says.
+func TestMutantsArgv_TheCopyNeverCarriesAGitDir(t *testing.T) {
+	t.Parallel()
+	argv := MutantsArgv("/w/changed.diff", 120, []string{"a"}, "")
+	for _, arg := range argv {
+		if arg == "--copy-vcs=false" {
+			return
+		}
+	}
+	t.Errorf("argv = %v, want --copy-vcs=false so a mutant's git command has no git dir to act on", argv)
 }

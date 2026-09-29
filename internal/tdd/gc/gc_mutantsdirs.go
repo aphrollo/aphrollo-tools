@@ -97,6 +97,9 @@ func gcMutantsOrphanAreas(areas []string, now time.Time) []GCCandidate {
 		if _, err := os.Stat(checkout); err == nil {
 			continue // its checkout is still here; not this category's to decide
 		}
+		if proveAreaHeld(area) {
+			continue // a proof is running in a copy inside it
+		}
 		newest, size := dirNewestAndSize(area)
 		if newest.IsZero() {
 			continue

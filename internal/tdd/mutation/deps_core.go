@@ -12,6 +12,8 @@ type GateResult = core.GateResult
 
 type Runner = core.Runner
 
+var processIdentityFn = core.ProcessIdentityFn
+
 func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration) {
 	core.AppendGateLog(p0, p1, p2, p3, p4)
 }

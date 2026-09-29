@@ -274,6 +274,10 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base, re
 	if refused {
 		return v, nil
 	}
+	lane := RepoRoot(root)
+	if lane == "" {
+		return Verdict{}, fmt.Errorf("%s is not inside a git repository to copy", root)
+	}
 	out := gremlinsReportPath(root)
 	if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
 		return Verdict{}, err
@@ -294,7 +298,21 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base, re
 	// gremlins rewrites the source it mutates too, and is killed by the same
 	// things: the tree is snapshotted here for the same reason.
 	before := snapshotWorktree(root)
-	code, runOutput, err := runMutantsMeasured(ctx, root, goMeasureEnv(root, cfg), argv, log)
+	// gremlins copies the tree it is started in, `.git` included, and a
+	// mutant's git command in that copy would act on the lane's own git dir
+	// when the lane is a worktree. So it starts in a disposable copy that
+	// has a git dir of its own, and the lane is only read.
+	box, err := newProveSandbox(lane, root)
+	if err != nil {
+		return Verdict{}, fmt.Errorf("a disposable copy of %s to measure in could not be made: %v", lane, err)
+	}
+	defer box.remove()
+	defer watchProveSignals(box.remove, log)()
+	boxRoot, err := box.path(lane, root)
+	if err != nil {
+		return Verdict{}, err
+	}
+	code, runOutput, err := runMutantsMeasuredIn(ctx, root, boxRoot, goMeasureEnv(root, cfg), argv, log)
 	if err != nil {
 		return Verdict{}, err
 	}
@@ -361,10 +379,16 @@ func sweepGoMeasureTemp(root string) {
 // its output into the caller's log and returning a copy for the lines this
 // side has to read back out of it.
 func runMutantsMeasured(ctx context.Context, root string, env, argv []string, log io.Writer) (int, string, error) {
+	return runMutantsMeasuredIn(ctx, root, root, env, argv, log)
+}
+
+// runMutantsMeasuredIn is runMutantsMeasured with the tool started in dir,
+// while the lock and the wait for the runner are still root's.
+func runMutantsMeasuredIn(ctx context.Context, root, dir string, env, argv []string, log io.Writer) (int, string, error) {
 	var tee strings.Builder
 	release := acquireMutantsRunLock("mutants measure for "+root, root)
 	waitForCIRunnerJobs(ctx, root, log)
-	code, err := mutantsExecFn(ctx, root, env, argv, io.MultiWriter(log, &tee))
+	code, err := mutantsExecFn(ctx, dir, env, argv, io.MultiWriter(log, &tee))
 	release()
 	return code, tee.String(), err
 }
