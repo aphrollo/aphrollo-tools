@@ -131,3 +131,13 @@ func TestClosingRefs_EveryKeywordSpellingOnceInFirstSeenOrder(t *testing.T) {
 		t.Errorf("ClosingRefs = %q, want %q", got, want)
 	}
 }
+
+// One commit message routinely closes several issues, one trailer a line:
+// every one of them counts, not only the first in the text.
+func TestClosingRefs_EveryTrailerInOneText(t *testing.T) {
+	got := ClosingRefs("Split the gate\n\nCloses #886\nCloses #887\nFixes #888")
+	want := []string{"#886", "#887", "#888"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ClosingRefs = %q, want %q", got, want)
+	}
+}
