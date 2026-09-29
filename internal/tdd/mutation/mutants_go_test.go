@@ -272,3 +272,26 @@ func TestTomlStringsIn_AnEscapedQuoteStaysInsideItsString(t *testing.T) {
 		t.Fatalf("tomlStringsIn = %q, want %q", got, want)
 	}
 }
+
+// gremlins gathers coverage with a bare `go test` and prices every mutant's
+// timeout from how long that gather took (issue #964). It forwards no test
+// flags, so the only way to keep the gather out of Go's test cache is the
+// environment: a cached gather of seconds would time out mutants whose suites
+// take minutes.
+func TestGoMeasureEnv_GathersUncachedThroughGOFLAGS(t *testing.T) {
+	t.Setenv("GOFLAGS", "-mod=mod")
+	env := goMeasureEnv(t.TempDir(), MutantsConfig{})
+	flags := strings.Fields(envValueOf(env, "GOFLAGS"))
+	last := ""
+	for _, f := range flags {
+		if strings.HasPrefix(f, "-count=") {
+			last = f
+		}
+	}
+	if last != "-count=1" {
+		t.Fatalf("GOFLAGS = %q, want it to carry -count=1", flags)
+	}
+	if !strings.Contains(strings.Join(flags, " "), "-mod=mod") {
+		t.Fatalf("GOFLAGS = %q, want the caller's own flags kept", flags)
+	}
+}
