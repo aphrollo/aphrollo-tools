@@ -34,13 +34,16 @@ type FileLines struct {
 	// mask blanks the strings of the whole file the way its language spells
 	// them (see maskerFor).
 	mask func(src string) string
+	// blank is mask's twin that also blanks the comments, strings only when
+	// asked (see commentBlankerFor).
+	blank func(src string, strings bool) string
 }
 
 // newFileLines splits content once. Cheap enough to call for a single
 // HitsIn as well as a scanner's per-file loop. The path decides the
 // language the string masker reads the content as.
 func newFileLines(file, content string) *FileLines {
-	return &FileLines{raw: splitLines(content), mask: maskerFor(file)}
+	return &FileLines{raw: splitLines(content), mask: maskerFor(file), blank: commentBlankerFor(file)}
 }
 
 // maskerFor picks the string masker a file's extension calls for. Rust reads
@@ -90,6 +93,9 @@ func (fl *FileLines) codeFor(l Law) []string {
 		code = make([]string, len(lines))
 		for i := range lines {
 			code[i], _ = splitTrailingComment(lines[i], prefix)
+		}
+		if prefix == "//" {
+			blankBlockComments(code, maskStringLines(fl.raw, func(src string) string { return fl.blank(src, l.MaskStrings) }))
 		}
 	}
 	if fl.code == nil {
