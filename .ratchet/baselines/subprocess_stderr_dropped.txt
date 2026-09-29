@@ -46,4 +46,3 @@ internal/tdd/gc/gc_mutantstemp.go | out, err := exec.Command("tasklist", "/FI", 
 internal/tdd/failfirst/deferred_edit_failfirst.go | out, err := exec.Command(gitBinary(), "-C", root, "rev-parse", "HEAD").Output()
 internal/tdd/install/gitgate.go | out, err := exec.Command(gitBinary(), "config", "--global", "--get", key).Output()
 internal/ratchet/wholetree.go | out, runErr := cmd.Output()
-internal/ratchet/wholetree_godepgraph.go | out, runErr := cmd.Output()

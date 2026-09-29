@@ -69,6 +69,19 @@ type Options struct {
 	// commit. Called at most once per run, and only when a dep-graph law is
 	// judged.
 	GraphTree func() (GraphTree, error)
+	// GraphOverlay is content the Go dependency-graph laws read in place of
+	// the file on disk (repo-relative slash path to text; a path the disk
+	// lacks is a file the edit would add). Only the working-tree query honors
+	// it: a GraphTree supplies its own checkout.
+	GraphOverlay map[string]string
+	// SkipGraphLaws leaves every dependency-graph law unjudged: the caller
+	// knows this run's edit cannot change the graph, so a `go list` or
+	// `cargo metadata` would only re-answer what the last run said.
+	SkipGraphLaws bool
+	// GraphCacheDir holds the dependency-graph cache alone, for a run that
+	// must not touch the per-file scan cache (a narrowed scan rewrites it to
+	// the files it saw). Empty falls back to CacheDir.
+	GraphCacheDir string
 	// CacheDir holds the per-file scan cache; empty disables caching.
 	CacheDir string
 	// CommitMessage is the commit message text this run is judging, when

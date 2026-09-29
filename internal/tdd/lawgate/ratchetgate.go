@@ -87,10 +87,18 @@ func RatchetAdvisory(raw []byte) Decision {
 		return Decision{}
 	}
 
+	before := onDiskContent(path)
+	_, statErr := os.Stat(path)
 	res, err := ratchet.Check(ratchet.Options{
 		Root:     root,
 		Proposed: map[string]string{relSlash: content},
 		Files:    []string{relSlash},
+		// The graph laws judge the module, not the file: skipped when this
+		// edit cannot move the graph, else judged over the graph the edit
+		// would leave and cached by tree state.
+		SkipGraphLaws: !graphMayChange(relSlash, statErr == nil, before, content),
+		GraphOverlay:  map[string]string{relSlash: content},
+		GraphCacheDir: StateDir(),
 	})
 	if err != nil || len(res.Findings) == 0 {
 		return Decision{}
@@ -99,7 +107,7 @@ func RatchetAdvisory(raw []byte) Decision {
 	// keeps a law's count in this file must not be refused for the hits it
 	// leaves behind (see ratchetedit.go). The baseline comparison above is
 	// still what selects a finding at all, so this only ever allows more.
-	res.Findings = editRegressions(root, relSlash, onDiskContent(path), content, res)
+	res.Findings = editRegressions(root, relSlash, before, content, res)
 	if len(res.Findings) == 0 {
 		return Decision{}
 	}
