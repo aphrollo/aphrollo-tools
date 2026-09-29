@@ -39,7 +39,9 @@ jobs:
     # A fork has no business filing escape issues against this repo (and
     # would fail the `gh issue create` call anyway without a token) -- same
     # guard nightly-fuzz.yml states for the same reason.
-    if: github.repository == 'aphrollo/aphrollo-tools'
+    # Only the schedule or a manual dispatch by a writer can put this job on
+    # the host; a pull_request event never satisfies the guard.
+    if: github.repository == 'aphrollo/aphrollo-tools' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: self-hosted
     # Sized the same as the job this replaces: 30 minutes is far past any
     # single night's accumulated diff for a repo merging at PR cadence.
