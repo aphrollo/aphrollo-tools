@@ -1,6 +1,8 @@
 package postedit
 
 import (
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -154,17 +156,104 @@ func TestDecideBashSuite_LogsADeniedLaneRunAgainstTheLanesRoot(t *testing.T) {
 	}
 }
 
+// ratchet: test_removed TestDecideBashSuite_FallsBackToTheSessionCwdWhenTheCdIsUnresolvable: the fallback was the cause of issue #953; replaced by TestDecideBashSuite_AllowsARunWhenTheCdIsUnresolvable
+
 // A cd this scanner cannot resolve (a variable, `cd -`) leaves the run
-// directory unknown, and an unknown one falls back to the session's cwd —
-// today's behaviour — rather than to a guess that would waive the guard.
-func TestDecideBashSuite_FallsBackToTheSessionCwdWhenTheCdIsUnresolvable(t *testing.T) {
+// directory unknown, and an unknown one is answered with NO root: the gate
+// holds no verdict for a tree it cannot name, and refusing on the session
+// cwd's verdict instead attributed a run in an independent clone to the
+// primary checkout (issue #953).
+func TestDecideBashSuite_AllowsARunWhenTheCdIsUnresolvable(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
 	d := decideBash(t, "s1", root, "cd $LANE && go test -run TestWidget ./...")
+	if d.Action != Allow {
+		t.Fatalf("a run in a tree the cd names by variable must not be refused on the cwd's verdict, got %v", d.Action)
+	}
+}
+
+// independentClone makes a real `git clone` of primary at a path unrelated to
+// it, the shape issue #953 reported: its own .git directory, not a worktree
+// of the primary, and no path prefix in common.
+func independentClone(t *testing.T, primary string) string {
+	t.Helper()
+	runGit(t, primary, "init", "-q")
+	runGit(t, primary, "add", ".")
+	runGit(t, primary, "-c", "core.hooksPath=/dev/null", "-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "init")
+	clone := filepath.Join(t.TempDir(), "tmp", "base")
+	if err := os.MkdirAll(filepath.Dir(clone), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, filepath.Dir(clone), "clone", "-q", primary, clone)
+	return clone
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if err := exec.Command("git", append([]string{"-C", dir}, args...)...).Run(); err != nil {
+		t.Fatalf("git %v in %s: %v", args, dir, err)
+	}
+}
+
+// A hand run in an independent clone must never be refused on a verdict held
+// for the checkout the session stands in (issue #953). Every spelling of
+// "enter the clone" the scanner cannot follow used to fall back to the
+// session's cwd, the primary: `cd -- dir`, `pushd`, a subshell, a variable,
+// and a Windows path whose backslashes an unquoted word swallows.
+func TestDecideBashSuite_AllowsARunInAnIndependentCloneWhateverTheCdSpelling(t *testing.T) {
+	primary := bashSuiteRoot(t)
+	clone := independentClone(t, primary)
+	slash := filepath.ToSlash(clone)
+	run := "go test -run TestWidget ./..."
+	for name, cmd := range map[string]string{
+		"double dash":       "cd -- " + slash + " && " + run,
+		"pushd":             "pushd " + slash + " && " + run,
+		"subshell":          "(cd " + slash + " && " + run + ")",
+		"variable":          "cd $CLONE && " + run,
+		"windows backslash": `cd C:\Users\olive\tmp\base && ` + run,
+		"missing dir":       "cd no/such/dir && " + run,
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			AppendGateLog("premergecommit", primary, "go test ./...", "mechanical-blocked", 0)
+			d := decideBash(t, "s1", primary, cmd)
+			if d.Action != Allow {
+				t.Fatalf("%q run in the clone must not be refused on the primary's verdict, got %v (reason %q)",
+					cmd, d.Action, d.Reason)
+			}
+		})
+	}
+}
+
+// The clone's own verdict still refuses a redundant run there: identity, not
+// a blanket waiver.
+func TestDecideBashSuite_StillDeniesARerunInTheCloneTheVerdictWasLoggedFor(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary := bashSuiteRoot(t)
+	clone := independentClone(t, primary)
+	AppendGateLog("postedit", clone, "go test ./...", "green", 0)
+
+	d := decideBash(t, "s1", primary, "cd "+filepath.ToSlash(clone)+" && go test -run TestWidget ./...")
 	if d.Action != Block {
-		t.Fatalf("an unresolvable cd must fall back to the cwd's verdict, got %v", d.Action)
+		t.Fatalf("a rerun in the tree the verdict names must stay refused, got %v", d.Action)
+	}
+}
+
+// A command line that runs suites in two different trees has no single root
+// to judge; the session's cwd verdict is not the answer for either.
+func TestDecideBashSuite_AllowsRunsInTwoTreesBesideTheCwdsVerdict(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary := bashSuiteRoot(t)
+	clone := independentClone(t, primary)
+	other := bashSuiteRoot(t)
+	AppendGateLog("postedit", primary, "go test ./...", "green", 0)
+
+	cmd := "cd " + filepath.ToSlash(clone) + " && go test -run TestA ./... && cd " + filepath.ToSlash(other) + " && go test -run TestB ./..."
+	d := decideBash(t, "s1", primary, cmd)
+	if d.Action != Allow {
+		t.Fatalf("runs in two trees must not be refused on the cwd's verdict, got %v", d.Action)
 	}
 }

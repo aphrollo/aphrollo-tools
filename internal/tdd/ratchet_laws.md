@@ -373,10 +373,12 @@ again, so a plain rename reports under the OLD name while a name that moved
 to a different file, unchanged, reports nothing at all. The one way through
 besides restoring it is a tombstone comment left where the symbol stood:
 `// ratchet: <law name> <symbol>: <reason>` (or `#`), with a REASON after
-the colon — a stub with nothing after it admits nothing. A name a bare word
-cannot carry, such as a free-form test name with spaces, goes
-in double or single quotes: `// ratchet: <law name> "<name>": <reason>`. A
-quoted name is always one symbol, never a path.
+the colon — a stub with nothing after it admits nothing. A free-form test
+name with spaces needs no quotes: the name runs up to the first `: ` (a colon
+followed by a space), which starts the reason. It may also be put in double or
+single quotes, `// ratchet: <law name> "<name>": <reason>`, which is the way
+to carry a name that itself contains `: `. A name holding a space, quoted or
+not, is always one symbol, never a path.
 
 A tombstone may name a repo-relative PATH instead of a symbol (anything
 carrying a `/` or a `.` is read as one), and then it admits every symbol that

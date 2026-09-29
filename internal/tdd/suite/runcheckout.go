@@ -1,7 +1,9 @@
 package suite
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 )
 
 // This file answers one question for the suite guard: which project root does
@@ -23,10 +25,9 @@ import (
 // The parsing reuses the package's one command parser — shellSegmentsTokens,
 // dropLeadingEnvAssignmentWords, cdTargetTilde, resolveAgainst,
 // splitFlagValue, classifySuiteSegment — rather than growing a second.
-// Anything it cannot resolve reads as "unknown" and falls back to the
-// session cwd, which is the behaviour that predates this file: a guess would
-// either waive the guard where it is right or re-refuse a run in a tree
-// nobody has a verdict for.
+// Anything it cannot resolve reads as "unknown" and answers no root at all:
+// a guess at the session cwd would re-refuse a run in a tree nobody has a
+// verdict for (issue #953).
 
 // runnerDirFlags name a test runner's own way of moving the run out of the
 // shell's working directory: `go test -C <dir>`, and cargo's `--manifest-path
@@ -47,21 +48,25 @@ var manifestFileFlags = map[string]bool{"--manifest-path": true}
 // the callers read as "nothing to be redundant against".
 //
 // Every invocation in the command line has to agree: a command line that runs
-// suites in two different trees has no single root to judge, and falls back
-// to the cwd rather than picking one of them.
+// suites in two different trees has no single root to judge. A run whose tree
+// cannot be named at all — a `cd` into a variable, a directory that does not
+// exist, a directory change this scanner does not follow — answers "" for the
+// same reason: the gate holds no verdict for a tree it cannot name, and
+// falling back to the session's cwd attributed a run in an independent clone
+// to the primary checkout and refused it (issue #953). The fallback is kept
+// only for a command that runs no suite this scanner recognises.
 func effectiveRunRoot(cwd, cmd string) string {
-	fallback := ""
-	if cwd != "" {
-		fallback = findRootFrom(cwd)
-	}
 	dirs := suiteRunDirs(cwd, cmd)
 	if len(dirs) == 0 {
-		return fallback
+		if cwd == "" {
+			return ""
+		}
+		return findRootFrom(cwd)
 	}
 	root := ""
 	for i, dir := range dirs {
-		if dir == "" {
-			return fallback
+		if dir == "" || !runDirExists(dir) {
+			return ""
 		}
 		r := findRootFrom(dir)
 		if i == 0 {
@@ -69,10 +74,19 @@ func effectiveRunRoot(cwd, cmd string) string {
 			continue
 		}
 		if !sameRoot(r, root) {
-			return fallback
+			return ""
 		}
 	}
 	return root
+}
+
+// runDirExists reports whether dir names an existing directory. A path that does
+// not exist has no checkout to be in, and walking up from it for a marker
+// lands on whichever ancestor happens to hold one — the session's own
+// checkout, for a relative path the scanner mis-joined onto the cwd.
+func runDirExists(dir string) bool {
+	fi, err := os.Stat(dir)
+	return err == nil && fi.IsDir()
 }
 
 // suiteRunDirs walks the command line left to right, tracking the directory a
@@ -90,12 +104,34 @@ func suiteRunDirs(cwd, cmd string) []string {
 			continue
 		}
 		words := wordTexts(trimmed)
+		if movesShellUnfollowed(words) {
+			cur = ""
+			continue
+		}
 		if classifySuiteSegment(words) == notSuiteInvocation {
 			continue
 		}
 		dirs = append(dirs, invocationDir(cur, words))
 	}
 	return dirs
+}
+
+// movesShellUnfollowed reports whether a segment changes the shell's
+// directory in a way this scanner does not model: `pushd`/`popd`, and a `cd`
+// opened inside a subshell or group (`(cd dir && …`, `{ cd dir; …`), whose
+// first word carries the bracket. The directory after it is unknown, and an
+// unknown one must never be read as the directory before it.
+func movesShellUnfollowed(words []string) bool {
+	if len(words) == 0 {
+		return false
+	}
+	switch strings.TrimLeft(words[0], "({") {
+	case "pushd", "popd", "cd":
+		return true
+	case "":
+		return len(words) > 1 && strings.TrimLeft(words[1], "({") == "cd"
+	}
+	return false
 }
 
 // dropLeadingEnvAssignmentWords is dropLeadingEnvAssignments over a

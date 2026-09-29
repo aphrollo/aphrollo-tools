@@ -116,3 +116,34 @@ func TestSymbolRemoved_AQuotedNameIsNeverAPath(t *testing.T) {
 		t.Fatalf("findings = %+v, want exactly old.test.ts:retired", res.Findings)
 	}
 }
+
+// TestSymbolRemoved_BareTombstoneAdmitsATestNamedWithSpaces: a bare name runs
+// up to the ': ' that starts the reason, so a Vitest name with spaces needs no
+// quotes (issue #954). A name carrying a dot or slash is still one test, not a
+// path, once it holds a space; a space before the colon is not part of the
+// name; and a second removal stays reported.
+func TestSymbolRemoved_BareTombstoneAdmitsATestNamedWithSpaces(t *testing.T) {
+	root := quotedNameRepo(t)
+	write(t, filepath.Join(root, "nav.test.ts"),
+		"it('the Today page needs a legacy-tier team', () => {})\n"+
+			"it('keeps a.b/c intact', () => {})\n"+
+			"it('renders a dash', () => {})\n"+
+			"it('gone without a word', () => {})\n"+
+			"it('stays', () => {})\n")
+	gitRun(t, root, "add", ".")
+	gitRun(t, root, "commit", "-qm", "base")
+
+	write(t, filepath.Join(root, "nav.test.ts"),
+		"// ratchet: test_removed the Today page needs a legacy-tier team: the page it covered was deleted\n"+
+			"// ratchet: test_removed keeps a.b/c intact: the path helper is gone: see the PR\n"+
+			"// ratchet: test_removed renders a dash : the placeholder went with the feature\n"+
+			"it('stays', () => {})\n")
+
+	res, err := Check(Options{Root: root, Base: "HEAD"})
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if len(res.Findings) != 1 || res.Findings[0].Key != "nav.test.ts:gone without a word" {
+		t.Fatalf("findings = %+v, want exactly the untombstoned nav.test.ts:gone without a word", res.Findings)
+	}
+}
