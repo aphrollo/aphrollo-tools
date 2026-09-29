@@ -46,6 +46,15 @@ func (v treeView) has(rel string) bool {
 	return v.tracked == nil || v.tracked[rel]
 }
 
+// hasFile reports whether rel is a file in this view: in the tracked set when
+// the view has one, which at commit time is the index, else on disk.
+func (v treeView) hasFile(rel string) bool {
+	if v.tracked != nil {
+		return v.tracked[rel]
+	}
+	return isFile(filepath.Join(v.root, filepath.FromSlash(rel)))
+}
+
 // viewGlobFiles is globFiles over the view's root, keeping only the files the
 // view carries.
 func viewGlobFiles(view treeView, glob string) ([]string, error) {

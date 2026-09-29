@@ -39,6 +39,9 @@ type retroLane struct {
 // merge; a gh failure is one "retro skipped" line on stderr.
 func PostMergeRetro(mainRepo, worktree, branch string, pr int, stderr io.Writer) {
 	cfg := loadRetroConfig(worktree)
+	for _, w := range cfg.Warnings {
+		fmt.Fprintln(stderr, "warning: "+w)
+	}
 	if !cfg.active() {
 		return
 	}

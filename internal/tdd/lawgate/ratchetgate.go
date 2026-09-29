@@ -153,12 +153,22 @@ func proposedContent(in ratchetEditInput, path string) (string, bool) {
 // never TIGHTENS a baseline — a commit gate that rewrote a file mid-commit
 // would leave the lowered ceiling unstaged and the next run confused; lowering
 // is `aphrollo ratchet check`'s job, run deliberately.
+//
+// Its dep-graph laws query the real tree; commitRatchetStage is the same
+// stage querying a checkout of the index.
 func ratchetStage(gateName, repoRoot string) GateResult {
+	return judgeRatchet(gateName, repoRoot, nil)
+}
+
+// judgeRatchet is ratchetStage with the dep-graph laws' tree supplied by
+// graph (nil: the real tree).
+func judgeRatchet(gateName, repoRoot string, graph func() (ratchet.GraphTree, error)) GateResult {
 	if repoRoot == "" || !ratchet.HasLaws(repoRoot) {
 		return GateResult{}
 	}
 	started := time.Now()
 	res, err := ratchetCheckFn(ratchet.Options{
+		GraphTree:      graph,
 		Root:           repoRoot,
 		Proposed:       indexOverlay(repoRoot),
 		Tracked:        trackedFiles(repoRoot),

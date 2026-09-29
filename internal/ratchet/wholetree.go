@@ -77,7 +77,7 @@ func depGraphHits(root string, law Law) ([]Hit, error) {
 	if hits, ok := readDepGraphCache(law, root, fingerprint); ok {
 		return hits, nil
 	}
-	meta, err := loadCargoMetadata(root)
+	meta, err := loadCargoMetadata(root, law)
 	if err != nil {
 		return nil, fmt.Errorf("law %q: %w", law.Name, err)
 	}
@@ -297,15 +297,21 @@ func reachablePaths(deps map[string][]string, nameOf map[string]string, rootID, 
 
 // loadCargoMetadata reads the resolved graph: a checked-in document when the
 // tree carries one (fixtures), else `cargo metadata` over the tree itself.
-func loadCargoMetadata(root string) (*cargoMetadata, error) {
+func loadCargoMetadata(root string, law Law) (*cargoMetadata, error) {
 	data, err := os.ReadFile(filepath.Join(root, metadataFixtureFile))
 	if err != nil {
 		cargo := os.Getenv("CARGO")
 		if cargo == "" {
 			cargo = "cargo"
 		}
-		cmd := exec.Command(cargo, "metadata", "--format-version", "1",
-			"--manifest-path", filepath.Join(root, "Cargo.toml"))
+		args := []string{"metadata", "--format-version", "1", "--manifest-path", filepath.Join(root, "Cargo.toml")}
+		if law.CargoOffline {
+			args = append(args, "--offline")
+		}
+		cmd := exec.Command(cargo, args...)
+		if law.CargoTargetDir != "" {
+			cmd.Env = append(os.Environ(), "CARGO_TARGET_DIR="+law.CargoTargetDir)
+		}
 		out, runErr := cmd.Output()
 		if runErr != nil {
 			return nil, fmt.Errorf("cargo metadata in %s: %w", root, runErr)

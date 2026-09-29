@@ -335,10 +335,11 @@ gateprofile_test.go                                precommit # prefix says suite
 gatestatus.go                                      tdd
 gatestatus_core.go                                 core      # created by P2
 gatestatus_test.go                                 tdd
+gateworktree_core.go                               core
+gateworktree_own_test.go                           core
 gc.go                                              gc
 gc_deps.go                                         gc
 gc_deps_test.go                                    gc
-gc_failfirst.go                                    failfirst # created by P2
 gc_gotmp.go                                        gc
 gc_gotmp_test.go                                   gc
 gc_interlock.go                                    gc
@@ -357,7 +358,6 @@ gc_render_core.go                                  core      # created by P2
 gc_render_test.go                                  gc
 gc_safety_test.go                                  gc
 gc_session.go                                      gc
-gc_session_failfirst.go                            failfirst # created by P2
 gc_session_suite.go                                suite     # created by P2
 gc_session_test.go                                 tdd       # prefix says gc; its test body reaches tdd
 gc_slotless_test.go                                gc
@@ -707,6 +707,7 @@ ratchetgate_bench_test.go                          tdd
 ratchetgate_lanebuild.go                           lawgate
 ratchetgate_lanebuild_e2e_test.go                  lawgate
 ratchetgate_lanebuild_test.go                      lawgate
+ratchetgate_stagedgraph.go                         lawgate
 ratchetgate_suite.go                               suite     # created by P2
 ratchetgate_test.go                                lawgate
 ratchethint.go                                     lawgate
@@ -720,6 +721,7 @@ ratchetreadme_test.go                              tdd
 ratchetschema_test.go                              lawgate
 ratchetstage_baselinehint_test.go                  lawgate
 ratchetstage_rename_test.go                        lawgate
+ratchetstage_stagedgraph_test.go                   lawgate
 ratchetstage_stagedview_test.go                    lawgate
 ratchetstage_test.go                               lawgate
 ratchettracked_test.go                             lawgate

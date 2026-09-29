@@ -9,6 +9,8 @@ import (
 	time "time"
 )
 
+const GcOriginFile = gcOriginFile
+
 const PremergeDisplayName = premergeDisplayName
 
 const PremergeLogToken = premergeLogToken
@@ -41,6 +43,8 @@ var SourceExts = sourceExts
 
 func AcquirePathLock(p0 string) func() { return acquirePathLock(p0) }
 
+func AddGateWorktree(p0 string) (string, error) { return addGateWorktree(p0) }
+
 func AphrolloTomlFlag(p0 string, p1 string) bool { return aphrolloTomlFlag(p0, p1) }
 
 func AphrolloTomlString(p0 string, p1 string) (string, bool) { return aphrolloTomlString(p0, p1) }
@@ -72,6 +76,8 @@ func FormatDays(p0 time.Duration) string { return formatDays(p0) }
 func FormatElapsedSecs(p0 time.Duration) string { return formatElapsedSecs(p0) }
 
 func GateLogStageToken(p0 string) string { return gateLogStageToken(p0) }
+
+func GateWorktreeDir(p0 string) string { return gateWorktreeDir(p0) }
 
 func GoEmbedsFile(p0 string) bool { return goEmbedsFile(p0) }
 
@@ -111,7 +117,11 @@ func ProjectKey(p0 string) string { return projectKey(p0) }
 
 func QuotedWords(p0 string) []string { return quotedWords(p0) }
 
+func ReadStagedTree(p0 string, p1 string) (string, error) { return readStagedTree(p0, p1) }
+
 func ReadStateJSON(p0 string, p1 any) (bool, bool) { return readStateJSON(p0, p1) }
+
+func RemoveGateWorktree(p0 string, p1 string) { removeGateWorktree(p0, p1) }
 
 func RepoStateKey(p0 string) string { return repoStateKey(p0) }
 

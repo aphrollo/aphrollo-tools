@@ -47,6 +47,8 @@ func PruneMergedLanesAfterMerge(p0 string, p1 string, p2 io.Writer, p3 io.Writer
 
 func RemoveMergeQueueRecord(p0 string) { merge.RemoveMergeQueueRecord(p0) }
 
+func RetroConfigWarnings(p0 string) []string { return merge.RetroConfigWarnings(p0) }
+
 func SaveMergeQueueRecord(p0 *MergeQueueRecord) error { return merge.SaveMergeQueueRecord(p0) }
 
 func TakeRepoRetros(p0 string) string { return merge.TakeRepoRetros(p0) }

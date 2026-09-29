@@ -318,6 +318,10 @@ type Law struct {
 	// CacheDir is where a law expensive enough to cache keeps its verdict;
 	// empty means recompute every run.
 	CacheDir string
+	// CargoOffline and CargoTargetDir shape a dep-graph law's `cargo
+	// metadata` call, set by Check from the run's GraphTree.
+	CargoOffline   bool
+	CargoTargetDir string
 	// Extends names the preset this law was copied from (`preset:<group>/<name>`
 	// — see `internal/ratchet/presets`), purely for provenance and DRIFT
 	// checking: the law is otherwise a normal, fully self-contained file, and

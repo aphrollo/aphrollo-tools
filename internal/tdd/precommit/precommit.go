@@ -165,7 +165,7 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 	if res := baselineStage("precommit", repoRoot); collect(res) {
 		return res
 	}
-	if res := ratchetStage("precommit", repoRoot); collect(res) {
+	if res := commitRatchetStage(repoRoot); collect(res) {
 		return res
 	}
 	if res := docsCheckStage("precommit", repoRoot); collect(res) {

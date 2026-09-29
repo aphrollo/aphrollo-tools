@@ -141,8 +141,8 @@ func TestCheck_IsCleanOnACleanRepo(t *testing.T) {
 		t.Fatalf("exit = %d, want 0\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
 	}
 	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
-	if len(lines) != 5 {
-		t.Fatalf("stdout has %d line(s), want exactly 5 (one per guard):\n%s", len(lines), out.String())
+	if len(lines) != 6 {
+		t.Fatalf("stdout has %d line(s), want exactly 6 (one per guard):\n%s", len(lines), out.String())
 	}
 	for _, line := range lines {
 		if !strings.HasPrefix(line, "check: ") {
@@ -212,4 +212,28 @@ func TestCheck_AppTrioJudgesTheRepoFlagNotTheCwd(t *testing.T) {
 			t.Errorf("app trio resolved MainRepo = %q, want the --repo fixture %q (cwd was %q)", gotMainRepo, fixture, cwdRepo)
 		}
 	})
+}
+
+// TestCheck_WarnsOnAMalformedRetroSinksRowByName proves a retro-sinks row the
+// post-merge retro would skip is named in `check`, one warning line per row
+// ahead of the guard's own line — and that a warning does not fail the run.
+func TestCheck_WarnsOnAMalformedRetroSinksRowByName(t *testing.T) {
+	root := cleanCheckRepo(t)
+	writeFile(t, filepath.Join(root, "aphrollo.toml"),
+		"[aphrollo]\nretro-sinks = [\"extra-push -> why two pushes?\", \"ci-red -> why? -> an issue\"]\n")
+	var out, errb bytes.Buffer
+	code := Run([]string{"check", "--repo", root}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 — a warning is not a miss\nstdout: %s\nstderr: %s", code, out.String(), errb.String())
+	}
+	got := out.String()
+	warn := "warning: " + filepath.Join(root, "aphrollo.toml") + `: retro-sinks row "extra-push -> why two pushes?" is not`
+	warnAt := strings.Index(got, warn)
+	lineAt := strings.Index(got, "check: retro config → 1 warning(s)\n")
+	if warnAt < 0 || lineAt < 0 || warnAt > lineAt {
+		t.Fatalf("stdout lacks the row's warning ahead of the guard line, got:\n%s", got)
+	}
+	if strings.Contains(got, "ci-red") {
+		t.Errorf("a well-formed row was warned about:\n%s", got)
+	}
 }
