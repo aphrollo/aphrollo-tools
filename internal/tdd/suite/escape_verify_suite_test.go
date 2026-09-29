@@ -30,3 +30,19 @@ func TestDiffHeaderPath_ReadsPlainAndQuotedHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestCutLast_SplitsAtTheLastSeparatorEvenAtTheStart(t *testing.T) {
+	for _, tc := range []struct {
+		s, before, after string
+		found            bool
+	}{
+		{" b/x", "", "x", true},
+		{"a b/x b/y", "a b/x", "y", true},
+		{"none", "none", "", false},
+	} {
+		before, after, found := cutLast(tc.s, " b/")
+		if before != tc.before || after != tc.after || found != tc.found {
+			t.Errorf("cutLast(%q) = %q, %q, %v; want %q, %q, %v", tc.s, before, after, found, tc.before, tc.after, tc.found)
+		}
+	}
+}
