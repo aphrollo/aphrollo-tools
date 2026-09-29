@@ -1,8 +1,12 @@
 name: Pipeline
 
 # CI quality gate for aphrollo-tools, mirroring aphrollo-agents/pipeline.yml so
-# every Go repo on the box is gated the same way. Runs on the org's self-hosted
-# runner (serial across jobs).
+# every Go repo on the box is gated the same way. The repo is public, so every
+# job a pull_request event can run uses a GitHub-hosted runner (ubuntu-latest):
+# a fork's code never reaches the production host. Only `deploy`, which must
+# touch the host, is self-hosted, and it is guarded to a push to main or a
+# manual dispatch. Nothing here reads state left on the box: each job builds
+# the CLI from its own checkout and installs the tools it calls.
 #
 # DEPLOY: this workflow installs /usr/local/bin/aphrollo on merge to main, the
 # same way the Go services deploy themselves. The check jobs run on BOTH a PR
@@ -60,8 +64,10 @@ jobs:
   # as permanently pending, not skipped-success.
   changes:
     if: github.event.pull_request.draft != true
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       class: ${{ steps.filter.outputs.class }}
       code: ${{ steps.filter.outputs.code }}
@@ -77,8 +83,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # false: see the note in `test` -- the persistent disk is the cache.
-          cache: false
+          cache: true
       - name: Build the classifier from this PR
         # continue-on-error: a PR that does not compile must not fail THIS
         # job, or every job needing it is skipped and a skipped required
@@ -163,13 +168,14 @@ jobs:
   # job runs exactly those, by name, instead of the full suite.
   # TestPipeline_WorkflowPinsJobSelectsEveryWorkflowReadingTest fails when a
   # test that reads .github is added outside the pattern or the package list
-  # below. actionlint runs when the runner already carries it; nothing is
-  # installed for it.
+  # below. actionlint is installed at a pinned version and lints every workflow.
   workflow-pins:
     if: github.event.pull_request.draft != true
     needs: changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - if: needs.changes.outputs.workflow == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -177,19 +183,15 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # false: see the note in `test` -- the persistent disk is the cache.
-          cache: false
+          cache: true
       - name: Workflow pin tests
         if: needs.changes.outputs.workflow == 'true'
         run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_|TestNightlyFuzzWorkflow_|TestNightlyMutantsWorkflow_|TestNightlyFlakeHuntWorkflow_)' ./internal/tdd ./internal/cli
-      - name: actionlint (only when the runner already has it)
+      - name: actionlint
         if: needs.changes.outputs.workflow == 'true'
         run: |
-          if command -v actionlint >/dev/null 2>&1; then
-            actionlint
-          else
-            echo "actionlint is not installed on this runner; skipped"
-          fi
+          go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+          "$(go env GOPATH)/bin/actionlint"
 
   # Doc-reference guard (`aphrollo docs check`): every repo path a CHANGED
   # markdown file cites must resolve. Gated on the `changes` filter (docs=true ⇔
@@ -197,28 +199,35 @@ jobs:
   # context. Scoped to the PR's changed markdown, not the whole tree: a dangling
   # citation in any doc you touch cannot merge, without a repo-wide scan tripping
   # on legitimate cross-repo/historical references in untouched docs. Uses the
-  # deployed /usr/local/bin/aphrollo — the runner is the same box the CLI ships
-  # to; the guard resolves each citation against the full checked-out tree.
+  # CLI built from this checkout; the guard resolves each citation against the
+  # full checked-out tree.
   docs-check:
     if: github.event.pull_request.draft != true
     needs: changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - if: needs.changes.outputs.docs == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0   # need the PR base to compute the changed-markdown set
+      - if: needs.changes.outputs.docs == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build aphrollo from this checkout
+        if: needs.changes.outputs.docs == 'true'
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       - name: aphrollo docs check (changed markdown)
         if: needs.changes.outputs.docs == 'true'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          aphrollo=/usr/local/bin/aphrollo
-          if [ ! -x "$aphrollo" ]; then
-            aphrollo="$(command -v aphrollo)" || { echo "aphrollo CLI not found on runner" >&2; exit 1; }
-          fi
+          aphrollo="$PWD/bin/aphrollo"
           base="$BASE_SHA"
           if [ -z "$base" ] || ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
             base=$(git rev-parse --verify --quiet "HEAD~1^{commit}" || true)
@@ -236,11 +245,13 @@ jobs:
     # on push.
     if: github.event.pull_request.draft != true
     needs: changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     # 20, not 10: the internal/tdd split gives each subpackage its own -race
     # test binary to compile and link, and on the shared self-hosted box the
     # whole run crossed 10 minutes with every finished package green.
     timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -248,11 +259,18 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # false: on the self-hosted runner the Go module + build caches already
-          # persist on $HOME between jobs, so setup-go's remote cache is redundant —
-          # and its post-job save tars+uploads ~5GB that stalls the upload (~98.7%),
-          # wedging the run. The persistent disk is the cache.
-          cache: false
+          cache: true
+      # The suites' node and rust e2e tests self-skip when the toolchain is
+      # missing, so both are installed at the versions the dev box runs.
+      - if: needs.changes.outputs.code == 'true'
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.13.0
+      - if: needs.changes.outputs.code == 'true'
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master, toolchain input selects 1.97.1
+        with:
+          toolchain: 1.97.1
+          components: clippy, rustfmt
       - name: Check go.mod tidy
         if: needs.changes.outputs.code == 'true'
         # aphrollo-tools is pure stdlib (no go.sum). A clean worktree after
@@ -437,10 +455,12 @@ jobs:
       matrix:
         include:
           - name: linux
-            runner: self-hosted
-            cache: false
+            runner: ubuntu-latest
+            cache: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -471,8 +491,10 @@ jobs:
   lint:
     if: github.event.pull_request.draft != true
     needs: changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     # Keyed on `lint`, not `code`: a comment-only change can still fail it
     # (a vet or staticcheck finding in a directive, a malformed doc comment),
     # so it runs for comment-only as well as code.
@@ -483,11 +505,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # false: on the self-hosted runner the Go module + build caches already
-          # persist on $HOME between jobs, so setup-go's remote cache is redundant —
-          # and its post-job save tars+uploads ~5GB that stalls the upload (~98.7%),
-          # wedging the run. The persistent disk is the cache.
-          cache: false
+          cache: true
       - name: build aphrollo
         if: needs.changes.outputs.lint == 'true'
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
@@ -535,13 +553,15 @@ jobs:
   benchmarks:
     if: github.event.pull_request.draft != true
     needs: changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     # Measured generating testdata/bench/baseline.txt on a Windows dev box:
     # BenchmarkRatchetCheckCold's fixture build + ~45s/iter bench dominates —
     # six reps of the whole ratchet package took 1375s there. -count=3 here
     # trades some of the baseline's statistical power for a job that fits a
     # PR's budget; benchstat compares samples of different size fine.
     timeout-minutes: 25
+    permissions:
+      contents: read
     steps:
       - if: needs.changes.outputs.bench == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -549,7 +569,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache: false
+          cache: true
       - name: Run the benchmarks
         if: needs.changes.outputs.bench == 'true'
         shell: bash
@@ -648,7 +668,7 @@ jobs:
     # tripwire that covers trunk.
     if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
     needs: changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     # 60, not 30: a lane of ~70 mutants measured under the load of other
     # lanes' suites on this shared box was still killing mutants (58 caught,
     # 0 lived) when a 30-minute budget cancelled it at 30m18s, so the check
@@ -694,8 +714,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # false: see the note in `test` -- the persistent disk is the cache.
-          cache: false
+          cache: true
       - name: Install gremlins
         if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
         run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
@@ -764,8 +783,10 @@ jobs:
   pr-ratchet:
     if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
     needs: changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - if: (needs.changes.outputs.code == 'true' || needs.changes.outputs.lint == 'true')
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -775,8 +796,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # false: see the note in `test` -- the persistent disk is the cache.
-          cache: false
+          cache: true
       - name: Build the CLI from this PR
         if: (needs.changes.outputs.code == 'true' || needs.changes.outputs.lint == 'true')
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
@@ -805,8 +825,10 @@ jobs:
   scan:
     if: github.event.pull_request.draft != true
     needs: changes
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -815,11 +837,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # false: on the self-hosted runner the Go module + build caches already
-          # persist on $HOME between jobs, so setup-go's remote cache is redundant —
-          # and its post-job save tars+uploads ~5GB that stalls the upload (~98.7%),
-          # wedging the run. The persistent disk is the cache.
-          cache: false
+          cache: true
       - name: govulncheck
         id: vulncheck
         if: needs.changes.outputs.code == 'true'
@@ -915,8 +933,10 @@ jobs:
   build:
     if: github.event.pull_request.draft != true
     needs: [changes, test, lint, scan]
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -924,11 +944,7 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # false: on the self-hosted runner the Go module + build caches already
-          # persist on $HOME between jobs, so setup-go's remote cache is redundant —
-          # and its post-job save tars+uploads ~5GB that stalls the upload (~98.7%),
-          # wedging the run. The persistent disk is the cache.
-          cache: false
+          cache: true
       - name: Build aphrollo CLI
         if: needs.changes.outputs.code == 'true'
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
@@ -943,9 +959,13 @@ jobs:
   # stays gated behind the same guard.
   deploy:
     needs: [test, lint, scan, workflow-pins]
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    # Only a push to main or a manual dispatch by a writer can schedule this
+    # job onto the host; a pull_request event never satisfies the guard.
+    if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: self-hosted
     timeout-minutes: 10
+    permissions:
+      contents: read
     concurrency:
       group: deploy-prod-aphrollo-cli
       cancel-in-progress: false
@@ -1003,7 +1023,7 @@ jobs:
   # this job exists to close.
   merged-tree-ratchet:
     if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch'
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
@@ -1013,8 +1033,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          # false: see the note in `test` -- the persistent disk is the cache.
-          cache: false
+          cache: true
       - name: Build the CLI from this tree
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       - name: aphrollo ratchet check (the tree as it landed)

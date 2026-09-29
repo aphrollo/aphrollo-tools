@@ -34,7 +34,9 @@ jobs:
     # against this repo (and `gh issue create` would fail there anyway
     # without a token) -- the same guard nightly-fuzz.yml and
     # nightly-mutants.yml state for the same reason.
-    if: github.repository == 'aphrollo/aphrollo-tools'
+    # Only the schedule or a manual dispatch by a writer can put this job on
+    # the host; a pull_request event never satisfies the guard.
+    if: github.repository == 'aphrollo/aphrollo-tools' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
     runs-on: self-hosted
     # Measured on the box this was written on: `go test ./... -race -count=1`
     # took 233s (3m53s) for all 31 packages. -shuffle=on adds no measurable
