@@ -93,15 +93,15 @@ func TestPipeline_EachJobKeysOnTheOutputItsClassNeeds(t *testing.T) {
 	t.Parallel()
 	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
 	want := map[string][]string{
-		"docs-check":      {"docs"},
-		"test":            {"code", "refactor"},
-		"gate-env":        {"code"},
-		"lint":            {"lint"},
-		"benchmarks":      {"bench"},
-		"mutants-verdict": {"code"},
-		"scan":            {"code"},
-		"build":           {"code"},
-		"workflow-pins":   {"workflow"},
+		"docs-check":    {"docs"},
+		"test":          {"code", "refactor"},
+		"gate-env":      {"code"},
+		"lint":          {"lint"},
+		"benchmarks":    {"bench"},
+		"mutants-plan":  {"code"},
+		"scan":          {"code"},
+		"build":         {"code"},
+		"workflow-pins": {"workflow"},
 	}
 	for job, outs := range want {
 		got := changesOutputsRead(pipelineJobBlock(t, wf, job))
@@ -163,5 +163,35 @@ func TestPipeline_WorkflowPinsJobSelectsEveryWorkflowReadingTest(t *testing.T) {
 	}
 	if found == 0 {
 		t.Fatal("found no test reading this repo's .github files, so this test proves nothing")
+	}
+}
+
+// Branch protection requires a check named `mutants-verdict`, and the local
+// merge gate reads the check of that name on the PR head. It is the
+// aggregate of the shard matrix, and no other job may carry the name, or a
+// green shard could stand in for the verdict.
+func TestPipeline_MutantsVerdictIsTheAggregateOfTheShards(t *testing.T) {
+	t.Parallel()
+	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
+	verdict := pipelineJobBlock(t, wf, "mutants-verdict")
+	shard := pipelineJobBlock(t, wf, "mutants-shard")
+
+	if regexp.MustCompile(`(?m)^    name:`).MatchString(verdict) {
+		t.Error("the mutants-verdict job renames itself, so the check is no longer called mutants-verdict")
+	}
+	if !regexp.MustCompile(`(?m)^    needs: \[[^\]]*\bmutants-shard\b`).MatchString(verdict) {
+		t.Error("mutants-verdict does not need mutants-shard, so it would judge before the shards finish")
+	}
+	if !strings.Contains(verdict, "gate mutants verdict") {
+		t.Error("mutants-verdict does not judge the merged shard reports")
+	}
+	if !strings.Contains(shard, "matrix:") || !strings.Contains(shard, "gate mutants run") || !strings.Contains(shard, "--shard") {
+		t.Error("mutants-shard is not a matrix of `gate mutants run --shard` jobs")
+	}
+	if !regexp.MustCompile(`(?m)^    name: mutants-shard `).MatchString(shard) {
+		t.Error("the shard jobs are not named mutants-shard <n>, apart from the mutants-verdict check")
+	}
+	if !regexp.MustCompile(`(?m)^      fail-fast: false`).MatchString(shard) {
+		t.Error("one failed shard cancels the others, so the verdict could not name what they measured")
 	}
 }
