@@ -100,8 +100,8 @@ type goReachGraph struct {
 func loadGoReachGraph(root string) (goReachGraph, error) {
 	cmd := exec.Command("go", "list", "-f", goListReachFormat, "./...")
 	// The answer is about root, not about wherever the gate was invoked —
-	// the bug goPackageDirs still carries (it builds the import-path map
-	// from the process's own working directory).
+	// the same is true of goPackageDirs, which builds the import-path map
+	// from that root too.
 	cmd.Dir = root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr

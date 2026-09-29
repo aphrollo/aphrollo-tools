@@ -218,6 +218,16 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 	// suite (esp. cargo nextest over a large workspace) is 10-20 minutes,
 	// blows this stage's own timeout, and fails open having proven nothing.
 	runner = narrowFailFirstTests(runner, execRoot, relTests)
+	// The fail-first run is a GATE run: it compiles and runs the same tests
+	// under the same contention, so it takes the same profile. It is applied before
+	// execRunner is copied, which is the one that runs.
+	if runner.Cmd == "cargo" {
+		profileWs := runner.Dir
+		if profileWs == "" {
+			profileWs = execRoot
+		}
+		runner = withGateProfile(runner, profileWs)
+	}
 	// execRunner is what runs: an npm root's own installed tool under node
 	// (#904). runner stays the tool it stands for, which the vacuous and
 	// skip readers and the violation message key off.
@@ -231,15 +241,6 @@ func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteR
 		if why != "" {
 			return failFirstOutcome{notRunnable: why, cmd: cmdString(Runner{Cmd: npmTestTool(runner), Args: runner.Args[1:]}), runner: runner, res: SuiteResult{Output: why + "\n"}}
 		}
-	}
-	// The fail-first run is a GATE run: it compiles and runs the same tests
-	// under the same contention, so it takes the same profile.
-	if runner.Cmd == "cargo" {
-		profileWs := runner.Dir
-		if profileWs == "" {
-			profileWs = execRoot
-		}
-		runner = withGateProfile(runner, profileWs)
 	}
 	// The worktree lives OUTSIDE the repo, so cargo's default would put a
 	// brand-new target/ inside it and cold-build the world on every commit.

@@ -293,6 +293,7 @@ escape_verify_fixture_test.go                      escape
 escape_verify_local_test.go                        escape
 escape_verify_localdiff_test.go                    escape
 escape_verify_suite.go                             suite     # created by P2
+escape_verify_suite_test.go                        suite
 escape_verify_test.go                              escape
 failfirst_env.go                                   failfirst
 failfirst_env_test.go                              failfirst
@@ -482,6 +483,7 @@ mutants_covershape.go                              mutation
 mutants_covershape_test.go                         mutation
 mutants_deleted_surface_test.go                    tdd
 mutants_deps.go                                    suite
+mutants_deps_test.go                               suite
 mutants_disk.go                                    mutation
 mutants_disk_test.go                               mutation
 mutants_drain.go                                   mutation
@@ -642,6 +644,7 @@ precommit_failfirst_args_test.go                   failfirst
 precommit_failfirst_green_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_inputs_test.go                 precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_npm_test.go                    precommit # prefix says failfirst; its test body reaches precommit
+precommit_failfirst_profile_test.go                 failfirst
 precommit_failfirst_reach_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_rust.go                        failfirst
 precommit_failfirst_scope_test.go                  precommit # prefix says failfirst; its test body reaches precommit

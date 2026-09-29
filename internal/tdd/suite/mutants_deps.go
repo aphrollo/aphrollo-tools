@@ -55,12 +55,12 @@ func goWorkspaceDeps(root string) (map[string][]string, error) {
 // goPackageDirs maps every import path in this module to its directory,
 // relative to the repo root.
 func goPackageDirs(root string) (map[string]string, error) {
-	out, err := exec.Command("go", "list", "-f", "{{.ImportPath}} {{.Dir}}", "./...").Output()
+	out, err := goList(root, "{{.ImportPath}} {{.Dir}}")
 	if err != nil {
 		return nil, err
 	}
 	dirs := map[string]string{}
-	for line := range strings.SplitSeq(string(out), "\n") {
+	for line := range strings.SplitSeq(out, "\n") {
 		f := strings.Fields(strings.TrimSpace(line))
 		if len(f) != 2 {
 			continue
