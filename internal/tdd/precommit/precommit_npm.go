@@ -9,6 +9,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 )
 
 // The npm root's counterpart to clippy and go vet: a TypeScript root is
@@ -145,11 +147,11 @@ var eslintFormat = []string{"--format", "json"}
 
 // eslintArgvs lints the staged files that still exist: a deleted file
 // handed to eslint fails the run on a path, not on the code. A large set
-// splits across runs whose arguments each stay within stagedArgvBudget
+// splits across runs whose arguments each stay within argvbatch.Budget
 // (issue #951), which leaves the budget's headroom for the `node <entry>`
 // the tool line starts with.
 func eslintArgvs(root string, touched []string) [][]string {
-	return argvBatches(eslintFormat, existingLintable(root, touched), stagedArgvBudget)
+	return argvbatch.Split(eslintFormat, existingLintable(root, touched), argvbatch.Budget)
 }
 
 // eslintHeadArgs keeps the files HEAD already had: a file the commit adds

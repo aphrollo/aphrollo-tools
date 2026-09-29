@@ -13,6 +13,8 @@ const NoTestsSelected = suite.NoTestsSelected
 
 const WritingTest = suite.WritingTest
 
+const stagedArgvBudget = suite.StagedArgvBudget
+
 type stageOutcomeKind = suite.StageOutcomeKind
 
 var registeredStages = suite.RegisteredStages

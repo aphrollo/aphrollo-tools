@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 )
 
 // A trunk sync into a lane (mergescope.go's trunkSyncTip) is judged on the
@@ -24,11 +26,11 @@ func trunkSyncOwnPaths(root string, changed []string) (own []string, dropped int
 	if !ok || len(changed) == 0 {
 		return changed, 0
 	}
-	atTip, err := gitPathSet(root, append([]string{"ls-tree", "-r", "--name-only", tip, "--"}, changed...))
+	atTip, err := gitPathSet(root, []string{"ls-tree", "-r", "--name-only", tip, "--"}, changed)
 	if err != nil {
 		return changed, 0
 	}
-	differ, err := gitPathSet(root, append([]string{"diff", "--name-only", "--no-renames", tip, "--"}, changed...))
+	differ, err := gitPathSet(root, []string{"diff", "--name-only", "--no-renames", tip, "--"}, changed)
 	if err != nil {
 		return changed, 0
 	}
@@ -43,10 +45,14 @@ func trunkSyncOwnPaths(root string, changed []string) (own []string, dropped int
 	return own, dropped
 }
 
-// gitPathSet runs a git command that prints one repo-relative path per line
-// and returns them as a set.
-func gitPathSet(root string, args []string) (map[string]bool, error) {
-	out, err := gitRead(root, args...)
+// gitPathSet runs a git command that prints one repo-relative path per line,
+// prefix followed by paths, and returns what it printed as a set. The paths
+// go to git in argvbatch batches, so no call's length grows with the changed
+// set; a set is what one call over every path would answer.
+func gitPathSet(root string, prefix, paths []string) (map[string]bool, error) {
+	out, err := argvbatch.Run(prefix, paths, func(args []string) (string, error) {
+		return gitRead(root, args...)
+	})
 	if err != nil {
 		return nil, err
 	}
