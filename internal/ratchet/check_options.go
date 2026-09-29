@@ -6,6 +6,10 @@ type Options struct {
 	Root string
 	// Only, when set, runs exactly one law by name.
 	Only string
+	// Laws, when non-empty, runs exactly the laws it names, in one scan. A
+	// name no law carries is not an error: the caller picked the set from
+	// the laws it loaded.
+	Laws []string
 	// Proposed overlays in-memory content for files being edited, keyed by
 	// repo-relative slash path. It is how the pre-edit hook judges a write
 	// that has not happened yet — and why a run carrying one never tightens a
