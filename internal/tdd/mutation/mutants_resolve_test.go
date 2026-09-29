@@ -44,7 +44,7 @@ func caseBoundary() MutantOutcome {
 
 func resolveOneForTest(t *testing.T, root string, m MutantOutcome) MutantOutcome {
 	t.Helper()
-	out := resolveGapMutants(context.Background(), root, MutantsConfig{AtMerge: true}, goReachOnce(root),
+	out := resolveGapMutants(context.Background(), root, fanOutFixturesCfg, goReachOnce(root),
 		[]MutantOutcome{m}, []int{0}, io.Discard)
 	return out[0]
 }

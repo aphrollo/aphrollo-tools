@@ -60,23 +60,46 @@ retro-sinks = [
   "slow-merge -> what held the PR open? -> aphrollo issue \"<title>\" --label <theme>",
 ]
 
-# Mutation testing runs in CI only. The PR pipeline's mutants-verdict job, a
-# required check on GitHub-hosted runners, measures the merged tree and
-# refuses an unaccepted survivor, a timeout, or a NOT COVERED or inconclusive
-# mutant on a line the diff adds or changes, each named
-# "<file>:<line>:<col> <MUTATOR>". gremlins re-runs only the mutated
+# Mutation testing runs in CI only. The PR pipeline's mutants-verdict check, a
+# required check whose shards run in parallel on GitHub-hosted runners,
+# measures the merged tree and refuses an unaccepted survivor, a timeout, or a
+# NOT COVERED or inconclusive mutant on a line the diff adds or changes, each
+# named "<file>:<line>:<col> <MUTATOR>". gremlins re-runs only the mutated
 # package's suite per mutant, with coverage gathered across the whole module
 # (--coverpkg ./...). A position Go coverage can never count is exempt, or
-# settled by running that one mutant against the tests that reach it
-# (docs/mutation-runner.md).
+# settled by running that one mutant (docs/mutation-runner.md).
 #
-# The local box does not measure: the merge gate and `workspace pr`/`ship`/
-# `submit` skip the stage, because measurements stacked on the shared host
-# ran it out of memory (#1005). `aphrollo gate mutants run` still measures a
-# lane by hand.
-mutants-in-ci = true
-mutants-at-merge = false
-mutants-before-pr = false
+# "ci" is the value of both keys: the local merge gate prints
+# "mutants: measured in CI (mutants-verdict)" and refuses to merge unless that
+# check passed on the PR head, and `workspace pr`/`ship`/`submit` skip the
+# stage, because measurements stacked on the shared host ran it out of memory
+# (#1005). `aphrollo gate mutants run` still measures a lane by hand.
+mutants-at-merge = "ci"
+mutants-before-pr = "ci"
+
+# How many runners the CI measurement divides across: the width of the
+# mutants-shard matrix. Shards split the lane's changed source files by added
+# lines.
+mutants-shards = 4
+
+# The own-package rule: a mutant on a line the diff adds that its own
+# package's tests miss is refused at once. These packages are the exception,
+# settled against the tests of the packages that import them, nearest first,
+# and left UNRESOLVED past a total time cap. Each is here because its code is
+# exercised from above:
+#   internal/cli      the process boundary where argv, streams and exit codes
+#                     meet every other package
+#   cmd/aphrollo      no test of its own; its one-line main is exercised only
+#                     by what runs the binary (nothing imports it, so a mutant
+#                     there settles against no other package)
+#   internal/tdd/internal/tddtest
+#                     test-support helpers, asserted by the tests of every
+#                     package that calls them, which is where their mutants die
+mutants-integration-packages = [
+  "internal/cli",
+  "cmd/aphrollo",
+  "internal/tdd/internal/tddtest",
+]
 
 # The Windows stand-down, and why it is not a hole. gremlins cannot measure
 # this module on Windows: `gremlins unleash --dry-run` there reports

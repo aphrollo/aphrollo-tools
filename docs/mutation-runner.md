@@ -27,7 +27,9 @@ everything else. The Cargo spelling wins when a repo has both.
 
 | key | type | meaning |
 |---|---|---|
-| `mutants-at-merge` | bool | run the measurement at pre-merge-commit. Absent or false: the stage logs `mutants-skipped:not-declared` and passes |
+| `mutants-at-merge` | `true`, `false` or `"ci"` | `true`: run the measurement at pre-merge-commit. `"ci"`: the measurement is the PR pipeline's `mutants-verdict` check and the local gate measures nothing (see "Measuring in CI" below). Absent or false: the stage logs `mutants-skipped:not-declared` and passes. Any other value is refused |
+| `mutants-before-pr` | `true`, `false` or `"ci"` | `true`: `workspace pr`, `ship` and `submit` measure the lane's diff first. `"ci"`: they skip the run and print `mutants: measured in CI (mutants-verdict)` |
+| `mutants-integration-packages` | string array | package directories (for example `"internal/cli"`) whose mutants are settled against the tests of the packages that import them; see "Mutants nothing judged" below. Every package not listed is judged by its own tests alone |
 | `mutants-env` | string array | `NAME=VALUE` switches exported for the run — the suites a mutant's code is only reachable from |
 | `mutation-baseline-exclude` | string array | `"<nextest filter> # why"` entries, folded into one `-E not(...)` for the run's whole test invocation |
 | `mutation-accept` | string array | the survivors somebody signed off on, with a reason each |
@@ -516,16 +518,67 @@ expressions, the rest of a statement after its first function literal
 (`internal/tdd/mutation/mutants_covershape.go`, held to gremlins' own report
 over a fully exercised module in `internal/tdd/mutation/testdata/covershape/`) — and every
 inconclusive survivor. The mutant is swapped in through `go test -overlay`,
-never written into the checkout, and run in one `go test` over every package
-with tests that reaches its line, under the box-wide mutation lock; an
-inconclusive survivor leaves out its own package, whose tests gremlins already
-ran. A test failure is a kill and a build failure makes it unviable; both are
+never written into the checkout, under the box-wide mutation lock.
+
+**The own-package rule.** A mutant on a line the diff adds that its own
+package's tests miss is refused at once, with no other package's tests run for
+it: gremlins already ran the mutated package's tests over an inconclusive
+survivor, so that survivor is a plain survivor. A NOT COVERED gap in such a
+package runs its own package's tests alone. A package with no tests of its own
+has none to miss the mutant, so it is settled against its importers like an
+integration package.
+
+**Integration packages.** A package listed in `mutants-integration-packages` is
+settled the long way: its own package's tests first (skipped for an
+inconclusive survivor), then the tested packages that import it one import
+distance at a time, nearest first — the packages that import it directly, then
+the packages that import those. Each distance is one `go test` over its
+packages, and the run stops at the first kill, so a kill by a direct importer
+never pays for the packages further up. Distance comes from each package's
+direct imports and its tests' imports (`internal/tdd/suite/go_test_reach.go`).
+A settle run has a total time cap (10 minutes for the whole run, cut down per
+mutant from what is left); a mutant that finds the cap spent is UNRESOLVED.
+
+A test failure is a kill and a build failure makes it unviable; both are
 reported with their reason and refuse nothing. Green everywhere makes it a
 survivor, judged against the accept-list like any other. A run past the
 per-mutant budget (the same `max(3 × baseline, 120 s)` a Cargo mutant gets),
-or a reach graph that cannot be read, leaves it UNRESOLVED: refused, saying
-so, and never called a survivor. The cure for one is a test in the mutated
-package itself that kills it, which gremlins then judges directly.
+past the run's settle cap, or a reach graph that cannot be read, leaves it
+UNRESOLVED: refused, saying so, and never called a survivor. The cure for one
+is a test in the mutated package itself that kills it, which gremlins then
+judges directly.
+
+A settled mutant is named `<file>:<line>:<col> <MUTATOR>`, with no colon after
+the column. The `<file>.go:<line>:<col>: <text>` shape is the one CI's Go
+problem matcher turns into an `Error:` annotation, so only the mutants the
+report refuses take it and every kill, unviable or inconclusive mention stays a
+plain log line.
+
+### Measuring in CI
+
+With `mutants-at-merge = "ci"` the measurement is the PR pipeline's
+`mutants-verdict` job, on GitHub-hosted runners, and it is a required check.
+The local merge gate prints `mutants: measured in CI (mutants-verdict)`
+(`internal/tdd/mutation/mutants_ci.go`) and refuses to merge unless that check
+concluded `success` on the PR's head commit: no such check, one still running,
+and one that failed or was skipped are each refused with the reason, and a
+check that cannot be read (no `gh`, no GitHub remote, no network) is refused
+too, since the merge is then not shown to be measured. `aphrollo gate mutants
+run` and `prove` stay available by hand and say the repo measures in CI.
+
+The pipeline divides the measurement across runners. A matrix of `shard` jobs
+each runs `aphrollo gate mutants run --shard <i>/<n> --report <file>`: shard i
+measures the changed source files it owns and writes its outcomes, judging
+nothing (`internal/tdd/mutation/mutants_goshard.go`). Files are divided by
+added lines, heaviest first, each to the lightest shard, so every shard
+computes the same division from the same diff. A shard that owns no file writes
+an empty report. The aggregate job, named `mutants-verdict` because branch
+protection requires that name, downloads the reports and runs `aphrollo gate
+mutants verdict --shards <n> <file>...`, which refuses unless exactly n reports
+arrived, one per index, all of this tree and one base
+(`internal/tdd/mutation/mutants_shardmerge.go`), and then judges the merged
+outcomes once against the accept-list, so a survivor in any shard refuses. The
+shard count is `mutants-shards` in `aphrollo.toml`.
 
 An accept entry comes in one of three key shapes, each carrying a reason.
 `"<file>:<line> <mutation> # why"` matches that mutation on that line, at

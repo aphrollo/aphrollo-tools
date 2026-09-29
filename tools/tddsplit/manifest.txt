@@ -519,9 +519,12 @@ mutants_buildjobs.go                               mutation
 mutants_buildjobs_test.go                          mutation
 mutants_cancel_test.go                             mutation
 mutants_cargoargv.go                               mutation
+mutants_ci.go                                      mutation
+mutants_ci_test.go                                 mutation
 mutants_cibusy.go                                  mutation
 mutants_cibusy_test.go                             mutation
 mutants_config.go                                  mutation
+mutants_config_mode_test.go                        mutation
 mutants_config_suite.go                            suite     # created by P2
 mutants_config_test.go                             mutation
 mutants_covershape.go                              mutation
@@ -551,6 +554,8 @@ mutants_go_test.go                                 mutation
 mutants_go_tmpleak_test.go                         mutation
 mutants_gobudget.go                                mutation
 mutants_gobudget_test.go                           mutation
+mutants_goshard.go                                 mutation
+mutants_goshard_test.go                            mutation
 mutants_inplace_test.go                            mutation
 mutants_lanebase.go                                mutation
 mutants_lanebase_suite.go                          suite     # created by P2
@@ -573,6 +578,7 @@ mutants_notcovered_test.go                         mutation
 mutants_noverdict_test.go                          mutation
 mutants_outcomes.go                                mutation
 mutants_outcomes_test.go                           mutation
+mutants_ownpackage_test.go                         mutation
 mutants_paths.go                                   core
 mutants_paths_own_test.go                          core
 mutants_prove.go                                   mutation
@@ -616,6 +622,8 @@ mutants_runstatus.go                               mutation
 mutants_shardcap.go                                mutation
 mutants_shardcap_test.go                           mutation
 mutants_shardcfg_test.go                           mutation
+mutants_shardmerge.go                              mutation
+mutants_shardmerge_test.go                         mutation
 mutants_shards.go                                  mutation
 mutants_shards_test.go                             mutation
 mutants_smoke_test.go                              mutation

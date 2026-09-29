@@ -86,6 +86,26 @@ func TestFeaturesNotYetShown_ALaneOfAnAlreadyShownRepoShowsNothing(t *testing.T)
 	}
 }
 
+// The "ci" spelling shows as ci, and the integration list as its length.
+func TestRenderFeatures_ShowsTheCIModesAndTheIntegrationList(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "aphrollo.toml"),
+		"[aphrollo]\nmutants-at-merge = \"ci\"\nmutants-before-pr = \"ci\"\nmutants-integration-packages = [\"a\", \"b\"]\n")
+
+	text := RenderFeatures(root)
+
+	for key, want := range map[string]string{
+		"mutants-at-merge":             "ci",
+		"mutants-before-pr":            "ci",
+		"mutants-integration-packages": "2",
+	} {
+		if f := strings.Fields(featureLine(text, key)); len(f) < 2 || f[1] != want {
+			t.Errorf("%s: row %q, want the value %q", key, featureLine(text, key), want)
+		}
+	}
+}
+
 // `aphrollo config` answers "what is on HERE", so each row carries the value
 // this repo declares, and the default where it declares nothing.
 func TestRenderFeatures_StatesThisReposValues(t *testing.T) {

@@ -161,7 +161,7 @@ func measureReport(v Verdict, notes []acceptNote) string {
 		refusedGap[m.GapLine()] = true
 	}
 	for _, m := range v.Resolved {
-		b.WriteString(outcomeName(m) + " — " + m.Note + "\n")
+		b.WriteString(plainName(m) + " — " + m.Note + "\n")
 	}
 	for _, m := range v.Inconclusive {
 		if refusedGap[m.GapLine()] {
@@ -170,7 +170,7 @@ func measureReport(v Verdict, notes []acceptNote) string {
 		// Ahead of the counts like the other findings, and carrying its own
 		// reason: a mutant nobody could judge is something a reviewer has to
 		// be told about, not a number to subtract from another number.
-		b.WriteString(outcomeName(m) + " — " + m.Note + "\n")
+		b.WriteString(plainName(m) + " — " + m.Note + "\n")
 	}
 	for _, n := range notes {
 		if n.Refused {

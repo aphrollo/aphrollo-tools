@@ -36,6 +36,10 @@ type BlockFlags struct {
 	// MutantsBeforePR is mutants-before-pr: `workspace pr`/`ship`/`submit`
 	// measure the lane first. Either switch brings in the mutation rules.
 	MutantsBeforePR bool
+	// MutantsAtMergeCI and MutantsBeforePRCI are the "ci" spelling of those
+	// keys: the measurement is CI's `mutants-verdict` check and the local
+	// gate measures nothing. Each implies its switch above.
+	MutantsAtMergeCI, MutantsBeforePRCI bool
 	// Cargo, Go and Npm are the toolchains whose manifests the repo carries;
 	// the block names only their commands and commit stages (#889). Whether
 	// the queue shims are on the agent's PATH is a fact about the box, so the
@@ -96,7 +100,9 @@ func ClaudeMDBlock(f BlockFlags) string {
 	// ("with `mutants-at-merge = true` ...") makes a reader go and find out
 	// which half applies to them, which is the errand the block exists to
 	// save them.
-	if f.MutantsAtMerge {
+	if f.MutantsAtMergeCI {
+		b.WriteString("- **A merge is measured in CI:** this repo declares `mutants-at-merge = \"ci\"`, so the merge gate measures nothing locally and refuses to merge unless CI's `mutants-verdict` check passed on the PR head; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
+	} else if f.MutantsAtMerge {
 		b.WriteString("- **A merge is measured, not certified:** the pre-merge gate runs this lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.\n")
 	} else {
 		b.WriteString("- **A merge is checked, not measured:** this repo declares no `mutants-at-merge`, so the merge gate runs the mechanical suite and NO mutation measurement; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
@@ -105,7 +111,11 @@ func ClaudeMDBlock(f BlockFlags) string {
 	// builder agent is one file per user and reaches every repo, so they live
 	// here, where they reach only a repo that declared the measurement.
 	if f.measures() {
-		b.WriteString("- **Mutation rules** (this repo measures mutants): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`\n")
+		who := "this repo measures mutants"
+		if f.MutantsAtMergeCI || f.MutantsBeforePRCI {
+			who = "CI's `mutants-verdict` measures this repo's mutants, and the local box does not"
+		}
+		b.WriteString("- **Mutation rules** (" + who + "): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`\n")
 		b.WriteString("  KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.\n")
 		b.WriteString("  A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already\n")
 		b.WriteString("  steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.\n")
@@ -190,6 +200,9 @@ func blockFlagsFor(repoRoot string) BlockFlags {
 		Undercover:      cargoAphrolloFlag(ws, "undercover") || aphrolloTomlFlag(repoRoot, "undercover"),
 		MutantsAtMerge:  cfg.AtMerge,
 		MutantsBeforePR: cfg.BeforePR,
+
+		MutantsAtMergeCI:  cfg.AtMergeCI,
+		MutantsBeforePRCI: cfg.BeforePRCI,
 	}
 	f.Cargo, f.Go, f.Npm = repoToolchains(repoRoot)
 	return f

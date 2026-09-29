@@ -34,13 +34,19 @@ var features = []Feature{
 		Key: "mutants-at-merge", Default: "off",
 		Effect: "mutation measurement of the merged tree before every merge",
 		Cost:   "high CPU and wall-clock: a lane runs tens of mutants, each re-running its package's suite",
-		Enable: "mutants-at-merge = true",
+		Enable: "mutants-at-merge = true, or \"ci\" to measure only in CI's mutants-verdict check",
 	},
 	{
 		Key: "mutants-before-pr", Default: "off",
 		Effect: "the same measurement before `workspace pr`/`ship`/`submit` open a PR",
 		Cost:   "the mutants-at-merge cost, paid before the PR opens",
-		Enable: "mutants-before-pr = true",
+		Enable: "mutants-before-pr = true, or \"ci\" to skip it locally and leave it to CI",
+	},
+	{
+		Key: "mutants-integration-packages", Default: "none",
+		Effect: "package directories whose mutants stay settled against the tests of the packages that import them; every other package's mutant its own tests miss is refused at once",
+		Cost:   "each listed package's missed mutants run the importers' suites, nearest first, within a total time cap",
+		Enable: "mutants-integration-packages = [\"<package dir>\"]",
 	},
 	{
 		Key: "mutants-shards", Default: "derived",
@@ -108,18 +114,29 @@ func featureValues(repoRoot string) map[string]string {
 	}
 	cfg, err := ReadMutantsConfig(repoRoot)
 	if err != nil {
-		for _, key := range []string{"mutants-at-merge", "mutants-before-pr", "mutants-shards"} {
+		for _, key := range []string{"mutants-at-merge", "mutants-before-pr", "mutants-shards", "mutants-integration-packages"} {
 			values[key] = "unreadable"
 		}
 	} else {
-		values["mutants-at-merge"] = onOff(cfg.AtMerge)
-		values["mutants-before-pr"] = onOff(cfg.BeforePR)
+		values["mutants-at-merge"] = modeValue(cfg.AtMerge, cfg.AtMergeCI)
+		values["mutants-before-pr"] = modeValue(cfg.BeforePR, cfg.BeforePRCI)
+		if n := len(cfg.IntegrationPackages); n > 0 {
+			values["mutants-integration-packages"] = strconv.Itoa(n)
+		}
 	}
 	if cfg.Shards > 0 {
 		values["mutants-shards"] = strconv.Itoa(cfg.Shards)
 	}
 	values["undercover"] = onOff(blockFlagsFor(repoRoot).Undercover)
 	return values
+}
+
+// modeValue renders a key that is on, off, or "ci".
+func modeValue(on, ci bool) string {
+	if ci {
+		return "ci"
+	}
+	return onOff(on)
 }
 
 // onOff renders a switch.

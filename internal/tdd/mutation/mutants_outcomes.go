@@ -108,6 +108,16 @@ func mutantLineOf(file string, line, col int, mutation string) string {
 	return fmt.Sprintf("%s:%d:%d: %s", file, line, col, mutation)
 }
 
+// plainName names a mutant for a line that is not a finding: the accept-list's
+// own `file:line:col MUTATOR` spelling, with no colon after the column. The
+// `file.go:line:col: text` shape of outcomeName is the one CI's Go problem
+// matcher turns into an Error annotation, so it is kept for the mutants the
+// report refuses, and every other mention (a settled kill, a caught note, an
+// inconclusive one) is spelled this way and stays a plain log line.
+func plainName(m MutantOutcome) string {
+	return fmt.Sprintf("%s:%d:%d %s", m.File, m.Line, m.Col, m.Mutation)
+}
+
 // sortOutcomes puts a run's outcomes in one order whatever the tool did, so
 // two runs of the same tree produce the same report.
 func sortOutcomes(out []MutantOutcome) {
