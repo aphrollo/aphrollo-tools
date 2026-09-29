@@ -78,7 +78,18 @@ var noTestsToRunRe = regexp.MustCompile(`(?i)no tests to run`)
 // RunSuite is the production SuiteRunner: it executes the test command with a
 // bounded timeout and a quiet, deterministic environment (CI=1, NO_COLOR=1),
 // combining stdout and stderr. A timeout or signal is reported as NOT passed.
+// A command line past what the platform can start runs as several, each
+// within budget (runsuite_batched.go).
 func RunSuite(timeout time.Duration) SuiteRunner {
+	one := runSuiteOnce(timeout)
+	return func(r Runner, root string) SuiteResult {
+		return runBatched(r, root, timeout, argvBudgetFn(r.Cmd), one)
+	}
+}
+
+// runSuiteOnce is RunSuite's one spawn: the runner's command line exactly as
+// it stands.
+func runSuiteOnce(timeout time.Duration) SuiteRunner {
 	return func(r Runner, root string) SuiteResult {
 		// Runner.Deadline (set by runCargoLocked BEFORE it waits for the
 		// machine-wide build lock) carves that wait OUT of this run's own

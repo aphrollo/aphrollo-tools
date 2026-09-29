@@ -32,6 +32,7 @@ import "testing"
 // and the fail-first RED proof — 206 blocks over the same window. The full
 // suite lives at the merge gate, which is the last thing before main.
 func TestPrecommit_RunsNoSuiteAtCommitTime(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -51,6 +52,7 @@ func TestPrecommit_RunsNoSuiteAtCommitTime(t *testing.T) {
 // touched packages' tests, so nothing reaches main untested — the coverage
 // the commit gate used to duplicate now lands here once.
 func TestMechanical_StillRunsTheSuiteAtMerge(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")

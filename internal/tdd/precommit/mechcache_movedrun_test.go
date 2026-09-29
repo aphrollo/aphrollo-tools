@@ -11,6 +11,7 @@ import (
 // compiled in its moved form, and the green then vouched for the unmoved
 // state once the file was put back. Only a run whose tree held still from
 // start to finish is a fact about that tree.
+// Serial: captures the process-wide os.Stderr.
 func TestMechanical_CachesNoGreenForATreeThatMovedDuringTheRun(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)

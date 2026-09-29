@@ -55,13 +55,12 @@ func cargoQualityStage(gateName, ws, root string, pkgs []string, run SuiteRunner
 	// Same target dir as the mechanical stage: a quality pass that compiled
 	// into a different one would cold-build the whole crate to say nothing
 	// new.
-	restore := pinMechCargoTarget(Runner{Cmd: "cargo"}, repoRoot)
-	defer restore()
+	pin := func(r Runner) Runner { return pinMechCargoTarget(r, repoRoot) }
 
 	for _, pkg := range pkgs {
 		if which == qualityFmt {
 			// fmt compiles nothing, so it never takes a build slot.
-			fmtRunner := Runner{Cmd: "cargo", Args: []string{"fmt", "--check", "-p", pkg}, Dir: ws}
+			fmtRunner := pin(Runner{Cmd: "cargo", Args: []string{"fmt", "--check", "-p", pkg}, Dir: ws})
 			if blocked := qualityVerdict(gateName, root, pkg, "fmt", fmtRunner, run(fmtRunner, root), true); blocked != nil {
 				return *blocked
 			}
@@ -70,7 +69,7 @@ func cargoQualityStage(gateName, ws, root string, pkgs []string, run SuiteRunner
 		if !clippyClean[pkg] {
 			continue
 		}
-		clippyRunner := Runner{Cmd: "cargo", Args: []string{"clippy", "-p", pkg, "--no-deps", "--tests", "--", "-D", "warnings"}, Dir: ws}
+		clippyRunner := pin(Runner{Cmd: "cargo", Args: []string{"clippy", "-p", pkg, "--no-deps", "--tests", "--", "-D", "warnings"}, Dir: ws})
 		// No budget floor (the trailing zero): clippy runs no suite, and
 		// this check fails OPEN on a timeout anyway — a longer budget would
 		// buy a verdict nobody is blocked on.

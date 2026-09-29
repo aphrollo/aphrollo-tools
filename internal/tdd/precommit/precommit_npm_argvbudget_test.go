@@ -13,6 +13,7 @@ import (
 // the files split into several runs, each line within the budget, together
 // linting every file once and in order.
 func TestEslintArgvs_SplitsALargeChangedSetUnderTheArgvBudget(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	var files []string
 	for i := range 200 {

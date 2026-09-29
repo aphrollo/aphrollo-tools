@@ -71,6 +71,7 @@ func makeVitestRepoWithFakeNpx(t *testing.T) string {
 // the proof to run as node <bin entry>. It must not be certified red-proven,
 // must say what is missing, and must not reach for npx, which may fetch the
 // tool from the registry.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_AParentRunThatNeverStartedTheToolIsNotRedProven(t *testing.T) {
 	root := makeVitestRepoWithFakeNpx(t)
 
@@ -127,6 +128,7 @@ func failFirstLine(stderr string) string {
 // A characterization test passes at the parent: it pins nothing the commit
 // changed, and the gate says the test passed there rather than certifying
 // it as a red.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_ATestGreenAtTheParentIsNotRedProven(t *testing.T) {
 	root := makeCharacterizedVitestRepo(t)
 	green := func(Runner, string) SuiteResult {
@@ -145,6 +147,7 @@ func TestFailFirst_ATestGreenAtTheParentIsNotRedProven(t *testing.T) {
 
 // A test that ran at the parent and failed there is the red the proof
 // exists to find, and is certified as one.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_ATestThatRanAndFailedAtTheParentIsRedProven(t *testing.T) {
 	root := makeCharacterizedVitestRepo(t)
 	red := redAtHeadThenGreen(SuiteResult{Passed: false, Output: " ❯ src/lib/caps.test.ts (1 test | 1 failed) 5ms\n   × has three 3ms\n AssertionError: expected 2 to be 3\n"}, nil)
@@ -160,6 +163,7 @@ func TestFailFirst_ATestThatRanAndFailedAtTheParentIsRedProven(t *testing.T) {
 
 // What the proof run printed is kept for `aphrollo gate output`: without
 // it, a session told the test was never reached cannot see why.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_TheProofRunsOutputIsKeptForGateOutput(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeCharacterizedVitestRepo(t)

@@ -43,6 +43,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
 // is not the same as not executed — #412), and a doc-tests block with
 // genuinely zero of everything (0 filtered out) must never be flagged.
 func TestCargoVacuousTargets_EmptyWhenRealTestsRanAndDocTestsGenuinelyHaveNone(t *testing.T) {
+	t.Parallel()
 	if got := cargoVacuousTargets(cargoRealPassOutput); len(got) != 0 {
 		t.Fatalf("cargoVacuousTargets = %v, want none — one target ran a real test, the other two legitimately have none", got)
 	}
@@ -70,6 +71,7 @@ test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 312 filtered out; fi
 // test in BOTH targets, distinguishable from "genuinely no tests" only by
 // filtered_out being nonzero.
 func TestCargoVacuousTargets_NamesTargetsWhoseRealTestsWereAllFilteredOut(t *testing.T) {
+	t.Parallel()
 	got := cargoVacuousTargets(cargoFilterMismatchOutput)
 	want := []string{`src\lib.rs`, `tests\integration\main.rs`}
 	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
@@ -84,6 +86,7 @@ func TestCargoVacuousTargets_NamesTargetsWhoseRealTestsWereAllFilteredOut(t *tes
 // build from ever reaching this function, but the parser itself must not
 // manufacture a false vacuous reading if it ever were handed this text).
 func TestCargoVacuousTargets_EmptyOnAPlainCompileFailure(t *testing.T) {
+	t.Parallel()
 	const compileFailure = `error[E0425]: cannot find value ` + "`x`" + ` in this scope
  --> src/lib.rs:3:5
   |
@@ -102,6 +105,7 @@ error: could not compile ` + "`vactest`" + ` (lib test) due to 1 previous error
 // flagged — libtest itself decided to skip them, which counts as executed
 // (constraint #2).
 func TestCargoVacuousTargets_IgnoredAloneIsNotVacuous(t *testing.T) {
+	t.Parallel()
 	const allIgnored = `     Running unittests src\lib.rs (target\debug\deps\vactest-a2202e17fc8b0ca6.exe)
 
 running 1 test
@@ -119,6 +123,7 @@ test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; fini
 // cargo: a mechanical run whose libtest summary shows every real test
 // filtered out must block the commit with the vacuous-rejected token, not
 // pass because the process happened to exit 0.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_RejectsACargoSuiteThatExecutedZeroTests(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

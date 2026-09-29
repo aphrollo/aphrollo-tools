@@ -16,10 +16,11 @@ import (
 // the gate out of the developer's way, and cost a second full copy of the
 // workspace's artifacts (a measured 155 GB) plus a cold compile on every
 // commit of anything the developer had already built next door.
+// Serial: sets the process-wide env var CARGO_TARGET_DIR.
 func TestPrecommit_MechanicalCargoRun_BuildsInTheReposOwnTarget(t *testing.T) {
 	record := func(seen *string) SuiteRunner {
 		return func(r Runner, dir string) SuiteResult {
-			*seen = os.Getenv("CARGO_TARGET_DIR")
+			*seen = envBinding(r, "CARGO_TARGET_DIR")
 			return SuiteResult{Passed: true, Output: "test result: ok. 1 passed; 0 failed"}
 		}
 	}
@@ -41,7 +42,7 @@ func TestPrecommit_MechanicalCargoRun_BuildsInTheReposOwnTarget(t *testing.T) {
 			t.Fatalf("mechanical run built in %q, want the operator's own %q", seen, shared)
 		}
 		if os.Getenv("CARGO_TARGET_DIR") != shared {
-			t.Fatal("the operator's CARGO_TARGET_DIR must be restored after the run")
+			t.Fatal("the operator's CARGO_TARGET_DIR must be left as it was by the run")
 		}
 	})
 
@@ -57,7 +58,7 @@ func TestPrecommit_MechanicalCargoRun_BuildsInTheReposOwnTarget(t *testing.T) {
 			t.Fatalf("mechanical run built in %q, want the repo's own %q", seen, want)
 		}
 		if _, set := os.LookupEnv("CARGO_TARGET_DIR"); set {
-			t.Fatal("CARGO_TARGET_DIR must be unset again after the run — the operator never set one")
+			t.Fatal("the run must not set CARGO_TARGET_DIR — the operator never set one")
 		}
 	})
 }
@@ -66,6 +67,7 @@ func TestPrecommit_MechanicalCargoRun_BuildsInTheReposOwnTarget(t *testing.T) {
 // for a linked worktree: its OWN target/, exactly like the developer's builds
 // there. A shared warm target is still available — by exporting
 // CARGO_TARGET_DIR, which the gate then honours.
+// Serial: sets the process-wide env var CARGO_TARGET_DIR.
 func TestResolvedDevTarget_IsPerCheckout(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	os.Unsetenv("CARGO_TARGET_DIR")

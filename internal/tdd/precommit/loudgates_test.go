@@ -21,6 +21,7 @@ const nextestNoTestsOutput = tddtest.NextestNoTestsOutput
 // (Passed=false, Err="exit status 4", output naming "no tests to run") as an
 // empty PASS. The PostEdit half runs under a path carrying the verdict words
 // and judges its line with that path neutralised.
+// Serial: sets the process-wide env var GOTMPDIR.
 func TestEmptyPass_NextestZeroTests_NeverBlocksNeverReadsAsFailure(t *testing.T) {
 	// Only the SUITE run produces nextest's output; the quality stage runs
 	// rustfmt, which has nothing to say about tests.
@@ -74,6 +75,7 @@ func TestEmptyPass_NextestZeroTests_NeverBlocksNeverReadsAsFailure(t *testing.T)
 // (any other non-passing output) must still be judged as a failure, or this
 // fix would launder actual RED runs into silence.
 func TestEmptyPass_TableDriven(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		res  SuiteResult
@@ -100,7 +102,7 @@ func TestEmptyPass_TableDriven(t *testing.T) {
 // in history. What has not changed is that it is never silent, and never
 // dressed up as a failing suite.
 func TestPrecommit_MechanicalTimeout_IsLoudAndRefuses(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -124,6 +126,7 @@ func TestPrecommit_MechanicalTimeout_IsLoudAndRefuses(t *testing.T) {
 // threaded SuiteResult.Duration out of failFirstViolatedAt into the log.
 // A stub SuiteRunner reporting an 11s Duration must show up as 11.0s in
 // BOTH the stderr stage line and the gate.log line, not a hardcoded 0.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirstStage_ThreadsRealDurationIntoLogAndLine(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -165,6 +168,7 @@ func TestFailFirstStage_ThreadsRealDurationIntoLogAndLine(t *testing.T) {
 // Source, never Test, and the len(tests) > 0 gate above never opens for it.
 // Before this fix a commit shaped exactly like this ran fail-first NOT AT
 // ALL, with nothing in stderr or gate.log to say so. Now it is named.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirstStage_LogsInconclusiveForInlineRustCfgTest(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

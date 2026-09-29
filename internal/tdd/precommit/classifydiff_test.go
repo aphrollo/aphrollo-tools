@@ -45,6 +45,7 @@ func wantClass(t *testing.T, root, base, head string, want DiffClass) {
 }
 
 // Prose only: top-level and docs/ markdown, the licence and .gitignore.
+// Serial: changes the process working directory.
 func TestClassifyDiff_ProseOnlyIsDocsOnly(t *testing.T) {
 	root, base, head := classifyRepo(t,
 		map[string]string{"README.md": "a\n", "docs/x.md": "a\n", "docs/flow.svg": "a\n", "LICENSE": "a\n", ".gitignore": "a\n", "p/p.go": classifyGoBase},
@@ -54,6 +55,7 @@ func TestClassifyDiff_ProseOnlyIsDocsOnly(t *testing.T) {
 
 // A markdown file a //go:embed directive compiles into the binary is code,
 // wherever it sits.
+// Serial: changes the process working directory.
 func TestClassifyDiff_EmbeddedMarkdownIsCode(t *testing.T) {
 	root, base, head := classifyRepo(t,
 		map[string]string{
@@ -64,6 +66,7 @@ func TestClassifyDiff_EmbeddedMarkdownIsCode(t *testing.T) {
 	wantClass(t, root, base, head, DiffCode)
 }
 
+// Serial: changes the process working directory.
 func TestClassifyDiff_GoCommentOnlyWithProseIsCommentOnly(t *testing.T) {
 	root, base, head := classifyRepo(t,
 		map[string]string{"README.md": "a\n", "p/p.go": classifyGoBase},
@@ -71,6 +74,7 @@ func TestClassifyDiff_GoCommentOnlyWithProseIsCommentOnly(t *testing.T) {
 	wantClass(t, root, base, head, DiffCommentOnly)
 }
 
+// Serial: changes the process working directory.
 func TestClassifyDiff_GoCodeChangeIsCode(t *testing.T) {
 	root, base, head := classifyRepo(t,
 		map[string]string{"p/p.go": classifyGoBase},
@@ -80,6 +84,7 @@ func TestClassifyDiff_GoCodeChangeIsCode(t *testing.T) {
 
 // A test file is never comment-only: a Go example's `// Output:` comment is
 // an assertion, and the gate never fast-paths a staged test either.
+// Serial: changes the process working directory.
 func TestClassifyDiff_TestFileCommentChangeIsCode(t *testing.T) {
 	root, base, head := classifyRepo(t,
 		map[string]string{"p/p_test.go": "package p\n\n// old\n"},
@@ -88,6 +93,7 @@ func TestClassifyDiff_TestFileCommentChangeIsCode(t *testing.T) {
 }
 
 // A new or deleted source file has no pair of blobs to compare.
+// Serial: changes the process working directory.
 func TestClassifyDiff_AddedOrDeletedSourceIsCode(t *testing.T) {
 	root, base, head := classifyRepo(t,
 		map[string]string{"p/p.go": classifyGoBase},
@@ -102,6 +108,7 @@ func TestClassifyDiff_AddedOrDeletedSourceIsCode(t *testing.T) {
 
 // Only .github/** (plus prose) changed: the workflow pin tests are what can
 // still fail, not the suites.
+// Serial: changes the process working directory.
 func TestClassifyDiff_WorkflowOnlyWithProseIsWorkflowOnly(t *testing.T) {
 	root, base, head := classifyRepo(t,
 		map[string]string{".github/workflows/pipeline.yml": "a: 1\n", ".github/dependabot.yml": "a: 1\n", "README.md": "a\n", "p/p.go": classifyGoBase},
@@ -111,6 +118,7 @@ func TestClassifyDiff_WorkflowOnlyWithProseIsWorkflowOnly(t *testing.T) {
 
 // Neither lighter path covers both halves of a workflow edit sitting next to
 // a comment-only one, so the heaviest path runs.
+// Serial: changes the process working directory.
 func TestClassifyDiff_WorkflowPlusCommentOnlyIsCode(t *testing.T) {
 	root, base, head := classifyRepo(t,
 		map[string]string{".github/workflows/pipeline.yml": "a: 1\n", "p/p.go": classifyGoBase},
@@ -121,6 +129,7 @@ func TestClassifyDiff_WorkflowPlusCommentOnlyIsCode(t *testing.T) {
 // Non-code files that are not prose -- a test fixture, the linter's own
 // configuration, a deploy script, a law -- each change what a check does,
 // so none of them is documentation.
+// Serial: changes the process working directory.
 func TestClassifyDiff_NonProseDataIsCode(t *testing.T) {
 	for _, p := range []string{"p/testdata/golden.txt", ".golangci.yml", "deploy/deploy-prod.sh", ".ratchet/laws/x.toml", "p/testdata/fixture.md"} {
 		t.Run(p, func(t *testing.T) {
@@ -134,6 +143,7 @@ func TestClassifyDiff_NonProseDataIsCode(t *testing.T) {
 
 // A base that is not a commit in this clone -- the all-zero sha of a first
 // push, a sha a force-push dropped -- must never pick a fast path.
+// Serial: changes the process working directory.
 func TestClassifyDiff_UnresolvableBaseIsCodeAndSaysWhy(t *testing.T) {
 	root, _, head := classifyRepo(t,
 		map[string]string{"README.md": "a\n"},
@@ -145,6 +155,7 @@ func TestClassifyDiff_UnresolvableBaseIsCodeAndSaysWhy(t *testing.T) {
 }
 
 // An empty diff proves nothing about what the change is, so it is code.
+// Serial: changes the process working directory.
 func TestClassifyDiff_EmptyDiffIsCode(t *testing.T) {
 	root, base, head := classifyRepo(t, map[string]string{"README.md": "a\n"}, nil)
 	wantClass(t, root, base, head, DiffCode)
@@ -152,6 +163,7 @@ func TestClassifyDiff_EmptyDiffIsCode(t *testing.T) {
 
 // The embed rule reads the checkout, so a head that is not the checked-out
 // commit cannot be judged by it.
+// Serial: changes the process working directory.
 func TestClassifyDiff_HeadThatIsNotTheCheckoutIsCode(t *testing.T) {
 	root, base, head := classifyRepo(t,
 		map[string]string{"README.md": "a\n"},

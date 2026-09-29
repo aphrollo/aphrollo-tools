@@ -103,7 +103,14 @@ func narrowGoFailFirst(r Runner, root string, tests []string) (Runner, bool) {
 	sort.Strings(pkgs)
 	sort.Strings(names)
 	args := append([]string{"test"}, pkgs...)
-	return Runner{Cmd: "go", Args: append(args, "-run", goRunFilter(names))}, true
+	scoped := Runner{Cmd: "go", Args: append(args, "-run", goRunFilter(names))}
+	// One filter names every test, so its line cannot be split across runs;
+	// past the budget the caller's package granularity, which is bounded,
+	// takes over.
+	if len(cmdString(scoped)) > stagedArgvBudget {
+		return r, false
+	}
+	return scoped, true
 }
 
 // narrowNonCargoFailFirst is narrowFailFirstTests' non-cargo half: the Go

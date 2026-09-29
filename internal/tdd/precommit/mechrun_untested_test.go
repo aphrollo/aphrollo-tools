@@ -27,6 +27,7 @@ import (
 // words. A stage line that says green is read as evidence; this one has none
 // to report.
 func TestMechResultLine_NamesAZeroSelectionInsteadOfCallingItGreen(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		r     Runner
@@ -79,6 +80,7 @@ func TestMechResultLine_NamesAZeroSelectionInsteadOfCallingItGreen(t *testing.T)
 // gate.log half: same constraint as every other state that tested nothing —
 // it must not arm decideNarrowedSuite's 30-minute block.
 func TestStageSuiteVerdict_KeepsAZeroSelectionOutOfTheSettledVerdicts(t *testing.T) {
+	t.Parallel()
 	empty := Runner{Cmd: "cargo", Args: []string{"nextest", "run", "-p", "workspace-hack"}}
 	got := stageSuiteVerdict(empty, SuiteResult{Passed: true, Output: nextestNoTestsOutput})
 	if got != NoTestsSelected {
@@ -99,6 +101,7 @@ func TestStageSuiteVerdict_KeepsAZeroSelectionOutOfTheSettledVerdicts(t *testing
 // pass the gate that actually runs the suite — the MERGE one, since the
 // commit gate proves the staged test RED and stops. Only the words and the
 // logged verdict change; the merge is not refused.
+// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_ZeroTestCrate_IsRelabelledButStillLands(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
 	cfg := t.TempDir()

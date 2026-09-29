@@ -172,6 +172,12 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 		return res
 	}
 
+	// After the cheap guards, and before the has-code check: a commit that
+	// only deletes a file stages no source at all.
+	if res := tddsplitManifestStage("precommit", repoRoot, run); collect(res) {
+		return res
+	}
+
 	groups, err := stagedRootGroupsErr(repoRoot)
 	if err != nil {
 		return GateResult{Blocked: true, Message: unreadableIndexMessage("precommit", err)}

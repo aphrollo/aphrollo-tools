@@ -18,4 +18,6 @@ func ShellSegmentsTokens(p0 string) [][]shellWord { return shellSegmentsTokens(p
 
 func StripHeredocBodies(p0 string) string { return stripHeredocBodies(p0) }
 
+func UnwrapGroups(p0 []shellWord, p1 int) ([]shellWord, int, int) { return unwrapGroups(p0, p1) }
+
 func WordTexts(p0 []shellWord) []string { return wordTexts(p0) }

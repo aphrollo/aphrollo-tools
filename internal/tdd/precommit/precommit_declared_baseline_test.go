@@ -48,7 +48,9 @@ func headAndStaged(frontend string, headDirs *[]string, staged, head func(checko
 // declared npx finds the root's packages, and the tree leaves nothing
 // behind. The path each checkout prints and the trailing whitespace differ
 // between the two runs, and neither makes the line new.
+// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestDeclaredBaseline_AFailureAlreadyAtHeadPassesWithLines(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo, frontend := makeFrontendRepo(t, declaredTscLines)
 	nodeModules := filepath.Join(frontend, "node_modules")
 	before := listTree(t, nodeModules)
@@ -87,6 +89,7 @@ func TestDeclaredBaseline_AFailureAlreadyAtHeadPassesWithLines(t *testing.T) {
 // Without a lines baseline, spelled out or left at its default, the same
 // failure blocks as it always did, and HEAD is never run.
 func TestDeclaredBaseline_WithoutLinesTheSameFailureBlocks(t *testing.T) {
+	t.Parallel()
 	for _, decl := range []string{
 		`[["npx", "tsc", "--noEmit"]]`,
 		`[{ argv = ["npx", "tsc", "--noEmit"], baseline = "none" }]`,
@@ -105,6 +108,7 @@ func TestDeclaredBaseline_WithoutLinesTheSameFailureBlocks(t *testing.T) {
 // A line HEAD's run did not print is new, and the refusal quotes it and not
 // the lines HEAD had.
 func TestDeclaredBaseline_ANewLineIsRefusedAndNamed(t *testing.T) {
+	t.Parallel()
 	repo, frontend := makeFrontendRepo(t, declaredTscLines)
 
 	var headDirs []string
@@ -122,6 +126,7 @@ func TestDeclaredBaseline_ANewLineIsRefusedAndNamed(t *testing.T) {
 // A run that adds many lines is quoted to twenty of them, with a count of
 // the rest when there is a rest.
 func TestDeclaredBaseline_TheRefusalQuotesTwentyNewLinesAndCountsTheRest(t *testing.T) {
+	t.Parallel()
 	for _, n := range []int{20, 25} {
 		repo, frontend := makeFrontendRepo(t, declaredTscLines)
 		var many strings.Builder
@@ -147,6 +152,7 @@ func TestDeclaredBaseline_TheRefusalQuotesTwentyNewLinesAndCountsTheRest(t *test
 // A lines baseline only answers a failure: a pass runs nothing at HEAD, and
 // a staged run that did not finish is refused as a timeout, not compared.
 func TestDeclaredBaseline_APassOrATimeoutNeverRunsHead(t *testing.T) {
+	t.Parallel()
 	for _, staged := range []SuiteResult{{Passed: true, Output: "fine\n"}, {TimedOut: true}} {
 		repo, frontend := makeFrontendRepo(t, declaredTscLines)
 		headRuns := 0
@@ -170,6 +176,7 @@ func TestDeclaredBaseline_APassOrATimeoutNeverRunsHead(t *testing.T) {
 // A HEAD run that does not finish measured nothing: the commit is refused
 // and says why, never waved through.
 func TestDeclaredBaseline_AHeadRunThatTimesOutRefuses(t *testing.T) {
+	t.Parallel()
 	repo, frontend := makeFrontendRepo(t, declaredTscLines)
 
 	var headDirs []string
@@ -183,6 +190,7 @@ func TestDeclaredBaseline_AHeadRunThatTimesOutRefuses(t *testing.T) {
 // With no HEAD commit there is no tree to run in: the commit is refused and
 // says why.
 func TestDeclaredBaseline_NoHeadCommitRefuses(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	gitInit(t, repo)
 	write(t, repo, ".gitignore", "node_modules/\n")
@@ -203,6 +211,7 @@ func TestDeclaredBaseline_NoHeadCommitRefuses(t *testing.T) {
 // A root with no node_modules of its own gets its HEAD tree outside the
 // repo, and is judged the same way.
 func TestDeclaredBaseline_ARootWithoutNodeModulesRunsHeadOutsideIt(t *testing.T) {
+	t.Parallel()
 	repo := makeTSRepo(t, map[string]string{
 		"aphrollo.toml":         declaredTscLines,
 		"frontend/package.json": `{"name": "app"}`,
@@ -229,6 +238,7 @@ func TestDeclaredBaseline_ARootWithoutNodeModulesRunsHeadOutsideIt(t *testing.T)
 // trailing whitespace trimmed, so the same error printed from two
 // checkouts is one line. Nothing else is normalised.
 func TestNewOutputLines_TheSameErrorAtTwoCheckoutsIsEqual(t *testing.T) {
+	t.Parallel()
 	now, head := filepath.Join("/", "w", "lane"), filepath.Join("/", "tmp", "head-1")
 	nowOut := oldError(now) + " \r\n" + "Error: Old\n"
 	headOut := oldError(head) + "\n" + "error: old\n"
@@ -241,6 +251,7 @@ func TestNewOutputLines_TheSameErrorAtTwoCheckoutsIsEqual(t *testing.T) {
 // A command may be an inline table carrying a baseline; any other baseline
 // or key is refused, not guessed at.
 func TestDeclaredPrecommit_ReadsABaselineFromAnInlineTable(t *testing.T) {
+	t.Parallel()
 	cmds, err := parseDeclaredCommands(`[{ argv = ["npx", "tsc"], baseline = "lines" }, ["eslint", "src"], {argv=["x"]}, { argv = ["y"], baseline = "none" }]`)
 	if err != nil {
 		t.Fatal(err)
@@ -268,6 +279,7 @@ func TestDeclaredPrecommit_ReadsABaselineFromAnInlineTable(t *testing.T) {
 // A root without a node_modules has nothing to link: HEAD's tree gets no
 // node_modules of its own.
 func TestDeclaredBaseline_ARootWithoutNodeModulesGetsNoLinkAtHead(t *testing.T) {
+	t.Parallel()
 	repo, frontend := makeFrontendRepo(t, declaredTscLines)
 	if err := os.RemoveAll(filepath.Join(frontend, "node_modules")); err != nil {
 		t.Fatal(err)

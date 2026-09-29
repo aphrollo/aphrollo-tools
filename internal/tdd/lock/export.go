@@ -108,6 +108,8 @@ func ResolveTargetDir(p0 func(string) string, p1 string) string { return resolve
 
 func RunnerTargetDir(p0 Runner, p1 string) string { return runnerTargetDir(p0, p1) }
 
+func RunnerWithBuildJobs(p0 Runner, p1 int) Runner { return runnerWithBuildJobs(p0, p1) }
+
 func SetBuildJobs(p0 int) func() { return setBuildJobs(p0) }
 
 func SetBuildLockPathOverride(p0 string) func() { return setBuildLockPathOverride(p0) }

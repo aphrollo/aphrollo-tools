@@ -66,6 +66,7 @@ func makeConflictedMergeRepo(t *testing.T) string {
 // SuiteRunner's call list contains ONLY runs at repoRoot (never a fail-first
 // worktree temp dir) and that the fail-first worktree directory under the
 // state dir was never created at all.
+// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_ConflictedMergeInProgress_RunsOnlyMechanical(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -107,8 +108,8 @@ func TestPrecommit_ConflictedMergeInProgress_RunsOnlyMechanical(t *testing.T) {
 // overwhelming majority of commits) must never print the merge-in-progress
 // line, and Precommit's normal fail-first + mechanical flow must still run
 // exactly as before this task.
+// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_NoMergeInProgress_NeverPrintsTheMergeLine(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -139,6 +140,7 @@ func TestPrecommit_NoMergeInProgress_NeverPrintsTheMergeLine(t *testing.T) {
 // this exercises the identical mechanism a real conflicting cherry-pick/
 // revert would, without the extra fixture cost of staging one for real.
 func TestMergeInProgressRef_TableDriven(t *testing.T) {
+	t.Parallel()
 	t.Run("clean repo has no merge in progress", func(t *testing.T) {
 		root := makeGoRepo(t)
 		if got := mergeInProgressRef(root); got != "" {

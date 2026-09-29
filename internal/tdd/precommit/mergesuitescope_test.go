@@ -50,6 +50,7 @@ func suiteRuns(ran *[]string) SuiteRunner {
 	}
 }
 
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_RunsTheSuiteOfACrateDownstreamOfATouchedOne(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
@@ -75,6 +76,7 @@ func TestMechanical_RunsTheSuiteOfACrateDownstreamOfATouchedOne(t *testing.T) {
 // Nextest never runs a doctest, so a crate's doctests are a suite of their
 // own at the merge — and a downstream crate's doctest calls the moved code
 // exactly as its tests do.
+// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_RunsTheDoctestsOfACrateDownstreamOfATouchedOne(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
@@ -101,6 +103,7 @@ func TestMechanical_RunsTheDoctestsOfACrateDownstreamOfATouchedOne(t *testing.T)
 // The commit gate runs no suite, and names what the merge will run instead.
 // That list is the merge's own scope, downstream crates included, or the
 // commit's output understates what is still owed.
+// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_NamesADownstreamCrateAmongTheSuitesItDidNotRun(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := downstreamWorkspace(t)
@@ -144,9 +147,9 @@ func nonGoFileRepo(t *testing.T, data string) string {
 }
 
 func TestMechanical_RunsTheSuiteOfAPackageWhoseOnlyChangeIsANonGoFile(t *testing.T) {
+	t.Parallel()
 	for _, data := range []string{"p/manifest.txt", "p/testdata/golden.json"} {
 		t.Run(data, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			root := nonGoFileRepo(t, data)
 
 			var seen []Runner
@@ -164,9 +167,10 @@ func TestMechanical_RunsTheSuiteOfAPackageWhoseOnlyChangeIsANonGoFile(t *testing
 	}
 }
 
+// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_NamesThePackageOfAStagedNonGoFileAsNotRun(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	withLinter(t, false)
+	linterAbsent(t)
 	root := nonGoFileRepo(t, "p/testdata/golden.json")
 
 	var seen []Runner
@@ -190,7 +194,7 @@ func TestPrecommit_NamesThePackageOfAStagedNonGoFileAsNotRun(t *testing.T) {
 // fall back to the whole module's suite: here the module root holds no .go
 // files, so config/settings.yml walks up to no package at all.
 func TestMechanical_RunsNothingForADataFileNoGoPackageHolds(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	gitDo(t, root, "rm", "-q", "doc.go")
 	write(t, root, "p/p.go", "package p\n")
@@ -212,7 +216,7 @@ func TestMechanical_RunsNothingForADataFileNoGoPackageHolds(t *testing.T) {
 // A vendored package's files belong to the code it was copied from: a
 // licence text changing under vendor/ owes no suite of this module's.
 func TestMechanical_RunsNothingForADataFileUnderVendor(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := nonGoFileRepo(t, "vendor/ex.com/lib/LICENSE.txt")
 	write(t, root, "vendor/ex.com/lib/lib.go", "package lib\n")
 
@@ -228,7 +232,7 @@ func TestMechanical_RunsNothingForADataFileUnderVendor(t *testing.T) {
 // Prose is not test input: a README beside p's code, merged together with a
 // change to q, owes q's suite and not p's.
 func TestMechanical_DoesNotRunTheSuiteOfAPackageWhoseOnlyChangeIsProse(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := nonGoFileRepo(t, "p/README.md")
 	write(t, root, "q/q.go", "package q\n\nfunc Q() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -249,7 +253,7 @@ func TestMechanical_DoesNotRunTheSuiteOfAPackageWhoseOnlyChangeIsProse(t *testin
 // The suite a data file selects is a real verdict: red there refuses the
 // merge exactly as red for a changed .go file would.
 func TestMechanical_RefusesTheMergeWhenTheSuiteADataFileSelectsFails(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := nonGoFileRepo(t, "p/manifest.txt")
 
 	res := Mechanical(root, func(r Runner, _ string) SuiteResult {

@@ -94,6 +94,20 @@ func EnvWithBuildJobs(env []string, jobs int) []string {
 	return append(out, fmt.Sprintf("%s=%d", buildJobsEnv, jobs))
 }
 
+// runnerWithBuildJobs is r with its child's CARGO_BUILD_JOBS capped at jobs,
+// carried on r.Env (which the child sees after everything it inherits) rather
+// than written into this process's environment: two builds in one process each
+// get their own slot's share. The stricter of jobs, the runner's own binding
+// and the process environment's wins, exactly as setBuildJobs decides it.
+func runnerWithBuildJobs(r Runner, jobs int) Runner {
+	env := append([]string(nil), r.Env...)
+	if raw, had := os.LookupEnv(buildJobsEnv); had {
+		env = append(env, buildJobsEnv+"="+raw)
+	}
+	r.Env = EnvWithBuildJobs(env, jobs)
+	return r
+}
+
 // buildJobsEnv is cargo's own parallelism knob -- the mechanism by which a
 // slot's share of the box is actually enforced on the child build.
 const buildJobsEnv = "CARGO_BUILD_JOBS"

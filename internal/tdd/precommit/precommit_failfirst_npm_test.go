@@ -98,6 +98,7 @@ func noHeadWorktreeLeft(t *testing.T, root string) {
 // A new test that is red at HEAD is proven red there, by the root's own
 // vitest run under node in a worktree outside its node_modules, and then
 // green with the change by the same invocation.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_NpmRootProvesRedAtHeadWithTheInstalledVitestUnderNode(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root, runLog := makeFakeVitestRoot(t, "2")
@@ -148,6 +149,7 @@ func evalSymlinks(t *testing.T, p string) string {
 
 // A characterization test is green at the parent, and the gate says so
 // rather than certifying it red.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_NpmRootReportsATestGreenAtTheParent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root, _ := makeFakeVitestRoot(t, "3")
@@ -170,6 +172,7 @@ func TestFailFirst_NpmRootReportsATestGreenAtTheParent(t *testing.T) {
 
 // A root whose vitest is not installed is inconclusive and says so; the
 // proof runs nothing, npx included.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_NpmRootWithoutItsToolInstalledRunsNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	withNodeOnPath(t)
@@ -203,6 +206,7 @@ func TestFailFirst_NpmRootWithoutItsToolInstalledRunsNothing(t *testing.T) {
 // The real vitest, installed into the fixture from npm's cache without the
 // network. A characterization test is reported green at the parent; a new
 // test red at HEAD is red-proven and then green with the change.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirstE2E_RealVitestAtHead(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not on PATH; skipping e2e") // skip-ok: vitest runs on node, which this box lacks
@@ -310,6 +314,7 @@ func listTree(t *testing.T, dir string) []string {
 // below the repo root, is RED at HEAD and GREEN with the staged change. The
 // GREEN run sees the STAGED tree, not the working tree, and neither run
 // places anything under the root's node_modules.
+// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_NpmRootProvesANewModuleGreenOnTheStagedTreeOutsideNodeModules(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not on PATH; the fake vitest is a node script") // skip-ok: the tool under test runs on node, which this box lacks

@@ -22,8 +22,8 @@ import (
 // the opposite one: a test that SHOULD fail against the new code passes
 // against the stale binary and the gate reports green.
 func TestPrecommit_FailFirst_InvalidatesTheArtifactsItBuiltFromHEAD(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := makeCargoRepo(t)
 
 	// Staged: a source change plus a genuinely new test, which is what makes
@@ -80,8 +80,8 @@ func TestPrecommit_FailFirst_InvalidatesTheArtifactsItBuiltFromHEAD(t *testing.T
 // dir, and the invalidation that follows must drop beta too, not just
 // alpha -- the only package alpha's OWN rootGroup ever saw.
 func TestPrecommit_FailFirst_InvalidatesADependencyCrateStagedInASiblingRoot(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/alpha\", \"crates/beta\"]\n")
@@ -131,8 +131,8 @@ func TestPrecommit_FailFirst_InvalidatesADependencyCrateStagedInASiblingRoot(t *
 // invalidation: the guard against fixing this everywhere instead of where it
 // breaks.
 func TestPrecommit_FailFirst_DoesNotInvalidateForANonCargoRepo(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 {\n\t\tt.Fatal(\"no\")\n\t}\n}\n")

@@ -14,7 +14,7 @@ import (
 )
 
 // Disk hygiene for the build caches this binary's own gates create and use.
-// Five kinds of leftover qualify, and nothing else ever does:
+// These kinds of leftover qualify, and nothing else ever does:
 //
 //	(a) idle incremental caches in the invoking workspace's target dir --
 //	    deleting one costs a single recompile of that crate;
@@ -31,6 +31,8 @@ import (
 //	    panic killed never gets to run its own cleanup. .mutants/, the
 //	    mutation runner's own working area under the same root, is excluded
 //	    by name, the same way deps/, build/ and .fingerprint/ are below.
+//	(m) a per-worktree Go dependency-graph cache whose worktree no longer
+//	    exists (gc_graphcache.go).
 //
 // Everything else is somebody's work. In particular deps/, build/ and
 // .fingerprint/ are NEVER reclaimable: they are what makes the next build
@@ -102,6 +104,7 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 	if scope.GateDirs {
 		if dir := StateDir(); dir != "" {
 			out = append(out, gcStaleGateDirs(dir)...)
+			out = append(out, gcGraphCaches(dir)...)
 		}
 		out = append(out, gcDeferredJobFiles(deferredDirPath(), deferredJobMaxAge, time.Now())...)
 		out = append(out, gcGoTmpLitter(repo, olderThan, time.Now())...)

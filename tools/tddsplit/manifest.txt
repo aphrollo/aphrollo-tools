@@ -107,6 +107,7 @@ buildlock_gitx.go                                  gitx      # created by P2
 buildlock_integration_test.go                      precommit # prefix says lock; its test body reaches precommit
 buildlock_lock_own_test.go                         lock
 buildlock_own_test.go                              core
+buildlock_own_test.go                              suite
 buildlock_owner_test.go                            suite     # prefix says lock; its test body reaches suite
 buildlock_suite.go                                 suite     # created by P2
 buildlock_test.go                                  suite     # prefix says lock; its test body reaches suite
@@ -116,6 +117,7 @@ buildlock_unix_own_test.go                         core
 buildlock_windows.go                               lock
 buildlock_windows_core.go                          core      # created by P2
 buildonly.go                                       suite
+buildonly_own_test.go                              suite
 buildonly_test.go                                  postedit  # prefix says suite; its test body reaches postedit
 buildslots.go                                      lock
 buildslots_inherited_owner_test.go                 lock
@@ -137,7 +139,9 @@ cargo_required_features_test.go                    suite
 cargo_target_test.go                               suite
 cargo_test.go                                      precommit
 cargo_test_target.go                               suite
+cargo_test_target_own_test.go                      suite
 cargo_uncompiled.go                                suite
+cargo_uncompiled_own_test.go                       suite
 cargo_uncompiled_test.go                           postedit  # prefix says suite; its test body reaches postedit
 cargo_workspace_root_test.go                       precommit
 cargoshim_install.go                               install
@@ -148,10 +152,13 @@ classify_attribution.go                            suite
 classify_attribution_test.go                       postedit  # prefix says suite; its test body reaches postedit
 classify_color_test.go                             suite
 classify_core.go                                   core      # created by P2
+classify_foreign_own_test.go                       suite
 classify_foreign_test.go                           postedit  # prefix says suite; its test body reaches postedit
 classify_goattribution.go                          suite
+classify_goattribution_own_test.go                 suite
 classify_goattribution_test.go                     postedit  # prefix says suite; its test body reaches postedit
 classify_nextest_status_test.go                    mutation  # prefix says suite; its test body reaches mutation
+classify_render_own_test.go                        suite
 classify_rustattribution_test.go                   suite
 classify_scope.go                                  suite
 classify_scope_test.go                             postedit  # prefix says suite; its test body reaches postedit
@@ -183,6 +190,7 @@ commitmsg_test.go                                  merge
 commitmsg_verify.go                                merge
 commitmsg_verify_test.go                           merge
 commitowed_test.go                                 precommit
+config_git_own_test.go                             suite
 data.go                                            tddtest
 deferred.go                                        postedit
 deferred_attribution_test.go                       postedit
@@ -200,6 +208,7 @@ deferred_own_test.go                               core
 deferred_prompt.go                                 postedit
 deferred_robust_test.go                            postedit
 deferred_run.go                                    postedit
+deferred_run_batched_test.go                       postedit
 deferred_run_test.go                               postedit
 deferred_seams_test.go                             postedit
 deferred_selfspawn_test.go                          postedit
@@ -237,6 +246,7 @@ discardwall_test.go                                postedit
 docsonly.go                                        precommit
 docsonly_property_test.go                          precommit
 doctest.go                                         suite
+doctest_own_test.go                                suite
 doctest_test.go                                    precommit # prefix says suite; its test body reaches precommit
 doctor.go                                          install
 doctor_claudemd.go                                 install
@@ -264,6 +274,7 @@ doctor_primary_test.go                             install
 doctor_test.go                                     install
 e2e_zig_test.go                                    suite
 edit_ownership.go                                  suite
+edit_ownership_own_test.go                         suite
 editledger.go                                      failfirst
 editledger_suite.go                                suite     # created by P2
 editledger_test.go                                 postedit  # prefix says failfirst; its test body reaches postedit
@@ -276,6 +287,7 @@ emptyselection_ladder.go                           postedit
 emptyselection_ladder_mutation.go                  mutation  # created by P2
 emptyselection_ladder_test.go                      postedit
 emptyselection_mutation.go                         mutation  # created by P2
+emptyselection_own_test.go                         suite
 emptyselection_suite.go                            suite     # created by P2
 emptyselection_test.go                             postedit
 envpath.go                                          install
@@ -286,6 +298,7 @@ escape_crossrepo.go                                escape
 escape_dedupe.go                                   escape
 escape_dedupe_test.go                              escape
 escape_gitx.go                                     gitx      # created by P2
+escape_own_test.go                                 suite
 escape_suite.go                                    suite     # created by P2
 escape_syncclosed_test.go                          escape
 escape_test.go                                     install   # prefix says escape; its test body reaches install
@@ -294,6 +307,7 @@ escape_verify_fixture_test.go                      escape
 escape_verify_local_test.go                        escape
 escape_verify_localdiff_test.go                    escape
 escape_verify_suite.go                             suite     # created by P2
+escape_verify_suite_test.go                        suite
 escape_verify_test.go                              escape
 failfirst_env.go                                   failfirst
 failfirst_env_test.go                              failfirst
@@ -336,6 +350,7 @@ gate.go                                            core
 gate_order_test.go                                 precommit # prefix says core; its test body reaches precommit
 gate_rename_test.go                                tdd       # prefix says core; its test body reaches tdd
 gateprofile.go                                     suite
+gateprofile_own_test.go                            suite
 gateprofile_test.go                                precommit # prefix says suite; its test body reaches precommit
 gatestatus.go                                      tdd
 gatestatus_core.go                                 core      # created by P2
@@ -345,6 +360,8 @@ gateworktree_own_test.go                           core
 gc.go                                              gc
 gc_deps.go                                         gc
 gc_deps_test.go                                    gc
+gc_graphcache.go                                   gc
+gc_graphcache_test.go                              gc
 gc_gotmp.go                                        gc
 gc_gotmp_test.go                                   gc
 gc_interlock.go                                    gc
@@ -383,6 +400,7 @@ gc_test.go                                         gc
 gcafterrun.go                                      tdd
 gcafterrun_test.go                                 tdd
 gcrender_own_test.go                               core
+gcstate_own_test.go                                suite
 gh.go                                              tddtest
 ghstub_isolation_test.go                           tdd
 git.go                                             tddtest
@@ -448,6 +466,7 @@ mask_test.go                                       core
 mechanical.go                                      precommit
 mechanical_test.go                                 precommit
 mechcache.go                                       suite
+mechcache_concurrent_test.go                       suite
 mechcache_covers_test.go                           suite
 mechcache_ignored_test.go                          suite
 mechcache_key_test.go                              suite
@@ -509,6 +528,8 @@ mutants_covershape.go                              mutation
 mutants_covershape_test.go                         mutation
 mutants_deleted_surface_test.go                    tdd
 mutants_deps.go                                    suite
+mutants_deps_test.go                               suite
+mutants_deps_own_test.go                           suite
 mutants_disk.go                                    mutation
 mutants_disk_test.go                               mutation
 mutants_drain.go                                   mutation
@@ -604,6 +625,7 @@ mutants_stale.go                                   mutation
 mutants_stale_test.go                              mutation
 mutants_stub_test.go                               mutation
 mutants_tombstones_test.go                         tdd
+mutants_tool_batched_test.go                       mutation
 mutants_unix.go                                    lock
 mutants_unix_core.go                               core      # created by P2
 mutants_unix_own_test.go                           core
@@ -672,6 +694,7 @@ precommit_failfirst_args_test.go                   failfirst
 precommit_failfirst_green_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_inputs_test.go                 precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_npm_test.go                    precommit # prefix says failfirst; its test body reaches precommit
+precommit_failfirst_profile_test.go                 failfirst
 precommit_failfirst_pytest_test.go                 precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_reach_test.go                  precommit # prefix says failfirst; its test body reaches precommit
 precommit_failfirst_rust.go                        failfirst
@@ -779,6 +802,8 @@ retro_test.go                                      merge
 review_yellows_test.go                             precommit
 runcheckout.go                                     suite
 runcheckout_cdtilde_test.go                        suite
+runcheckout_groups_test.go                       suite
+runcheckout_own_test.go                            suite
 runcheckout_test.go                                postedit  # prefix says suite; its test body reaches postedit
 runner.go                                          suite
 runner_core.go                                     core      # created by P2
@@ -786,17 +811,22 @@ runner_core_own_test.go                            core
 runner_lock.go                                     lock      # created by P2
 runner_lock_own_test.go                            lock
 runner_nextest_test.go                             suite
+runner_own_test.go                                 suite
 runner_pytest.go                                   suite
 runner_pytest_test.go                              suite
 runner_scope.go                                    suite
 runner_scope_argvbudget.go                         suite
 runner_scope_argvbudget_test.go                    suite
+runner_scope_failfirst_argvbudget_test.go          suite
 runner_scope_gorun.go                              suite
 runner_test.go                                     suite
 runner_testscope_test.go                           suite
 runscope.go                                        suite
 runscope_bashsuite_test.go                         postedit
+runscope_own_test.go                               suite
 runscope_test.go                                   suite
+runsuite_batched.go                                suite
+runsuite_batched_test.go                           suite
 runsuite_cap_test.go                               suite
 runsuite_killtree_test.go                          suite
 runsuite_waitdelay_test.go                         suite
@@ -818,6 +848,8 @@ sessionline.go                                     tdd
 sessionline_core.go                                core      # created by P2
 sessionline_test.go                                tdd
 sessionstart_test.go                               tdd
+shellgroups.go                                     shell
+shellgroups_test.go                                shell
 shellwrite.go                                      shell
 shellwrite_fuzz_test.go                            shell
 shellwrite_nul_test.go                             shell
@@ -844,6 +876,7 @@ smell_deadline_preedit_test.go                     postedit
 smell_deadline_test.go                             smell
 smell_test.go                                      smell
 smellscope.go                                      smell
+smellscope_own_test.go                             smell
 smellscope_test.go                                 postedit  # prefix says smell; its test body reaches postedit
 stagedfiles_test.go                                tdd
 staleartifact.go                                   suite
@@ -851,6 +884,7 @@ staleartifact_hint_test.go                         suite
 staleartifact_test.go                              postedit  # prefix says suite; its test body reaches postedit
 state.go                                           core
 state_gitx.go                                      gitx      # created by P2
+state_misc_own_test.go                             suite
 state_test.go                                      core
 stateschema.go                                     core
 stateschema_own_test.go                            core
@@ -873,10 +907,12 @@ style.md                                           install
 style_test.go                                      install
 suiteoutput.go                                     suite
 suiteoutput_dir_test.go                            postedit  # prefix says suite; its test body reaches postedit
+suiteoutput_own_test.go                            suite
 suiteoutput_record_test.go                         suite
 suiteoutput_test.go                                install   # prefix says suite; its test body reaches install
 suiteproof.go                                      suite
 suiteproof_npm_test.go                             merge
+suiteproof_own_test.go                             suite
 suiteproof_test.go                                 merge     # prefix says suite; its test body reaches merge
 suiteseams_test.go                                 suite
 suitetimeout_test.go                               precommit
@@ -888,6 +924,8 @@ tdd.go                                             core
 tddskill.go                                        install
 tddskill.md                                        install
 tddskill_test.go                                   install
+tddsplit_manifest.go                                precommit
+tddsplit_manifest_test.go                           precommit
 testbinary_refusal_test.go                          install
 testdata/cargo_mutants_outcomes.json               mutation
 testdata/covershape/                               mutation
@@ -915,6 +953,7 @@ undercoverbash.go                                  postedit
 undercoverbash_test.go                             postedit
 unowned_edit_test.go                               postedit
 vacuous_cargo.go                                   suite
+vacuous_cargo_own_test.go                          suite
 vacuous_cargo_test.go                              precommit # prefix says suite; its test body reaches precommit
 vacuous_dispatch.go                                suite
 vacuous_pytest.go                                  suite
@@ -932,6 +971,7 @@ workspacecheck_test.go                             precommit
 worktree.go                                        postedit
 worktree_test.go                                   postedit
 zigtest.go                                         suite
+zigtest_own_test.go                                suite
 zigtest_test.go                                    smell     # prefix says suite; its test body reaches smell
 
 [relocate]

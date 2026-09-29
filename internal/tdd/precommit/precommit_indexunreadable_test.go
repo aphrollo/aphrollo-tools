@@ -26,6 +26,7 @@ func corruptIndex(t *testing.T, root string) {
 // refuse and name the git failure — otherwise an index.lock collision at hook
 // time lands a commit with every per-root stage silently skipped.
 func TestPrecommit_RefusesWhenIndexUnreadable(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -46,6 +47,7 @@ func TestPrecommit_RefusesWhenIndexUnreadable(t *testing.T) {
 // The merge gate reads the same index through the same helper, and a merge
 // waved through unmeasured is the more expensive of the two mistakes.
 func TestMechanical_RefusesWhenIndexUnreadable(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")

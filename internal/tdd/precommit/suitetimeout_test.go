@@ -15,6 +15,7 @@ import (
 // nags the model (PostEdit), false-blocks commits (mechanical), and turns
 // fail-first into a coin flip (a timed-out worktree run proves nothing) — so
 // every consumer must treat TimedOut as inconclusive, never as RED.
+// Serial: sets the process-wide env var GOTMPDIR.
 func TestSuiteTimeout_IsNotARed(t *testing.T) {
 	// timedOut is the fake runner every consumer subtest injects: the suite
 	// was killed at the deadline, so it did not pass — but it did not FAIL.

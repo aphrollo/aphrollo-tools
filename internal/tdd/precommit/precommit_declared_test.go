@@ -43,6 +43,7 @@ undercover = true
 // A root that declares its own commands has said how it is checked: the gate
 // runs exactly those, in order, in that root, and none of its own detection.
 func TestDeclaredPrecommit_ReplacesBuiltInDetectionForThatRoot(t *testing.T) {
+	t.Parallel()
 	repo, frontend := makeFrontendRepo(t, declaredFrontend)
 
 	var seen []Runner
@@ -58,6 +59,7 @@ func TestDeclaredPrecommit_ReplacesBuiltInDetectionForThatRoot(t *testing.T) {
 // The first declared command that fails refuses the commit, and nothing
 // after it runs.
 func TestDeclaredPrecommit_FirstFailureStopsTheCommit(t *testing.T) {
+	t.Parallel()
 	repo, frontend := makeFrontendRepo(t, declaredFrontend)
 
 	var seen []Runner
@@ -75,6 +77,7 @@ func TestDeclaredPrecommit_FirstFailureStopsTheCommit(t *testing.T) {
 // A declaration the gate cannot read must not quietly hand the root back to
 // the built-in checks, which the repo said it wanted replaced.
 func TestDeclaredPrecommit_AMalformedDeclarationRefusesLoudly(t *testing.T) {
+	t.Parallel()
 	repo, frontend := makeFrontendRepo(t, "[aphrollo.precommit]\n\"frontend\" = [\"npx tsc --noEmit\"]\n")
 
 	var seen []Runner
@@ -92,6 +95,7 @@ func TestDeclaredPrecommit_AMalformedDeclarationRefusesLoudly(t *testing.T) {
 // value may span lines and carry comments; and a '#', a bracket or an
 // escaped quote inside an argument is part of the argument.
 func TestDeclaredPrecommit_ReadsEachRootsArgvFromItsOwnTable(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, toml, root string
 		want             [][]string
@@ -140,6 +144,7 @@ func TestDeclaredPrecommit_ReadsEachRootsArgvFromItsOwnTable(t *testing.T) {
 // Every shape that is not a list of non-empty argv arrays is refused, not
 // guessed at.
 func TestDeclaredPrecommit_ShapesThatAreNotArgvArraysAreErrors(t *testing.T) {
+	t.Parallel()
 	for _, value := range []string{
 		`["npx tsc --noEmit"]`,
 		`[[]]`,

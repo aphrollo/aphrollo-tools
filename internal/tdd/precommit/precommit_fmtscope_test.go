@@ -21,8 +21,8 @@ import (
 // nothing measurable — and only gofmt widens. Lint and the suites stay scoped
 // to the commit.
 func TestPrecommit_GofmtJudgesAFileAnEarlierCommitInTheLaneLeftUnformatted(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 
 	gitDo(t, root, "branch", "-f", "main")
@@ -54,8 +54,8 @@ func TestPrecommit_GofmtJudgesAFileAnEarlierCommitInTheLaneLeftUnformatted(t *te
 // introduce makes the gate unpassable and teaches people to bypass it; the
 // merge gate does not judge those either.
 func TestPrecommit_GofmtLeavesAFileTheLaneNeverTouchedToItsOwnLane(t *testing.T) {
-	withLinter(t, false)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
+	linterAbsent(t)
 	root := makeGoRepo(t)
 
 	// Unformatted on the base branch, before the lane exists.

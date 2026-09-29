@@ -29,11 +29,11 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		AppendGateLog(gateName, root, cmdString(runner), "cache-hit", 0)
 		return GateResult{}
 	}
-	restore := pinMechCargoTarget(runner, repoRoot)
-	// Resolved while the gate's target dir is pinned: after restore() this
-	// answers the OPERATOR's target, which is not the one the run contended
-	// for and not the one whose owner names the holder.
-	target := runnerTargetDir(runner, root)
+	pinned := pinMechCargoTarget(runner, repoRoot)
+	// Resolved from the pinned runner: the process environment answers the
+	// OPERATOR's target, which is not the one the run contended for and not
+	// the one whose owner names the holder.
+	target := runnerTargetDir(pinned, root)
 	// What this same stage running this same command is recorded to need.
 	// The build-slot wait carves out of the stage budget, which on a busy
 	// box handed one suite 96s of a 600s budget for work that takes ~350s —
@@ -41,8 +41,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	// (issue #660, budgetfloor.go). Zero when gate.log has no completed run
 	// to derive one from, which is today's arithmetic unchanged.
 	floor := recordedSuiteFloor(gateName, cmdString(runner))
-	res, waited, acquired := runCargoLocked(run, runner, root, precommitLockWait(), DefaultPrecommitTimeout, floor.Budget)
-	restore()
+	res, waited, acquired := runCargoLocked(run, pinned, root, precommitLockWait(), DefaultPrecommitTimeout, floor.Budget)
 	logLockWait(gateName, root, runner, waited)
 	if !acquired {
 		// A commit the gate never tested must not land. This used to fail
@@ -231,23 +230,19 @@ func cargoOwnedFiles(repoRoot, root string, filesRepoRel []string) (owned, unown
 // cost a hundred gigabytes and ten minutes to prove the same thing twice.
 // The per-target build lock is what keeps the two builds off each other's
 // toes — the gate queues visibly like any other build.
-func pinMechCargoTarget(r Runner, repoRoot string) func() {
+//
+// The binding rides on the returned runner's Env, never the process
+// environment, so two gates in one process cannot see each other's target.
+func pinMechCargoTarget(r Runner, repoRoot string) Runner {
 	if r.Cmd != "cargo" {
-		return func() {}
+		return r
 	}
 	dir := resolvedDevTarget(repoRoot)
 	if dir == "" {
-		return func() {}
+		return r
 	}
-	prev, had := os.LookupEnv("CARGO_TARGET_DIR")
-	os.Setenv("CARGO_TARGET_DIR", dir)
-	return func() {
-		if had {
-			os.Setenv("CARGO_TARGET_DIR", prev)
-			return
-		}
-		os.Unsetenv("CARGO_TARGET_DIR")
-	}
+	r.Env = append(append([]string(nil), r.Env...), "CARGO_TARGET_DIR="+dir)
+	return r
 }
 
 // queuedRejectMessage composes the rejection for a commit the gate could
