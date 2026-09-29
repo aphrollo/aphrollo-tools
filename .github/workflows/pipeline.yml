@@ -686,17 +686,17 @@ jobs:
           # parents resolve: the diff is scoped to merge-base(base, head),
           # exactly as mergeMeasureBase scopes it locally.
           fetch-depth: 0
-      # The job measures only while the repo measures at merge: with
-      # mutants-at-merge off, a PR's measurement would hold the box-wide
-      # mutation lock for work no merge reads.
+      # The job measures while `mutants-in-ci` is on, falling back to
+      # `mutants-at-merge` when the repo does not set it. A repo that measures
+      # only in CI sets mutants-in-ci = true and mutants-at-merge = false.
       - name: Is the merge-time mutation stage on
         id: cfg
         if: needs.changes.outputs.code == 'true'
         run: |
           set -euo pipefail
-          on=$(python3 -c "import tomllib; print(str(tomllib.load(open('aphrollo.toml','rb')).get('aphrollo',{}).get('mutants-at-merge', False)).lower())")
+          on=$(python3 -c "import tomllib; a=tomllib.load(open('aphrollo.toml','rb')).get('aphrollo',{}); print(str(a.get('mutants-in-ci', a.get('mutants-at-merge', False))).lower())")
           echo "on=$on" >> "$GITHUB_OUTPUT"
-          [ "$on" = true ] || echo "mutants-at-merge is off in aphrollo.toml: no measurement"
+          [ "$on" = true ] || echo "mutants-in-ci is off in aphrollo.toml: no measurement"
       - name: Identify the merged tree
         # Read before anything else writes into the checkout, and read the
         # same way the consuming gate reads it (internal/tdd/mutation/mutants_runner.go:
