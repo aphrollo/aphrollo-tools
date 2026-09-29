@@ -88,3 +88,36 @@ func TestEvaluateCovered_OnlySuppressionPoliciesSkipACoveredLine(t *testing.T) {
 		t.Errorf("a non-directive policy skipped a covered line: %v", got)
 	}
 }
+
+// TestEditCovered_CodesAreComparedOneByOne: the codes a directive names are a
+// set, not a string, so reordering them is still the same suppression, and a
+// second directive of the same kind on the line is judged on its own.
+func TestEditCovered_CodesAreComparedOneByOne(t *testing.T) {
+	t.Parallel()
+	if !coveredBy("y = g()  # noqa: BLE001, E501", "y = g()  # noqa: E501, BLE001  both needed") {
+		t.Error("reordering the codes of an existing noqa was judged new")
+	}
+	pre := "a = b /* eslint-disable a */"
+	if coveredBy(pre, pre+" /* eslint-disable b */") {
+		t.Error("a second eslint-disable on the line, naming a rule the old line never did, was judged already carried")
+	}
+}
+
+// TestCoveredDirectives_LinesAbsorbedAsMovedSpendTheirTokensFirst: a line the
+// whole-line pool already paid for spends its suppression tokens, so the one
+// removed directive cannot also cover a different line carrying it.
+func TestCoveredDirectives_LinesAbsorbedAsMovedSpendTheirTokensFirst(t *testing.T) {
+	t.Parallel()
+	post := "a()  # noqa: A1\nb()  # noqa: A1  why\n"
+	introduced := map[int]bool{1: true, 2: true}
+	pool := map[string]int{directiveToken{"#noqa", "A1"}.key(): 1}
+
+	got := coveredDirectives(post, defaultLang, introduced, map[int]bool{2: true}, pool)
+	if len(got) != 0 {
+		t.Errorf("covered = %v; line 1 already took the one removed noqa, so line 2 is new", got)
+	}
+	pool = map[string]int{directiveToken{"#noqa", "A1"}.key(): 1}
+	if got := coveredDirectives(post, defaultLang, map[int]bool{2: true}, map[int]bool{2: true}, pool); !got[2] {
+		t.Errorf("covered = %v; with nothing absorbed the removed noqa covers line 2", got)
+	}
+}
