@@ -99,6 +99,17 @@ func redirectHome(dir string) {
 	if err := os.Setenv("XDG_CONFIG_HOME", filepath.Join(fake, ".config")); err != nil {
 		panic(err)
 	}
+	// Windows resolves the per-user config and cache dirs from these two, and
+	// the Go env file lives under the first.
+	for k, sub := range map[string]string{"APPDATA": "Roaming", "LOCALAPPDATA": "Local"} {
+		p := filepath.Join(fake, "AppData", sub)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			panic(err)
+		}
+		if err := os.Setenv(k, p); err != nil {
+			panic(err)
+		}
+	}
 }
 
 // pinGoEnv writes the toolchain's resolved cache locations into the

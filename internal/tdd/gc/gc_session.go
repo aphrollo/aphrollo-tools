@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // The unattended half of the sweep: what runs without anyone typing
@@ -177,9 +179,10 @@ func spawnBackgroundGC(cwd string) {
 	if err != nil {
 		return
 	}
-	cmd := exec.Command(exe, CmdName, "gc", "--apply", "--quiet", "--repo", cwd)
-	cmd.Dir = cwd
-	cmd.Env = cleanGitEnv()
+	cmd, err := backgroundGCCommand(exe, os.Environ(), cwd)
+	if err != nil {
+		return
+	}
 	closeStdio := silentStdio(cmd)
 	// Detached: the stamp fires before the work, so a sweep killed with the
 	// hook's process group would leave a half-deleted tree and no sweep due
@@ -191,6 +194,22 @@ func spawnBackgroundGC(cwd string) {
 		return
 	}
 	_ = cmd.Process.Release()
+}
+
+// backgroundGCCommand builds the detached sweep: exe re-entered as `gate gc`
+// in cwd. It refuses a Go test binary as exe — that answers `gate gc` by
+// running its whole suite, whose session-start tests start the sweep again
+// (#997) — and a chain of self-spawns already at proc.MaxSpawnDepth. parentEnv
+// is the environment of the process asking; the child's carries one more
+// generation of depth.
+func backgroundGCCommand(exe string, parentEnv []string, cwd string) (*exec.Cmd, error) {
+	if err := proc.CheckSelfSpawn(exe, parentEnv); err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(exe, CmdName, "gc", "--apply", "--quiet", "--repo", cwd)
+	cmd.Dir = cwd
+	cmd.Env = proc.ChildEnv(parentEnv, cleanGitEnv())
+	return cmd, nil
 }
 
 // backgroundGCSpawnDescription states the spawn's contract for a test that

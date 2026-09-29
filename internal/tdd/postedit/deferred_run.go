@@ -7,7 +7,13 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
+
+// selfExeFn is the running executable's path; a test replaces it to state what
+// spawnPhase does for a given binary without starting one.
+var selfExeFn = os.Executable
 
 // phasePollEvery is how often a waiting hook looks for the wrapper's result
 // file. Short enough that a fast phase costs no visible latency, long enough
@@ -18,9 +24,17 @@ const phasePollEvery = 200 * time.Millisecond
 // started it: on Windows the hook's exit would otherwise take the whole
 // console process group with it. The wrapper (`aphrollo tdd runphase`) owns
 // the build slot, the log and the result file.
+//
+// It refuses to start when the running executable is a Go test binary (which
+// answers `gate runphase` by running its whole suite, and the suite starts
+// phases again — #997) or the chain of self-spawns is already at the cap. The
+// refusal comes before anything is saved.
 func spawnPhase(j DeferredJob) (DeferredJob, bool) {
-	self, err := os.Executable()
+	self, err := selfExeFn()
 	if err != nil {
+		return j, false
+	}
+	if err := proc.CheckSelfSpawn(self, os.Environ()); err != nil {
 		return j, false
 	}
 	saveDeferredJob(j)
@@ -32,7 +46,7 @@ func spawnPhase(j DeferredJob) (DeferredJob, bool) {
 
 	cmd := exec.Command(self, CmdName, "runphase", "--job", deferredJobPath(saved.Session, saved.Project))
 	cmd.Dir = saved.Dir
-	cmd.Env = append(os.Environ(), "CI=1", "NO_COLOR=1")
+	cmd.Env = proc.ChildEnv(os.Environ(), append(os.Environ(), "CI=1", "NO_COLOR=1"))
 	closeStdio := silentStdio(cmd)
 	cmd.SysProcAttr = detachedAttrs()
 	err = cmd.Start()

@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -37,6 +38,10 @@ func registerStubDir(dir string) {
 // override the shim tests wrote their target locks and slot files straight
 // into the real %TEMP% and left them there.
 func TestMain(m *testing.M) {
+	if msg, refuse := proc.RefuseTestReexec(os.Args); refuse {
+		fmt.Fprintln(os.Stderr, msg)
+		os.Exit(2)
+	}
 	dir, err := os.MkdirTemp("", "aphrollo-cli-pkgtest-")
 	if err != nil {
 		panic(err)
@@ -45,6 +50,18 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	redirectHome(dir)
+	// os.Executable is this test binary. Anything init wires to "the running
+	// binary" would name a Go test binary, which answers gate arguments by
+	// running its whole suite (#997); the writers refuse it, so tests that
+	// leave --bin off get a stand-in gate path.
+	standIn := filepath.Join(dir, "bin", "aphrollo"+exeSuffix())
+	if err := os.MkdirAll(filepath.Dir(standIn), 0o755); err != nil {
+		panic(err)
+	}
+	if err := proc.WriteExecutable(standIn, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		panic(err)
+	}
+	execPathFn = func() (string, error) { return standIn, nil }
 	locks := filepath.Join(dir, "locks")
 	if err := os.MkdirAll(locks, 0o755); err != nil {
 		panic(err)
@@ -126,12 +143,23 @@ func redirectHome(dir string) {
 	if err := os.Setenv("XDG_CONFIG_HOME", filepath.Join(fake, ".config")); err != nil {
 		panic(err)
 	}
+	// Windows resolves the per-user config and cache dirs from these two, and
+	// the Go env file lives under the first.
+	for k, sub := range map[string]string{"APPDATA": "Roaming", "LOCALAPPDATA": "Local"} {
+		p := filepath.Join(fake, "AppData", sub)
+		if err := os.MkdirAll(p, 0o755); err != nil {
+			panic(err)
+		}
+		if err := os.Setenv(k, p); err != nil {
+			panic(err)
+		}
+	}
 }
 
 // pinGoEnv writes the toolchain's resolved cache locations into the
 // environment, so redirecting HOME cannot move them.
 func pinGoEnv() {
-	names := []string{"GOPATH", "GOCACHE", "GOMODCACHE"}
+	names := []string{"GOPATH", "GOCACHE", "GOMODCACHE", "GOENV"}
 	out, err := exec.Command("go", append([]string{"env"}, names...)...).Output()
 	if err != nil {
 		return

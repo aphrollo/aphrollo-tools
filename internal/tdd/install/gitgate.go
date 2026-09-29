@@ -196,6 +196,9 @@ func hooksPathDangling(dir string) bool {
 }
 
 func installGitGate(hooksDir, bin string) (bool, error) {
+	if err := refuseTestBinary(bin); err != nil {
+		return false, err
+	}
 	if reason := unsafeHooksDirReason(hooksDir); reason != "" && os.Getenv(HooksDirUnsafeEnv) != "1" {
 		return false, fmt.Errorf(
 			"refusing to install the global git gate into %q: %s.\n"+

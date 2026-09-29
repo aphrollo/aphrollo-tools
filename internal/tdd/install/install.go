@@ -75,6 +75,9 @@ func shim(bin, sub string) string {
 // shims invoke the binary at bin. It returns an error if repoRoot is not a git
 // repository.
 func BuildInstallPlan(repoRoot, bin string) (InstallPlan, error) {
+	if err := refuseTestBinary(bin); err != nil {
+		return InstallPlan{}, err
+	}
 	hooksDir, err := repoHooksDir(repoRoot)
 	if err != nil {
 		return InstallPlan{}, err

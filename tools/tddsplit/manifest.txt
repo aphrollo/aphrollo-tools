@@ -202,6 +202,7 @@ deferred_robust_test.go                            postedit
 deferred_run.go                                    postedit
 deferred_run_test.go                               postedit
 deferred_seams_test.go                             postedit
+deferred_selfspawn_test.go                          postedit
 deferred_session_test.go                           tdd       # prefix says postedit; its test body reaches tdd
 deferred_status.go                                 postedit
 deferred_status_restart_test.go                    postedit
@@ -358,6 +359,7 @@ gc_render.go                                       gc
 gc_render_core.go                                  core      # created by P2
 gc_render_test.go                                  gc
 gc_safety_test.go                                  gc
+gc_selfspawn_test.go                                gc
 gc_session.go                                      gc
 gc_session_suite.go                                suite     # created by P2
 gc_session_test.go                                 tdd       # prefix says gc; its test body reaches tdd
@@ -380,6 +382,7 @@ gitgate_core.go                                    core      # created by P2
 gitgate_test.go                                    install
 gitplumbing.go                                     gitx
 gitplumbing_stdout_test.go                         gitx
+gitspawn_test.go                                    gitx
 gitstaged_batch_unix_test.go                       gitx
 gitqueue_test.go                                   gitx
 go_reverse_scope.go                                suite
@@ -392,6 +395,8 @@ gotmpdir_own_test.go                               lock
 gotmpdir_test.go                                   suite     # prefix says lock; its test body reaches suite
 gotmpdir_workflow_pin_test.go                      tdd
 greenlabel_outcome_test.go                         precommit
+home.go                                             tddtest
+home_test.go                                        tddtest
 hostedrunners_workflow_pin_test.go                   tdd
 init.go                                            install
 init_test.go                                       install
@@ -849,6 +854,7 @@ tdd.go                                             core
 tddskill.go                                        install
 tddskill.md                                        install
 tddskill_test.go                                   install
+testbinary_refusal_test.go                          install
 testdata/cargo_mutants_outcomes.json               mutation
 testdata/covershape/                               mutation
 testdata/fuzz/FuzzBashWriteTargets/                shell

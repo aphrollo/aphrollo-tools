@@ -7,6 +7,7 @@ package tddtest
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // Seams is what Main needs from the package whose tests it runs. A package
@@ -138,6 +141,9 @@ func Main(m *testing.M, s Seams) int {
 		os.Stdout.WriteString(FakeGitCommonDir + "\n")
 		return 0
 	}
+	if code, stop := reexecGuard(os.Args, os.Stderr); stop {
+		return code
+	}
 	active = s
 	run := s.Run
 	if run == nil {
@@ -150,6 +156,10 @@ func Main(m *testing.M, s Seams) int {
 	if err := os.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude")); err != nil {
 		panic(err)
 	}
+	// Every OTHER place a tool resolves the operator's profile from — HOME,
+	// but also USERPROFILE and APPDATA on Windows, XDG_*, git's own config —
+	// is a temp home too; see isolateHome.
+	isolateHome(dir)
 	// Same net for the OPERATOR's real ~/.cargo/config.toml: cargoConfigTargetDir
 	// (issue #285) reads a user cargo config as part of resolveTargetDir's
 	// normal path, which every cargo-runner test reaches. A dev box that sets
@@ -249,6 +259,20 @@ func Main(m *testing.M, s Seams) int {
 	restoreLocks()
 	os.RemoveAll(dir)
 	return code
+}
+
+// reexecGuard is the first thing Main does: a test binary started with a
+// non-flag first argument was started as if it were the gate binary (`<pkg>.test
+// gate runphase ...`, `<pkg>.test status`), and the testing package would answer
+// by running the whole suite — whose tests may start the same thing again. It
+// says why on w and asks Main to return code instead (#997).
+func reexecGuard(args []string, w io.Writer) (code int, stop bool) {
+	msg, refuse := proc.RefuseTestReexec(args)
+	if !refuse {
+		return 0, false
+	}
+	fmt.Fprintln(w, msg)
+	return 2, true
 }
 
 // UseRealCargoHome puts the box's own CARGO_HOME back for one test. The whole
