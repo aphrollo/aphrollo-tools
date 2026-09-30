@@ -23,7 +23,13 @@ import (
 // testMapPath is the file one package's map is kept in, "" when the gate has
 // no state directory for the repo.
 func testMapPath(root, dir string) string {
-	base := mutantsLogDir(root)
+	// Keyed on the repository's primary checkout, not the worktree asking:
+	// the map is built where a merge landed and read from every lane.
+	repo := primaryCheckoutRoot(root)
+	if repo == "" {
+		repo = root
+	}
+	base := mutantsLogDir(repo)
 	if base == "" {
 		return ""
 	}

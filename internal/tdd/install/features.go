@@ -43,6 +43,18 @@ var features = []Feature{
 		Enable: "mutants-before-pr = true, or \"ci\" to skip it locally and leave it to CI",
 	},
 	{
+		Key: "mutants-at-commit", Default: "off",
+		Effect: "mutation of the lines a commit adds, run against the tests selected for each mutant's function, before the commit lands; a survivor refuses it",
+		Cost:   "up to the budget of wall-clock per commit on bounded workers, under the memory cap; a box with no headroom or a busy mutation lock measures nothing and CI decides",
+		Enable: "mutants-at-commit = true",
+	},
+	{
+		Key: "mutants-commit-budget", Default: "60",
+		Effect: "the seconds the commit-time run may spend; mutants it does not reach are reported NOT MEASURED, never refused",
+		Cost:   "a higher figure holds a commit up longer on a slow box",
+		Enable: "mutants-commit-budget = <seconds>",
+	},
+	{
 		Key: "mutants-integration-packages", Default: "none",
 		Effect: "package directories whose mutants stay settled against the tests of the packages that import them; every other package's mutant its own tests miss is refused at once",
 		Cost:   "each listed package's missed mutants run the importers' suites, nearest first, within a total time cap",
@@ -114,12 +126,15 @@ func featureValues(repoRoot string) map[string]string {
 	}
 	cfg, err := ReadMutantsConfig(repoRoot)
 	if err != nil {
-		for _, key := range []string{"mutants-at-merge", "mutants-before-pr", "mutants-shards", "mutants-integration-packages"} {
+		for _, key := range []string{"mutants-at-merge", "mutants-before-pr", "mutants-shards", "mutants-integration-packages",
+			"mutants-at-commit", "mutants-commit-budget"} {
 			values[key] = "unreadable"
 		}
 	} else {
 		values["mutants-at-merge"] = modeValue(cfg.AtMerge, cfg.AtMergeCI)
 		values["mutants-before-pr"] = modeValue(cfg.BeforePR, cfg.BeforePRCI)
+		values["mutants-at-commit"] = onOff(cfg.AtCommit)
+		values["mutants-commit-budget"] = strconv.Itoa(int(cfg.CommitBudget().Seconds()))
 		if n := len(cfg.IntegrationPackages); n > 0 {
 			values["mutants-integration-packages"] = strconv.Itoa(n)
 		}

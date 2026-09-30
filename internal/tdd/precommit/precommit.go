@@ -196,5 +196,11 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 	if res := precommitRootsThenTrunkPreview(repoRoot, groups, run, collect); res.Blocked {
 		return res
 	}
+	// Last, after every check that is cheaper and after the tests are known
+	// to build: a repo that declares mutants-at-commit has the lines this
+	// commit adds mutated and run against their own tests.
+	if res := mutantsAtCommitStage("precommit", repoRoot); collect(res) {
+		return res
+	}
 	return GateResult{Message: strings.Join(notes, "\n")}
 }

@@ -77,6 +77,10 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 		return runGateMutantsVerdict(args[1:], stdout, stderr)
 	case "hold":
 		return runGateMutantsHold(args[1:], stdout, stderr)
+	case "commit":
+		return runGateMutantsCommit(stdout, stderr)
+	case "testmap":
+		return runGateMutantsTestMap(args[1:], stdout, stderr)
 	case "prove":
 		fs := flag.NewFlagSet("mutants prove", flag.ContinueOnError)
 		fs.SetOutput(stderr)
@@ -101,6 +105,37 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, mutantsUsage)
 		return 2
 	}
+}
+
+// runGateMutantsCommit is `gate mutants commit`: the commit gate's own
+// mutation stage, run by hand on the staged change of this checkout. Exit 1
+// when a commit would be refused.
+func runGateMutantsCommit(stdout, stderr io.Writer) int {
+	root := tdd.RepoRoot(".")
+	if root == "" {
+		fmt.Fprintln(stderr, "aphrollo gate mutants commit: not a git repository, so there is no staged change to measure")
+		return 1
+	}
+	return tdd.RunMutantsCommit(root, stdout, stderr)
+}
+
+// runGateMutantsTestMap is `gate mutants testmap`: build the per-function test
+// maps the commit-time run selects tests with. It is what the post-merge hook
+// starts in the background, so outside a repo, or in one that declared no
+// mutants-at-commit, it does nothing and says nothing.
+func runGateMutantsTestMap(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("mutants testmap", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	var pkgs stringList
+	fs.Var(&pkgs, "pkg", "a package directory to build the map of (repeatable); default: every package with tests")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	root := tdd.RepoRoot(".")
+	if root == "" {
+		return 0
+	}
+	return tdd.RunMutantsTestMap(root, pkgs, stdout, stderr)
 }
 
 // runGateMutantsRun is `gate mutants run`: read what the repo declares, measure
@@ -256,6 +291,16 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
                      judge the n shard reports as one run, against the accept-list
                      of the tree checked out here: refused when a report is
                      missing, twice present, or of another tree. Exit codes as run.
+  commit             the commit gate's mutation stage, by hand, on the staged
+                     change (repos that declare mutants-at-commit = true): mutate
+                     only the lines the change adds, run each mutant against the
+                     tests selected for its function, and name each survivor.
+                     Exit 1 when a commit would be refused.
+  testmap [--pkg <dir>]...
+                     build the per-function test maps that selection uses, for
+                     the named packages or every package with tests, skipping
+                     the ones already current. The post-merge hook starts it in
+                     the background; silent where mutants-at-commit is not set.
   hold <file>...     take the pre-mutation WORKING state of each file, for a
                      hand proof run by editor rather than by "prove". The
                      restore afterwards is "MUTATION=1 git checkout -- <file>":

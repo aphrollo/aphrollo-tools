@@ -46,6 +46,8 @@ func pidRunningFn(p0 int) bool { return core.PidRunningFn(p0) }
 
 func plural(p0 int) string { return core.Plural(p0) }
 
+func primaryCheckoutRoot(p0 string) string { return core.PrimaryCheckoutRoot(p0) }
+
 func samePath(p0 string, p1 string) bool { return core.SamePath(p0, p1) }
 
 func sortStrings(p0 []string) { core.SortStrings(p0) }

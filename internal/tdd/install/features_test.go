@@ -137,6 +137,30 @@ func TestRenderFeatures_StatesThisReposValues(t *testing.T) {
 	}
 }
 
+// The commit-time run is opt-in and says its budget: off and 60 seconds where
+// a repo declares nothing, and what it declares where it does.
+func TestRenderFeatures_TheCommitTimeRunAndItsBudget(t *testing.T) {
+	t.Parallel()
+	declared := t.TempDir()
+	mustWrite(t, filepath.Join(declared, "aphrollo.toml"),
+		"[aphrollo]\nmutants-at-commit = true\nmutants-commit-budget = 90\n")
+	for name, tc := range map[string]struct {
+		root         string
+		atCommit, in string
+	}{
+		"declared":         {declared, "on", "90"},
+		"declares nothing": {t.TempDir(), "off", "60"},
+	} {
+		text := RenderFeatures(tc.root)
+		if f := strings.Fields(featureLine(text, "mutants-at-commit")); len(f) < 2 || f[1] != tc.atCommit {
+			t.Errorf("%s: mutants-at-commit row %q, want the value %q", name, featureLine(text, "mutants-at-commit"), tc.atCommit)
+		}
+		if f := strings.Fields(featureLine(text, "mutants-commit-budget")); len(f) < 2 || f[1] != tc.in {
+			t.Errorf("%s: mutants-commit-budget row %q, want the value %q", name, featureLine(text, "mutants-commit-budget"), tc.in)
+		}
+	}
+}
+
 // Anything with a real resource cost stays off until a repo asks for it
 // (issues #875, #877), and a repo that declares nothing is shown the defaults.
 func TestRenderFeatures_ARepoThatDeclaresNothingShowsTheDefaults(t *testing.T) {

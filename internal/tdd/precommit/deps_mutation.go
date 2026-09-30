@@ -8,6 +8,10 @@ import (
 
 type MutantsConfig = mutation.MutantsConfig
 
+func mutantsAtCommitStage(p0 string, p1 string) GateResult {
+	return mutation.MutantsAtCommitStage(p0, p1)
+}
+
 func mutantsConfigStage(p0 string, p1 string) (MutantsConfig, GateResult) {
 	return mutation.MutantsConfigStage(p0, p1)
 }

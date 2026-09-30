@@ -30,6 +30,8 @@ func MeasureTempDir(p0 string) string { return measureTempDir(p0) }
 
 func MutantLineOf(p0 string, p1 int, p2 int, p3 string) string { return mutantLineOf(p0, p1, p2, p3) }
 
+func MutantsAtCommitStage(p0 string, p1 string) GateResult { return mutantsAtCommitStage(p0, p1) }
+
 func MutantsConfigStage(p0 string, p1 string) (MutantsConfig, GateResult) {
 	return mutantsConfigStage(p0, p1)
 }

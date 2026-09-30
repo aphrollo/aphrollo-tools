@@ -523,9 +523,17 @@ mutants_ci.go                                      mutation
 mutants_ci_test.go                                 mutation
 mutants_cibusy.go                                  mutation
 mutants_cibusy_test.go                             mutation
+mutants_commit.go                                  mutation
+mutants_commit_cli.go                              mutation
+mutants_commit_cli_test.go                         mutation
 mutants_commit_enum.go                             mutation
 mutants_commit_enum_test.go                        mutation
 mutants_commit_funcs.go                            mutation
+mutants_commit_plan.go                             mutation
+mutants_commit_plan_test.go                        mutation
+mutants_commit_run.go                              mutation
+mutants_commit_run_test.go                         mutation
+mutants_commit_test.go                             mutation
 mutants_config.go                                  mutation
 mutants_config_commit_test.go                      mutation
 mutants_config_mode_test.go                        mutation
@@ -733,6 +741,7 @@ precommit_indexunreadable_test.go                  precommit
 precommit_lintscope_test.go                        precommit
 precommit_lockscope.go                             precommit
 precommit_lockscope_test.go                        precommit
+precommit_mutants_commit_test.go                   precommit
 precommit_nosuite_test.go                          precommit
 precommit_npm.go                                   precommit
 precommit_npm_argvbudget_test.go                   precommit

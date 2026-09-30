@@ -6,9 +6,18 @@ import (
 	context "context"
 	mutation "github.com/aphrollo/aphrollo-tools/internal/tdd/mutation"
 	io "io"
+	time "time"
 )
 
 type MutantOutcome = mutation.MutantOutcome
+
+func SetCommitExecForTest(p0 func(ctx context.Context, dir string, env []string, argv []string, log io.Writer) (int, error)) func() {
+	return mutation.SetCommitExecForTest(p0)
+}
+
+func SetCommitHeadroomForTest(p0 func(dir string, wait time.Duration) string) func() {
+	return mutation.SetCommitHeadroomForTest(p0)
+}
 
 func SetFreeSpaceForTest(p0 int, p1 bool) func() { return mutation.SetFreeSpaceForTest(p0, p1) }
 

@@ -161,6 +161,22 @@ func TestTestMapStore_UntrustedMapsAreNoMap(t *testing.T) {
 	}
 }
 
+// The map is built on the primary checkout after a merge and read from a lane:
+// every worktree of one repository reads the same file.
+func TestTestMapPath_AllWorktreesOfARepoShareTheMaps(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary := makeGoRepo(t)
+	lane := filepath.Join(t.TempDir(), "lane")
+	gitDo(t, primary, "worktree", "add", "-q", "-b", "lane/x", lane)
+	if a, b := testMapPath(primary, "internal/p"), testMapPath(lane, "internal/p"); a != b {
+		t.Errorf("the primary's map is %s and the lane's is %s, want one file", a, b)
+	}
+	other := makeGoRepo(t)
+	if a, b := testMapPath(primary, "internal/p"), testMapPath(other, "internal/p"); a == b {
+		t.Errorf("two repositories share the map file %s", a)
+	}
+}
+
 func TestTestMapPath_OnePerPackage(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()

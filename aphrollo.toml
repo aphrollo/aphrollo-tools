@@ -77,6 +77,16 @@ retro-sinks = [
 mutants-at-merge = "ci"
 mutants-before-pr = "ci"
 
+# The commit gate mutates the lines a commit adds or changes and runs each
+# mutant against the tests selected for its enclosing function, under the same
+# memory cap and box-wide lock, on bounded workers and inside a wall-clock
+# budget (mutants-commit-budget, seconds, default 60). A survivor refuses the
+# commit; a box with no headroom, a lock held past the budget, or a budget
+# spent before every mutant was judged leaves those mutants NOT MEASURED, and
+# CI's mutants-verdict decides them. The per-function test maps it selects with
+# are built in the background after a merge (`gate mutants testmap`).
+mutants-at-commit = true
+
 # How many runners the CI measurement divides across: the width of the
 # mutants-shard matrix. Shards split the lane's changed source files by added
 # lines.

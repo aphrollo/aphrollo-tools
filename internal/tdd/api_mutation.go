@@ -61,8 +61,16 @@ func ReplacedBinaryJobsLine(p0 string) string { return mutation.ReplacedBinaryJo
 
 func RestoreMutationHold(p0 string) (MutationHold, error) { return mutation.RestoreMutationHold(p0) }
 
+func RunMutantsCommit(p0 string, p1 io.Writer, p2 io.Writer) int {
+	return mutation.RunMutantsCommit(p0, p1, p2)
+}
+
 func RunMutantsProve(p0 MutantsProveOptions, p1 SuiteRunner, p2 io.Writer, p3 io.Writer) int {
 	return mutation.RunMutantsProve(p0, p1, p2, p3)
+}
+
+func RunMutantsTestMap(p0 string, p1 []string, p2 io.Writer, p3 io.Writer) int {
+	return mutation.RunMutantsTestMap(p0, p1, p2, p3)
 }
 
 func SetCIRunnerJobsForTest(p0 func() []int) func() { return mutation.SetCIRunnerJobsForTest(p0) }

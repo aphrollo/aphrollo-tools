@@ -315,10 +315,23 @@ func failsWithoutTheMutant(ctx context.Context, root string, env, args []string,
 // packages side by side, within budget. detail names the packages that
 // failed for a kill, and why for a cut-off run.
 func runResolveTests(ctx context.Context, root string, env []string, overlay string, args []string, budget time.Duration) (resolveVerdict, string) {
+	return runResolveTestsWith(ctx, root, env, overlay, args, nil, budget)
+}
+
+// runResolveTestsWith is runResolveTests with extra flags for `go test`, which
+// go before the packages: a `-run` selection is the one that uses them.
+func runResolveTestsWith(ctx context.Context, root string, env []string, overlay string, args, extra []string, budget time.Duration) (resolveVerdict, string) {
+	verdict, detail, _ := runResolveTestsOut(ctx, root, env, overlay, args, extra, budget)
+	return verdict, detail
+}
+
+// runResolveTestsOut is runResolveTestsWith that also answers what `go test`
+// printed, for a caller that reads the failing tests out of it.
+func runResolveTestsOut(ctx context.Context, root string, env []string, overlay string, args, extra []string, budget time.Duration) (resolveVerdict, string, string) {
 	if len(args) == 0 {
 		// Nothing in this stage; `go test` with no package would test the
 		// module root instead.
-		return resolveSurvived, ""
+		return resolveSurvived, "", ""
 	}
 	runCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
@@ -327,19 +340,20 @@ func runResolveTests(ctx context.Context, root string, env []string, overlay str
 	if overlay != "" {
 		argv = append(argv, "-overlay", overlay)
 	}
+	argv = append(argv, extra...)
 	argv = append(argv, args...)
 	code, err := resolveExecFn(runCtx, root, env, argv, &out)
 	switch {
 	case runCtx.Err() != nil:
-		return resolveCutOff, fmt.Sprintf("the tests of %s did not finish within %s", packageNames(args), budget)
+		return resolveCutOff, fmt.Sprintf("the tests of %s did not finish within %s", packageNames(args), budget), out.String()
 	case err != nil:
-		return resolveCutOff, fmt.Sprintf("the tests of %s could not start (%v)", packageNames(args), err)
+		return resolveCutOff, fmt.Sprintf("the tests of %s could not start (%v)", packageNames(args), err), out.String()
 	case code == 0:
-		return resolveSurvived, ""
+		return resolveSurvived, "", out.String()
 	case strings.Contains(out.String(), "[build failed]") || strings.Contains(out.String(), "[setup failed]"):
-		return resolveUnviable, ""
+		return resolveUnviable, "", out.String()
 	}
-	return resolveKilled, failedPackages(out.String())
+	return resolveKilled, failedPackages(out.String()), out.String()
 }
 
 // failedPackages names the packages whose `FAIL\t<import path>` lines the
