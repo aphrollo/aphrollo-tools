@@ -61,7 +61,7 @@ func pytestProofRunner(root string, r Runner, look func(string) (string, error),
 		}
 	}
 	if len(found) == 0 {
-		return Runner{}, fmt.Sprintf("no python interpreter is on PATH or in %s or %s; install one so fail-first can run pytest for %s",
+		return Runner{}, fmt.Sprintf("no python interpreter is on PATH or in %s or %s; install one so the gate can run pytest for %s",
 			filepath.Join(root, ".venv"), filepath.Join(root, "venv"), root)
 	}
 	for _, p := range found {
@@ -69,7 +69,7 @@ func pytestProofRunner(root string, r Runner, look func(string) (string, error),
 			return Runner{Cmd: p, Args: append([]string{"-m", "pytest"}, r.Args...), Dir: r.Dir}, ""
 		}
 	}
-	return Runner{}, fmt.Sprintf("pytest is not importable by %s; install the requirements of %s there so fail-first can run it", found[0], root)
+	return Runner{}, fmt.Sprintf("pytest is not importable by %s; install the requirements of %s there so the gate can run it", found[0], root)
 }
 
 // pytestExecRunner is pytestProofRunner over the real PATH and interpreters.

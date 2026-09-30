@@ -24,6 +24,12 @@ func TestMain(m *testing.M) {
 			// wants stated. A test that needs it present installs its own
 			// (withLinterPresent) and so runs serially.
 			defer SetLookLinterForTest(func() bool { return false })()
+			// The merge gate's pytest interpreter probe answers "this runner
+			// as it is" for the run: the box's Python is not what a test with
+			// an injected suite runner is about. A test of the probe installs
+			// the real one (useRealPytestProbe) and so runs serially.
+			defer func(prev func(string, Runner) (Runner, string)) { pytestResolveFn = prev }(pytestResolveFn)
+			pytestResolveFn = func(_ string, r Runner) (Runner, string) { return r, "" }
 			// Git is isolated once for the run, not per test, so a test that
 			// builds its repos from the fixture helpers may call t.Parallel.
 			dir, err := os.MkdirTemp("", "aphrollo-precommit-git-")

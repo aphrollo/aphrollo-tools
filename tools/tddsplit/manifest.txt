@@ -762,6 +762,8 @@ precommit_lintscope_test.go                        precommit
 precommit_lockscope.go                             precommit
 precommit_lockscope_test.go                        precommit
 precommit_mutants_commit_test.go                   precommit
+precommit_norunner.go                              precommit
+precommit_norunner_test.go                         precommit
 precommit_nosuite_test.go                          precommit
 precommit_npm.go                                   precommit
 precommit_npm_argvbudget_test.go                   precommit
@@ -771,6 +773,8 @@ precommit_npmbaseline.go                           precommit
 precommit_npmbaseline_test.go                      precommit
 precommit_npmplan.go                               precommit
 precommit_npmtypecheck_test.go                     precommit
+precommit_pytest_merge.go                          precommit
+precommit_pytest_merge_test.go                     precommit
 precommit_quality.go                               precommit
 precommit_quality_test.go                          precommit
 precommit_reject_test.go                           precommit
@@ -1013,6 +1017,7 @@ vacuous_cargo_own_test.go                          suite
 vacuous_cargo_test.go                              precommit # prefix says suite; its test body reaches precommit
 vacuous_dispatch.go                                suite
 vacuous_pytest.go                                  suite
+vacuous_pytest_module_test.go                      suite
 vacuous_pytest_test.go                             suite
 vacuous_test.go                                    precommit
 vacuous_vitest.go                                  suite
