@@ -1,0 +1,8 @@
+                 
+fn keep<'a>(x: &'a str) -> &'a str { "     " }
+                          
+#[test]
+fn adds() { let c = ' '; let n = '  '; assert_eq!(c, ' '); }
+#[tokio::test]
+async fn later() { let q = '  '; }
+'outer: loop { break 'outer; }

@@ -182,7 +182,7 @@ func (j *editJudge) plan(law ratchet.Law) (ratchet.Options, bool) {
 			return narrowed, true
 		}
 	case editLawRemoved:
-		if !j.capturesDropped(law, law.Matcher.Pattern) {
+		if !j.anyCaptureDropped(law) {
 			return opts, false
 		}
 		opts.Base, opts.BaseTree = "HEAD", j.headOf()
@@ -197,6 +197,23 @@ func (j *editJudge) plan(law ratchet.Law) (ratchet.Options, bool) {
 // with no use: it edited the registry file, or a use left an edited file.
 func (j *editJudge) registryTouched(law ratchet.Law) bool {
 	return j.edited[law.Matcher.RegistryFile] || j.capturesDropped(law, law.Matcher.UsePattern)
+}
+
+// anyCaptureDropped is capturesDropped over every pattern a symbol-removed law
+// captures with: its own, or its scope's language rows' test patterns. A law
+// whose patterns cannot be resolved is judged in full, where the engine names
+// the defect.
+func (j *editJudge) anyCaptureDropped(law ratchet.Law) bool {
+	patterns, err := law.SymbolPatterns()
+	if err != nil {
+		return true
+	}
+	for _, re := range patterns {
+		if j.capturesDropped(law, re) {
+			return true
+		}
+	}
+	return false
 }
 
 // capturesDropped reports whether some name re captured in an in-scope

@@ -1,0 +1,34 @@
+name = "php"
+extensions = [".php"]
+view = 3
+
+# `#` opens a comment, so an attribute such as `#[Test]` reads as one. Heredocs
+# are not lexed.
+[comments]
+line = ["//", "#"]
+block = ["/* */"]
+
+[string.single]
+open = "'"
+escape = "backslash"
+multiline = true
+
+[string.double]
+open = '"'
+escape = "backslash"
+multiline = true
+
+[suppress.phpcs]
+kind = "lint"
+pattern = 'phpcs:(?:ignore|disable)'
+
+[suppress.phpstan]
+kind = "type"
+pattern = '@phpstan-ignore'
+
+[suppress.psalm]
+kind = "type"
+pattern = '@psalm-suppress'
+
+[tests]
+patterns = ['\bfunction\s+(test[A-Za-z0-9_]*)\s*\(']

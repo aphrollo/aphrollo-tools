@@ -1,0 +1,9 @@
+name = "go"
+extensions = [".go"]
+
+[suppress.nolint]
+kind = "lint"
+pattern = '//\s*nolint'
+
+[tests]
+patterns = ['^func (Test(?:[A-LN-Za-z0-9_][A-Za-z0-9_]*|M|Ma|Mai|M[A-Z0-9_b-z][A-Za-z0-9_]*|Ma[A-Z0-9_a-hj-z][A-Za-z0-9_]*|Mai[A-Z0-9_a-mo-z][A-Za-z0-9_]*|Main[A-Za-z0-9_]+))\(']

@@ -92,7 +92,10 @@ func wholeFileSymbolPattern(p *regexp.Regexp) *regexp.Regexp {
 // removed symbols at once, under the two conditions symbolRemovedFileAdmitted
 // checks.
 func symbolRemovedHits(law Law, base BaseReader, files []string, content map[string]string) ([]Hit, error) {
-	pattern := wholeFileSymbolPattern(law.Matcher.Pattern)
+	patterns, err := law.symbolPatterns()
+	if err != nil {
+		return nil, err
+	}
 	tombstoneRe := symbolRemovedTombstoneRe(law.Name)
 	tipNames, tombstoned := map[string]bool{}, map[string]bool{}
 	// tipPaths is every in-scope path the tip HAS, recorded before the
@@ -109,8 +112,8 @@ func symbolRemovedHits(law Law, base BaseReader, files []string, content map[str
 		if !ok {
 			continue
 		}
-		for _, idx := range pattern.FindAllStringSubmatchIndex(text, -1) {
-			tipNames[text[idx[2]:idx[3]]] = true
+		for _, name := range symbolNames(patterns, text) {
+			tipNames[name] = true
 		}
 		for _, m := range tombstoneRe.FindAllStringSubmatch(text, -1) {
 			switch quoted := m[1] + m[2]; {
@@ -153,10 +156,7 @@ func symbolRemovedHits(law Law, base BaseReader, files []string, content map[str
 			continue
 		}
 		text := string(data)
-		var baseNames []string
-		for _, idx := range pattern.FindAllStringSubmatchIndex(text, -1) {
-			baseNames = append(baseNames, text[idx[2]:idx[3]])
-		}
+		baseNames := symbolNames(patterns, text)
 		if symbolRemovedFileAdmitted(rel, baseNames, tipNames, tipPaths, fileTombstoned) {
 			continue
 		}

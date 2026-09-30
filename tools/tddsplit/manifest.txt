@@ -69,6 +69,7 @@ baselineguard_merge_test.go                        lawgate
 baselineguard_repath.go                            lawgate
 baselineguard_repath_test.go                       lawgate
 baselineguard_scanview.go                          lawgate
+baselineguard_scanview_rows_test.go                lawgate
 baselineguard_scanview_test.go                     lawgate
 baselineguard_staleorigin_test.go                  lawgate
 baselineguard_test.go                              lawgate
@@ -449,6 +450,7 @@ installwritable.go                                 tdd
 issue.go                                           escape
 issue_test.go                                      install   # prefix says escape; its test body reaches install
 killtree_test.go                                   postedit
+knownwall_test.go                                  postedit
 lintdeferred.go                                    postedit
 lintdeferred_test.go                               postedit
 lintlock.go                                        lock
@@ -838,6 +840,7 @@ ratchetgate.go                                     lawgate
 ratchetgate_bench_test.go                          tdd
 ratchetgate_lanebuild.go                           lawgate
 ratchetgate_lanebuild_e2e_test.go                  lawgate
+ratchetgate_lanebuild_scratch_test.go              lawgate
 ratchetgate_lanebuild_test.go                      lawgate
 ratchetgate_stagedgraph.go                         lawgate
 ratchetgate_suite.go                               suite     # created by P2
@@ -849,6 +852,7 @@ ratchethint_test.go                                tdd       # prefix says lawga
 ratchetindex_test.go                               lawgate
 ratchetonpr_workflow_pin_test.go                   tdd
 ratchetpostedit.go                                 lawgate
+ratchetpostedit_languages_test.go                   lawgate
 ratchetpostedit_test.go                            lawgate
 ratchetreadme.go                                   tdd
 ratchetreadme_test.go                              tdd
@@ -909,6 +913,7 @@ sddskill.md                                        install
 sddskill_test.go                                   install
 seams.go                                           tddtest
 session.go                                         tdd
+session_allow_test.go                              tdd
 session_core.go                                    core      # created by P2
 session_identity.go                                tdd
 session_identity_test.go                           tdd
@@ -995,6 +1000,7 @@ suitetimeout_test.go                               precommit
 suppress.go                                        smell
 suppress_covered.go                                smell
 suppress_covered_test.go                           smell
+suppress_table_test.go                             smell
 suppress_test.go                                   smell
 tdd.go                                             core
 tddskill.go                                        install

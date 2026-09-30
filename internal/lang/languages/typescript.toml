@@ -1,0 +1,15 @@
+name = "typescript"
+extensions = [".ts", ".tsx", ".mts", ".cts"]
+
+# @ts-expect-error is left out: it asserts a following error and is a
+# legitimate way to test type behaviour.
+[suppress.ts_ignore]
+kind = "type"
+pattern = '@ts-ignore'
+
+[suppress.ts_nocheck]
+kind = "type"
+pattern = '@ts-nocheck'
+
+[tests]
+patterns = ['\b(?:it|test)\(\s*"([^"\n]+)"', "\\b(?:it|test)\\(\\s*'([^'\\n]+)'"]

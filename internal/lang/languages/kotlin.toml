@@ -1,0 +1,32 @@
+name = "kotlin"
+extensions = [".kt", ".kts"]
+view = 3
+
+# Kotlin block comments nest.
+[comments]
+line = ["//"]
+block = ["/* */"]
+block_nested = true
+
+[string.raw]
+open = '"""'
+multiline = true
+
+[string.double]
+open = '"'
+escape = "backslash"
+
+[string.char]
+open = "'"
+escape = "backslash"
+
+[suppress.suppress]
+kind = "lint"
+pattern = '@(?:file:)?Suppress\b'
+
+[suppress.noinspection]
+kind = "lint"
+pattern = '//\s*noinspection'
+
+[tests]
+patterns = ['@Test\b(?:\([^)]*\))?\s+(?:@\w+(?:\([^)]*\))?\s+)*fun\s+(\w+)', '@Test\b(?:\([^)]*\))?\s+(?:@\w+(?:\([^)]*\))?\s+)*fun\s+`([^`\n]+)`']

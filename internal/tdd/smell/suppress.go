@@ -1,8 +1,9 @@
 package smell
 
 import (
-	"regexp"
-	"strings"
+	"sync"
+
+	langtable "github.com/aphrollo/aphrollo-tools/internal/lang"
 )
 
 // Suppression detectors catch an edit silencing a quality gate — the linter, the
@@ -27,71 +28,41 @@ const (
 		"Excluding code from coverage masks an untested path. Remove the marker and add a test for the path instead."
 )
 
-// lintSuppressRe matches linter-silencing directives across the supported
-// ecosystems, except the JavaScript linter's disable directive, which
-// lintDisableRe judges on its own.
-var lintSuppressRe = regexp.MustCompile(`//\s*nolint|#\s*noqa|#\s*pylint:\s*disable|#\s*rubocop:\s*disable|#\s*flake8`)
+// The directives themselves are rows of the language table (internal/lang):
+// each language lists the comments that silence its linter, type checker and
+// coverage tool, with the syntax of the reason that admits one. Every row's
+// directives are read in every file, since one file can carry another
+// language's comment and a language with no row of its own is still checked;
+// adding a language adds its directives with no change here.
 
-// lintDisableRe matches the JavaScript linter's disable token, bare because
-// it appears only in that directive (all its forms: line, next-line, block).
-var lintDisableRe = regexp.MustCompile(`eslint-disable`)
-
-// lintDisableDescriptionRe matches the directive's own description separator,
-// two or more dashes set off by whitespace on both sides, followed by text.
-// The linter reads what follows as the reason the rule is disabled.
-var lintDisableDescriptionRe = regexp.MustCompile(`\s-{2,}\s+\S`)
-
-// lintSuppressed reports whether directives carry a linter suppression that
-// is not justified in place. A JavaScript lint disable followed, within its own
-// comment, by a ` -- <description>` says why, so it is admitted; any other
-// form, or a bare disable beside a described one, still counts.
-func lintSuppressed(directives string) bool {
-	if lintSuppressRe.MatchString(directives) {
-		return true
+// embeddedRows is the embedded table's rows; an embedded table that does not
+// load has none, and every test of the table reports that failure.
+var embeddedRows = sync.OnceValue(func() []langtable.Language {
+	tbl, err := langtable.Defaults()
+	if err != nil {
+		return nil
 	}
-	for _, loc := range lintDisableRe.FindAllStringIndex(directives, -1) {
-		if !describedDisable(directives[loc[1]:]) {
-			return true
-		}
-	}
-	return false
+	return tbl.Rows()
+})
+
+// suppressed reports whether directives carry a suppression of the kind, that
+// is not justified in place, in any row's vocabulary.
+func suppressed(kind, directives string) bool {
+	return langtable.Suppressed(embeddedRows(), kind, directives)
 }
-
-// describedDisable reports whether the directive text after a JavaScript
-// lint-disable token carries a description. The directive ends at its
-// line's end or at the block comment's closer, so a separator further on
-// belongs to other text.
-func describedDisable(rest string) bool {
-	if i := strings.IndexByte(rest, '\n'); i >= 0 {
-		rest = rest[:i]
-	}
-	if i := strings.Index(rest, "*/"); i >= 0 {
-		rest = rest[:i]
-	}
-	return lintDisableDescriptionRe.MatchString(rest)
-}
-
-// typeSuppressRe matches type-checker-silencing directives. @ts-expect-error is
-// deliberately excluded: it asserts a following error and is a legitimate way to
-// test type behavior, so blocking it at commit would punish correct usage.
-var typeSuppressRe = regexp.MustCompile(`@ts-ignore|@ts-nocheck|#\s*type:\s*ignore|#\s*pyright:\s*ignore`)
-
-// coverageSuppressRe matches coverage-exclusion markers (Istanbul, c8/v8, the
-// Python coverage pragma).
-var coverageSuppressRe = regexp.MustCompile(`istanbul\s+ignore|\b[cv]8\s+ignore|#\s*pragma:\s*no\s*cover`)
 
 var (
 	lintSuppressPolicy = policy{
 		name: "lint-suppress", category: suppressionCat, reason: lintSuppressReason, directive: true,
-		hit: func(v view) bool { return lintSuppressed(v.directives) },
+		hit: func(v view) bool { return suppressed(langtable.KindLint, v.directives) },
 	}
 	typeSuppressPolicy = policy{
 		name: "type-suppress", category: suppressionCat, reason: typeSuppressReason, directive: true,
-		hit: func(v view) bool { return typeSuppressRe.MatchString(v.directives) },
+		hit: func(v view) bool { return suppressed(langtable.KindType, v.directives) },
 	}
 	coverageSuppressPolicy = policy{
 		name: "coverage-suppress", category: suppressionCat, reason: coverageSuppressReason, directive: true,
-		hit: func(v view) bool { return coverageSuppressRe.MatchString(v.directives) },
+		hit: func(v view) bool { return suppressed(langtable.KindCoverage, v.directives) },
 	}
 )
 

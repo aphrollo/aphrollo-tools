@@ -1,0 +1,19 @@
+name = "javascript"
+extensions = [".js", ".jsx", ".mjs", ".cjs"]
+
+# A disable comment carrying its why after `--` is admitted.
+[suppress.eslint]
+kind = "lint"
+pattern = 'eslint-disable'
+reason = '\s-{2,}\s+\S'
+
+[suppress.istanbul]
+kind = "coverage"
+pattern = 'istanbul\s+ignore'
+
+[suppress.c8]
+kind = "coverage"
+pattern = '\b[cv]8\s+ignore'
+
+[tests]
+patterns = ['\b(?:it|test)\(\s*"([^"\n]+)"', "\\b(?:it|test)\\(\\s*'([^'\\n]+)'"]

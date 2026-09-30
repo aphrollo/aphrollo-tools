@@ -553,8 +553,10 @@ judges directly.
 A settled mutant is named `<file>:<line>:<col> <MUTATOR>`, with no colon after
 the column. The `<file>.go:<line>:<col>: <text>` shape is the one CI's Go
 problem matcher turns into an `Error:` annotation, so only the mutants the
-report refuses take it and every kill, unviable or inconclusive mention stays a
-plain log line.
+report refuses take it and every kill, unviable or unrefused inconclusive
+mention stays a plain log line. A refused not-covered or inconclusive mutant is
+printed twice: once in the annotation shape, then in the copyable accept-list
+form.
 
 ### Measuring in CI
 

@@ -89,6 +89,15 @@ func RunFixturesWith(root string, opt FixtureOptions) ([]FixtureResult, error) {
 		return nil, fmt.Errorf("no law named %s under %s — nothing can judge it",
 			strings.Join(sortedNames(unasked), ", "), LawsDir)
 	}
+	// A run narrowed to named laws judges those laws alone; every other run
+	// also proves the language rows the same way (see RunLanguageFixtures).
+	if !selective {
+		rows, err := RunLanguageFixtures(root)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+	}
 	return out, nil
 }
 

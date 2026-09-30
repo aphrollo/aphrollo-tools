@@ -1,0 +1,23 @@
+name = "toml"
+extensions = [".toml"]
+code_escape = true
+view = 2
+
+[comments]
+line = ["#"]
+
+[string.triple_literal]
+open = "'''"
+multiline = true
+
+[string.triple_basic]
+open = '"""'
+escape = "backslash"
+multiline = true
+
+[string.literal]
+open = "'"
+
+[string.basic]
+open = '"'
+escape = "backslash"

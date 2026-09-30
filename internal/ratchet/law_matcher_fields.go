@@ -33,7 +33,7 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindFileSetContainment: {{"kind", true}, {"superset_file", true}, {"subset_file", true}, {"capture", false}, {"subset_capture", false}, {"superset_capture", false}},
 	KindJSONNumberCeiling:  {{"kind", true}, {"files", true}, {"path", true}, {"tolerance_pct", false}, {"enabled_env", false}},
 	KindGoBenchCeiling:     {{"kind", true}, {"files", true}, {"tolerance_pct", false}, {"enabled_env", false}},
-	KindSymbolRemoved:      {{"kind", true}, {"pattern", true}},
+	KindSymbolRemoved:      {{"kind", true}, {"pattern", false}},
 	KindCoChange:           {{"kind", true}},
 	KindHunkRegex:          {{"kind", true}, {"removed", false}, {"added", false}, {"paired", false}, {"mode", false}, {"name_group", false}},
 	KindGoDepGraphForbids:  {{"kind", true}, {"roots", true}, {"forbidden", true}, {"min_reachable", false}},
@@ -496,8 +496,13 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 			return Matcher{}, ferr
 		}
 	case KindSymbolRemoved:
-		m.Pattern, m.Key = get("pattern"), KeyLineContent
-		err = requireOneCaptureGroupSymbolRemoved(err, lawName, m.Pattern)
+		// An omitted pattern is read from the language table's test-declaration
+		// rows for the law's scope (see Law.symbolPatterns).
+		m.Key = KeyLineContent
+		if _, stated := doc.value("matcher", "pattern"); stated {
+			m.Pattern = get("pattern")
+			err = requireOneCaptureGroupSymbolRemoved(err, lawName, m.Pattern)
+		}
 	case KindCoChange:
 		m.Key = KeyLineContent
 	case KindHunkRegex:

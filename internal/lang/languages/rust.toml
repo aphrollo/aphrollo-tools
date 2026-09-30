@@ -1,0 +1,31 @@
+name = "rust"
+extensions = [".rs"]
+
+[comments]
+line = ["//"]
+block = ["/* */"]
+
+# `'` opens a literal only in a char literal's shape; a lifetime or a loop
+# label is code.
+[string.char]
+open = "'"
+char_literal = true
+
+[string.double]
+open = '"'
+escape = "backslash"
+multiline = true
+
+[string.backtick]
+open = "`"
+multiline = true
+
+[string.zig_line]
+open = '\\'
+close = "\n"
+multiline = true
+line_start = true
+blank_open = true
+
+[tests]
+patterns = ['#\[(?:tokio::)?test\]\s*(?:async\s+)?fn\s+([A-Za-z0-9_]+)']
