@@ -75,7 +75,7 @@ func fileArgPos(r Runner) int {
 // run that covers it is the root's broad one, base.
 func withTouchedFiles(r, base Runner, root string, touched []string) Runner {
 	pos := fileArgPos(r)
-	if pos < 0 {
+	if pos == -1 {
 		return r
 	}
 	args := slices.Clone(r.Args)
