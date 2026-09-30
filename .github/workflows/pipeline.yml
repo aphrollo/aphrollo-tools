@@ -506,14 +506,41 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # Every network fetch of this job happens in the two retried steps below
+      # (the modules, then the pinned linter), so a transient proxy or
+      # sum.golang.org failure fails a step named for the download, never the
+      # lint verdict. The module cache is the one setup-go restores above, keyed
+      # like the test job's, so a warm cache makes the download a no-op.
+      - name: download modules
+        if: needs.changes.outputs.lint == 'true'
+        run: |
+          for attempt in 1 2 3; do
+            go mod download && exit 0
+            echo "go mod download failed (attempt $attempt of 3)" >&2
+            sleep $((attempt * 10))
+          done
+          exit 1
       - name: build aphrollo
         if: needs.changes.outputs.lint == 'true'
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: install golangci-lint
+        if: needs.changes.outputs.lint == 'true'
+        run: |
+          for attempt in 1 2 3; do
+            go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 && exit 0
+            echo "golangci-lint install failed (attempt $attempt of 3)" >&2
+            sleep $((attempt * 10))
+          done
+          exit 1
       - name: golangci-lint
         if: needs.changes.outputs.lint == 'true'
         # per-run isolated cache — shared self-hosted golangci cache otherwise stale-locks / dead worktree paths → spurious lint failures
+        # GOPROXY=off + -mod=readonly: the lint verdict reads only the modules
+        # the download step put in the cache and never reaches for the network.
         env:
           GOLANGCI_LINT_CACHE: ${{ runner.temp }}/golangci-lint-${{ github.run_id }}-${{ github.run_attempt }}
+          GOPROXY: off
+          GOFLAGS: -mod=readonly
         # --allow-serial-runners makes a SECOND golangci-lint on this box
         # retry its own machine-wide lock ($TMPDIR/golangci-lint.lock)
         # forever instead of giving up after 5s — that part always worked.
@@ -532,9 +559,7 @@ jobs:
         # golangci-lint, so at most one golangci-lint process runs across
         # every account on the box and its own internal lock always finds
         # itself free.
-        run: |
-          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
-          ./bin/aphrollo gate lint run --allow-serial-runners ./...
+        run: ./bin/aphrollo gate lint run --allow-serial-runners ./...
 
   # The performance ratchet for the four Tier-1 benchmarks: `ratchet check`
   # cold and warm, the pre-edit judge over a generated 41-package,

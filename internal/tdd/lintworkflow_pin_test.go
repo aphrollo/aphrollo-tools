@@ -46,6 +46,75 @@ func TestLintWorkflowStep_RunsGolangciLintThroughGateLintWrapper(t *testing.T) {
 	}
 }
 
+// stepBlock returns the text of the job's step whose `- name:` line is name,
+// up to the next step; it fails the test when there is none.
+func stepBlock(t *testing.T, job, name string) string {
+	t.Helper()
+	lines := strings.Split(job, "\n")
+	start := -1
+	for i, line := range lines {
+		if start < 0 {
+			if strings.HasPrefix(line, "      - name: "+name) {
+				start = i
+			}
+			continue
+		}
+		if strings.HasPrefix(line, "      - ") {
+			return strings.Join(lines[start:i], "\n")
+		}
+	}
+	if start < 0 {
+		t.Fatalf("the lint job has no step named %q", name)
+	}
+	return strings.Join(lines[start:], "\n")
+}
+
+// A network blip while the lint job fetches modules must fail a step that says
+// so, not the lint verdict (#1032): the modules and the linter binary come
+// down in their own retried steps, and the lint step runs offline against them.
+func TestLintWorkflowStep_DownloadsModulesAndTheLinterInRetriedStepsBeforeLinting(t *testing.T) {
+	job := lintJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"))
+
+	download := stepBlock(t, job, "download modules")
+	install := stepBlock(t, job, "install golangci-lint")
+	lint := stepBlock(t, job, "golangci-lint")
+
+	if !strings.Contains(download, "go mod download") || !strings.Contains(download, "for attempt in 1 2 3") {
+		t.Errorf("the download step does not retry `go mod download` three times:\n%s", download)
+	}
+	if !strings.Contains(install, "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2") ||
+		!strings.Contains(install, "for attempt in 1 2 3") {
+		t.Errorf("the install step does not retry the pinned golangci-lint install three times:\n%s", install)
+	}
+	if strings.Contains(lint, "go install") || strings.Contains(lint, "go mod download") {
+		t.Errorf("the lint step still fetches from the network:\n%s", lint)
+	}
+	if !strings.Contains(lint, "GOPROXY: off") || !strings.Contains(lint, "GOFLAGS: -mod=readonly") {
+		t.Errorf("the lint step does not run offline on the downloaded modules (want GOPROXY: off and GOFLAGS: -mod=readonly):\n%s", lint)
+	}
+	if strings.Contains(lint, "GONOSUMDB") || strings.Contains(lint, "GOSUMDB") {
+		t.Errorf("the lint step touches the checksum database settings:\n%s", lint)
+	}
+	iDownload, iInstall, iLint := strings.Index(job, "name: download modules"), strings.Index(job, "name: install golangci-lint"), strings.Index(job, "name: golangci-lint")
+	if iDownload >= iInstall || iInstall >= iLint {
+		t.Error("the lint job's steps are not ordered download modules, install golangci-lint, golangci-lint")
+	}
+}
+
+// The module cache setup-go restores must be the test job's: the same action
+// step, cache on, keyed on go.sum like the test job's, so the download step
+// finds a warm cache and only fetches what changed.
+func TestLintWorkflowStep_RestoresTheModuleCacheLikeTheTestJob(t *testing.T) {
+	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
+	job := lintJobBlock(t, wf)
+	if !strings.Contains(job, "go-version-file: go.mod\n          cache: true") {
+		t.Errorf("the lint job's setup-go is not cache: true with go-version-file: go.mod:\n%s", job)
+	}
+	if strings.Contains(job, "cache-dependency-path") {
+		t.Errorf("the lint job keys its cache on a path of its own, so it never shares the test job's key:\n%s", job)
+	}
+}
+
 // lintJobBlock isolates the `lint` job's own YAML text: from its "  lint:"
 // key to the next top-level job key (two-space indent) or EOF — the same
 // shape gateEnvJobBlock (gotmpdir_workflow_pin_test.go) isolates for a
