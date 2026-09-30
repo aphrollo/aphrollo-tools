@@ -50,3 +50,4 @@ pattern = '#\s*pragma:\s*no\s*cover'
 
 [tests]
 patterns = ['(?m)^[ \t]*(?:async\s+)?def\s+(test_[A-Za-z0-9_]*)\s*\(']
+declarations = ['^\s*(async\s+)?def\s+test_']

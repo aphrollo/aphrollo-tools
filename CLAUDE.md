@@ -16,19 +16,22 @@ Module `github.com/aphrollo/aphrollo-tools`, go 1.26.6. Single binary —
 
 - **Lossless** — never silently transform, truncate, or filter output.
 - **Deterministic** — same inputs, same bytes out (sorted, stable).
-- **Visible** — two mutation models, by verb family:
-  - `refactor`/`gate` mutations are **dry-run by default**; pass `--apply` to write.
-  - `workspace` verbs (`merge`/`prune`/`commit`/`push`/`ship`/… ) **execute by
-    default**; pass `--dry` to preview the plan and stop. (The old `--apply` opt-in
-    on these is **legacy/no-op** — you now opt OUT with `--dry`, not in with `--apply`.)
+- **Visible** — one mutation model: every mutating verb (`workspace`,
+  `refactor`, `sqlc regen`, `gate gc`, `gate probe discard`, `gate split-commit`,
+  `gate install`, `update`, `ratchet init`, `ratchet check`, `gate mutants hold`,
+  `issue`, `gate feedback`, `gate escape record`) **executes by default**; pass
+  `--dry` to print the plan and stop (`aphrollo install` and `gate init` take no
+  `--dry` yet). `--apply` is accepted as a legacy no-op on the verbs that once
+  needed it, and prints a one-line notice on stderr; `ratchet check --no-tighten`
+  is an alias of `--dry`. Flags are honoured before or after positionals (one
+  shared splitter, `parseFlagsAnywhere`), and an unknown `--flag` is refused,
+  never ignored.
   Each step is **idempotent** — already-done work reports `[skip]`, never redone,
   so re-running on a half-built state finishes the job without clobbering it.
   Fail loud with a fix suggestion rather than guessing.
 
 `aphrollo dev` is a service control plane, so it also **executes immediately**
-like `systemctl` (no dry-run, no `--dry`). The split: `refactor`/`gate` defer and
-preview; `workspace` mutates source but acts now; `dev` controls running units
-and acts now.
+like `systemctl` (no dry-run, no `--dry`).
 
 ## Command surface (see `aphrollo <verb> --help` for usage)
 
@@ -63,7 +66,7 @@ and acts now.
   preset) — this subcommand is CLI surface only.
 - `sqlc` — `check` regenerates every discovered sqlc config into a temp dir and
   diffs it against the committed tree, failing CI on drift in a gated config;
-  `regen --scoped` regenerates and keeps only the hunks that derive from a
+  `regen --scoped` (writes; `--dry` previews) regenerates and keeps only the hunks that derive from a
   query the working tree changed, backing out the rest as pre-existing drift.
   Gating (clean vs reported-only per config) comes from a committed
   `.aphrollo-sqlc.yaml` sidecar.
@@ -89,6 +92,7 @@ internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
 internal/ratchet/    Law engine: .ratchet/laws/*.toml schema, matchers, baselines, fixtures
 internal/lang/       language table: one TOML row per language (comments, strings, suppression directives, test patterns), embedded defaults, per-repo .ratchet/languages rows
+internal/tomlsubset/ the one TOML subset reader: language rows and ratchet laws both parse through it
 internal/mask/       the one lexer, reading a language row: blanks strings and comments, keeps length and newlines
 internal/tdd/        TDD + law gates: policy engine, edit smells, anti-cheat, fail-first, install
 internal/tdd/shell/  bash write-target parsing (L0 of the tdd split)
@@ -158,10 +162,11 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 
 ## Don't
 
-- Don't break the mutation contracts: `refactor`/`gate` are **dry-run by default**
-  (`--apply` to write); `workspace` verbs **execute by default** (`--dry` to
-  preview). `dev` acts now with no dry-run at all. Don't re-invert `workspace`
-  back to `--apply`-opt-in — that opt-in is legacy.
+- Don't break the mutation contract: every mutating verb **executes by default**
+  and `--dry` previews. `dev` acts now with no dry-run at all. Don't add a verb
+  that previews by default or needs `--apply`, and don't parse a verb's flags
+  with a bare `fs.Parse` when it takes positionals: use `parseFlagsAnywhere`
+  (or `mutFlags.parse`), or a flag after a positional is silently dropped.
 - Don't re-port what was deliberately dropped: the SessionStart full-suite
   baseline, or `/gate allow-main` — the fail-first gate covers the ground
   without the flakiness. (Mutation testing came back, but on the terms that
@@ -184,7 +189,11 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   default row before it, its `view` is one above the highest in the table: a
   baseline over those files is then judged by the old reading until a tightening
   check migrates it; the scan cache is keyed by the embedded rows, so it drops
-  what it read under the old table by itself.
+  what it read under the old table by itself. A change to the lexing of an
+  existing row moves its `view` up the same way, and the row's previous lexing
+  stays as a row that owns no extension (`php-v3.toml`), named by the row's
+  `earlier`: a baseline at the old view is judged by that reading, not by the
+  default row, until the migration.
 - Never hand-edit a generated `export.go`, `deps_*.go` or `api_*.go` — they are
   `tools/tddsplit` output. Regenerate in place with
   `go run ./tools/tddsplit -regen`: no clean-tree requirement, no commit —
@@ -244,7 +253,7 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already
   steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.
 - **Orchestrating:** follow-ups on a lane (fix round, base merge, re-measure, red CI) resume its builder with only the delta; a fresh builder is for a new issue. A reviewer did not build the lane and re-reviews its own findings; the coordinator never edits; a brief carries only what the agent lacks.
-- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
+- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (reclaims stale build dirs; `--dry` lists them).
 - **Commit messages** say what the change does and nothing about how it was
   written: no attribution trailers, tool names, or model names. The `commit-msg`
   hook rejects one and quotes the offending line.

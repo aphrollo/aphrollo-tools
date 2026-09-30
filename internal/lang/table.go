@@ -124,7 +124,39 @@ func build(rows []Language) (*Table, error) {
 			t.byFile[name] = i
 		}
 	}
+	for _, r := range rows {
+		if err := t.checkEarlier(r); err != nil {
+			return nil, err
+		}
+	}
 	return t, nil
+}
+
+// checkEarlier refuses a row whose Earlier names no row, itself, or a chain
+// that leads back to it.
+func (t *Table) checkEarlier(r Language) error {
+	if r.Earlier == "" {
+		return nil
+	}
+	if r.Earlier == r.Name {
+		return fmt.Errorf("language %q: earlier names the row itself", r.Name)
+	}
+	if _, ok := t.byName[r.Earlier]; !ok {
+		return fmt.Errorf("language %q: earlier %q names no row", r.Name, r.Earlier)
+	}
+	cur := r
+	// The chain visits each row at most once before it ends or repeats, so the
+	// row count bounds the walk.
+	for range len(t.rows) {
+		i, ok := t.byName[cur.Earlier]
+		if !ok {
+			return nil
+		}
+		if cur = t.rows[i]; cur.Name == r.Name {
+			return fmt.Errorf("language %q: earlier rows form a cycle", r.Name)
+		}
+	}
+	return nil
 }
 
 // Extend returns a table with extra rows laid over t: a row replaces the row
@@ -250,8 +282,27 @@ func (l Language) Lexes() bool {
 // the default row — what every file was read by before its row. A view of 0
 // is the current one, which no row postdates.
 func (t *Table) LexRow(file string, view int) Language {
-	if row, ok := t.For(file); ok && row.Lexes() && (view == 0 || row.View <= view) {
-		return row
+	if row, ok := t.For(file); ok {
+		return t.readAt(row, view)
+	}
+	return t.neutral()
+}
+
+// readAt is the row that read row's files at scan view `view`: row itself
+// once it lexes and took effect by then, else the row it names as Earlier, and
+// so on back, else the default row.
+func (t *Table) readAt(row Language, view int) Language {
+	// Each turn moves to a distinct row (checkEarlier refuses a cycle), so the
+	// row count bounds the walk.
+	for range len(t.rows) {
+		if row.Lexes() && (view == 0 || row.View <= view) {
+			return row
+		}
+		i, ok := t.byName[row.Earlier]
+		if !ok {
+			break
+		}
+		row = t.rows[i]
 	}
 	return t.neutral()
 }

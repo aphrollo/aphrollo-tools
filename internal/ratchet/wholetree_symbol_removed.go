@@ -63,30 +63,13 @@ func symbolRemovedFileAdmitted(rel string, baseNames []string, tipNames, tipPath
 	return true
 }
 
-// wholeFileSymbolPattern recompiles a symbol-removed law's pattern to match
-// against a whole file's text rather than one physical line at a time — the
-// idiomatic Rust layout puts `#[test]` on its own line above the `fn` it
-// marks, and a line-by-line scan never joins the two into one match. `(?m)`
-// is prepended so a pattern anchored with `^`/`$` still binds to each
-// line's start/end within the file rather than the file's as a whole (a Go
-// test law's `^func (Test...)\(` keeps matching once per line); a pattern
-// that already opens with its own `(?...)` flag group is trusted to have
-// chosen its own semantics and is left as-is.
-func wholeFileSymbolPattern(p *regexp.Regexp) *regexp.Regexp {
-	src := p.String()
-	if strings.HasPrefix(src, "(?") {
-		return p
-	}
-	return regexp.MustCompile("(?m)" + src)
-}
-
 // symbolRemovedHits reports every symbol law.Matcher.Pattern captured at
 // BASE that is absent from every in-scope file at TIP and carries no
 // tombstone, keyed `<base path>:<name>` — the base path is what a person
 // restores the symbol to, so a plain rename reports under its OLD name
 // while a move to a different file, name unchanged, reports nothing. The
 // pattern is matched against each file's whole text (see
-// wholeFileSymbolPattern), not one physical line at a time.
+// lang.WholeFile), not one physical line at a time.
 //
 // A tombstone naming a PATH rather than a symbol admits a whole file's
 // removed symbols at once, under the two conditions symbolRemovedFileAdmitted

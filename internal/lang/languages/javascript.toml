@@ -17,3 +17,4 @@ pattern = '\b[cv]8\s+ignore'
 
 [tests]
 patterns = ['\b(?:it|test)\(\s*"([^"\n]+)"', "\\b(?:it|test)\\(\\s*'([^'\\n]+)'"]
+declarations = ['^\s*(it|test|describe)(\.\w+)?\s*\(']

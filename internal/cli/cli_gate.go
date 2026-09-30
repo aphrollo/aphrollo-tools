@@ -93,21 +93,21 @@ Subcommands:
                     (docs-only, comment-only, workflow-only, code) from the
                     commit gate's own per-file rules; any failure prints code.
                     CI's changes job sizes the run by it
-  split-commit      [--apply] [-m <message>]: when fail-first refuses a commit because
+  split-commit      [--dry] [-m <message>]: when fail-first refuses a commit because
                     its staged tests already pass at HEAD, commit those tests alone
-                    and leave the rest staged. Dry run by default (names both
-                    commits); --apply writes the first from the index only and
-                    never touches the working tree
-  probe             discard [--apply] <file>...: restore exactly the named files
-                    to HEAD, the route for stripping a refused probe arm. Dry
-                    run by default (prints each file's loss and the backup
-                    path); --apply writes the full diff to a backup under the
-                    gate state dir first. Refuses staged content, paths outside
-                    the repo, directories and globs
+                    and leave the rest staged. Writes the first commit from the
+                    index only and never touches the working tree; --dry names
+                    both commits and writes nothing
+  probe             discard [--dry] <file>...: restore exactly the named files
+                    to HEAD, the route for stripping a refused probe arm. Writes
+                    the full diff to a backup under the gate state dir first;
+                    --dry prints each file's loss and the backup path and stops.
+                    Refuses staged content, paths outside the repo, directories
+                    and globs
   gc                Reclaim stale build dirs: idle incremental caches, dead gate dirs,
-                    orphan worktree builds (--repo, --older-than 3d, --apply)
+                    orphan worktree builds (--repo, --older-than 3d, --dry)
   install           (alias of aphrollo install; retiring next release) Install
-                    the git-hook shims into a repo (--repo, --apply)
+                    the git-hook shims into a repo (--repo, --dry)
   init              (alias of aphrollo install; retiring next release) Set up TDD:
                     session hooks in settings.json + the global git gate
                     (--no-git, --uninstall). ALSO EDITS FILES IN A REPO: the managed
@@ -339,16 +339,16 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if args[0] == "split-commit" {
 		// Splits a mixed commit whose tests already pass at HEAD into a
-		// test-only commit and the rest: dry-run by default, --apply writes.
+		// test-only commit and the rest: writes by default, --dry previews.
 		return runGateSplitCommit(args[1:], stdout, stderr)
 	}
 	if args[0] == "probe" {
 		// The sanctioned route back to HEAD for a refused probe arm:
-		// dry-run by default, --apply backs the diff up and discards.
+		// backs the diff up and discards by default, --dry previews.
 		return runGateProbe(args[1:], stdout, stderr)
 	}
 	if args[0] == "gc" {
-		// Disk hygiene: dry-run by default, --apply reclaims.
+		// Disk hygiene: reclaims by default, --dry reports.
 		return runGateGC(args[1:], stdout, stderr)
 	}
 	if args[0] == "issue" {
@@ -553,21 +553,21 @@ func mergeRatchetAdvisory(decision, r tdd.Decision) tdd.Decision {
 	}
 }
 
-// runGateInstall writes the git-hook shims into a single repo. tdd/refactor
-// mutations kept the older dry-run-by-default + --apply model, so this defaults
-// to a dry-run and requires --apply; only the workspace verbs inverted to
-// execute-by-default with --dry.
+// runGateInstall writes the git-hook shims into a single repo, or with --dry
+// prints the plan and stops.
 func runGateInstall(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("install", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		repo  = fs.String("repo", ".", "repository to install the hooks into")
-		bin   = fs.String("bin", "", "aphrollo binary the repo's own git-hook shims invoke (default: this executable)")
-		apply = fs.Bool("apply", false, "write the hooks (default: print the plan and stop)")
+		repo = fs.String("repo", ".", "repository to install the hooks into")
+		bin  = fs.String("bin", "", "aphrollo binary the repo's own git-hook shims invoke (default: this executable)")
+		mut  = addMutFlags(fs)
 	)
-	if err := fs.Parse(args); err != nil {
+	pos, err := mut.parse(fs, "gate install", args, stderr)
+	if err != nil || refuseArgs("gate install", pos, stderr) {
 		return 2
 	}
+	apply := mut.execute()
 
 	root := tdd.RepoRoot(*repo)
 	if root == "" {
@@ -578,7 +578,7 @@ func runGateInstall(args []string, stdout, stderr io.Writer) int {
 	if binPath == "" {
 		binPath = defaultBinPath()
 	}
-	if *apply && refuseUnstableDefaultBin(*bin, binPath, "gate install", stderr) {
+	if apply && refuseUnstableDefaultBin(*bin, binPath, "gate install", stderr) {
 		return 1
 	}
 	plan, err := tdd.BuildInstallPlan(root, binPath)
@@ -586,8 +586,8 @@ func runGateInstall(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
-	fmt.Fprint(stdout, plan.Render(*apply))
-	if !*apply {
+	fmt.Fprint(stdout, plan.Render(apply))
+	if !apply {
 		return 0
 	}
 	if err := plan.Apply(); err != nil {

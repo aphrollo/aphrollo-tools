@@ -312,6 +312,7 @@ escape_dedupe.go                                   escape
 escape_dedupe_test.go                              escape
 escape_gitx.go                                     gitx      # created by P2
 escape_own_test.go                                 suite
+escape_preview_test.go                             escape
 escape_suite.go                                    suite     # created by P2
 escape_syncclosed_test.go                          escape
 escape_test.go                                     install   # prefix says escape; its test body reaches install

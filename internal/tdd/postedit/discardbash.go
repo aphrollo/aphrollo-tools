@@ -20,7 +20,7 @@ const discardBashRefusal = "git checkout/restore/clean/reset --hard/stash drop|c
 // probeDiscardRoute is the sanctioned way back to HEAD for a refused probe
 // arm, appended to the refusals an agent meets on the way to stripping one.
 const probeDiscardRoute = "; to strip a refused probe arm back to HEAD, run `aphrollo gate probe discard <files>` " +
-	"(dry run; --apply backs the diff up, then restores exactly those files)"
+	"(backs the diff up, then restores exactly those files; --dry previews)"
 
 // reverseApplyRefusal refuses a reverse apply: `git diff > p && git apply -R
 // p` restores the working tree exactly as `git checkout --` does, with no

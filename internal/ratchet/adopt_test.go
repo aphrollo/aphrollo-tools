@@ -55,6 +55,25 @@ func TestAdopt_WritesRowsForANewLawWithNoBaselineYet(t *testing.T) {
 	}
 }
 
+// TestAdopt_DryRunCountsTheRowsAndWritesNoBaseline is what `check --adopt
+// --dry` rests on: the same measurement, the same count, no file.
+func TestAdopt_DryRunCountsTheRowsAndWritesNoBaseline(t *testing.T) {
+	root := t.TempDir()
+	writeLaw(t, root, "nan-guard", nanGuardLaw)
+	write(t, filepath.Join(root, "crates", "a", "src", "lib.rs"), "let a = x.clamp(0.0, 1.0);\n")
+
+	res, err := Adopt(AdoptOptions{Root: root, Law: "nan-guard", DryRun: true})
+	if err != nil {
+		t.Fatalf("Adopt: %v", err)
+	}
+	if res.Rows != 1 {
+		t.Errorf("Rows = %d, want 1", res.Rows)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".ratchet", "baselines", "nan-guard.txt")); err == nil {
+		t.Error("a dry run wrote the baseline")
+	}
+}
+
 // TestAdopt_WritesRowsForAWidenedLaw proves the other stated case: an existing
 // law whose baseline already exists, but is reported changed since HEAD
 // (a widened scope, say), gets its new hits recorded rather than rejected.

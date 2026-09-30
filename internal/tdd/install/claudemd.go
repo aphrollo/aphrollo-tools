@@ -135,7 +135,7 @@ func ClaudeMDBlock(f BlockFlags) string {
 		b.WriteString("  steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.\n")
 	}
 	b.WriteString("- **Orchestrating:** follow-ups on a lane (fix round, base merge, re-measure, red CI) resume its builder with only the delta; a fresh builder is for a new issue. A reviewer did not build the lane and re-reviews its own findings; the coordinator never edits; a brief carries only what the agent lacks.\n")
-	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).\n")
+	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (reclaims stale build dirs; `--dry` lists them).\n")
 	if f.Undercover {
 		b.WriteString("- **Commit messages** say what the change does and nothing about how it was\n")
 		b.WriteString("  written: no attribution trailers, tool names, or model names. The `commit-msg`\n")

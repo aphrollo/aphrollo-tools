@@ -9,10 +9,8 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// runGateGC is `aphrollo gate gc`: report (default) or reclaim (--apply) the
-// stale build directories this binary's own gates create and use. Dry-run by
-// default, like every other tdd/refactor mutation — a disk sweep that
-// deletes without being asked is the one failure this feature cannot have.
+// runGateGC is `aphrollo gate gc`: reclaim the stale build directories this
+// binary's own gates create and use, or with --dry report them and stop.
 //
 // --quiet is what the detached session-start sweep runs with: it has nowhere
 // to print, so it stays silent and leaves its result in the state dir for
@@ -23,14 +21,16 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	var (
 		repo      = fs.String("repo", ".", "workspace whose target dir to sweep")
 		olderThan = fs.String("older-than", "3d", "reclaim incremental caches idle longer than this (e.g. 3d, 12h)")
-		apply     = fs.Bool("apply", false, "delete the candidates (default: print them and stop)")
 		quiet     = fs.Bool("quiet", false, "print nothing (the detached session-start sweep)")
 		lockAge   = fs.String("lock-age", "1d", "reclaim unheld aphrollo lock files idle longer than this")
 		known     = fs.Bool("known", false, "also sweep every repo the gate has worked in lately (the detached session-start sweep)")
+		mut       = addMutFlags(fs)
 	)
-	if err := fs.Parse(args); err != nil {
+	pos, err := mut.parse(fs, "gate gc", args, stderr)
+	if err != nil || refuseArgs("gate gc", pos, stderr) {
 		return 2
 	}
+	apply := mut.execute()
 	age, err := tdd.ParseGCAge(*olderThan)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate gc: %v\n", err)
@@ -62,7 +62,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	sweep := func(r string, sc tdd.GCScope) {
 		found := tdd.ScanGC(r, age, sc)
 		cands = append(cands, found...)
-		if !*apply {
+		if !apply {
 			return
 		}
 		f, ref, sk := tdd.ApplyGCFor(r, found)
@@ -74,7 +74,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	for _, r := range repos {
 		sweep(r, scope)
 	}
-	if !*apply {
+	if !apply {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
 			writeMutantsInUse(stdout)

@@ -1,6 +1,9 @@
 package ratchet
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseTOMLReadsRootKeysTablesAndValueKinds(t *testing.T) {
 	doc, err := parseTOML(`
@@ -42,6 +45,35 @@ pattern = "\.clamp\("
 	exc, _ := doc.value("scope", "exclude")
 	if exc.kind != tomlArray || len(exc.list) != 0 {
 		t.Errorf("empty array = %+v", exc)
+	}
+}
+
+func TestParseTOML_NamesTheNestedTableAndItsLine(t *testing.T) {
+	_, err := parseTOML("name = \"x\"\n\n[matcher.extra]\na = \"x\"\n")
+	if err == nil || err.Error() != "line 3: nested table [matcher.extra] — a law file is one level deep" {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestParseTOML_ListsTablesInFileOrderWithTheirKeys(t *testing.T) {
+	doc, err := parseTOML("top = 1\n[zeta]\nb = 1\na = 2\n[alpha]\nc = true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(doc.sectionNames(), ","); got != "zeta,alpha" {
+		t.Errorf("sectionNames = %s, want zeta,alpha", got)
+	}
+	if got := strings.Join(doc.keys("zeta"), ","); got != "b,a" {
+		t.Errorf("keys(zeta) = %s, want b,a", got)
+	}
+	if got := strings.Join(doc.keys(""), ","); got != "top" {
+		t.Errorf("root keys = %s, want top", got)
+	}
+	if !doc.has("alpha") || doc.has("beta") {
+		t.Error("has reports a declared table only")
+	}
+	if v, _ := doc.value("alpha", "c"); v.line != 6 || !v.b {
+		t.Errorf("value = %+v, want line 6 true", v)
 	}
 }
 

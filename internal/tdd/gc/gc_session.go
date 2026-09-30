@@ -157,7 +157,7 @@ func SetGCSpawnForTest(fn func(cwd string)) (restore func()) {
 	return func() { gcSpawnForTest = prev }
 }
 
-// maybeStartBackgroundGC starts a detached `aphrollo gate gc --apply` for cwd
+// maybeStartBackgroundGC starts a detached `aphrollo gate gc` for cwd
 // when one is due, and stamps immediately so concurrent session starts do
 // not each launch one. It never waits: the child outlives this process, and
 // the session AFTER it reports the result.
@@ -206,12 +206,19 @@ func startDetachedGC(cmd *exec.Cmd) {
 	_ = cmd.Process.Release()
 }
 
+// BackgroundGCArgs is the detached sweep's argv after the binary and the
+// gate verb: `gc` with no --dry, so the sweep reclaims. A test that runs these
+// through the real verb pins that the session-start sweep still writes.
+func BackgroundGCArgs(cwd string) []string {
+	return []string{"gc", "--quiet", "--known", "--repo", cwd}
+}
+
 // backgroundGCCommand builds the detached sweep: exe re-entered as `gate gc`
 // in cwd. parentEnv is the environment of the process asking; the child's
 // carries one more generation of spawn depth (see proc.SpawnableSelf, which
 // decides whether exe may be started at all).
 func backgroundGCCommand(exe string, parentEnv []string, cwd string) *exec.Cmd {
-	cmd := exec.Command(exe, CmdName, "gc", "--apply", "--quiet", "--known", "--repo", cwd)
+	cmd := exec.Command(exe, append([]string{CmdName}, BackgroundGCArgs(cwd)...)...)
 	cmd.Dir = cwd
 	cmd.Env = proc.ChildEnv(parentEnv, cleanGitEnv())
 	return cmd

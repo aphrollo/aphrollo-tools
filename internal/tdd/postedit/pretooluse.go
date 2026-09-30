@@ -3,6 +3,7 @@ package postedit
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 )
 
@@ -41,12 +42,13 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 // a Bash command's write is judged by after.
 func decideImages(kind Kind, path, pre, post string) Decision {
 	added := addedLines(pre, post)
-	covered := editCovered(pre, post, langOf(path), added)
+	l := langOf(repoRootNear(filepath.Dir(path)), path)
+	covered := editCovered(pre, post, l, added)
 	var d Decision
 	if kind == Test {
-		d = evaluateCovered(post, added, covered, langOf(path), testPolicies, editPhase)
+		d = evaluateCovered(post, added, covered, l, testPolicies, editPhase)
 	} else {
-		d = evaluateSourceAdded(post, added, covered, path, editPhase)
+		d = evaluateSourceAdded(post, added, covered, path, l, editPhase)
 	}
 	full := withQualityNotes(d, path, post, added)
 	full.Escapes = d.Escapes
@@ -81,8 +83,7 @@ func withQualityNotes(d Decision, path, post string, added map[int]bool) Decisio
 // "..." {}` blocks INLINE in ordinary src/*.zig files, so the smells are
 // evaluated over the added lines that fall inside such a block, and a real
 // std.time.sleep in a production function still flows.
-func evaluateSourceAdded(post string, added, covered map[int]bool, path string, p phase) Decision {
-	l := langOf(path)
+func evaluateSourceAdded(post string, added, covered map[int]bool, path string, l lang, p phase) Decision {
 	if !isZigPath(path) {
 		return evaluateCovered(post, added, covered, l, sourcePolicies, p)
 	}

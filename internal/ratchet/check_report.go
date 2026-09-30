@@ -11,7 +11,7 @@ func lineModeNotes(law string, ceiling, measured map[string]int) []string {
 	for _, key := range sortedKeys(ceiling) {
 		if base, m := ceiling[key], measured[key]; base > m {
 			notes = append(notes, fmt.Sprintf(
-				"%s: %s baseline is %d, code counting now measures %d — regenerate by running without --no-tighten",
+				"%s: %s baseline is %d, code counting now measures %d — regenerate by running without --dry",
 				law, key, base, m))
 		}
 	}
