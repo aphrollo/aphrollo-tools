@@ -115,6 +115,53 @@ func TestMutantsEditHarvest_UnknownSessionsAndUnreadableRecordsReportNothing(t *
 	}
 }
 
+// The config is read where the repository declares it, which for a module in a
+// subdirectory is the repository's top and not the module's own directory; and
+// where there is no repository at all, from the project itself.
+func TestPostEdit_TheKeyIsReadFromTheRepositoryTopOrTheProjectItself(t *testing.T) {
+	root, _ := mutantsEditFixture(t, true)
+	write(t, root, "svc/go.mod", "module example.com/svc\n\ngo 1.26\n")
+	write(t, root, "svc/svc.go", "package svc\n\nfunc F(n int) bool { return n > 1 }\n")
+	jobs := recordEditRunSpawns(t, nil)
+	PostEdit(postPayload("Write", filepath.Join(root, "svc", "svc.go")), greenRun)
+	if len(*jobs) != 1 || !sameDir((*jobs)[0].Root, filepath.Join(root, "svc")) {
+		t.Errorf("runs started = %+v, want one for the module in svc, declared at the repository's top", *jobs)
+	}
+
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	plain := t.TempDir()
+	write(t, plain, "go.mod", "module example.com/plain\n\ngo 1.26\n")
+	write(t, plain, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = true\n")
+	write(t, plain, "plain.go", "package plain\n\nfunc F(n int) bool { return n > 1 }\n")
+	PostEdit(postPayload("Write", filepath.Join(plain, "plain.go")), greenRun)
+	if len(*jobs) != 2 || !sameDir((*jobs)[1].Root, plain) {
+		t.Errorf("runs started = %+v, want a second one for the project outside any repository", *jobs)
+	}
+}
+
+// A carried line names the file relative to the tree it was edited in; a path
+// that cannot be made relative is named as it is.
+func TestMutantsEditLine_NamesTheFileRelativeToItsTree(t *testing.T) {
+	dir := t.TempDir()
+	log := filepath.Join(dir, "x.log")
+	done := filepath.Join(dir, "x.done")
+	if err := os.WriteFile(done, []byte("ok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(log, []byte("1 tested\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct{ file, want string }{
+		"a file inside the tree":  {filepath.Join(dir, "sub", "x.go"), "(sub/x.go)"},
+		"a path that has no base": {"relative/x.go", "(relative/x.go)"},
+	} {
+		line, reported := mutantsEditLine(mutantsEditJob{Root: dir, File: tc.file, Log: log, Done: done})
+		if !reported || !strings.Contains(line, tc.want) {
+			t.Errorf("%s: line = %q (reported %v), want it to contain %q", name, line, reported, tc.want)
+		}
+	}
+}
+
 func TestMutantsEditHarvest_NoStateDirectoryReportsNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("HOME", "")

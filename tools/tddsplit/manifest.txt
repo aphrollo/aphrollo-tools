@@ -528,12 +528,14 @@ mutants_cibusy_test.go                             mutation
 mutants_commit.go                                  mutation
 mutants_commit_cli.go                              mutation
 mutants_commit_cli_test.go                         mutation
+mutants_commit_clock_test.go                       mutation
 mutants_commit_edges_test.go                       mutation
 mutants_commit_edit.go                             mutation
 mutants_commit_edit_test.go                        mutation
 mutants_commit_enum.go                             mutation
 mutants_commit_enum_test.go                        mutation
 mutants_commit_funcs.go                            mutation
+mutants_commit_more_test.go                        mutation
 mutants_commit_plan.go                             mutation
 mutants_commit_plan_test.go                        mutation
 mutants_commit_run.go                              mutation
@@ -691,6 +693,7 @@ postedit_fastfail_test.go                          precommit
 postmerge.go                                       merge
 postmerge_test.go                                  tdd       # prefix says merge; its test body reaches tdd
 postmerge_testmap.go                               merge
+postmerge_testmap_test.go                          merge
 postmerge_testmap_test.go                          tdd       # prefix says merge; its test body reaches tdd
 posttooluse.go                                     postedit
 posttooluse_advisory.go                            postedit

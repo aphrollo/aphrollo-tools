@@ -61,6 +61,35 @@ func TestGateMutantsTestmap_IsSilentWhereItHasNothingToDo(t *testing.T) {
 	}
 }
 
+// Outside a repository the verbs do nothing even where a config that declares
+// the key happens to lie in the directory: what makes them inert is that
+// there is no repository, not that nothing declared the key.
+func TestGateMutantsVerbs_OutsideARepositoryIgnoreAStrayDeclaration(t *testing.T) {
+	cfg := gateConfigDir(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "aphrollo.toml"), []byte("[aphrollo]\nmutants-at-commit = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/m\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	inDir(t, dir)
+	var out, errb bytes.Buffer
+	if code := Run([]string{"gate", "mutants", "testmap"}, strings.NewReader(""), &out, &errb); code != 0 || out.Len() != 0 || errb.Len() != 0 {
+		t.Errorf("testmap: exit %d stdout %q stderr %q, want a silent 0", code, out.String(), errb.String())
+	}
+	done := filepath.Join(t.TempDir(), "done")
+	if code := Run([]string{"gate", "mutants", "edit", "--file", "x.go", "--done", done}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Errorf("edit: exit %d, want 0: %s", code, errb.String())
+	}
+	if data, err := os.ReadFile(done); err != nil || strings.TrimSpace(string(data)) != "ok" {
+		t.Errorf("edit result = %q (%v), want ok", data, err)
+	}
+	if log, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log")); err == nil && strings.Contains(string(log), "mutants") {
+		t.Errorf("a run happened outside a repository:\n%s", log)
+	}
+}
+
 func TestGateMutantsTestmap_RefusesAFlagItDoesNotHave(t *testing.T) {
 	gateConfigDir(t)
 	inDir(t, gitLaneNoKey(t))
