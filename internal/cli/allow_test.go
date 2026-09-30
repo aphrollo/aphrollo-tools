@@ -73,9 +73,30 @@ func TestAllow_RefusesAnUnknownWall(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
 	}
-	const want = "usage: aphrollo gate allow [primary|discard]\n"
+	const want = "usage: aphrollo gate allow [primary|discard|source-bash]\n"
 	if errb.String() != want {
 		t.Fatalf("stderr = %q, want %q", errb.String(), want)
+	}
+}
+
+// TestAllow_SourceBashWallIsWaivedAndRestored proves `gate allow source-bash`
+// is a known wall that reports waived, then restored after `gate revoke`.
+func TestAllow_SourceBashWallIsWaivedAndRestored(t *testing.T) {
+	gateConfigDir(t)
+	t.Setenv("CLAUDE_SESSION_ID", "s-source-bash-wall")
+
+	var out, errb bytes.Buffer
+	if code := runGateAllow([]string{"source-bash"}, &out, &errb); code != 0 {
+		t.Fatalf("allow exit = %d, stderr %q", code, errb.String())
+	}
+	if !tdd.Waived(tdd.WallSourceBash) {
+		t.Fatal("source-bash must be waived after allow")
+	}
+	if code := runGateRevoke([]string{"source-bash"}, &out, &errb); code != 0 {
+		t.Fatalf("revoke exit = %d, stderr %q", code, errb.String())
+	}
+	if tdd.Waived(tdd.WallSourceBash) {
+		t.Fatal("source-bash must be restored after revoke")
 	}
 }
 
