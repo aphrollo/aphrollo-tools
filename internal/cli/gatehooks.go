@@ -66,6 +66,11 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 			// records itself, deduped by fingerprint.
 			tdd.NoteMergeGateEscape(root, res.Message, stderr)
 		}
+	} else if refusal := tdd.ManagedBlockRefusal(root); refusal != "" {
+		// Ahead of every other stage and on every fast path: an
+		// aphrollo.toml-only commit reaches none of the package stages.
+		res = tdd.GateResult{Blocked: true, Message: "gate precommit: managed-block-stale: " + refusal}
+		tdd.AppendGateLog("precommit", root, "managed block", "managed-block-stale", 0)
 	} else {
 		res = tdd.Precommit(root, tdd.RunSuite(precommitTimeout))
 	}

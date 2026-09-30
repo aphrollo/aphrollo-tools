@@ -68,6 +68,8 @@ baselineguard_lane_test.go                         lawgate
 baselineguard_merge_test.go                        lawgate
 baselineguard_repath.go                            lawgate
 baselineguard_repath_test.go                       lawgate
+baselineguard_scanview.go                          lawgate
+baselineguard_scanview_test.go                     lawgate
 baselineguard_staleorigin_test.go                  lawgate
 baselineguard_test.go                              lawgate
 baselineguard_wholetreeceiling_test.go             lawgate
@@ -466,6 +468,8 @@ machineload_windows.go                             lock
 machineload_windows_test.go                        lock
 main.go                                            tddtest
 main_test.go                                       tdd
+managedblock_stage.go                              install
+managedblock_stage_test.go                         install
 mask.go                                            core
 mask_test.go                                       core
 mechanical.go                                      precommit
