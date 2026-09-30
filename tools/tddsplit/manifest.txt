@@ -447,6 +447,8 @@ installwritable.go                                 tdd
 issue.go                                           escape
 issue_test.go                                      install   # prefix says escape; its test body reaches install
 killtree_test.go                                   postedit
+lintdeferred.go                                    postedit
+lintdeferred_test.go                               postedit
 lintlock.go                                        lock
 lintlock_test.go                                   lock
 lintworkflow_pin_test.go                           tdd

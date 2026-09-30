@@ -60,7 +60,8 @@ func harvestSessionJobs(session string) []string {
 			restartDeferredEditJob(j, headSHA, identity)
 		}
 	}
-	return append(lines, harvestMutantsEdit(session)...)
+	lines = append(lines, harvestMutantsEdit(session)...)
+	return append(lines, harvestLintEdit(session)...)
 }
 
 // sessionDeferredJobs reads every job record the given session owns, across
