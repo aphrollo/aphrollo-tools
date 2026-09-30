@@ -90,7 +90,7 @@ func mutantsEditRecord(dir, session, root string) string {
 // run mutates.
 func mutantsEditTarget(root, target string) bool {
 	rel, err := filepath.Rel(root, target)
-	return err == nil && isCommitSource(filepath.ToSlash(rel))
+	return err == nil && filepath.IsLocal(rel) && isCommitSource(filepath.ToSlash(rel))
 }
 
 // startMutantsEdit starts the run for an edit of target in the tree at root,

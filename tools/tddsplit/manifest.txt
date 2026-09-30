@@ -666,6 +666,7 @@ mutants_windows.go                                 lock
 mutants_windows_core.go                            core      # created by P2
 mutants_zerotested_test.go                         tdd
 mutantsedit.go                                     postedit
+mutantsedit_edges_test.go                          postedit
 mutantsedit_test.go                                postedit
 mutationhold.go                                    mutation
 mutationhold_test.go                               mutation
