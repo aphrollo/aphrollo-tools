@@ -880,6 +880,8 @@ runsuite_batched.go                                suite
 runsuite_batched_test.go                           suite
 runsuite_cap_test.go                               suite
 runsuite_killtree_test.go                          suite
+runsuite_related.go                                suite
+runsuite_related_test.go                           suite
 runsuite_waitdelay_test.go                         suite
 rustmask_test.go                                   smell
 rusttestspans.go                                   suite

@@ -85,7 +85,7 @@ var spreadCallSites = map[string]string{
 	"internal/tdd/suite/escape_suite.go:runGhTimeout":                "bounded: fixed gh arguments",
 	"internal/tdd/suite/mechcache.go:gitRead":                        "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",
 	"internal/tdd/suite/mechcache.go:gitReadStdin":                   "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",
-	"internal/tdd/suite/posttooluse_suite.go:runSuiteOnce":           "batched: RunSuite splits a cargo -p, go test or golangci-lint package list with SplitCommand before this spawn",
+	"internal/tdd/suite/posttooluse_suite.go:runSuiteOnce":           "batched: RunSuite splits a cargo -p, go test or golangci-lint package list with SplitCommand, and turns a vitest or jest related-tests run past the budget into the full suite (relatedWithinBudget), before this spawn",
 	"internal/undercover/commit.go:RangeTell":                        "bounded: one revision range per pushed ref",
 	"internal/workspace/claim.go:ClaimPlan":                          "bounded: the dependency install rule's fixed argv",
 	"internal/workspace/commit.go:Apply":                             "bounded: fixed commit arguments and one message",
