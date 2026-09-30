@@ -464,3 +464,31 @@ func TestRetroConfigWarnings_NamesEachMalformedRowAndNothingElse(t *testing.T) {
 		t.Errorf("a repo with no retro-sinks has warnings: %q", w)
 	}
 }
+
+// A slug is one file name, and a file name is at most 255 bytes: a repository
+// checked out at a deep path (a test's temp dir under a run's own temp area is
+// one) must still get a record, and two deep paths must not share one.
+func TestRetroSlug_KeepsAShortPathWhole(t *testing.T) {
+	exact := strings.Repeat("a", retroSlugMax)
+	if got := retroSlug(exact); got != exact {
+		t.Errorf("a slug of exactly %d bytes was changed to %q", retroSlugMax, got)
+	}
+	if got, want := retroSlug("/home/x/.worktrees/repo/lane"), "_home_x_.worktrees_repo_lane"; got != want {
+		t.Errorf("retroSlug = %q, want %q", got, want)
+	}
+}
+
+func TestRetroSlug_BoundsALongPathAndKeepsDistinctPathsApart(t *testing.T) {
+	long := strings.Repeat("a", retroSlugMax+1)
+	got := retroSlug(long)
+	if len(got) > retroSlugMax {
+		t.Errorf("a slug of %d bytes stayed %d bytes, want at most %d", len(long), len(got), retroSlugMax)
+	}
+	other := retroSlug(strings.Repeat("a", retroSlugMax) + "b")
+	if got == other {
+		t.Errorf("two paths that differ in their last byte share the slug %q", got)
+	}
+	if again := retroSlug(long); again != got {
+		t.Errorf("the same path gave %q, then %q", got, again)
+	}
+}
