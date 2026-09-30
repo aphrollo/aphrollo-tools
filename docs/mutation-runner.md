@@ -727,10 +727,27 @@ line in it; every test of a file whose helper, variable or type the commit
 changed; a changed `TestMain` runs the whole package), keeping only tests the
 package still has. A selection with no map, no entry for the function, nothing
 left, or a `-run` pattern over 8000 characters runs the whole package for that
-mutant. A mutant the selection does not kill is run again against the whole
-package before it is called a survivor, because a map built before this commit
-may not list a test that now reaches the function. A failure is credited as a
-kill only when the tests that failed pass without the mutant.
+mutant. A mutant the selection does not kill is run against the rest of the
+package (`-skip` of the selected tests, which passed under it) before it is
+called a survivor, because a map built before this commit may not list a test
+that now reaches the function. A failure is credited as a kill only when the
+tests that failed pass without the mutant; that check is made once for a set of
+failing tests and shared by every mutant of the run they fail under.
+
+The run is in two passes over the same workers. The first runs every mutant's
+selection (and nothing else), so a mutant a selected test kills in seconds is
+never left waiting behind a whole-package run or cut by the budget because of
+one. The second runs the whole package for each mutant the first did not
+settle: the ones whose selection passed and the ones with no selection. Each
+worker keeps its copy of the lane at a path of its own that every run reuses
+(`prove-<lane>/tree` for the first, `run-w<n>` for the others): the go build
+cache keys a compile on the directory, so a copy at a new path rebuilds every
+package the tested one imports (10 s of wall-clock and 25 s of CPU for
+`internal/tdd/precommit`, against 1.3 s with the path reused). A survivor costs
+one whole-package run, which is what its own-package rule asks; the runs of
+several survivors are not folded into one binary, since two mutants applied
+together can mask each other and a pass of the pair would not show that each
+survives alone.
 
 **The test map** (`internal/tdd/mutation/mutants_testmap.go`) is one file per
 package under the gate state for the repository (keyed on its primary
