@@ -25,6 +25,7 @@ func Parse(text, file string) (Language, error) {
 	l.Filenames = root.List("filenames")
 	l.CodeEscape = root.Flag("code_escape")
 	l.View = root.Num("view")
+	l.Earlier = root.Str("earlier")
 	if err := root.Finish(); err != nil {
 		return Language{}, err
 	}
@@ -84,6 +85,7 @@ func parseComments(doc *toml.Document, file string, l *Language) error {
 	wordStart := f.Flag("line_word_start")
 	nested := f.Flag("block_nested")
 	lines, blocks := f.List("line"), f.List("block")
+	except := f.List("line_except")
 	if err := f.Finish(); err != nil {
 		return err
 	}
@@ -93,6 +95,12 @@ func parseComments(doc *toml.Document, file string, l *Language) error {
 		}
 		l.LineComments = append(l.LineComments, LineComment{Marker: marker, WordStart: wordStart})
 	}
+	for _, opener := range except {
+		if !continuesAMarker(opener, lines) {
+			return fmt.Errorf("%s: [comments] line_except %q must begin with a line marker and continue past it", file, opener)
+		}
+	}
+	l.LineExcept = except
 	for _, pair := range blocks {
 		parts := strings.Fields(pair)
 		if len(parts) != 2 {
@@ -101,6 +109,17 @@ func parseComments(doc *toml.Document, file string, l *Language) error {
 		l.BlockComments = append(l.BlockComments, BlockComment{Open: parts[0], Close: parts[1], Nested: nested})
 	}
 	return nil
+}
+
+// continuesAMarker reports whether opener begins with one of the markers and
+// is longer than it.
+func continuesAMarker(opener string, markers []string) bool {
+	for _, marker := range markers {
+		if strings.HasPrefix(opener, marker) && len(opener) > len(marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseStrings(doc *toml.Document, file string, l *Language) error {
@@ -115,11 +134,19 @@ func parseStrings(doc *toml.Document, file string, l *Language) error {
 		s.OpensAfter = f.Str("opens_after")
 		s.BlankOpen = f.Flag("blank_open")
 		s.CharLiteral = f.Flag("char_literal")
+		s.Heredoc = f.Flag("heredoc")
 		if err := f.Finish(); err != nil {
 			return err
 		}
 		if s.Open == "" {
 			return fmt.Errorf("%s: [%s] needs an `open`", file, t.Name)
+		}
+		if s.Heredoc {
+			if err := heredocForm(&s, f.Has("close"), esc, file, t.Name); err != nil {
+				return err
+			}
+			l.Strings = append(l.Strings, s)
+			continue
 		}
 		if !f.Has("close") {
 			s.Close = s.Open
@@ -143,6 +170,25 @@ func parseStrings(doc *toml.Document, file string, l *Language) error {
 	// Longest opener first, so a triple quote is tried before the single one
 	// it begins with; declaration order breaks a tie.
 	sort.SliceStable(l.Strings, func(i, j int) bool { return len(l.Strings[i].Open) > len(l.Strings[j].Open) })
+	return nil
+}
+
+// heredocForm checks the keys a heredoc form cannot carry and fills in what it
+// implies: it runs across lines and its body has no escape.
+func heredocForm(s *StringForm, hasClose bool, esc, file, table string) error {
+	switch {
+	case hasClose:
+		return fmt.Errorf("%s: [%s] a heredoc closes on its identifier, not on a `close`", file, table)
+	case esc != "":
+		return fmt.Errorf("%s: [%s] a heredoc takes no escape", file, table)
+	case s.CharLiteral:
+		return fmt.Errorf("%s: [%s] a heredoc is not a char literal", file, table)
+	case s.LineStart || s.OpensAfter != "":
+		return fmt.Errorf("%s: [%s] a heredoc opens wherever its operator stands", file, table)
+	case s.BlankOpen:
+		return fmt.Errorf("%s: [%s] a heredoc keeps its head", file, table)
+	}
+	s.Close, s.Escape, s.Multiline = "", EscapeNone, true
 	return nil
 }
 

@@ -539,10 +539,12 @@ extensions  = [".kt", ".kts"]         # lowercase, with the dot
 filenames   = []                      # exact base names, for files with no suffix
 code_escape = false                   # a backslash outside a string escapes the next byte
 view        = 3                       # the scan view the row's lexing took effect at (default 1)
+# earlier   = "kotlin-v2"             # the row that read this row's files at the views before `view`; omitted, the default row
 
 [comments]
 line            = ["//"]              # markers that run to the line's end
 line_word_start = false               # a marker opens only at the start of a word (shell, YAML)
+# line_except   = ["//["]             # openers that begin with a marker and are code (PHP's `#[`)
 block           = ["/* */"]           # "<opener> <closer>" pairs
 block_nested    = true                # an opener inside a block needs its own closer
 
@@ -555,6 +557,7 @@ multiline   = true                    # default: a string ends at its line
 # line_start  = true                  # opens only where its line starts
 # blank_open  = true                  # the opener is masked with the body
 # char_literal = true                 # a one-byte quote opening only a char literal's shape (Rust)
+# heredoc     = true                  # `open` is a heredoc operator (`<<<`): an optionally quoted identifier and a line end follow, and the body runs to the line holding that identifier; no `close`
 
 [suppress.suppress]                   # a comment that silences a quality gate
 kind    = "lint"                      # lint | type | coverage

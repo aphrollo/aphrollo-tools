@@ -185,7 +185,11 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   default row before it, its `view` is one above the highest in the table: a
   baseline over those files is then judged by the old reading until a tightening
   check migrates it; the scan cache is keyed by the embedded rows, so it drops
-  what it read under the old table by itself.
+  what it read under the old table by itself. A change to the lexing of an
+  existing row moves its `view` up the same way, and the row's previous lexing
+  stays as a row that owns no extension (`php-v3.toml`), named by the row's
+  `earlier`: a baseline at the old view is judged by that reading, not by the
+  default row, until the migration.
 - Never hand-edit a generated `export.go`, `deps_*.go` or `api_*.go` — they are
   `tools/tddsplit` output. Regenerate in place with
   `go run ./tools/tddsplit -regen`: no clean-tree requirement, no commit —
