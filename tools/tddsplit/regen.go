@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -40,6 +41,16 @@ func regenerate(o Options) error {
 	}
 	levels := allLevels(m)
 	working, err := Analyze(o.Repo, m, levels)
+	tolerant := false
+	var tcErr *typecheckError
+	if errors.As(err, &tcErr) {
+		// A lane that adds a cross-package reference leaves the calling
+		// package uncompilable until the forwarder below exists, which
+		// starves this type-check of its export data; analyse past the gap,
+		// then settle against a strict pass once the forwarders are written.
+		tolerant = true
+		working, err = analyze(o.Repo, m, levels, true)
+	}
 	if err != nil {
 		return err
 	}
@@ -93,8 +104,45 @@ func regenerate(o Options) error {
 		fmt.Fprintf(o.Out, "[remove] %s\n", p)
 		changed++
 	}
+	if tolerant {
+		settled, err := settleStrict(o, m, levels)
+		if err != nil {
+			return err
+		}
+		changed += settled
+	}
 	fmt.Fprintf(o.Out, "summary: %d generated file(s) written or removed\n", changed)
 	return nil
+}
+
+// settleStrict re-analyses the tree strictly after a tolerant pass wrote its
+// forwarders, now that every package compiles, and brings any generated file
+// the fuller type information changes in line. It returns how many files it
+// wrote or removed; a tree that still does not type-check is an error.
+func settleStrict(o Options, m *Manifest, levels map[int]bool) (int, error) {
+	final, err := Analyze(o.Repo, m, levels)
+	if err != nil {
+		return 0, fmt.Errorf("the regenerated tree still does not type-check: %w", err)
+	}
+	changed := 0
+	for _, p := range sortedKeys(final.Generated) {
+		abs := filepath.Join(o.Repo, filepath.FromSlash(p))
+		if onDisk, readErr := os.ReadFile(abs); readErr == nil && bytes.Equal(onDisk, final.Generated[p]) {
+			continue
+		}
+		if err := writeGenerated(abs, final.Generated[p], o.Out, p); err != nil {
+			return 0, err
+		}
+		changed++
+	}
+	for _, p := range final.Stale {
+		if err := os.Remove(filepath.Join(o.Repo, filepath.FromSlash(p))); err != nil {
+			return 0, err
+		}
+		fmt.Fprintf(o.Out, "[remove] %s\n", p)
+		changed++
+	}
+	return changed, nil
 }
 
 // writeGenerated writes content to abs, creating its directory first, and

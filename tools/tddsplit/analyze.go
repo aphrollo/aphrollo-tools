@@ -29,6 +29,11 @@ type Analysis struct {
 // file the manifest does not map, or an embed or fuzz corpus separated from
 // the file that owns it, refuses the whole run.
 func Analyze(repo string, m *Manifest, levels map[int]bool) (*Analysis, error) {
+	return analyze(repo, m, levels, false)
+}
+
+// analyze is Analyze with the choice of a tolerant type-check (see typecheck).
+func analyze(repo string, m *Manifest, levels map[int]bool, tolerant bool) (*Analysis, error) {
 	root := ""
 	for _, p := range m.Packages {
 		if p.Dir == m.Root {
@@ -59,7 +64,7 @@ func Analyze(repo string, m *Manifest, levels map[int]bool) (*Analysis, error) {
 	}
 	perGOOS := map[string]map[outKey]map[string]entry{}
 	for _, goos := range []string{"linux", "windows"} {
-		c, external, err := typecheck(repo, root, importPathOf(module, m.Root), srcs, goos)
+		c, external, err := typecheck(repo, root, importPathOf(module, m.Root), srcs, goos, tolerant)
 		if err != nil {
 			return nil, err
 		}
