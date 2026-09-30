@@ -1,0 +1,6 @@
+                
+msg: don't stop                 
+a: '     '
+b: "          "
+c: [ ' ', " " ]        
+url: http://x/a#b

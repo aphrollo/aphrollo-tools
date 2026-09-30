@@ -1,0 +1,10 @@
+<?php
+                
+               
+$a = '     ';
+$b = "     
+    ";
+                   
+public function testAdds() {}
+                           
+                            

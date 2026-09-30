@@ -203,7 +203,11 @@ func Check(opts Options) (Result, error) {
 		return res, nil
 	}
 	for i := range laws {
-		laws[i].LegacyView = legacyBaseline(opts.Root, opts.Proposed, laws[i])
+		view, stale := baselineView(opts.Root, opts.Proposed, laws[i])
+		laws[i].LegacyView = stale
+		if stale {
+			laws[i].ViewVersion = view
+		}
 	}
 
 	// A line-count law's bar is decided per KEY — the ceiling for a key the

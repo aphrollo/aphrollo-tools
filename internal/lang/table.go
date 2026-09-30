@@ -1,0 +1,302 @@
+package lang
+
+import (
+	"crypto/sha256"
+	"embed"
+	"encoding/hex"
+	"fmt"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
+)
+
+// Dir is where a repository keeps its own rows, relative to its root.
+const Dir = ".ratchet/languages"
+
+// Two rows carry no extension: they are the lexers a file with no row of its
+// own is read by, asked for by name. Neutral reads `//` and `/* */` comments
+// and the quote and backtick strings; NeutralHash also reads `#` as a comment.
+const (
+	Neutral     = "default"
+	NeutralHash = "default-hash"
+)
+
+//go:embed languages/*.toml
+var embedded embed.FS
+
+// Table is the set of rows a tool reads: the embedded defaults, with a
+// repository's rows added or replacing the default of the same name.
+type Table struct {
+	rows   []Language
+	byExt  map[string]int
+	byFile map[string]int
+	byName map[string]int
+}
+
+var (
+	defaultsOnce sync.Once
+	defaults     *Table
+	defaultsErr  error
+)
+
+// Defaults is the embedded table. The rows ship with the binary and a test
+// parses each, so an error here is a build defect and is reported by every
+// caller rather than hidden.
+func Defaults() (*Table, error) {
+	defaultsOnce.Do(func() {
+		entries, err := embedded.ReadDir("languages")
+		if err != nil {
+			defaultsErr = err
+			return
+		}
+		var rows []Language
+		for _, e := range entries {
+			data, err := embedded.ReadFile("languages/" + e.Name())
+			if err != nil {
+				defaultsErr = err
+				return
+			}
+			row, err := Parse(string(data), "languages/"+e.Name())
+			if err != nil {
+				defaultsErr = err
+				return
+			}
+			if want := strings.TrimSuffix(e.Name(), ".toml"); row.Name != want {
+				defaultsErr = fmt.Errorf("languages/%s: name %q must equal the file's stem %q", e.Name(), row.Name, want)
+				return
+			}
+			rows = append(rows, row)
+		}
+		defaults, defaultsErr = build(rows)
+	})
+	return defaults, defaultsErr
+}
+
+// EmbeddedDigest hashes the text of the embedded rows: a cache keyed by it
+// drops what was read under a table that has since changed, so adding or
+// editing a default row needs no version to move.
+func EmbeddedDigest() string { return digestOf(embedded, "languages") }
+
+// digestOf hashes the names and text of the files in dir of fsys, skipping an
+// entry that cannot be read as a file.
+func digestOf(fsys fs.FS, dir string) string {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return ""
+	}
+	h := sha256.New()
+	for _, e := range entries {
+		data, err := fs.ReadFile(fsys, dir+"/"+e.Name())
+		if err != nil {
+			continue
+		}
+		h.Write([]byte(e.Name()))
+		h.Write([]byte{0})
+		h.Write(data)
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// build indexes rows, refusing two rows that claim one extension or file name.
+func build(rows []Language) (*Table, error) {
+	slices.SortStableFunc(rows, func(a, b Language) int { return strings.Compare(a.Name, b.Name) })
+	t := &Table{rows: rows, byExt: map[string]int{}, byFile: map[string]int{}, byName: map[string]int{}}
+	for i, r := range rows {
+		if _, dup := t.byName[r.Name]; dup {
+			return nil, fmt.Errorf("language %q is defined twice", r.Name)
+		}
+		t.byName[r.Name] = i
+		for _, ext := range r.Extensions {
+			if j, dup := t.byExt[ext]; dup {
+				return nil, fmt.Errorf("extension %s is claimed by both %q and %q", ext, rows[j].Name, r.Name)
+			}
+			t.byExt[ext] = i
+		}
+		for _, name := range r.Filenames {
+			if j, dup := t.byFile[name]; dup {
+				return nil, fmt.Errorf("file name %s is claimed by both %q and %q", name, rows[j].Name, r.Name)
+			}
+			t.byFile[name] = i
+		}
+	}
+	return t, nil
+}
+
+// Extend returns a table with extra rows laid over t: a row replaces the row
+// of its name, and takes an extension or file name from whichever row held it.
+func (t *Table) Extend(extra []Language) (*Table, error) {
+	own := map[string]bool{}
+	for _, r := range extra {
+		own[r.Name] = true
+	}
+	var rows []Language
+	for _, r := range t.rows {
+		if own[r.Name] {
+			continue
+		}
+		rows = append(rows, withoutClaims(r, extra))
+	}
+	return build(append(rows, extra...))
+}
+
+// withoutClaims drops from r the extensions and file names a later row claims.
+func withoutClaims(r Language, extra []Language) Language {
+	taken, takenFile := map[string]bool{}, map[string]bool{}
+	for _, e := range extra {
+		for _, ext := range e.Extensions {
+			taken[ext] = true
+		}
+		for _, name := range e.Filenames {
+			takenFile[name] = true
+		}
+	}
+	r.Extensions = keepUnless(r.Extensions, taken)
+	r.Filenames = keepUnless(r.Filenames, takenFile)
+	return r
+}
+
+func keepUnless(list []string, drop map[string]bool) []string {
+	var out []string
+	for _, s := range list {
+		if !drop[s] {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// ForRoot is the table of the repository at root: the defaults plus its
+// `.ratchet/languages/*.toml`. A repository with no such directory reads the
+// defaults.
+func ForRoot(root string) (*Table, error) {
+	base, err := Defaults()
+	if err != nil {
+		return nil, err
+	}
+	if root == "" {
+		return base, nil
+	}
+	dir := filepath.Join(root, filepath.FromSlash(Dir))
+	entries, err := os.ReadDir(dir)
+	if os.IsNotExist(err) {
+		return base, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("reading %s: %w", dir, err)
+	}
+	var extra []Language
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", filepath.Join(dir, e.Name()), err)
+		}
+		row, err := Parse(string(data), Dir+"/"+e.Name())
+		if err != nil {
+			return nil, err
+		}
+		if want := strings.TrimSuffix(e.Name(), ".toml"); row.Name != want {
+			return nil, fmt.Errorf("%s/%s: name %q must equal the file's stem %q", Dir, e.Name(), row.Name, want)
+		}
+		extra = append(extra, row)
+	}
+	if len(extra) == 0 {
+		return base, nil
+	}
+	return base.Extend(extra)
+}
+
+// Rows lists every row, ordered by name.
+func (t *Table) Rows() []Language { return t.rows }
+
+// Named finds a row by name.
+func (t *Table) Named(name string) (Language, bool) {
+	i, ok := t.byName[name]
+	if !ok {
+		return Language{}, false
+	}
+	return t.rows[i], true
+}
+
+// For finds the row that owns a path: by its exact base name first, then by
+// its lowercased extension.
+func (t *Table) For(file string) (Language, bool) {
+	base := path.Base(filepath.ToSlash(file))
+	if i, ok := t.byFile[base]; ok {
+		return t.rows[i], true
+	}
+	if i, ok := t.byExt[strings.ToLower(filepath.Ext(base))]; ok {
+		return t.rows[i], true
+	}
+	return Language{}, false
+}
+
+// Lexes reports whether the row says how its files are lexed. A row that
+// declares no comment, string form or code escape (go, javascript,
+// typescript) is lexed as the default row.
+func (l Language) Lexes() bool {
+	return l.CodeEscape || len(l.LineComments) > 0 || len(l.BlockComments) > 0 || len(l.Strings) > 0
+}
+
+// LexRow is the row whose lexing reads file under scan view `view`: the
+// file's own row when it declares lexing and took effect by that view, else
+// the default row — what every file was read by before its row. A view of 0
+// is the current one, which no row postdates.
+func (t *Table) LexRow(file string, view int) Language {
+	if row, ok := t.For(file); ok && row.Lexes() && (view == 0 || row.View <= view) {
+		return row
+	}
+	return t.neutral()
+}
+
+// CommentRow is LexRow for the view that blanks comments under a law whose
+// comment marker is `//`: a row whose comments do not open with `//` does not
+// lex such a law's files, and they keep the default row as they always did
+// (Python's `//` is floor division, not a comment).
+func (t *Table) CommentRow(file string, view int) Language {
+	if row := t.LexRow(file, view); row.hasLineMarker("//") {
+		return row
+	}
+	return t.neutral()
+}
+
+func (t *Table) neutral() Language {
+	row, _ := t.Named(Neutral)
+	return row
+}
+
+// ViewFor is the latest scan view at which a row that lexes a file kind
+// `touches` accepts took effect, and never less than 1: the stamp a baseline
+// over those file kinds carries once it is read by the current lexers. With
+// slashOnly only the rows a `//`-comment law's comment blanking reads count
+// (see CommentRow).
+func (t *Table) ViewFor(touches func(ext string) bool, slashOnly bool) int {
+	view := 1
+	for _, r := range t.rows {
+		if !r.Lexes() || (slashOnly && !r.hasLineMarker("//")) {
+			continue
+		}
+		for _, ext := range r.Extensions {
+			if touches(ext) {
+				view = max(view, r.View)
+			}
+		}
+	}
+	return view
+}
+
+func (l Language) hasLineMarker(marker string) bool {
+	for _, c := range l.LineComments {
+		if c.Marker == marker {
+			return true
+		}
+	}
+	return false
+}

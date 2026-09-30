@@ -1,0 +1,16 @@
+"""                            """
+x = 1                  
+y = '   ' + "    "
+z = '''     
+                           
+'''
+def test_adds():
+    pass
+class T:
+    async def test_later(self):
+        pass
+def helper():
+    pass
+import os        
+y = 2                
+z = 3                    

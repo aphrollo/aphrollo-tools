@@ -1,0 +1,52 @@
+name = "python"
+extensions = [".py"]
+code_escape = true
+view = 2
+
+[comments]
+line = ["#"]
+
+[string.triple_double]
+open = '"""'
+escape = "backslash"
+multiline = true
+
+[string.triple_single]
+open = "'''"
+escape = "backslash"
+multiline = true
+
+[string.double]
+open = '"'
+escape = "backslash"
+
+[string.single]
+open = "'"
+escape = "backslash"
+
+[suppress.noqa]
+kind = "lint"
+pattern = '#\s*noqa'
+
+[suppress.pylint]
+kind = "lint"
+pattern = '#\s*pylint:\s*disable'
+
+[suppress.flake8]
+kind = "lint"
+pattern = '#\s*flake8'
+
+[suppress.type_ignore]
+kind = "type"
+pattern = '#\s*type:\s*ignore'
+
+[suppress.pyright]
+kind = "type"
+pattern = '#\s*pyright:\s*ignore'
+
+[suppress.no_cover]
+kind = "coverage"
+pattern = '#\s*pragma:\s*no\s*cover'
+
+[tests]
+patterns = ['(?m)^[ \t]*(?:async\s+)?def\s+(test_[A-Za-z0-9_]*)\s*\(']

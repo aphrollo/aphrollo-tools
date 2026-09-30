@@ -1,0 +1,9 @@
+# it's a comment
+name = "a#b"     # tail
+lit = 'C:\path'
+multi = """
+has 'quotes' and "q"
+"""
+raw = '''
+raw \ text
+'''

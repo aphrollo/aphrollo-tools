@@ -42,9 +42,10 @@ and acts now.
 - `ratchet` — the law engine: `check` judges a repo against its declared
   `.ratchet/laws/*.toml` (`--adopt <law>` is the one path that creates or
   raises a baseline row, gated on the law being new or changed since HEAD; a
-  baseline written before its `# scan-view: 2` stamp is migrated by the tightening
-  `check` itself, and the commit guard admits it only when it equals its recomputation),
-  `test` proves each law against its fixtures, `init`/`presets` copy the
+  baseline stamped below the `# scan-view: <n>` its files now read under is migrated
+  by the tightening `check` itself, and the commit guard admits it only when it
+  equals its recomputation), `test` proves each law, and each language row, against
+  its fixtures, `init`/`presets` copy the
   embedded law library (`internal/ratchet/presets/{common,rust,go}`) into a
   repo via `extends`/`[params]`.
 - `gate` — the TDD + law gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
@@ -87,6 +88,8 @@ internal/lsp/        LSP types + JSON-RPC stdio client
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
 internal/ratchet/    Law engine: .ratchet/laws/*.toml schema, matchers, baselines, fixtures
+internal/lang/       language table: one TOML row per language (comments, strings, suppression directives, test patterns), embedded defaults, per-repo .ratchet/languages rows
+internal/mask/       the one lexer, reading a language row: blanks strings and comments, keeps length and newlines
 internal/tdd/        TDD + law gates: policy engine, edit smells, anti-cheat, fail-first, install
 internal/tdd/shell/  bash write-target parsing (L0 of the tdd split)
 internal/tdd/gitx/   git plumbing, trunk and merge-tip resolution (L0)
@@ -175,6 +178,13 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   `[files]` section of `tools/tddsplit/manifest.txt`, inserted at its sorted
   place (by file, then package). The same file name may have a row in two
   packages; the section carries no counts to update.
+- A new language is one file, `internal/lang/languages/<name>.toml`, with its
+  fixtures under `.ratchet/fixtures/languages/<name>/`; `aphrollo ratchet test`
+  proves it and no Go changes. When the row lexes files that were read by the
+  default row before it, its `view` is one above the highest in the table: a
+  baseline over those files is then judged by the old reading until a tightening
+  check migrates it; the scan cache is keyed by the embedded rows, so it drops
+  what it read under the old table by itself.
 - Never hand-edit a generated `export.go`, `deps_*.go` or `api_*.go` — they are
   `tools/tddsplit` output. Regenerate in place with
   `go run ./tools/tddsplit -regen`: no clean-tree requirement, no commit —

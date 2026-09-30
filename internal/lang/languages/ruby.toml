@@ -1,0 +1,19 @@
+name = "ruby"
+extensions = [".rb"]
+code_escape = true
+view = 2
+
+[comments]
+line = ["#"]
+
+[string.single]
+open = "'"
+escape = "backslash"
+
+[string.double]
+open = '"'
+escape = "backslash"
+
+[suppress.rubocop]
+kind = "lint"
+pattern = '#\s*rubocop:\s*disable'

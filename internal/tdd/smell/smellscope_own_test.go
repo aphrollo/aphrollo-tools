@@ -561,22 +561,28 @@ func TestAbsorbMoved_AnEmptyPoolAbsorbsNothing(t *testing.T) {
 	}
 }
 
-// TestLangOf_ReadsTheCommentSyntaxFromTheExtension pins the derivation: hash
-// comments for Python and Ruby, the Rust lexer for .rs, C-family otherwise, and
-// case does not matter.
+// TestLangOf_ReadsTheCommentSyntaxFromTheExtension pins the derivation from
+// the language table: a `#` comment opens no string in Python, Ruby, shell,
+// TOML and YAML, the Rust lexer reads a lifetime as code, the default row is
+// C-family where `#` is code, and case does not matter.
 func TestLangOf_ReadsTheCommentSyntaxFromTheExtension(t *testing.T) {
 	t.Parallel()
-	cases := map[string]lang{
-		"a.py": {hashComment: true},
-		"a.RB": {hashComment: true},
-		"a.rs": {rust: true},
-		"a.go": {},
-		"a.ts": {},
-		"a":    {},
+	hash := "a = 1 # it's\nb = 'q'\n"
+	hashWant := "a = 1 # it's\nb = ' '\n"
+	cases := map[string]struct{ src, want string }{
+		"a.py":   {hash, hashWant},
+		"a.RB":   {hash, hashWant},
+		"a.sh":   {hash, hashWant},
+		"a.toml": {hash, hashWant},
+		"a.yml":  {"a: 1 # it's\nb: 'q'\n", "a: 1 # it's\nb: ' '\n"},
+		"a.rs":   {"fn f<'a>(x: &'a str) { \"x\" }", "fn f<'a>(x: &'a str) { \" \" }"},
+		"a.go":   {hash, "a = 1 # it' \n    'q'\n"},
+		"a.ts":   {hash, "a = 1 # it' \n    'q'\n"},
+		"a":      {hash, "a = 1 # it' \n    'q'\n"},
 	}
-	for path, want := range cases {
-		if got := langOf(path); got != want {
-			t.Errorf("langOf(%q) = %+v, want %+v", path, got, want)
+	for path, c := range cases {
+		if got := langOf(path).mask(c.src, false); got != c.want {
+			t.Errorf("langOf(%q).mask(%q) = %q, want %q", path, c.src, got, c.want)
 		}
 	}
 }

@@ -13,6 +13,7 @@ import (
 // whole-scope question, rather than in the per-file, pure HitsIn path.
 func packageMarkerHits(view treeView, law Law, files []string, content map[string]string) ([]Hit, error) {
 	siblingsByDir := map[string][]string{}
+	langs := law.languages()
 	var hits []Hit
 	for _, rel := range files {
 		if !law.Scope.Matches(rel) {
@@ -22,7 +23,7 @@ func packageMarkerHits(view treeView, law Law, files []string, content map[strin
 		if !ok {
 			continue
 		}
-		fl := newFileLines(rel, text)
+		fl := newFileLines(langs, rel, text)
 		raw := fl.raw
 		code := fl.codeFor(law)
 		var candidates []int
@@ -56,7 +57,7 @@ func packageMarkerHits(view treeView, law Law, files []string, content map[strin
 			if err != nil {
 				return nil, err
 			}
-			sibCode := newFileLines(sib, sibText).codeFor(law)
+			sibCode := newFileLines(langs, sib, sibText).codeFor(law)
 			if law.Matcher.Marker.MatchString(strings.Join(sibCode, "\n")) {
 				excused = true
 				break

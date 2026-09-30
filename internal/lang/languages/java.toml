@@ -1,0 +1,35 @@
+name = "java"
+extensions = [".java"]
+view = 3
+
+[comments]
+line = ["//"]
+block = ["/* */"]
+
+[string.text_block]
+open = '"""'
+escape = "backslash"
+multiline = true
+
+[string.double]
+open = '"'
+escape = "backslash"
+
+[string.char]
+open = "'"
+escape = "backslash"
+
+[suppress.suppress_warnings]
+kind = "lint"
+pattern = '@SuppressWarnings\b'
+
+[suppress.nopmd]
+kind = "lint"
+pattern = '//\s*NOPMD'
+
+[suppress.checkstyle]
+kind = "lint"
+pattern = 'CHECKSTYLE:OFF'
+
+[tests]
+patterns = ['@Test\b(?:\s*\([^)]*\))?\s*(?:@\w+(?:\([^)]*\))?\s*)*(?:(?:public|protected|private|static|final)\s+)*void\s+(\w+)']

@@ -1,0 +1,21 @@
+name = "yaml"
+extensions = [".yaml", ".yml"]
+code_escape = true
+view = 2
+
+[comments]
+line = ["#"]
+line_word_start = true
+
+# A quote opens a string only where a scalar starts: the apostrophe in
+# `msg: don't` is part of a plain scalar. A single-quoted string holds two
+# quotes in a row as one literal quote.
+[string.single]
+open = "'"
+escape = "doubling"
+opens_after = ":-[{,?"
+
+[string.double]
+open = '"'
+escape = "backslash"
+opens_after = ":-[{,?"
