@@ -170,6 +170,7 @@ func TestMainMoveCounts_TheEdges(t *testing.T) {
 		{"a commit, tip on origin", part("t1\nmerge a: x", originBehind), part("t2\ncommit: f\nmerge a: x", originBehind), true},
 		{"a move with no log entry, tip on origin", part("t1\nmerge a: x", originBehind), part("t2\nmerge a: x", originBehind), false},
 		{"a move with no log entry, tip apart", part("t1\nmerge a: x", originBehind), part("t2\nmerge a: x", originApart), true},
+		{"a merge entry on top, same tip", part("t1\nmerge a: x", originBehind), part("t1\nmerge b: x\nmerge a: x", originBehind), false},
 		{"a rewritten log, same tip", part("t1\nmerge a: x", originBehind), part("t1\nmerge b: x", originBehind), true},
 		{"no origin, a merge on top", part("t1\nmerge a: x", ""), part("t2\nmerge b: x\nmerge a: x", ""), false},
 		{"no origin, a move with no log entry", part("t1\nmerge a: x", ""), part("t2\nmerge a: x", ""), true},
