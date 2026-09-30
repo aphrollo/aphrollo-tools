@@ -224,6 +224,16 @@ func TestGlobNamesExt_TheExtensionStandsAtTheGlobsEndOrBeforeANonExtensionByte(t
 		{"**/*.c", false},
 		{"", false},
 		{".cs", true},
+		// The bytes either side of each range an extension holds: a, z, 0, 9.
+		{"**/*.csa", false},
+		{"**/*.csz", false},
+		{"**/*.cs0", false},
+		{"**/*.cs9", false},
+		{"**/*.cs`", true},
+		{"**/*.cs{", true},
+		{"**/*.cs/", true},
+		{"**/*.cs:", true},
+		{"**/*.cs@", true},
 	}
 	for _, c := range cases {
 		if got := globNamesExt(c.glob, ".cs"); got != c.want {
@@ -368,5 +378,35 @@ func TestLoadLaws_ABrokenRepositoryRowFailsTheLoad(t *testing.T) {
 	}
 	if _, err := Check(Options{Root: root}); err == nil {
 		t.Error("Check accepted a repository with a broken language row")
+	}
+}
+
+func TestMigratedBaselineText_OnlyAStampBelowTheLawsViewIsAMigration(t *testing.T) {
+	root := javaRepo(t, "")
+	row := "app/A.java | a \"b\" \"c SECRET\n"
+	cases := []struct {
+		name, text string
+		want       bool
+	}{
+		{"unstamped", row, true},
+		{"stamped at 1", "# scan-view: 1\n" + row, true},
+		{"stamped at 2", "# scan-view: 2\n" + row, true},
+		{"stamped at the law's view", "# scan-view: 3\n" + row, false},
+		{"stamped above it", "# scan-view: 4\n" + row, false},
+	}
+	for _, c := range cases {
+		text, ok, err := MigratedBaselineText(Options{Root: root}, ".ratchet/baselines/secret_java.txt", c.text)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if ok != c.want {
+			t.Errorf("%s: ok = %v, want %v", c.name, ok, c.want)
+		}
+		if ok && text != "# scan-view: 3\n" {
+			t.Errorf("%s: recomputed = %q, want the stamp alone: the Java row masks the text block", c.name, text)
+		}
+	}
+	if _, ok, _ := MigratedBaselineText(Options{Root: root}, ".ratchet/baselines/other.txt", row); ok {
+		t.Error("a baseline no law declares is no migration")
 	}
 }
