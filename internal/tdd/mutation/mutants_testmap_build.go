@@ -236,6 +236,7 @@ func tail(output string) string {
 // the error, and the others are still done.
 func refreshTestMaps(ctx context.Context, root string, cfg MutantsConfig, dirs []string, workers int, log io.Writer) (built, fresh int, err error) {
 	var errs []error
+	canary := watchGitWorld(root, "test-map build")
 	for _, dir := range dirs {
 		hash, herr := packageTestHash(ctx, root, dir)
 		if herr != nil {
@@ -247,6 +248,12 @@ func refreshTestMaps(ctx context.Context, root string, cfg MutantsConfig, dirs [
 			continue
 		}
 		m, ok, berr := buildTestMap(ctx, root, cfg, dir, workers, log)
+		if changes := canary.verify(log); len(changes) > 0 {
+			// A build that reached the real git state is not trusted for the
+			// map it made, or for any build after it.
+			errs = append(errs, fmt.Errorf("the test map of %s is refused: its build changed the git state of %s (%d change(s), listed above)", dir, root, len(changes)))
+			break
+		}
 		if berr != nil {
 			errs = append(errs, berr)
 			continue

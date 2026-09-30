@@ -105,6 +105,8 @@ internal/argvbatch/  command-line budgets (cmd.exe 8 191, CreateProcess 32 767):
 internal/docs/       doc-reference guard: extract path citations, resolve, report misses
 internal/workspace/  worktree lifecycle + git verbs
 internal/depinstall/ dependency-install rule shared by workspace create and the PR merge gate; node_modules links
+internal/gitenv/     GIT_* scrubbing, the sealed git environment for processes that run tests, maintenance-off settings
+internal/gitiso/     TestMain isolation every package's tests run under: no GIT_* variables, temp dirs walled off from every repository, a temp home and git config; the hostile-environment probe that proves it
 internal/dev/        dev-tier control plane (systemd)
 internal/ciwhy/      ci why: resolve a pipeline run through gh, summarise its failed jobs
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen

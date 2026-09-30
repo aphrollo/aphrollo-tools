@@ -279,6 +279,7 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	// writes or resets the directory it runs in reaches the copy and never
 	// the lane (#972). The copy is removed on every return below, and by the
 	// signal handler on a signal.
+	canary := watchGitWorld(repoRoot, "proof")
 	box, err := newProveSandbox(repoRoot, root)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: mutants prove refused — a disposable copy of %s to prove in could not be made: %v; "+
@@ -345,6 +346,14 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	narrow := runner
 	wider := widenSurvivorSelection(run, runner, root, res)
 	runner, res, widened := wider.runner, wider.res, wider.outcome
+
+	// The tests the proof ran reached the real git state: nothing they said
+	// is proof of anything.
+	if changes := canary.verify(stderr); len(changes) > 0 {
+		fmt.Fprintf(stderr, "gate: mutants prove refused — the run changed the git state of %s (%d change(s), listed above); "+
+			"restored, nothing was proved\n", laneRoot, len(changes))
+		return ExitMutantsProveRefused
+	}
 
 	// The reach could not be established, so whether this selection was the
 	// whole story is unknown. Inconclusive, never a survivor.

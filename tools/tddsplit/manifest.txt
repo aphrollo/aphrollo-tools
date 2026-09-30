@@ -418,6 +418,8 @@ gitplumbing_stdout_test.go                         gitx
 gitspawn_test.go                                    gitx
 gitstaged_batch_unix_test.go                       gitx
 gitqueue_test.go                                   gitx
+gitworld.go                                        escape
+gitworld_test.go                                   escape
 go_reverse_scope.go                                suite
 go_reverse_scope_test.go                           suite
 go_test_reach.go                                   suite
@@ -520,6 +522,9 @@ mutants_budget.go                                  mutation
 mutants_budget_test.go                             mutation
 mutants_buildjobs.go                               mutation
 mutants_buildjobs_test.go                          mutation
+mutants_canary.go                                  mutation
+mutants_canary_runners_test.go                     mutation
+mutants_canary_test.go                             mutation
 mutants_cancel_test.go                             mutation
 mutants_cargoargv.go                               mutation
 mutants_ci.go                                      mutation
