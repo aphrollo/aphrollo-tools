@@ -54,10 +54,6 @@ func tomlArrayCommaError(p0 string, p1 string, p2 string) error {
 	return core.TomlArrayCommaError(p0, p1, p2)
 }
 
-func tomlBoolSetIn(p0 string, p1 string, p2 string) (bool, bool) {
-	return core.TomlBoolSetIn(p0, p1, p2)
-}
-
 func tomlStringIn(p0 string, p1 string, p2 string) (string, bool) {
 	return core.TomlStringIn(p0, p1, p2)
 }

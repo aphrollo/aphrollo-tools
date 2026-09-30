@@ -53,6 +53,12 @@ type MeasureOpts struct {
 	// box, and nothing is gained by holding the PR open for up to
 	// mutantsCIWaitMax. The merge gate leaves it false and waits.
 	DeferOnCIBusy bool
+	// Shards, above zero, makes this run ONE shard of a measurement divided
+	// across CI runners: it measures the files shard Shard owns
+	// (mutants_goshard.go), writes its outcomes to ReportOut and judges
+	// nothing — the merged reports are judged once, by JudgeShardReports.
+	// Go repos only, and ReportOut is required.
+	Shard, Shards int
 }
 
 // mutantsExecFn runs one mutation tool and reports its exit code. A seam, the
@@ -234,8 +240,12 @@ func MeasureLane(root string, cfg MutantsConfig, opts MeasureOpts) (Verdict, err
 		logf(log, "mutants: %s — not measuring here", why)
 		return Verdict{Unavailable: why, Message: "mutants: " + why}, nil
 	}
+	if opts.Shards > 0 && (!isGoModuleRepo(root) || opts.ReportOut == "") {
+		return Verdict{}, errors.New("a shard measures a Go module and writes its outcomes to a report: " +
+			"--shard needs a Go repo and --report")
+	}
 	if isGoModuleRepo(root) {
-		return measureGoLane(ctx, root, cfg, base, opts.ReportOut, log)
+		return measureGoLane(ctx, root, cfg, base, opts, log)
 	}
 	return measureCargoLane(ctx, root, cfg, base, log)
 }
@@ -327,7 +337,8 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 // measureGoLane is the Go half. gremlins is invoked exactly as the detached
 // job invoked it, scoped to the same merge base, and its report is read the
 // same way.
-func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base, reportOut string, log io.Writer) (Verdict, error) {
+func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base string, opts MeasureOpts, log io.Writer) (Verdict, error) {
+	reportOut := opts.ReportOut
 	if mutantsGOOSFn() == "windows" {
 		// gremlins reports 0.00% mutator coverage here — 4890 mutants NOT
 		// COVERED on this repo's own tree — so the run does not happen on
@@ -342,8 +353,16 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base, re
 	if err != nil {
 		return Verdict{}, err
 	}
-	if len(files) == 0 {
+	if len(files) == 0 && opts.Shards == 0 {
 		return measureSkipped(root, "nothing to measure (0 changed source files)", "nothing-to-measure", log), nil
+	}
+	var outside []string
+	if opts.Shards > 0 {
+		var v Verdict
+		var done bool
+		if outside, v, done, err = shardPlan(root, base, files, opts, log); done || err != nil {
+			return v, err
+		}
 	}
 	// gremlins copies nothing into the tree it measures and takes a worker
 	// count happily, so the Go half keeps the box's own cap. Its workers are
@@ -374,7 +393,7 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base, re
 	// The same rule as the Cargo half: an earlier run's report is not this
 	// run's, and a run that wrote none reached no verdict.
 	_ = os.Remove(out)
-	argv := append([]string{gremlinsBin}, gremlinsArgv(base, out, jobs, nil)...)
+	argv := append([]string{gremlinsBin}, gremlinsArgv(base, out, jobs, outside)...)
 	// gremlins rewrites the source it mutates too, and is killed by the same
 	// things: the tree is snapshotted here for the same reason.
 	before := snapshotWorktree(root)
@@ -422,6 +441,9 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base, re
 	// Published before the judging, not after: what another box needs is the
 	// OUTCOMES, judged there against the accept-list that lives in the tree
 	// this measurement is bound to.
+	if opts.Shards > 0 {
+		return finishShard(root, base, opts, outcomes, log), nil
+	}
 	writeRunnerReport(root, reportOut, base, outcomes, log)
 	return finishMeasure(root, cfg, outcomes, log), nil
 }

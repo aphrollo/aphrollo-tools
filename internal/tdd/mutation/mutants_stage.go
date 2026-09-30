@@ -67,6 +67,9 @@ func mutantsStage(displayName, repoRoot string) GateResult {
 		AppendGateLog(displayName, repoRoot, "mutants", "mutants-skipped:"+token, 0)
 		return mutantsResult(false, "")
 	}
+	if cfg.AtMergeCI {
+		return mutantsCIStage(displayName, repoRoot)
+	}
 	base, why := mergeMeasureBase(repoRoot)
 	if why != "" {
 		msg := fmt.Sprintf("gate %s: mutants → REJECTED\n  %s", displayName, why)

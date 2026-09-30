@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -72,6 +73,8 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "run":
 		return runGateMutantsRun(args[1:], stdout, stderr)
+	case "verdict":
+		return runGateMutantsVerdict(args[1:], stdout, stderr)
 	case "hold":
 		return runGateMutantsHold(args[1:], stdout, stderr)
 	case "prove":
@@ -84,6 +87,7 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 		if err := fs.Parse(args[1:]); err != nil {
 			return tdd.ExitMutantsProveUsage
 		}
+		noteMeasuredInCIAt(".", stderr)
 		if *file == "" || *oldStr == "" || *newStr == "" || *wantFail == "" {
 			fmt.Fprintln(stderr, "aphrollo gate mutants prove: --file, --old, --new and --want-fail are all "+
 				"required — a proof names the test it expects to fail before it runs, or it is not a proof")
@@ -116,6 +120,10 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 	// measured, bound to the tree it measured (internal/tdd/mutation/mutants_runner.go).
 	// Empty writes nothing, which is every run a developer types.
 	report := fs.String("report", "", "also write this run's per-mutant outcomes here, bound to the tree they were measured on")
+	// One slice of a lane's measurement divided across CI runners: this run
+	// measures the changed files it owns, writes them to --report and judges
+	// nothing; `gate mutants verdict` judges the merged slices.
+	shardSpec := fs.String("shard", "", "measure only shard <index>/<count> of the changed files and write it to --report, judging nothing")
 	// There is no --jobs: a Cargo measurement is N cargo-mutants processes,
 	// one per shard, each with --jobs 1, and N is derived from the box that
 	// has to hold their builds rather than typed by a caller (issue #592).
@@ -137,7 +145,15 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 	// A run that ends leaves its temp copies and scratch behind whether or not
 	// it reached a verdict, so the sweep follows every exit below.
 	defer sweepAfterRun(root)
-	v, err := tdd.MeasureLane(root, cfg, tdd.MeasureOpts{Base: *base, Log: stderr, ReportOut: *report})
+	opts := tdd.MeasureOpts{Base: *base, Log: stderr, ReportOut: *report}
+	if *shardSpec != "" {
+		if opts.Shard, opts.Shards, err = tdd.ParseShardSpec(*shardSpec); err != nil {
+			fmt.Fprintf(stderr, "aphrollo gate mutants run: %v\n", err)
+			return 2
+		}
+	}
+	noteMeasuredInCI(cfg, stderr)
+	v, err := tdd.MeasureLane(root, cfg, opts)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate mutants run: %v\n", err)
 		return 1
@@ -147,6 +163,65 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// runGateMutantsVerdict is `gate mutants verdict`: judge the reports of the
+// shards of one measurement as a single run, on the tree checked out here.
+// It prints the report on stdout like `run`, and exits 1 when the merged
+// run is refused or the reports are not the whole measurement.
+func runGateMutantsVerdict(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("mutants verdict", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	shards := fs.Int("shards", 0, "how many shard reports to expect")
+	report := fs.String("report", "", "also write the merged outcomes here, bound to the tree they were measured on")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *shards < 1 || fs.NArg() == 0 {
+		fmt.Fprintln(stderr, "aphrollo gate mutants verdict: --shards and at least one shard report are required")
+		return 2
+	}
+	root := tdd.RepoRoot(".")
+	if root == "" {
+		fmt.Fprintln(stderr, "aphrollo gate mutants verdict: not a git repository, so there is no tree to judge")
+		return 1
+	}
+	cfg, err := tdd.ReadMutantsConfig(root)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo gate mutants verdict: %v\n", err)
+		return 1
+	}
+	v, err := tdd.JudgeShardReports(root, cfg, fs.Args(), *shards, *report, stderr)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo gate mutants verdict: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, v.Message)
+	if v.Refused {
+		return 1
+	}
+	return 0
+}
+
+// noteMeasuredInCI says, on a hand run, that the repo's measurement is CI's:
+// the gate never runs it locally, so what a hand run finds is the caller's
+// own. CI itself runs these verbs and needs no reminder.
+func noteMeasuredInCI(cfg tdd.MutantsConfig, stderr io.Writer) {
+	if (cfg.AtMergeCI || cfg.BeforePRCI) && os.Getenv("GITHUB_ACTIONS") != "true" {
+		fmt.Fprintln(stderr, "mutants: this repo measures in CI (mutants-verdict); a hand run here is your own check, not the gate's")
+	}
+}
+
+// noteMeasuredInCIAt is noteMeasuredInCI for the repo holding dir, when it
+// declares anything readable.
+func noteMeasuredInCIAt(dir string, stderr io.Writer) {
+	root := tdd.RepoRoot(dir)
+	if root == "" {
+		return
+	}
+	if cfg, err := tdd.ReadMutantsConfig(root); err == nil {
+		noteMeasuredInCI(cfg, stderr)
+	}
 }
 
 // mutantsUsage is what an absent, unknown or -h verb prints.
@@ -172,6 +247,15 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
                      There is no --jobs: a Cargo run is one cargo-mutants
                      process per shard of the mutant pool, each with
                      --jobs 1, and the shard count comes from the box.
+  run --shard <i>/<n> --report <p>
+                     measure only the changed source files shard i of n owns
+                     (0-based, weighted by added lines) and write the outcomes
+                     to <p>; nothing is judged. How CI divides one measurement
+                     across hosted runners.
+  verdict --shards <n> [--report <p>] <report>...
+                     judge the n shard reports as one run, against the accept-list
+                     of the tree checked out here: refused when a report is
+                     missing, twice present, or of another tree. Exit codes as run.
   hold <file>...     take the pre-mutation WORKING state of each file, for a
                      hand proof run by editor rather than by "prove". The
                      restore afterwards is "MUTATION=1 git checkout -- <file>":

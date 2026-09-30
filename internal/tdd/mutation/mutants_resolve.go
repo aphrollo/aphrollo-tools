@@ -42,6 +42,34 @@ func setResolveBudgetForTest(d time.Duration) (restore func()) {
 	return func() { resolveBudgetFn = prev }
 }
 
+// resolveTotalCap is how long one run may spend settling ALL its mutants.
+// A leaf package imported by twenty others once spent 26 minutes settling 28
+// mutants one full fan-out at a time; past the cap the rest are UNRESOLVED,
+// which the judge refuses, rather than run on. A seam so a test can shrink it.
+var resolveTotalCap = 10 * time.Minute
+
+// setResolveTotalCapForTest pins the whole-run settle cap and answers the
+// restore.
+func setResolveTotalCapForTest(d time.Duration) (restore func()) {
+	prev := resolveTotalCap
+	resolveTotalCap = d
+	return func() { resolveTotalCap = prev }
+}
+
+// resolveClock reads the time the whole-run cap is measured against. A seam
+// so a test can move it past the cap without waiting.
+var resolveClock = time.Now
+
+// settleBudget is what one mutant may spend: its own budget, cut down to what
+// is left of the run's cap after elapsed. ok is false once nothing is left.
+func settleBudget(perMutant, total, elapsed time.Duration) (budget time.Duration, ok bool) {
+	remaining := total - elapsed
+	if remaining <= 0 {
+		return 0, false
+	}
+	return min(perMutant, remaining), true
+}
+
 // resolveGapMutants settles each outcome at idx, holding the box-wide
 // mutation-run lock for all of them, and answers the outcomes with those
 // replaced. The input slice is never written to.
@@ -56,8 +84,8 @@ func resolveGapMutants(ctx context.Context, root string, cfg MutantsConfig, reac
 	defer release()
 	g, gerr := reach()
 	env := measureEnv(root, cfg)
-	budget := resolveBudgetFn(root)
-	start := time.Now()
+	perMutant := resolveBudgetFn(root)
+	start := resolveClock()
 	logf(log, "mutants: settling %d mutant(s) on lines this diff adds by running each against the tests that reach it", len(idx))
 	for n, i := range idx {
 		m := out[i]
@@ -65,36 +93,87 @@ func resolveGapMutants(ctx context.Context, root string, cfg MutantsConfig, reac
 			out[i] = unresolved(m, fmt.Sprintf("the module's own package graph could not be read (%v)", gerr))
 			continue
 		}
+		budget, ok := settleBudget(perMutant, resolveTotalCap, resolveClock().Sub(start))
+		if !ok {
+			out[i] = unresolved(m, fmt.Sprintf("the run's settle time cap of %s was reached before this mutant was run", resolveTotalCap))
+			logf(log, "mutants: %s %s", plainName(out[i]), out[i].Note)
+			continue
+		}
 		dir := goMutantPackageDir(m.File)
-		stages, reaching := resolveStages(g, dir, m.Status)
+		stages, reaching := resolveStages(g, cfg, dir, m.Status)
 		if len(reaching) == 0 {
 			m.Note = "no package with tests reaches " + dir + ", so no test runs this line"
 			out[i] = m
 			continue
 		}
+		if len(stages) == 0 {
+			// gremlins already ran the package's own tests over this mutant
+			// and they missed it; nothing else is run for it.
+			m.Status = "missed"
+			m.Note = "survived " + dir + "'s own tests, which gremlins ran, and " + dir +
+				" is not one of mutants-integration-packages, so no other package's tests are run for it"
+			out[i] = m
+			logf(log, "mutants: %s %s", plainName(m), m.Note)
+			continue
+		}
 		out[i] = resolveInCopy(ctx, root, env, m, stages, reaching, budget, filepath.Join(measureTempDir(root), "resolve", strconv.Itoa(n)))
-		logf(log, "mutants: %s: %s", outcomeName(out[i]), out[i].Note)
+		logf(log, "mutants: %s %s", plainName(out[i]), out[i].Note)
 	}
-	logf(log, "mutants: settled %d mutant(s) in %s", len(idx), time.Since(start).Round(time.Second))
+	logf(log, "mutants: settled %d mutant(s) in %s", len(idx), resolveClock().Sub(start).Round(time.Second))
 	return out
 }
 
-// resolveStages is which tests settle a mutant in dir, run by run, and
-// every package with tests that reaches it. A not-covered mutant runs its
-// own package's tests first, alone, since those kill most mutants and finish
-// long before a wide run does; then every other package that reaches it. An
-// inconclusive survivor skips its own package, whose tests gremlins already
-// ran over it without a kill.
-func resolveStages(g goReachGraph, dir, status string) (stages [][]string, reaching []string) {
-	others := testedPackagesReaching(g, dir)
+// isIntegrationPackage reports whether the repo declared dir in
+// mutants-integration-packages.
+func isIntegrationPackage(cfg MutantsConfig, dir string) bool {
+	return slices.Contains(cfg.IntegrationPackages, dir)
+}
+
+// testedLayers is the packages with tests that reach dir, nearest first: one
+// entry per import distance, holding the tested packages at that distance. A
+// distance with no tested package is left out.
+func testedLayers(g goReachGraph, dir string) [][]string {
+	var out [][]string
+	for _, layer := range g.Layers(dir) {
+		var tested []string
+		for _, p := range layer {
+			if g.Tested[p] {
+				tested = append(tested, p)
+			}
+		}
+		if len(tested) > 0 {
+			out = append(out, tested)
+		}
+	}
+	return out
+}
+
+// resolveStages is which tests settle a mutant in dir, run by run, and the
+// packages those runs cover. A package with tests of its own that the repo
+// did not list as an integration package is settled by those tests alone: a
+// mutant they miss is refused at once, and no other package's tests are run
+// for it. An integration package, or one with no tests of its own to miss,
+// runs its own tests first, alone, since those kill most mutants and finish
+// long before a wide run does, then the tested packages that reach it one
+// import distance at a time, nearest first, so a kill by a direct importer
+// never pays for the packages further up. An inconclusive survivor skips its
+// own package, whose tests gremlins already ran over it without a kill.
+func resolveStages(g goReachGraph, cfg MutantsConfig, dir, status string) (stages [][]string, reaching []string) {
+	layers := testedLayers(g, dir)
 	if !g.Tested[dir] {
-		return [][]string{others}, others
+		return layers, slices.Concat(layers...)
 	}
-	reaching = append([]string{dir}, others...)
+	if !isIntegrationPackage(cfg, dir) {
+		if status == gremlinsScopeUnknown {
+			return nil, []string{dir}
+		}
+		return [][]string{{dir}}, []string{dir}
+	}
+	reaching = append([]string{dir}, slices.Concat(layers...)...)
 	if status == gremlinsScopeUnknown {
-		return [][]string{others}, reaching
+		return layers, reaching
 	}
-	return [][]string{{dir}, others}, reaching
+	return append([][]string{{dir}}, layers...), reaching
 }
 
 // resolveInCopy settles m in a disposable copy of the checkout at root, one

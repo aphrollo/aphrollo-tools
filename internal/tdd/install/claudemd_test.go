@@ -368,6 +368,56 @@ func TestManagedBlockFor_ReadsMutantsBeforePR(t *testing.T) {
 	}
 }
 
+// A repo that measures in CI keeps the mutation rules, because CI still
+// refuses what they prevent, and says that the measurement is CI's and that a
+// merge needs its check.
+func TestClaudeMDBlock_ARepoThatMeasuresInCISaysSoAndKeepsTheRules(t *testing.T) {
+	t.Parallel()
+	rules := []string{"aphrollo gate mutants prove", "--want-fail", "UNREADABLE", "loop index"}
+	for name, f := range map[string]BlockFlags{
+		"at merge":      {MutantsAtMerge: true, MutantsAtMergeCI: true},
+		"before the PR": {MutantsBeforePR: true, MutantsBeforePRCI: true},
+	} {
+		block := ClaudeMDBlock(f)
+		for _, rule := range rules {
+			if !strings.Contains(block, rule) {
+				t.Errorf("%s: a repo measuring in CI is not told %q", name, rule)
+			}
+		}
+		if !strings.Contains(block, "CI's `mutants-verdict` measures this repo's mutants, and the local box does not") {
+			t.Errorf("%s: the mutation rules do not say CI measures:\n%s", name, block)
+		}
+	}
+	block := ClaudeMDBlock(BlockFlags{MutantsAtMerge: true, MutantsAtMergeCI: true})
+	if !strings.Contains(block, "**A merge is measured in CI:**") || !strings.Contains(block, "`mutants-verdict` check passed on the PR head") {
+		t.Errorf("the merge line does not say the merge needs CI's check:\n%s", block)
+	}
+	if strings.Contains(block, "checked, not measured") || strings.Contains(block, "runs this lane's mutation measurement") {
+		t.Errorf("the merge line claims a local answer for a repo that measures in CI:\n%s", block)
+	}
+}
+
+// Only the "ci" spelling of mutants-before-pr leaves the merge line alone: a
+// repo that measures at merge locally is still told so.
+func TestClaudeMDBlock_BeforePRInCIDoesNotChangeALocalMergeMeasurement(t *testing.T) {
+	t.Parallel()
+	block := ClaudeMDBlock(BlockFlags{MutantsAtMerge: true, MutantsBeforePR: true, MutantsBeforePRCI: true})
+
+	if !strings.Contains(block, "**A merge is measured, not certified:**") || strings.Contains(block, "**A merge is measured in CI:**") {
+		t.Errorf("the merge line is wrong for a local merge measurement:\n%s", mergeLineOf(block))
+	}
+}
+
+func TestManagedBlockFor_ReadsTheCIModes(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\nmutants-at-merge = \"ci\"\n")
+
+	if block := managedBlockFor(repo); !strings.Contains(block, "**A merge is measured in CI:**") {
+		t.Errorf("mutants-at-merge = \"ci\" must render the CI merge line:\n%s", mergeLineOf(block))
+	}
+}
+
 // mergeLineOf is the one line under test, for a failure message that shows it
 // rather than the whole block.
 func mergeLineOf(block string) string {
