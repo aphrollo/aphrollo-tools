@@ -26,6 +26,8 @@ func TestVerificationClaimed_ReadsClaimsAboutRunsAndNothingElse(t *testing.T) {
 		"no regressions",
 		"Not everything was covered, but all tests pass.",
 		"No, really: verified by hand.",
+		"never verified by the reviewer. Tests pass.",
+		"not verified by hand, and never tested with the service; all green on CI parity",
 	}
 	for _, c := range claims {
 		if !verificationClaimed(c) {

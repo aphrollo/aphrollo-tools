@@ -13,6 +13,7 @@ func TestVacuousNames_APytestRunUnderAnInterpreterIsReadLikeBarePytest(t *testin
 	for _, r := range []Runner{
 		{Cmd: "pytest", Args: []string{"-q"}},
 		{Cmd: "/root/.venv/bin/python", Args: []string{"-m", "pytest", "-q"}},
+		{Cmd: "python", Args: []string{"-m", "pytest"}},
 	} {
 		got, err := vacuousNames(r, res)
 		if err != nil || !slices.Equal(got, []string{"pytest"}) {

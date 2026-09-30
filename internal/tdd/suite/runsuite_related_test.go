@@ -76,6 +76,19 @@ func TestRunBatched_RelatedRunnerBudgetIsInclusive(t *testing.T) {
 	}
 }
 
+// TestRelatedFullSuite_ABareRelatedVerbIsStillARelatedRun pins the shortest
+// related runner, the tool and the verb with no file after them.
+func TestRelatedFullSuite_ABareRelatedVerbIsStillARelatedRun(t *testing.T) {
+	got, ok := relatedFullSuite(Runner{Cmd: "npx", Args: []string{"vitest", "related"}})
+	if !ok || commandLine(got) != "npx vitest run" {
+		t.Fatalf("got %q, %v; want npx vitest run", commandLine(got), ok)
+	}
+	got, ok = relatedFullSuite(Runner{Cmd: "npx", Args: []string{"jest", "--findRelatedTests"}})
+	if !ok || commandLine(got) != "npx jest" {
+		t.Fatalf("got %q, %v; want npx jest", commandLine(got), ok)
+	}
+}
+
 // TestRelatedFullSuite_LeavesEveryOtherRunnerAlone pins what is not a related
 // run: a plain full-suite run and another tool stay as they are.
 func TestRelatedFullSuite_LeavesEveryOtherRunnerAlone(t *testing.T) {
