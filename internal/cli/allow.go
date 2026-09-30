@@ -16,7 +16,7 @@ func runGateAllow(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if len(args) != 1 || !isKnownWall(args[0]) {
-		fmt.Fprintln(stderr, "usage: aphrollo gate allow [primary|discard]")
+		fmt.Fprintln(stderr, "usage: aphrollo gate allow [primary|discard|source-bash]")
 		return 2
 	}
 	msg, err := tdd.AllowWall(args[0])
@@ -36,7 +36,7 @@ func runGateRevoke(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if len(args) != 1 || !isKnownWall(args[0]) {
-		fmt.Fprintln(stderr, "usage: aphrollo gate revoke [primary|discard]")
+		fmt.Fprintln(stderr, "usage: aphrollo gate revoke [primary|discard|source-bash]")
 		return 2
 	}
 	msg, err := tdd.Revoke(args[0])
@@ -70,5 +70,5 @@ func printWaivers(stdout io.Writer) {
 // isKnownWall reports whether wall is one `gate allow`/`gate revoke` knows
 // how to waive.
 func isKnownWall(wall string) bool {
-	return wall == tdd.WallPrimary || wall == tdd.WallDiscard
+	return wall == tdd.WallPrimary || wall == tdd.WallDiscard || wall == tdd.WallSourceBash
 }

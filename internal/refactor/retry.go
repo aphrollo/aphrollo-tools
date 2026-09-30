@@ -84,6 +84,7 @@ func retryWhileLoading[T any](ctx context.Context, fn func() (T, error)) (T, err
 	defer cancel()
 
 	res, err := fn()
+	// walk-terminates: every turn selects on budget.Done(), which returns when the budget context ends
 	for isLoadingError(err) {
 		select {
 		case <-budget.Done():

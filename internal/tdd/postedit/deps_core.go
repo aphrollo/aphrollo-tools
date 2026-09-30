@@ -24,6 +24,8 @@ const Test = core.Test
 
 const WallPrimary = core.WallPrimary
 
+const WallSourceBash = core.WallSourceBash
+
 const Warn = core.Warn
 
 type Decision = core.Decision

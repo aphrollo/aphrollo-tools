@@ -18,8 +18,11 @@ import (
 //
 // The stage runs that one test, by name, whenever the staged diff adds,
 // removes or edits a line that makes such a call in a non-test Go file, in a
-// repo that carries the guard. Detection reads the staged diff and nothing
-// else, so a commit that changes no call pays for one git diff.
+// repo that carries the guard, or edits a function that makes such a call
+// (the table is keyed by function, so moving a call into a new function moves
+// its row while the call's own line is only diff context), or touches a file
+// the table already names. A commit that changes none of these pays for one
+// git diff and a read of the table.
 
 const (
 	callsiteGuardFile = "internal/argvbatch/callsites_test.go"
@@ -66,7 +69,7 @@ func callsiteGuardNeeded(repoRoot string) bool {
 		// run the check.
 		return true
 	}
-	return diffChangesExecCall(out)
+	return diffChangesExecCall(out) || touchesCallSite(repoRoot, out)
 }
 
 // diffChangesExecCall reports whether a unified diff adds or removes a line

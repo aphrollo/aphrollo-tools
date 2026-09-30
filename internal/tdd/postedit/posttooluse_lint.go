@@ -23,7 +23,9 @@ import (
 // against HEAD (--new-from-patch), and returns the findings in the edited
 // file for the edit's gate line. It never blocks and never fails the hook.
 //
-// It runs in the hook, not deferred, so it must be cheap: measured on this
+// It runs in the hook, so it keeps to the fast set; the linters that need the
+// package type-checked run detached instead (lintdeferred.go) and report at
+// the next hook. Measured on this
 // repo with the box at a load of about 10 on 8 cores, the fast set over one
 // edited package takes about 0.45 s once the analysis cache is warm, against
 // about 2.7 s for the whole standard set, which stays the commit gate's job.
@@ -64,6 +66,13 @@ func golangciLintOnPath() bool {
 // lintEdited is the gate-line note for the lint findings an edit to target
 // leaves in it; "" when there are none, and whenever the lint did not run.
 func lintEdited(target string) string {
+	return lintEditedInto(target, nil)
+}
+
+// lintEditedInto is lintEdited that also hands every finding it ran into
+// *known (not just the few the note names), when known is not nil, so the
+// deferred run of the full set can leave them unsaid.
+func lintEditedInto(target string, known *[]string) string {
 	if !strings.HasSuffix(target, ".go") {
 		return ""
 	}
@@ -122,12 +131,20 @@ func lintEdited(target string) string {
 		return ""
 	}
 	AppendGateLog("postedit", root, LogToken(rel), fmt.Sprintf("lint-findings:%d", len(findings)), time.Since(started))
+	if known != nil {
+		*known = findings
+	}
+	return "golangci-lint: " + namedFindings(findings)
+}
+
+// namedFindings names the first lintEditShown findings and counts the rest.
+func namedFindings(findings []string) string {
 	more := ""
 	if len(findings) > lintEditShown {
 		more = fmt.Sprintf(" and %d more", len(findings)-lintEditShown)
 		findings = findings[:lintEditShown]
 	}
-	return "golangci-lint: " + strings.Join(findings, "; ") + more
+	return strings.Join(findings, "; ") + more
 }
 
 // findingsIn is the finding lines of out that name rel, in order.

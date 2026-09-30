@@ -43,6 +43,7 @@ func runGateFeedback(args []string, stdout, stderr io.Writer) int {
 	// same as `gate issue` — a title typed first has to be lifted off before
 	// parsing, one typed last comes back as fs.Args().
 	var leading []string
+	// walk-terminates: args loses its first element every turn
 	for len(args) > 0 && args[0] != "" && args[0][0] != '-' {
 		leading = append(leading, args[0])
 		args = args[1:]

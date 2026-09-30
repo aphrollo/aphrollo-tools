@@ -273,6 +273,7 @@ func reachablePaths(deps map[string][]string, nameOf map[string]string, rootID, 
 	seen := map[string]bool{rootID: true}
 	out := map[string]string{}
 	queue := []step{{rootID, rootName}}
+	// walk-terminates: a child is queued only when not yet in seen, and each enters seen once
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
@@ -506,6 +507,7 @@ func globFiles(base, glob string) ([]string, error) {
 // generator's own fixed tail (`new/estimates.json`) dropped.
 func benchID(rel string) string {
 	parts := strings.Split(rel, "/")
+	// walk-terminates: parts loses its last element every turn that does not break
 	for len(parts) > 0 {
 		last := parts[len(parts)-1]
 		if last == "new" || last == "base" || strings.HasSuffix(last, ".json") {
