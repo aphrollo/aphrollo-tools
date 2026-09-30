@@ -44,7 +44,8 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	redirectHome(dir)
+	realHomeAtStart, _ = os.UserHomeDir()
+	gitiso.MustIsolate(dir)
 	leaveTheBoxQueue()
 	ghRefusalPath = installRefusingGh()
 	// The vast majority of this package's tests stub the individual gh seams
@@ -77,17 +78,3 @@ func TestMain(m *testing.M) {
 // realHomeAtStart is the operator's own home, recorded before it is replaced,
 // so a test can prove the replacement happened.
 var realHomeAtStart string
-
-// redirectHome isolates the package's whole run from the box's git world and
-// home: every home-derived default, the global git config, the temp dir, and
-// every repository around the run. See gitiso.Isolate. Two of this package's
-// defaults come from the home dir rather than from an override, and a test that
-// takes one writes into the operator's live install.
-func redirectHome(dir string) {
-	if home, err := os.UserHomeDir(); err == nil {
-		realHomeAtStart = home
-	}
-	if _, err := gitiso.Isolate(dir); err != nil {
-		panic(err)
-	}
-}

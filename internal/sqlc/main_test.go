@@ -4,14 +4,16 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/gitiso"
 )
 
-// TestMain points git's global and system config, and the gate's own state
-// dir, at throwaway locations for the WHOLE package run. Without it every
-// fixture commit inherits this box's core.hooksPath, runs the installed gate
-// against a t.TempDir() tree, and appends the verdict to the operator's real
-// gate.log — see TestFixtureGit_RunsNoneOfThisBoxsInstalledHooks. The same
-// net internal/tdd and internal/cli already keep.
+// TestMain cuts the package's run off from the box's git world and points the
+// gate's own state dir at a throwaway location for the WHOLE package run.
+// Without it every fixture commit inherits this box's core.hooksPath, runs the
+// installed gate against a t.TempDir() tree, and appends the verdict to the
+// operator's real gate.log — see TestFixtureGit_RunsNoneOfThisBoxsInstalledHooks.
+// See gitiso.Isolate for the git side.
 //
 // The git identity is supplied per invocation by the fixture helper's
 // GIT_AUTHOR_*/GIT_COMMITTER_* env, so an empty global config costs the
@@ -21,18 +23,11 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	gitConfig := filepath.Join(dir, "gitconfig")
-	if err := os.WriteFile(gitConfig, nil, 0o600); err != nil {
+	if _, err := gitiso.Isolate(dir); err != nil {
 		panic(err)
 	}
-	for k, v := range map[string]string{
-		"GIT_CONFIG_GLOBAL": gitConfig,
-		"GIT_CONFIG_SYSTEM": os.DevNull,
-		"CLAUDE_CONFIG_DIR": filepath.Join(dir, "claude"),
-	} {
-		if err := os.Setenv(k, v); err != nil {
-			panic(err)
-		}
+	if err := os.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude")); err != nil {
+		panic(err)
 	}
 	code := m.Run()
 	_ = os.RemoveAll(dir)

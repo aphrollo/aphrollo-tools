@@ -72,9 +72,7 @@ func Isolate(root string) (home string, err error) {
 	pinToolchainHomes()
 	for _, kv := range os.Environ() {
 		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "GIT_") {
-			if err := os.Unsetenv(name); err != nil {
-				return "", err
-			}
+			_ = os.Unsetenv(name) // a name taken from the environment is always valid
 		}
 	}
 	tmp := filepath.Join(root, "tmp")
@@ -82,36 +80,36 @@ func Isolate(root string) (home string, err error) {
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		return "", err
 	}
-	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
-		if err := os.Setenv(name, tmp); err != nil {
-			return "", err
-		}
-	}
+	env := map[string]string{"TMPDIR": tmp, "TMP": tmp, "TEMP": tmp}
 	for name, path := range homeLayout(home) {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			return "", err
 		}
-		if err := os.Setenv(name, path); err != nil {
-			return "", err
-		}
+		env[name] = path
 	}
 	gitconfig := filepath.Join(home, ".gitconfig")
 	if err := os.WriteFile(gitconfig, nil, 0o644); err != nil {
 		return "", err
 	}
 	cwd, _ := os.Getwd()
-	env := map[string]string{
-		"GIT_CEILING_DIRECTORIES": ceilingList(root, enclosingRepo(cwd)),
-		"GIT_CONFIG_GLOBAL":       gitconfig,
-		"GIT_CONFIG_NOSYSTEM":     "1",
-	}
+	env["GIT_CEILING_DIRECTORIES"] = ceilingList(root, enclosingRepo(cwd))
+	env["GIT_CONFIG_GLOBAL"] = gitconfig
+	env["GIT_CONFIG_NOSYSTEM"] = "1"
 	for name, value := range env {
-		if err := os.Setenv(name, value); err != nil {
-			return "", err
-		}
+		_ = os.Setenv(name, value) // fails only on an empty or malformed name, and these are literals
 	}
 	gitenv.DisableMaintenance(func(k, v string) { _ = os.Setenv(k, v) })
 	return home, nil
+}
+
+// MustIsolate is Isolate for a TestMain that has setup of its own: it panics
+// when the isolation cannot be made, since no test may run unisolated.
+func MustIsolate(root string) (home string) {
+	home, err := Isolate(root)
+	if err != nil {
+		panic(err)
+	}
+	return home
 }
 
 // ceilingList is the GIT_CEILING_DIRECTORIES value naming each of dirs, in the

@@ -48,7 +48,8 @@ func TestMain(m *testing.M) {
 	if err := os.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude")); err != nil {
 		panic(err)
 	}
-	redirectHome(dir)
+	realHomeAtStart, _ = os.UserHomeDir()
+	gitiso.MustIsolate(dir)
 	// os.Executable is this test binary. Anything init wires to "the running
 	// binary" would name a Go test binary, which answers gate arguments by
 	// running its whole suite (#997); the writers refuse it, so tests that
@@ -112,18 +113,4 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Exit(code)
-}
-
-// redirectHome isolates the package's whole run from the box's git world and
-// home: every home-derived default, the global git config, the temp dir, and
-// every repository around the run. See gitiso.Isolate. Two of this package's
-// defaults come from the home dir rather than from an override, and a test that
-// takes one writes into the operator's live install.
-func redirectHome(dir string) {
-	if home, err := os.UserHomeDir(); err == nil {
-		realHomeAtStart = home
-	}
-	if _, err := gitiso.Isolate(dir); err != nil {
-		panic(err)
-	}
 }
