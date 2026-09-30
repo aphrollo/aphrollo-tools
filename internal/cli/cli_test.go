@@ -519,7 +519,7 @@ func TestRun_Workspace_UnknownSub(t *testing.T) {
 
 func TestRun_Workspace_Commit_MissingMessage(t *testing.T) {
 	var out, errb bytes.Buffer
-	// In this repo's worktree, cwd-resolution succeeds but the empty -m is rejected.
+	commitRepo(t) // a repo of its own: cwd-resolution succeeds but the empty -m is rejected
 	code := Run([]string{"workspace", "commit"}, strings.NewReader(""), &out, &errb)
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1 (missing message)", code)

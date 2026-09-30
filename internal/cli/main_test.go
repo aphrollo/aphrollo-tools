@@ -3,13 +3,11 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
-	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
+	"github.com/aphrollo/aphrollo-tools/internal/gitiso"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -116,67 +114,16 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// redirectHome points every home-derived default at a temp home for the
-// package's whole run. Two of this package's defaults come from the home dir
-// rather than from an override -- the Claude config dir when
-// CLAUDE_CONFIG_DIR is empty, and the global git hooks dir -- and a test that
-// takes either one writes into the operator's live install. A `gate init`
-// with a defaulted hooks dir rewrote this box's real pre-commit hook to point
-// at a temp binary, and nothing noticed until the next commit.
-//
-// The Go cache variables are pinned to their resolved values FIRST: they
-// default under the home dir, and moving them would make every `go` a test
-// spawns rebuild the world into an empty cache.
+// redirectHome isolates the package's whole run from the box's git world and
+// home: every home-derived default, the global git config, the temp dir, and
+// every repository around the run. See gitiso.Isolate. Two of this package's
+// defaults come from the home dir rather than from an override, and a test that
+// takes one writes into the operator's live install.
 func redirectHome(dir string) {
-	gitenv.DisableMaintenance(func(k, v string) {
-		if err := os.Setenv(k, v); err != nil {
-			panic(err)
-		}
-	})
 	if home, err := os.UserHomeDir(); err == nil {
 		realHomeAtStart = home
 	}
-	pinGoEnv()
-	fake := filepath.Join(dir, "home")
-	if err := os.MkdirAll(filepath.Join(fake, ".config"), 0o755); err != nil {
+	if _, err := gitiso.Isolate(dir); err != nil {
 		panic(err)
-	}
-	for _, k := range []string{"HOME", "USERPROFILE"} {
-		if err := os.Setenv(k, fake); err != nil {
-			panic(err)
-		}
-	}
-	if err := os.Setenv("XDG_CONFIG_HOME", filepath.Join(fake, ".config")); err != nil {
-		panic(err)
-	}
-	// Windows resolves the per-user config and cache dirs from these two, and
-	// the Go env file lives under the first.
-	for k, sub := range map[string]string{"APPDATA": "Roaming", "LOCALAPPDATA": "Local"} {
-		p := filepath.Join(fake, "AppData", sub)
-		if err := os.MkdirAll(p, 0o755); err != nil {
-			panic(err)
-		}
-		if err := os.Setenv(k, p); err != nil {
-			panic(err)
-		}
-	}
-}
-
-// pinGoEnv writes the toolchain's resolved cache locations into the
-// environment, so redirecting HOME cannot move them.
-func pinGoEnv() {
-	names := []string{"GOPATH", "GOCACHE", "GOMODCACHE", "GOENV"}
-	out, err := exec.Command("go", append([]string{"env"}, names...)...).Output()
-	if err != nil {
-		return
-	}
-	lines := strings.Split(strings.ReplaceAll(strings.TrimSpace(string(out)), "\r\n", "\n"), "\n")
-	for i, name := range names {
-		if i >= len(lines) {
-			break
-		}
-		if v := strings.TrimSpace(lines[i]); v != "" {
-			_ = os.Setenv(name, v)
-		}
 	}
 }
