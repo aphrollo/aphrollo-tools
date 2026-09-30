@@ -220,6 +220,7 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL; the git queue shim,
   where it is on the agent's PATH, is the WALL (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit).
   Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
+  A lane refreshes this committed block with `aphrollo install --managed-block-only --repo <lane>`, never a full install: that writes git hooks into the git dir every worktree shares.
 - **A merge is measured in CI:** this repo declares `mutants-at-merge = "ci"`, so the merge gate measures nothing locally and refuses to merge unless CI's `mutants-verdict` check passed on the PR head; `aphrollo gate mutants run` measures THIS checkout by hand.
 - **Mutation rules** (CI's `mutants-verdict` measures this repo's mutants, and the local box does not): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`
   KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.

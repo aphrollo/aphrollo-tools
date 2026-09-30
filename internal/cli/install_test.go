@@ -132,7 +132,7 @@ func TestGateInitAndGateInstall_StillWork(t *testing.T) {
 
 	out.Reset()
 	errb.Reset()
-	installArgs := []string{"gate", "install", "--repo", repo, "--apply"}
+	installArgs := []string{"gate", "install", "--repo", repo, "--apply", "--bin", fakeInstalledBin(t)}
 	if code := Run(installArgs, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("gate install exit = %d\n%s%s", code, out.String(), errb.String())
 	}
