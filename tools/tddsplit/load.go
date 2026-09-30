@@ -116,7 +116,14 @@ type checked struct {
 // typecheck parses every Go file matching goos, renames its package clause
 // back to the root package name in memory, and type-checks the lot as one
 // package. External test files (package x_test) are returned by path only.
-func typecheck(repo, rootName, importPath string, srcs []srcFile, goos string) (*checked, []string, error) {
+//
+// A tolerant check stands an empty package in for an import whose export data
+// is missing and drops the "undefined: pkg.Name" errors that follow from it;
+// every other type error still refuses. -regen falls back to it when a lane
+// adds a cross-package reference: the package holding that caller cannot
+// compile until the forwarder this run is about to write exists, so its export
+// data is what is missing.
+func typecheck(repo, rootName, importPath string, srcs []srcFile, goos string, tolerant bool) (*checked, []string, error) {
 	ctx := build.Default
 	ctx.GOOS, ctx.GOARCH, ctx.CgoEnabled = goos, "amd64", false
 	c := &checked{GOOS: goos, Fset: token.NewFileSet(), ByFile: map[*ast.File]srcFile{}, ByName: map[string]srcFile{}}
@@ -162,14 +169,21 @@ func typecheck(repo, rootName, importPath string, srcs []srcFile, goos string) (
 		return os.Open(file)
 	}
 	var typeErrs []string
-	conf := types.Config{
-		Importer: importer.ForCompiler(c.Fset, "gc", lookup),
-		Error:    func(err error) { typeErrs = append(typeErrs, err.Error()) },
+	gaps := map[string]bool{}
+	conf := types.Config{Importer: importer.ForCompiler(c.Fset, "gc", lookup)}
+	if tolerant {
+		conf.Importer = gapImporter{real: conf.Importer.(types.ImporterFrom), have: exports, gaps: gaps}
+	}
+	conf.Error = func(err error) {
+		if tolerant && gapFollowOn(err, gaps) {
+			return
+		}
+		typeErrs = append(typeErrs, err.Error())
 	}
 	c.Info = &types.Info{Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
 	c.Pkg, _ = conf.Check(importPath, c.Fset, c.Files, c.Info)
 	if len(typeErrs) > 0 {
-		return nil, nil, fmt.Errorf("GOOS=%s: the reassembled package does not type-check, so no analysis of it can be trusted:\n%s", goos, strings.Join(typeErrs, "\n"))
+		return nil, nil, &typecheckError{msg: fmt.Sprintf("GOOS=%s: the reassembled package does not type-check, so no analysis of it can be trusted:\n%s", goos, strings.Join(typeErrs, "\n"))}
 	}
 	return c, external, nil
 }
@@ -232,3 +246,45 @@ func modulePath(repo string) (string, error) {
 
 // importPathOf joins the module path and a repo-relative dir.
 func importPathOf(module, dir string) string { return path.Join(module, dir) }
+
+// typecheckError is the reassembled package failing to type-check, told apart
+// from an I/O or manifest failure so -regen can retry it tolerantly.
+type typecheckError struct{ msg string }
+
+func (e *typecheckError) Error() string { return e.msg }
+
+// gapImporter serves an import with no export data as an empty, complete
+// package and records its name in gaps.
+type gapImporter struct {
+	real types.ImporterFrom
+	have map[string]string
+	gaps map[string]bool
+}
+
+func (g gapImporter) Import(p string) (*types.Package, error) { return g.ImportFrom(p, "", 0) }
+
+func (g gapImporter) ImportFrom(p, dir string, mode types.ImportMode) (*types.Package, error) {
+	if _, ok := g.have[p]; !ok && p != "unsafe" {
+		name := path.Base(p)
+		g.gaps[name] = true
+		pkg := types.NewPackage(p, name)
+		pkg.MarkComplete()
+		return pkg, nil
+	}
+	return g.real.ImportFrom(p, dir, mode)
+}
+
+// gapFollowOn reports whether err is the "undefined: pkg.Name" a gap package
+// causes for a selector into it.
+func gapFollowOn(err error, gaps map[string]bool) bool {
+	te, ok := err.(types.Error)
+	if !ok {
+		return false
+	}
+	name, ok := strings.CutPrefix(te.Msg, "undefined: ")
+	if !ok {
+		return false
+	}
+	pkg, _, dotted := strings.Cut(name, ".")
+	return dotted && gaps[pkg]
+}

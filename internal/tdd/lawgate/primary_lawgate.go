@@ -11,6 +11,7 @@ import (
 // from a missing directory fails, which reads as "no repo" and lets the write
 // through.
 func existingAncestorDir(dir string) string {
+	// walk-terminates: dir becomes its parent each turn and the walk returns at the root, where Dir(dir) == dir
 	for dir != "" {
 		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
 			return dir

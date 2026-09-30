@@ -120,6 +120,7 @@ func dependentsOf(deps map[string][]string, seeds []string) []string {
 	}
 	seen := map[string]bool{}
 	queue := append([]string{}, seeds...)
+	// walk-terminates: a package is queued only when not yet in seen, and each enters seen once
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]

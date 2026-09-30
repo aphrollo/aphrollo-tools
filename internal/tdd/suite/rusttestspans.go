@@ -235,6 +235,7 @@ func rustRawStart(src string, i int) bool {
 func rustRawEnd(src string, i int) (int, bool) {
 	j := i + 1
 	hashes := 0
+	// walk-terminates: j advances each turn and rustRawStart proved a quote follows the hashes, so the run of '#' ends
 	for src[j] == '#' {
 		hashes++
 		j++
@@ -344,6 +345,7 @@ func rustSkipAttrs(masked string, pos int) int {
 func rustAttrsBefore(masked string, pos int) int {
 	for {
 		j := pos - 1
+		// walk-terminates: j decreases each turn and the condition stops at index 0
 		for j >= 0 && isSpaceByte(masked[j]) {
 			j--
 		}
@@ -362,6 +364,7 @@ func rustAttrsBefore(masked string, pos int) int {
 			}
 		}
 		h := k - 1
+		// walk-terminates: h decreases each turn and the condition stops at index 0
 		for h >= 0 && isSpaceByte(masked[h]) {
 			h--
 		}

@@ -14,6 +14,7 @@ import "strings"
 // current shell, so nothing inside it is scoped to it.
 func unwrapGroups(seg []shellWord, openDepth int) (inner []shellWord, opened, closed int) {
 	inner = seg
+	// walk-terminates: every turn drops the first word and re-adds at most its text minus one byte, so the total length shrinks
 	for len(inner) > 0 {
 		first := inner[0]
 		if first.text == "{" || first.text == "}" {

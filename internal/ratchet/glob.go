@@ -211,6 +211,7 @@ func matchGlob(pattern, path string) bool {
 }
 
 func matchSegments(pat, seg []string) bool {
+	// walk-terminates: each turn either returns or consumes the leading pattern segment
 	for len(pat) > 0 {
 		if pat[0] == "**" {
 			// `**` at the end matches everything below, but must still have

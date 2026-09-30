@@ -397,6 +397,7 @@ func parseFlagsAnywhere(fs *flag.FlagSet, args []string) ([]string, error) {
 		args = args[:i]
 	}
 	var pos []string
+	// walk-terminates: args becomes rest[1:] of the parse each turn, a strict suffix, and the loop breaks on an empty rest
 	for len(args) > 0 {
 		if err := fs.Parse(args); err != nil {
 			return nil, err
