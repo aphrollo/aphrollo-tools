@@ -16,6 +16,10 @@ type Lexer struct {
 	lines      []lineMarker
 	blocks     []blockMarker
 	strs       []strForm
+	// starts marks the bytes code can turn on: the first byte of a marker or
+	// opener, and a backslash that escapes. Every other byte of code is passed
+	// without asking each marker in turn.
+	starts [256]bool
 }
 
 type lineMarker struct {
@@ -42,11 +46,14 @@ type strForm struct {
 // Lex.
 func NewLexer(l lang.Language) *Lexer {
 	x := &Lexer{codeEscape: l.CodeEscape}
+	x.starts['\\'] = l.CodeEscape
 	for _, c := range l.LineComments {
 		x.lines = append(x.lines, lineMarker{open: []byte(c.Marker), wordStart: c.WordStart})
+		x.starts[c.Marker[0]] = true
 	}
 	for _, c := range l.BlockComments {
 		x.blocks = append(x.blocks, blockMarker{open: []byte(c.Open), close: []byte(c.Close), nested: c.Nested})
+		x.starts[c.Open[0]] = true
 	}
 	for _, s := range l.Strings {
 		x.strs = append(x.strs, strForm{
@@ -54,6 +61,7 @@ func NewLexer(l lang.Language) *Lexer {
 			escape: s.Escape, multiline: s.Multiline, blankOpen: s.BlankOpen, charLit: s.CharLiteral,
 			placed: s.LineStart || s.OpensAfter != "", after: s.OpensAfter,
 		})
+		x.starts[s.Open[0]] = true
 	}
 	return x
 }
@@ -143,6 +151,9 @@ func (x *Lexer) Lex(src string, blankStrings, blankComments bool) string {
 				blank(blankStrings, i)
 			}
 		default:
+			if !x.starts[c] {
+				continue
+			}
 			if x.codeEscape && c == '\\' {
 				escaped = true
 				continue

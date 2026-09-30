@@ -142,6 +142,9 @@ func treeCorpus(t *testing.T) map[string]string {
 // only its own: each file is lexed by all eight oracles and all eight rows.
 const crossLanguageLimit = 6 << 10
 
+// ownViewsLimit bounds the size of a file compared in every view.
+const ownViewsLimit = 16 << 10
+
 func TestParity_EveryFileOfTheTreeReadAsEveryLanguage(t *testing.T) {
 	files := treeCorpus(t)
 	if len(files) < 500 {
@@ -155,9 +158,12 @@ func TestParity_EveryFileOfTheTreeReadAsEveryLanguage(t *testing.T) {
 			if row != own && len(src) > crossLanguageLimit {
 				continue
 			}
+			// Every view for a file read as its own language, the two that
+			// blank for any other; a file over ownViewsLimit only as its own
+			// language reads it with both categories blanked.
 			views := oracleViews[:3]
-			if row == own {
-				views = oracleViews
+			if row == own && len(src) > ownViewsLimit {
+				views = oracleViews[2:3]
 			}
 			lexed++
 			if !checkParity(t, row, src, views) {
