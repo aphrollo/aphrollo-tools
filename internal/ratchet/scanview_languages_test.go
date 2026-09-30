@@ -275,6 +275,7 @@ func TestBaselineStampAt_RaisesAStampInPlaceAndNeverLowersOne(t *testing.T) {
 		{"lower mid file", "# note\n# scan-view: 2\nrow one\n", 3, "# note\n# scan-view: 3\nrow one\n"},
 		{"equal", "# scan-view: 3\nrow one\n", 3, "# scan-view: 3\nrow one\n"},
 		{"higher", "# scan-view: 4\nrow one\n", 3, "# scan-view: 4\nrow one\n"},
+		{"equal, spelled with extra spaces, is left as written", "# scan-view:   3\nrow one\n", 3, "# scan-view:   3\nrow one\n"},
 	}
 	for _, c := range cases {
 		b, err := ParseBaseline(c.text, Multiset)
@@ -378,6 +379,79 @@ func TestLoadLaws_ABrokenRepositoryRowFailsTheLoad(t *testing.T) {
 	}
 	if _, err := Check(Options{Root: root}); err == nil {
 		t.Error("Check accepted a repository with a broken language row")
+	}
+}
+
+func TestFileLines_EachScanViewHasItsOwnCachedCode(t *testing.T) {
+	tbl, _ := lang.Defaults()
+	law, err := ParseLaw("name = \"secret_py\"\ndescription = \"x\"\nseverity = \"deny\"\nmask_strings = true\n"+
+		"[scope]\ninclude = [\"**/*.py\"]\n[matcher]\nkind = \"regex-absent\"\npattern = \"SECRET\"\nkey = \"file:line-content-hash\"\n", "secret_py")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The default lexer reads the apostrophe in the comment as a quote and
+	// blanks the next line; the Python row does not.
+	py := "x = 1  # it's\nSECRET = 'a'\n"
+	orders := [][]Law{
+		{withView(law, 1), withView(law, 2), law},
+		{law, withView(law, 2), withView(law, 1)},
+		{withView(law, 2), law, withView(law, 1)},
+	}
+	for _, order := range orders {
+		fl := newFileLines(tbl, "a.py", py)
+		for _, l := range order {
+			visible := strings.Contains(fl.codeFor(l)[1], "SECRET")
+			if want := l.scanView() != 1; visible != want {
+				t.Errorf("view %d: SECRET visible = %v, want %v", l.scanView(), visible, want)
+			}
+		}
+	}
+}
+
+func TestBaselineView_OnlyALawSensitiveToALaterRowHasAViewToKeep(t *testing.T) {
+	mk := func(include string) Law {
+		l, err := ParseLaw("name = \"t\"\ndescription = \"x\"\nseverity = \"deny\"\nmask_strings = true\nbaseline = \".ratchet/baselines/t.txt\"\n"+
+			"[scope]\ninclude = ["+include+"]\n[matcher]\nkind = \"regex-absent\"\npattern = \"x\"\nkey = \"file:line-content-hash\"\n", "t")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	root := t.TempDir()
+	cases := []struct {
+		name, include, baseline string
+		view                    int
+		stale                   bool
+	}{
+		{"rust, stamped ahead of its view", `"**/*.rs"`, "# scan-view: 2\n", 0, false},
+		{"rust, unstamped", `"**/*.rs"`, "row\n", 0, false},
+		{"python, unstamped", `"**/*.py"`, "row\n", 1, true},
+		{"python, stamped at its view", `"**/*.py"`, "# scan-view: 2\n", 2, false},
+		{"java, stamped below its view", `"**/*.java"`, "# scan-view: 2\n", 2, true},
+		{"java, stamped at its view", `"**/*.java"`, "# scan-view: 3\n", 3, false},
+	}
+	for _, c := range cases {
+		write(t, filepath.Join(root, ".ratchet", "baselines", "t.txt"), c.baseline)
+		view, stale := baselineView(root, nil, mk(c.include))
+		if view != c.view || stale != c.stale {
+			t.Errorf("%s: baselineView = (%d, %v), want (%d, %v)", c.name, view, stale, c.view, c.stale)
+		}
+	}
+	if view, stale := baselineView(root, map[string]string{".ratchet/baselines/t.txt": "# scan-view: 3\n"}, mk(`"**/*.java"`)); view != 3 || stale {
+		t.Errorf("a proposed baseline is read before the disk: (%d, %v)", view, stale)
+	}
+}
+
+func TestLanguages_ARepositoryWhoseRowsDoNotLoadReadsTheDefaults(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, lang.Dir, "bad.toml"), "name = \"bad\"\nbogus = true\n")
+	defaults, _ := lang.Defaults()
+	if got := (Law{Root: root}).languages(); got != defaults {
+		t.Errorf("a repository with a broken row reads %p, want the embedded table %p", got, defaults)
+	}
+	write(t, filepath.Join(root, lang.Dir, "bad.toml"), "name = \"bad\"\nextensions = [\".bad\"]\n")
+	if got := (Law{Root: root}).languages(); got == defaults {
+		t.Error("a repository with a valid row reads the embedded table")
 	}
 }
 

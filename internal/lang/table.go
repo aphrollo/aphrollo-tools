@@ -5,10 +5,11 @@ import (
 	"embed"
 	"encoding/hex"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -78,14 +79,18 @@ func Defaults() (*Table, error) {
 // EmbeddedDigest hashes the text of the embedded rows: a cache keyed by it
 // drops what was read under a table that has since changed, so adding or
 // editing a default row needs no version to move.
-func EmbeddedDigest() string {
-	entries, err := embedded.ReadDir("languages")
+func EmbeddedDigest() string { return digestOf(embedded, "languages") }
+
+// digestOf hashes the names and text of the files in dir of fsys, skipping an
+// entry that cannot be read as a file.
+func digestOf(fsys fs.FS, dir string) string {
+	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
 		return ""
 	}
 	h := sha256.New()
 	for _, e := range entries {
-		data, err := embedded.ReadFile("languages/" + e.Name())
+		data, err := fs.ReadFile(fsys, dir+"/"+e.Name())
 		if err != nil {
 			continue
 		}
@@ -99,7 +104,7 @@ func EmbeddedDigest() string {
 
 // build indexes rows, refusing two rows that claim one extension or file name.
 func build(rows []Language) (*Table, error) {
-	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Name < rows[j].Name })
+	slices.SortStableFunc(rows, func(a, b Language) int { return strings.Compare(a.Name, b.Name) })
 	t := &Table{rows: rows, byExt: map[string]int{}, byFile: map[string]int{}, byName: map[string]int{}}
 	for i, r := range rows {
 		if _, dup := t.byName[r.Name]; dup {

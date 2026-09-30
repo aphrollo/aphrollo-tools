@@ -15,6 +15,8 @@ func TestReasoned_TheReasonSearchStopsAtEveryBlockCloserGiven(t *testing.T) {
 	closers := []string{"*/", "-}"}
 	cases := map[string]bool{
 		" x -- why":         true,
+		"*/ -- why":         false,
+		"-} -- why":         false,
 		" x */ -- why":      false,
 		" x -} -- why":      false,
 		" x -- why */ more": true,

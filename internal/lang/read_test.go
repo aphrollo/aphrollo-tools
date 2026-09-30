@@ -37,6 +37,20 @@ func TestReadDocument_ValuesOfEveryKind(t *testing.T) {
 	}
 }
 
+func TestReadDocument_AnEmptyStringOfEitherKindIsAValue(t *testing.T) {
+	doc, err := readDocument("a = ''\nb = \"\"\nc = ['', \"\"]\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	k := doc.root.keys
+	if k["a"].kind != kindString || k["a"].s != "" || k["b"].kind != kindString || k["b"].s != "" {
+		t.Errorf("empty strings = %+v %+v", k["a"], k["b"])
+	}
+	if len(k["c"].list) != 2 || k["c"].list[0] != "" || k["c"].list[1] != "" {
+		t.Errorf("list of empty strings = %q", k["c"].list)
+	}
+}
+
 func TestReadDocument_TablesKeepFileOrderAndDottedNames(t *testing.T) {
 	doc, err := readDocument("# head\n\n[string.b]\nopen = \"x\"\n[string.a]\nopen = \"y\"\n[comments]\n")
 	if err != nil {

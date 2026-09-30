@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/lang"
@@ -75,7 +75,7 @@ func RunLanguageFixtures(root string) ([]FixtureResult, error) {
 				"%s/%s names no language row — add %s/%s.toml or remove the fixtures", LanguageFixturesDir, e.Name(), lang.Dir, e.Name())}})
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Law < out[j].Law })
+	slices.SortStableFunc(out, func(a, b FixtureResult) int { return strings.Compare(a.Law, b.Law) })
 	return out, nil
 }
 
