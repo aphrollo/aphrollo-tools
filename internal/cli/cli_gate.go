@@ -578,6 +578,9 @@ func runGateInstall(args []string, stdout, stderr io.Writer) int {
 	if binPath == "" {
 		binPath = defaultBinPath()
 	}
+	if *apply && refuseUnstableDefaultBin(*bin, binPath, "gate install", stderr) {
+		return 1
+	}
 	plan, err := tdd.BuildInstallPlan(root, binPath)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)

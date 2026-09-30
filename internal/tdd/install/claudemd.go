@@ -101,6 +101,7 @@ func ClaudeMDBlock(f BlockFlags) string {
 	b.WriteString("  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL; the git queue shim,\n")
 	b.WriteString("  where it is on the agent's PATH, is the WALL (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit).\n")
 	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).\n")
+	b.WriteString("  A lane refreshes this committed block with `aphrollo install --managed-block-only --repo <lane>`, never a full install: that writes git hooks into the git dir every worktree shares.\n")
 	// The merge line is about THIS repo, not about the tool: a conditional
 	// ("with `mutants-at-merge = true` ...") makes a reader go and find out
 	// which half applies to them, which is the errand the block exists to
