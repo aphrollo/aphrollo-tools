@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -32,8 +33,10 @@ func TestJudgeMutants_RefusesANotCoveredMutantOnALineTheDiffAdds(t *testing.T) {
 	if !v.Refused {
 		t.Fatalf("a mutant no test runs, on a line this lane wrote, was let through:\n%s", v.Message)
 	}
-	if !strings.HasPrefix(v.Message, "pkg/a.go:12:7 CONDITIONALS_NEGATION (not covered)\n") {
-		t.Errorf("message = %q, want it to lead with the mutant in the accept-list form", v.Message)
+	const want = "pkg/a.go:12:7: CONDITIONALS_NEGATION (not covered)\n" +
+		"pkg/a.go:12:7 CONDITIONALS_NEGATION (not covered)\n"
+	if !strings.HasPrefix(v.Message, want) {
+		t.Errorf("message = %q, want it to lead with the annotation line and then the accept-list form", v.Message)
 	}
 	if !strings.Contains(v.Message, gapRemedy) {
 		t.Errorf("message = %q, want the remedy for a gap", v.Message)
@@ -113,8 +116,37 @@ func TestJudgeMutants_RefusesAnUnresolvedInconclusiveMutantOnAnAddedLine(t *test
 	if len(v.Unaccepted) != 0 || v.Missed != 0 {
 		t.Errorf("verdict = %+v, want no survivor claimed for a mutant nobody settled", v)
 	}
-	if strings.Count(v.Message, "pkg/b.go:4:9") != 1 {
-		t.Errorf("message = %q, want the mutant named once", v.Message)
+	if !strings.Contains(v.Message, "pkg/b.go:4:9: ARITHMETIC_BASE (inconclusive) — UNRESOLVED") {
+		t.Errorf("message = %q, want the refused mutant as an annotation line too", v.Message)
+	}
+	if strings.Count(v.Message, "pkg/b.go:4:9") != 2 {
+		t.Errorf("message = %q, want the mutant named twice: annotation and accept-list form", v.Message)
+	}
+}
+
+// annotationRe is the shape CI's Go problem matcher turns into an Error
+// annotation: file.go:line:col: text.
+var annotationRe = regexp.MustCompile(`(?m)^\S+\.go:\d+:\d+: `)
+
+// Every refused mutant gets exactly one annotation line, and an inconclusive
+// mutant nothing refuses stays a plain log line.
+func TestJudgeMutants_EveryRefusedGapIsOneAnnotationAndAnUnrefusedOneIsNone(t *testing.T) {
+	t.Parallel()
+	notCovered := uncoveredOnAnAddedLine()
+	inconclusive := MutantOutcome{File: "pkg/b.go", Line: 4, Col: 9, Mutation: "ARITHMETIC_BASE",
+		Status: gremlinsScopeUnknown, NewLine: true, Note: "UNRESOLVED: cut off"}
+	v := judgeMutants(MutantsConfig{AtMerge: true}, []MutantOutcome{notCovered, inconclusive})
+	if got := len(annotationRe.FindAllString(v.Message, -1)); got != 2 {
+		t.Errorf("annotations = %d, want 2 (one per refused gap):\n%s", got, v.Message)
+	}
+
+	inconclusive.NewLine = false
+	v = judgeMutants(MutantsConfig{AtMerge: true}, []MutantOutcome{inconclusive})
+	if v.Refused {
+		t.Fatalf("an inconclusive mutant off the diff was refused:\n%s", v.Message)
+	}
+	if got := len(annotationRe.FindAllString(v.Message, -1)); got != 0 {
+		t.Errorf("annotations = %d, want 0 for a mutant nothing refused:\n%s", got, v.Message)
 	}
 }
 

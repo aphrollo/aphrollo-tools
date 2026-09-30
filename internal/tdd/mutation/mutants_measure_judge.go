@@ -157,6 +157,9 @@ func measureReport(v Verdict, notes []acceptNote) string {
 	}
 	refusedGap := map[string]bool{}
 	for _, m := range v.Gaps {
+		// Two lines per refused gap: the annotation CI's problem matcher
+		// picks up, then the accept-list form a reader copies.
+		b.WriteString(m.GapAnnotation() + "\n")
 		b.WriteString(m.GapLine() + "\n")
 		refusedGap[m.GapLine()] = true
 	}
