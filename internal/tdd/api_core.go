@@ -69,6 +69,4 @@ func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }
 
 func setOff(p0 string, p1 bool) error { return core.SetOff(p0, p1) }
 
-func setWaiver(p0 string, p1 string, p2 bool) error { return core.SetWaiver(p0, p1, p2) }
-
 func writeFileAtomic(p0 string, p1 []byte) error { return core.WriteFileAtomic(p0, p1) }

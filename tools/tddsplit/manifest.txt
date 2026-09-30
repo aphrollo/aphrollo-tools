@@ -450,6 +450,7 @@ installwritable.go                                 tdd
 issue.go                                           escape
 issue_test.go                                      install   # prefix says escape; its test body reaches install
 killtree_test.go                                   postedit
+knownwall_test.go                                  postedit
 lintdeferred.go                                    postedit
 lintdeferred_test.go                               postedit
 lintlock.go                                        lock
@@ -838,6 +839,7 @@ ratchetgate.go                                     lawgate
 ratchetgate_bench_test.go                          tdd
 ratchetgate_lanebuild.go                           lawgate
 ratchetgate_lanebuild_e2e_test.go                  lawgate
+ratchetgate_lanebuild_scratch_test.go              lawgate
 ratchetgate_lanebuild_test.go                      lawgate
 ratchetgate_stagedgraph.go                         lawgate
 ratchetgate_suite.go                               suite     # created by P2
@@ -910,6 +912,7 @@ sddskill.md                                        install
 sddskill_test.go                                   install
 seams.go                                           tddtest
 session.go                                         tdd
+session_allow_test.go                              tdd
 session_core.go                                    core      # created by P2
 session_identity.go                                tdd
 session_identity_test.go                           tdd

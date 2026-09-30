@@ -75,8 +75,4 @@ func TailSnippet(p0 string) string { return tailSnippet(p0) }
 
 func TreatAsEmptyPass(p0 SuiteResult) bool { return treatAsEmptyPass(p0) }
 
-func WaiverAllowedMessage(p0 string) string { return waiverAllowedMessage(p0) }
-
-func WaiverRevokedMessage(p0 string) string { return waiverRevokedMessage(p0) }
-
 func WritePhaseResult(p0 string, p1 PhaseOutcome) { writePhaseResult(p0, p1) }
