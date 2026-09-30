@@ -50,7 +50,7 @@ func TestRun_GateInit_WiresTheStatusLineAndClearsRetiredHooks(t *testing.T) {
 	}
 
 	var out, errb bytes.Buffer
-	code := Run([]string{"gate", "init", "--config-dir", cfg, "--no-git"}, strings.NewReader(""), &out, &errb)
+	code := Run([]string{"gate", "init", "--config-dir", cfg, "--no-git", "--bin", fakeInstalledBin(t)}, strings.NewReader(""), &out, &errb)
 	if code != 0 {
 		t.Fatalf("init exit = %d, want 0\nstderr: %s", code, errb.String())
 	}

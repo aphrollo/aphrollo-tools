@@ -20,7 +20,7 @@ func TestRun_GateInit_InstallsTheManagedSkillsAndAgents(t *testing.T) {
 	cfg := t.TempDir()
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"gate", "init", "--config-dir", cfg, "--no-git"},
+	if code := Run([]string{"gate", "init", "--config-dir", cfg, "--no-git", "--bin", fakeInstalledBin(t)},
 		strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("init exit = %d, want 0\nstderr: %s", code, errb.String())
 	}
