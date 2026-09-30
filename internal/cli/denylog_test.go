@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -33,5 +34,27 @@ func TestRun_TDD_PreToolUseDenialIsRecorded(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "pretooluse-denied:tautology") {
 		t.Fatalf("the denial must name its policy in gate.log, got:\n%s", data)
+	}
+}
+
+// The wall sits in preToolUseWalls, so the hook itself refuses a shell write
+// of a source file in a managed repo and names the policy in gate.log.
+func TestRun_TDD_PreToolUseRefusesAShellSourceWrite(t *testing.T) {
+	dir := gitInit(t, map[string]string{"aphrollo.toml": "[aphrollo]\n"})
+	t.Chdir(dir)
+	cfg := gateConfigDir(t)
+	var out, errb bytes.Buffer
+	payload := `{"tool_name":"Bash","session_id":"s-wire","cwd":` + strconv.Quote(dir) +
+		`,"tool_input":{"command":"echo package x > x.go"}}`
+
+	if code := Run([]string{"tdd", "pretooluse"}, strings.NewReader(payload), &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2 (blocked); stdout %q", code, out.String())
+	}
+	if !strings.Contains(out.String(), "write x.go with Edit/Write, not Bash") {
+		t.Fatalf("refusal text missing: %q", out.String())
+	}
+	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	if err != nil || !strings.Contains(string(data), "pretooluse-denied:source-bash") {
+		t.Fatalf("gate.log must name the source-bash policy: %v\n%s", err, data)
 	}
 }
