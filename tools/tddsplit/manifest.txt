@@ -712,6 +712,7 @@ posttooluse_gofmt_test.go                          postedit
 posttooluse_gofmt_unix_test.go                     postedit
 posttooluse_inconclusive_test.go                   postedit
 posttooluse_lint.go                                postedit
+posttooluse_lint_run_test.go                       postedit
 posttooluse_lint_test.go                           postedit
 posttooluse_notrun_test.go                         postedit
 posttooluse_ratchet.go                             postedit

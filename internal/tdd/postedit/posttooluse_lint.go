@@ -50,10 +50,16 @@ var lintEditFinding = regexp.MustCompile(`^(\S.*?\.go):\d+:\d+: .+$`)
 // The seams of the edit-time lint: whether the linter is installed, the
 // box's load, and the run itself, so a test states each without the box's.
 var (
-	lintEditLook = func() bool { _, err := exec.LookPath("golangci-lint"); return err == nil }
+	lintEditLook = golangciLintOnPath
 	lintEditLoad = readLoadAvg
 	lintEditRun  = runLintEdit
 )
+
+// golangciLintOnPath reports whether golangci-lint is installed.
+func golangciLintOnPath() bool {
+	_, err := exec.LookPath("golangci-lint")
+	return err == nil
+}
 
 // lintEdited is the gate-line note for the lint findings an edit to target
 // leaves in it; "" when there are none, and whenever the lint did not run.
@@ -163,7 +169,12 @@ func editedLinesPatch(root, rel string) string {
 // runLintEdit runs golangci-lint with args in root within lintEditBudget and
 // returns what it printed; timedOut is true when it was cut off.
 func runLintEdit(root string, args []string) (out string, timedOut bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), lintEditBudget)
+	return runLintWithin(root, args, lintEditBudget)
+}
+
+// runLintWithin is runLintEdit with the budget stated.
+func runLintWithin(root string, args []string, budget time.Duration) (out string, timedOut bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "golangci-lint", args...)
 	cmd.Dir = root
@@ -183,7 +194,12 @@ func lintBoxLoaded() bool {
 // readLoadAvg is the box's one-minute load average and core count, from
 // /proc/loadavg; not ok where there is none.
 func readLoadAvg() (load float64, cores int, ok bool) {
-	data, err := os.ReadFile("/proc/loadavg")
+	return loadFromProc(func() ([]byte, error) { return os.ReadFile("/proc/loadavg") })
+}
+
+// loadFromProc reads the one-minute load average from the text read returns.
+func loadFromProc(read func() ([]byte, error)) (load float64, cores int, ok bool) {
+	data, err := read()
 	if err != nil {
 		return 0, 0, false
 	}
@@ -214,7 +230,13 @@ func lintBackedOff(root string) bool {
 		return false
 	}
 	info, err := os.Stat(marker)
-	return err == nil && time.Since(info.ModTime()) < lintEditBackoff
+	return err == nil && withinBackoff(time.Since(info.ModTime()))
+}
+
+// withinBackoff reports whether a lint that ran past its budget age ago still
+// holds the edit hook off.
+func withinBackoff(age time.Duration) bool {
+	return age < lintEditBackoff
 }
 
 // markLintBackoff records that a lint in root ran past its budget just now.

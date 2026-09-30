@@ -42,11 +42,13 @@ func relatedFullSuite(r Runner) (Runner, bool) {
 		}
 		full.Args = []string{r.Args[0], "run"}
 	case "jest":
-		at := slices.Index(r.Args, "--findRelatedTests")
-		if at < 0 {
-			return r, false
+		for at, a := range r.Args {
+			if a == "--findRelatedTests" {
+				full.Args = slices.Clone(r.Args[:at])
+				return full, true
+			}
 		}
-		full.Args = slices.Clone(r.Args[:at])
+		return r, false
 	default:
 		return r, false
 	}
