@@ -300,14 +300,6 @@ func (l Law) regexAbsentHits(file string, raw, code []string) []Hit {
 	return hits
 }
 
-// commentPrefix is what opens a comment in the language this law scans.
-func (l Law) commentPrefix() string {
-	if l.CommentPrefix == "" {
-		return "//"
-	}
-	return l.CommentPrefix
-}
-
 // excluded reports whether a line is disqualified from ever being a trigger.
 func (l Law) excluded(line string) bool {
 	return l.TriggerExclude != nil && l.TriggerExclude.MatchString(line)

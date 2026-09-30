@@ -33,7 +33,7 @@ escape_lines = 2                               # optional: how far above (defaul
 baseline     = ".ratchet/baselines/nan-guard.txt"   # optional
 code_only    = true                            # optional: strip trailing comments first
 mask_strings = true                            # optional: blank string CONTENTS first, keep comments
-comment_prefix = "#"                           # optional: what opens one (default "//")
+comment_prefix = "#"                           # optional: what opens one (default: the language table's marker for the scope, else "//")
 contiguous   = true                            # optional: suppression must be in the comment run above
 trigger_exclude = "^\s*(pub )?use "            # optional: lines that can never be a trigger
 
@@ -108,7 +108,9 @@ single-line attributes, broken by the first code or blank line. Counting lines
 instead lets one `// nan-safe:` exempt an unrelated call four lines below,
 across code it says nothing about. `comment_prefix` is what opens a comment in
 the language being scanned, so a TOML or shell law strips `#` comments and a
-commented-out entry stops satisfying a `regex-present` law. `trigger_exclude`
+commented-out entry stops satisfying a `regex-present` law. A law that states
+none reads the line comment marker of the language rows its `include` globs
+name, and `//` when they name none or disagree. `trigger_exclude`
 disqualifies a line from ever BEING a trigger, which is what an import needs:
 putting `use` in the marker regex instead exempts everything in the window
 below the import.

@@ -284,10 +284,15 @@ type Law struct {
 	// strictly broader than the edit-time detector scanning the same tree for
 	// the same thing, and fires on exactly the lines that detector ignores.
 	MaskStrings bool
-	// CommentPrefix opens a comment in the language the law scans (`//` by
-	// default, `#` for TOML/shell), deciding what CodeOnly strips and what
-	// counts as a comment line in a contiguous run.
+	// CommentPrefix opens a comment in the language the law scans, deciding
+	// what CodeOnly strips and what counts as a comment line in a contiguous
+	// run. Unset, the language table's line comment marker for the law's
+	// scope applies (`#` for a law over TOML or shell, `//` when the scope
+	// names no language or several that disagree).
 	CommentPrefix string
+	// scopePrefix is that table default, resolved when the law is loaded; empty
+	// reads as `//`.
+	scopePrefix string
 	// Contiguous binds an escape or a marker to the COMMENT RUN directly above
 	// the trigger: any code or blank line between breaks it. Counting lines
 	// instead lets one comment exempt an unrelated call below it.
@@ -395,8 +400,12 @@ func LoadLaws(root string) ([]Law, error) {
 	}
 	// A repository row that does not load fails the whole load, like a
 	// malformed law: every law's view of a file depends on the table.
-	if _, err := lang.ForRoot(root); err != nil {
+	tbl, err := lang.ForRoot(root)
+	if err != nil {
 		return nil, err
+	}
+	for i := range laws {
+		laws[i].scopePrefix = laws[i].tablePrefix(tbl)
 	}
 	sort.Slice(laws, func(i, j int) bool { return laws[i].Name < laws[j].Name })
 	return laws, nil
@@ -547,6 +556,9 @@ func ParseLaw(text, wantName string) (Law, error) {
 	}
 	if law.Matcher.Contiguous {
 		law.Contiguous = true
+	}
+	if tbl, err := lang.Defaults(); err == nil {
+		law.scopePrefix = law.tablePrefix(tbl)
 	}
 	return law, nil
 }

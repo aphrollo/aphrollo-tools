@@ -30,7 +30,7 @@ escape_lines = 2                               # optional: how far above (defaul
 baseline     = ".ratchet/baselines/nan-guard.txt"   # optional
 code_only    = true                            # optional: strip trailing comments first
 mask_strings = true                            # optional: blank string CONTENTS first, keep comments
-comment_prefix = "#"                           # optional: what opens one (default "//")
+comment_prefix = "#"                           # optional: what opens one (default: the language table's marker for the scope, else "//")
 contiguous   = true                            # optional: suppression must be in the comment run above
 trigger_exclude = "^\s*(pub )?use "            # optional: lines that can never be a trigger
 
@@ -105,7 +105,9 @@ single-line attributes, broken by the first code or blank line. Counting lines
 instead lets one `// nan-safe:` exempt an unrelated call four lines below,
 across code it says nothing about. `comment_prefix` is what opens a comment in
 the language being scanned, so a TOML or shell law strips `#` comments and a
-commented-out entry stops satisfying a `regex-present` law. `trigger_exclude`
+commented-out entry stops satisfying a `regex-present` law. A law that states
+none reads the line comment marker of the language rows its `include` globs
+name, and `//` when they name none or disagree. `trigger_exclude`
 disqualifies a line from ever BEING a trigger, which is what an import needs:
 putting `use` in the marker regex instead exempts everything in the window
 below the import.
@@ -561,6 +563,8 @@ pattern = '@(?:file:)?Suppress\b'
 
 [tests]
 patterns = ['@Test\s+fun\s+(\w+)']    # test declarations; one capture group holds the name
+# selectable = ['@Test\s*fun\s+(\w+)']  # optional: the same, read as tolerantly as the language's runner does, to name the tests a proof runs; omitted, `patterns` serve
+# declarations = ['^\s*@Test\b']      # optional: a LINE that declares a test, with no name to capture; fail-first reads the added lines through these
 ```
 
 A row that declares no comments, strings or escape (Go, JavaScript,
@@ -581,7 +585,8 @@ needs a `.masked` fixture, one with `[tests]` a `.tests` one, one with
 fails; the embedded defaults are proved wherever a repo ships their fixtures,
 as this one does.
 
-The suppression smell reads every row's directives in every file, so a
+The suppression smell reads every row's directives in every file, the rows of
+the repository's own `.ratchet/languages` included, so a
 language's `@Suppress` or `# noqa` is caught wherever it is written, and a
 directive whose row names a `reason` is admitted when the rest of its own
 comment matches it. A `symbol-removed` law with no `pattern` captures tests by

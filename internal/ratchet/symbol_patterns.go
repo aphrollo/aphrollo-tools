@@ -50,16 +50,25 @@ func (l Law) symbolPatterns() ([]*regexp.Regexp, error) {
 // extension or a file name of the row.
 func (l Law) scopeNamesRow(row lang.Language) bool {
 	for _, glob := range l.Scope.Include {
-		glob = strings.ToLower(glob)
-		for _, ext := range row.Extensions {
-			if globNamesExt(glob, ext) {
-				return true
-			}
+		if globNamesRow(glob, row) {
+			return true
 		}
-		for _, name := range row.Filenames {
-			if glob == strings.ToLower(name) || strings.HasSuffix(glob, "/"+strings.ToLower(name)) {
-				return true
-			}
+	}
+	return false
+}
+
+// globNamesRow reports whether one scope glob names an extension or a file
+// name of the row.
+func globNamesRow(glob string, row lang.Language) bool {
+	glob = strings.ToLower(glob)
+	for _, ext := range row.Extensions {
+		if globNamesExt(glob, ext) {
+			return true
+		}
+	}
+	for _, name := range row.Filenames {
+		if glob == strings.ToLower(name) || strings.HasSuffix(glob, "/"+strings.ToLower(name)) {
+			return true
 		}
 	}
 	return false
