@@ -255,7 +255,7 @@ func TestGitWorldWatch_AQuietRunSaysNothing(t *testing.T) {
 	}
 }
 
-func TestGitWorldWatch_ALeakIsPrintedAndRecordedOnce(t *testing.T) {
+func TestGitWorldWatch_ALeakIsRecordedOnceAndPrintsNothing(t *testing.T) {
 	repo, _ := canaryRepo(t)
 	rec := recordGitWorldChanges(t)
 	var log bytes.Buffer
@@ -267,24 +267,25 @@ func TestGitWorldWatch_ALeakIsPrintedAndRecordedOnce(t *testing.T) {
 	if len(changes) != 1 || !strings.HasPrefix(changes[0], "the repository's config") {
 		t.Fatalf("changes = %v, want the repository's config", changes)
 	}
-	for _, want := range []string{"proof", repo, "the repository's config", "+\tkey = 1"} {
-		if !strings.Contains(log.String(), want) {
-			t.Errorf("the log lacks %q:\n%s", want, log.String())
-		}
+	if log.Len() != 0 {
+		t.Errorf("verify printed %q; the caller prints the one refusal line", log.String())
 	}
 	if len(rec.runner) != 1 || rec.runner[0] != "proof" || rec.root[0] != repo || !strings.Contains(rec.evidence[0], "+\tkey = 1") {
 		t.Errorf("recorded runner %v root %v evidence %v, want one escape naming the proof, the repo and the change", rec.runner, rec.root, rec.evidence)
 	}
 }
 
-// The refusal says which result it refuses and what to do.
-func TestGitWorldRefusal_NamesTheRunnerTheRepoAndTheChanges(t *testing.T) {
-	got := gitWorldRefusal("measurement", "/lane", []string{"the branches changed", "packed-refs changed"})
+// The refusal is one plain line: which runner, what changed and where.
+func TestGitWorldRefusal_IsOneLineNamingTheRunnerWhatChangedAndWhere(t *testing.T) {
+	got := gitWorldRefusal("measurement", "/lane", []string{"the branches changed:\n+refs/heads/x", "the tip of main changed:\n-a\n+b"})
 
-	for _, want := range []string{"measurement", "/lane", "the branches changed", "packed-refs changed", "refused"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("the refusal lacks %q: %s", want, got)
-		}
+	want := "gate: refused — a test process of the measurement changed the branches, the tip of main in /lane or the global git config; its result is not trusted (details in the escape record)"
+	if got != want {
+		t.Errorf("gitWorldRefusal =\n%s\nwant\n%s", got, want)
+	}
+	if gitWorldRefusal("proof", "/l", []string{"the global git config /h/.gitconfig changed (it was not there)"}) !=
+		"gate: refused — a test process of the proof changed the global git config /h/.gitconfig in /l or the global git config; its result is not trusted (details in the escape record)" {
+		t.Error("a change with no lines after it is named by its label alone")
 	}
 }
 
@@ -357,3 +358,6 @@ func TestGlobalGitConfigs_FollowGitsOwnSearch(t *testing.T) {
 		})
 	}
 }
+
+// ratchet: test_removed TestGitWorldWatch_ALeakIsPrintedAndRecordedOnce: renamed TestGitWorldWatch_ALeakIsRecordedOnceAndPrintsNothing, since the refusal is one line the caller prints
+// ratchet: test_removed TestGitWorldRefusal_NamesTheRunnerTheRepoAndTheChanges: replaced by TestGitWorldRefusal_IsOneLineNamingTheRunnerWhatChangedAndWhere

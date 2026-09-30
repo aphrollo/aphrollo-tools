@@ -35,14 +35,17 @@ func TestRefreshTestMaps_ALeakingBuildKeepsNoMapAndSaysWhatChanged(t *testing.T)
 
 	built, _, err := refreshTestMaps(context.Background(), root, MutantsConfig{}, []string{"internal/p"}, 1, &log)
 
-	if err == nil || !strings.Contains(err.Error(), "changed the git state") || built != 0 {
+	if err == nil || !strings.Contains(err.Error(), "the repository's config") || strings.Contains(err.Error(), "\n") || built != 0 {
 		t.Errorf("refreshTestMaps = built %d, err %v, want a refusal and no map built", built, err)
 	}
 	if _, ok := loadTestMap(root, "internal/p"); ok {
 		t.Error("the map of a build that reached the real repository was kept")
 	}
-	if !strings.Contains(log.String(), "+\tkey = 1") {
-		t.Errorf("the log does not say what changed:\n%s", log.String())
+	if strings.Contains(log.String(), "key = 1") {
+		t.Errorf("the log dumps the change; the details belong in the escape record:\n%s", log.String())
+	}
+	if len(rec.evidence) != 1 || !strings.Contains(rec.evidence[0], "+\tkey = 1") {
+		t.Errorf("the escape evidence does not say what changed: %v", rec.evidence)
 	}
 	if len(rec.runner) != 1 || rec.runner[0] != "test-map build" {
 		t.Errorf("recorded runners %v, want one escape for the test-map build", rec.runner)
@@ -100,7 +103,7 @@ func TestMeasureLane_ALeakingRunIsRefusedWithWhatChanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
 	}
-	if !v.Refused || !strings.Contains(v.Message, "changed the git state") || !strings.Contains(v.Message, "+\tkey = 1") {
+	if !v.Refused || !strings.Contains(v.Message, "the repository's config") || strings.Contains(v.Message, "\n") {
 		t.Errorf("verdict = refused %v, message %q, want a refusal naming the change", v.Refused, v.Message)
 	}
 	if len(rec.runner) != 1 || rec.runner[0] != "measurement" {
@@ -119,11 +122,14 @@ func TestMutantsAtCommitStage_ALeakingRunBlocksTheCommitWithWhatChanged(t *testi
 	var res GateResult
 	stderr := captureStderr(t, func() { res = mutantsAtCommitStage("precommit", root) })
 
-	if !res.Blocked || !strings.Contains(res.Message, "changed the git state") {
+	if !res.Blocked || !strings.Contains(res.Message, "the repository's config") || strings.Contains(res.Message, "\n") {
 		t.Fatalf("the stage let a run that reached the real repository through: blocked %v, message %q", res.Blocked, res.Message)
 	}
-	if !strings.Contains(stderr, "+\tkey = 1") {
-		t.Errorf("stderr does not say what changed:\n%s", stderr)
+	if strings.Contains(stderr, "the repository's config") {
+		t.Errorf("the refusal was printed twice:\n%s", stderr)
+	}
+	if len(rec.evidence) != 1 || !strings.Contains(rec.evidence[0], "+\tkey = 1") {
+		t.Errorf("the escape evidence does not say what changed: %v", rec.evidence)
 	}
 	if len(rec.runner) != 1 || rec.runner[0] != "commit-time run" {
 		t.Errorf("recorded runners %v, want one escape for the commit-time run", rec.runner)
@@ -156,8 +162,8 @@ func TestRunMutantsProve_ALeakingRunProvesNothing(t *testing.T) {
 	if code != ExitMutantsProveRefused {
 		t.Fatalf("exit = %d, want ExitMutantsProveRefused (%d)\nstdout: %s\nstderr: %s", code, ExitMutantsProveRefused, out.String(), errb.String())
 	}
-	if !strings.Contains(errb.String(), "changed the git state") || !strings.Contains(errb.String(), "+\tkey = 1") {
-		t.Errorf("stderr does not name the change:\n%s", errb.String())
+	if !strings.Contains(errb.String(), "the repository's config") || strings.Count(errb.String(), "\n") != 1 {
+		t.Errorf("stderr is not one line naming the change:\n%s", errb.String())
 	}
 	if strings.Contains(out.String(), "KILLED") {
 		t.Errorf("a run that reached the real repository was reported as a kill:\n%s", out.String())

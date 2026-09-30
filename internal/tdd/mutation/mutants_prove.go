@@ -350,8 +350,7 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	// The tests the proof ran reached the real git state: nothing they said
 	// is proof of anything.
 	if changes := canary.verify(stderr); len(changes) > 0 {
-		fmt.Fprintf(stderr, "gate: mutants prove refused — the run changed the git state of %s (%d change(s), listed above); "+
-			"restored, nothing was proved\n", laneRoot, len(changes))
+		fmt.Fprintln(stderr, gitWorldRefusal("proof", laneRoot, changes))
 		return ExitMutantsProveRefused
 	}
 

@@ -216,13 +216,13 @@ func watchGitWorld(root, runner string) gitWorldWatch {
 }
 
 // verify fingerprints the world again and answers what changed. A change is
-// printed to log and recorded as an escape; the caller refuses its result.
+// recorded as an escape with every detail; the caller refuses its result with
+// gitWorldRefusal, one line. A quiet run prints nothing.
 func (g gitWorldWatch) verify(log io.Writer) []string {
 	changes := g.before.changesTo(snapshotGitWorld(g.root))
 	if len(changes) == 0 {
 		return nil
 	}
-	logf(log, "%s", gitWorldRefusal(g.runner, g.root, changes))
 	NoteGitWorldChange(g.root, g.runner, strings.Join(changes, "\n"), log)
 	return changes
 }
@@ -235,9 +235,14 @@ func NoteGitWorldChange(root, runner, evidence string, log io.Writer) {
 	}
 }
 
-// gitWorldRefusal is the message a refused result carries.
+// gitWorldRefusal is the one line a refused result carries: what changed and
+// where. The lines gained and lost go to the escape record.
 func gitWorldRefusal(runner, root string, changes []string) string {
-	return fmt.Sprintf("mutants: the %s changed the git state of %s or the global git config while it ran, so its result is refused — "+
-		"a test process reached a real repository. Inspect it (git config --local --list, git for-each-ref, git worktree list) before trusting it:\n%s",
-		runner, root, strings.Join(changes, "\n"))
+	labels := make([]string, len(changes))
+	for i, change := range changes {
+		first, _, _ := strings.Cut(change, "\n")
+		labels[i], _, _ = strings.Cut(first, " changed")
+	}
+	return fmt.Sprintf("gate: refused — a test process of the %s changed %s in %s or the global git config; its result is not trusted (details in the escape record)",
+		runner, strings.Join(labels, ", "), root)
 }
