@@ -94,13 +94,13 @@ func claudeMDMissing(c DoctorCheck, repo, path string) (DoctorCheck, bool) {
 // claudeMDRemedy is the fix, which depends on where the repo is standing. The
 // merge-only primary cannot take the write (its git shim refuses the commit
 // that would carry it), so install refuses it there too — pointing at
-// `aphrollo install --repo <primary>` would be advice that cannot be
+// `aphrollo install --managed-block-only --repo <primary>` would be advice that cannot be
 // followed.
 func claudeMDRemedy(repo string) string {
 	if _, ok := PrimaryMergeOnly(repo); ok {
-		return "this is the merge-only primary, so land the refresh through a lane (`aphrollo install --repo <lane>`)"
+		return "this is the merge-only primary, so land the refresh through a lane (`aphrollo install --managed-block-only --repo <lane>`)"
 	}
-	return fmt.Sprintf("run `aphrollo install --repo %s` to refresh it", repo)
+	return fmt.Sprintf("run `aphrollo install --managed-block-only --repo %s` to refresh it", repo)
 }
 
 // claudeMDBlockBody returns the text between the markers. ok=false when the
