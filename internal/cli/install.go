@@ -15,7 +15,7 @@ const installUsage = `usage: aphrollo install [--repo <dir>] [--bin <path>] [--c
 
 Wires the whole gate in one command: session hooks + the global git gate,
 CLAUDE.md/.ratchet/README.md/skills/agents (what "aphrollo gate init" did),
-then --repo's own git-hook shims (what "aphrollo gate install --apply" did) —
+then --repo's own git-hook shims (what "aphrollo gate install" did) —
 in that order, so a single repo without the global gate is fully wired by one
 call. --uninstall removes the session/git-gate side and stops there (the
 repo's own shims have no separate uninstall). "gate init" and "gate install"
@@ -98,7 +98,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		// shares, so they are git hooks like the global gate's.
 		return printFeatures(*repo, stdout, stderr)
 	}
-	installArgs := []string{"--repo", *repo, "--apply"}
+	installArgs := []string{"--repo", *repo}
 	if *binPath != "" {
 		installArgs = append(installArgs, "--bin", *binPath)
 	}

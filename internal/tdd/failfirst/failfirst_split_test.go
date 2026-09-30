@@ -37,7 +37,8 @@ func TestSplitAdvice_NamesTheTestsTheFilesAndTheCommands(t *testing.T) {
 	for _, want := range []string{
 		"Tests that pass at HEAD: TestA, TestB",
 		"Test files: a_test.go, b_test.go",
-		"aphrollo gate split-commit --apply -m \"<what the tests pin>\"",
+		"aphrollo gate split-commit --dry",
+		"aphrollo gate split-commit -m \"<what the tests pin>\"",
 		"git commit",
 	} {
 		if !strings.Contains(got, want) {
@@ -97,7 +98,7 @@ func TestFailFirstStage_ViolationNamesTheGreenTestsAndTheSplitCommands(t *testin
 		"PASS against the pre-edit code",
 		"Tests that pass at HEAD: TestWidget",
 		"Test files: widget_test.go",
-		"aphrollo gate split-commit --apply",
+		"aphrollo gate split-commit -m",
 	} {
 		if !strings.Contains(res.Message, want) {
 			t.Errorf("refusal lacks %q:\n%s", want, res.Message)

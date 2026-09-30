@@ -126,7 +126,7 @@ func (r *ScopedResult) Render(apply bool) string {
 	}
 
 	if !apply {
-		fmt.Fprint(&b, "\nrun again with --apply to write the in-scope hunks.\n")
+		fmt.Fprint(&b, "\nrun again without --dry to write the in-scope hunks.\n")
 	}
 	return b.String()
 }

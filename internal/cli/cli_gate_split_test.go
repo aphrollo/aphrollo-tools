@@ -55,12 +55,12 @@ func TestGateSplitCommit_DryRunNamesBothCommitsAndChangesNothing(t *testing.T) {
 	head := gitLine(t, root, "rev-parse", "HEAD")
 	index := gitLine(t, root, "write-tree")
 
-	code, out, errb := runSplit()
+	code, out, errb := runSplit("--dry")
 
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errb)
 	}
-	for _, want := range []string{"dry run", "widget_test.go", "TestWidget", "widget.go", "--apply"} {
+	for _, want := range []string{"dry run", "widget_test.go", "TestWidget", "widget.go", "without --dry"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output lacks %q:\n%s", want, out)
 		}
@@ -73,11 +73,62 @@ func TestGateSplitCommit_DryRunNamesBothCommitsAndChangesNothing(t *testing.T) {
 	}
 }
 
+// A flag after the -m value is parsed: --dry last still stops at the plan.
+func TestGateSplitCommit_DryAfterTheMessageStillWritesNothing(t *testing.T) {
+	root := stagedMixedRepo(t)
+	stubSplitSuite(t, splitGreen())
+	head := gitLine(t, root, "rev-parse", "HEAD")
+
+	code, _, errb := runSplit("-m", "Pin Widget", "--dry")
+
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errb)
+	}
+	if got := gitLine(t, root, "rev-parse", "HEAD"); got != head {
+		t.Errorf("HEAD moved to %s on a dry run", got)
+	}
+}
+
+// The verb takes no positional: a stray word is refused, not dropped.
+func TestGateSplitCommit_StrayArgumentIsRefused(t *testing.T) {
+	root := stagedMixedRepo(t)
+	stubSplitSuite(t, splitGreen())
+	head := gitLine(t, root, "rev-parse", "HEAD")
+
+	code, _, errb := runSplit("stray", "--dry")
+
+	if code != 2 || !strings.Contains(errb, `unexpected argument "stray"`) {
+		t.Fatalf("exit %d, stderr %q; want 2 naming the stray argument", code, errb)
+	}
+	if got := gitLine(t, root, "rev-parse", "HEAD"); got != head {
+		t.Errorf("HEAD moved to %s", got)
+	}
+}
+
+// A script written for the old model still runs: --apply is accepted, says it
+// is a no-op, and the verb writes as it does without it.
+func TestGateSplitCommit_LegacyApplyStillCommitsAndNotes(t *testing.T) {
+	root := stagedMixedRepo(t)
+	stubSplitSuite(t, splitGreen())
+
+	code, _, errb := runSplit("--apply", "-m", "Pin Widget")
+
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errb)
+	}
+	if !strings.Contains(errb, "--apply is a no-op") {
+		t.Errorf("stderr lacks the deprecation notice:\n%s", errb)
+	}
+	if files := gitLine(t, root, "show", "--name-only", "--format=", "HEAD"); files != "widget_test.go" {
+		t.Errorf("commit files = %q, want only widget_test.go", files)
+	}
+}
+
 func TestGateSplitCommit_ApplyCommitsTheTestsAloneWithTheGivenMessage(t *testing.T) {
 	root := stagedMixedRepo(t)
 	stubSplitSuite(t, splitGreen())
 
-	code, out, errb := runSplit("--apply", "-m", "Pin Widget")
+	code, out, errb := runSplit("-m", "Pin Widget")
 
 	if code != 0 {
 		t.Fatalf("exit %d: %s", code, errb)

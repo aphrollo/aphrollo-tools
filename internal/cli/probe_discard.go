@@ -13,14 +13,14 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const probeUsage = `usage: aphrollo gate probe discard [--apply] <file>...
+const probeUsage = `usage: aphrollo gate probe discard [--dry] <file>...
 
 discard restores exactly the named files to HEAD: the sanctioned route for
-stripping a refused probe arm. Dry run by default: it prints what each file
-would lose and the backup path it would use. --apply writes the full diff
-(untracked files included) to that backup first, then restores tracked files
-and removes untracked ones. Refused: a file with staged content, a path
-outside the repo, a directory, a glob.
+stripping a refused probe arm. It writes the full diff (untracked files
+included) to a backup first, then restores tracked files and removes untracked
+ones. --dry prints what each file would lose and the backup path it would use,
+and stops. Flags may follow the files. Refused: a file with staged content, a
+path outside the repo, a directory, a glob.
 `
 
 // runGateProbe is `aphrollo gate probe <verb>`; discard is its one verb.
@@ -77,11 +77,12 @@ func (f probeFile) logToken() string {
 func probeDiscard(realGit, cwd string, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("probe discard", flag.ContinueOnError)
 	fs.SetOutput(stderr)
-	apply := fs.Bool("apply", false, "back the diff up, then discard (default: print the plan and stop)")
-	if err := fs.Parse(args); err != nil {
+	mut := addMutFlags(fs)
+	named, err := mut.parse(fs, "gate probe discard", args, stderr)
+	if err != nil {
 		return 2
 	}
-	if fs.NArg() == 0 {
+	if len(named) == 0 {
 		fmt.Fprint(stderr, probeUsage)
 		return 2
 	}
@@ -91,7 +92,7 @@ func probeDiscard(realGit, cwd string, args []string, stdout, stderr io.Writer) 
 		return 1
 	}
 	root := filepath.Clean(filepath.FromSlash(strings.TrimSpace(top)))
-	rels, refusals := probeRelPaths(root, cwd, fs.Args())
+	rels, refusals := probeRelPaths(root, cwd, named)
 	if len(refusals) > 0 {
 		for _, r := range refusals {
 			fmt.Fprintln(stderr, "gate: refused — probe discard: "+r)
@@ -113,10 +114,10 @@ func probeDiscard(realGit, cwd string, args []string, stdout, stderr io.Writer) 
 	if err != nil {
 		return probeFail(stderr, err)
 	}
-	return probeReport(realGit, root, backup, files, *apply, stdout, stderr)
+	return probeReport(realGit, root, backup, files, mut.execute(), stdout, stderr)
 }
 
-// probeReport prints the plan and, under --apply, carries it out.
+// probeReport prints the plan and, unless --dry stopped it, carries it out.
 func probeReport(realGit, root, backup string, files []probeFile, apply bool, stdout, stderr io.Writer) int {
 	mode := " (dry run)"
 	if apply {
@@ -136,7 +137,7 @@ func probeReport(realGit, root, backup string, files []probeFile, apply bool, st
 	}
 	if !apply {
 		fmt.Fprintf(stdout, "backup: %s (dry run: not written)\n", backup)
-		fmt.Fprintln(stdout, "re-run with --apply to back the diff up and discard")
+		fmt.Fprintln(stdout, "re-run without --dry to back the diff up and discard")
 		return 0
 	}
 	if err := probeWriteBackup(realGit, root, backup, doomed); err != nil {

@@ -148,19 +148,19 @@ func TestProbeDiscard_BackupFailureDiscardsNothing(t *testing.T) {
 	}
 }
 
-// The dry run is the default: it prints the plan, what each file would lose
-// and the backup path it would use, and changes nothing anywhere.
+// --dry prints the plan, what each file would lose and the backup path it
+// would use, and changes nothing anywhere.
 func TestProbeDiscard_DryRunPrintsThePlanAndChangesNothing(t *testing.T) {
 	repo, realGit, cfgDir := probeFixture(t)
 	writeFixtureFile(t, repo, "a.txt", distinctLines("arm", 3))
 	writeFixtureFile(t, repo, "new.txt", []string{"hello"})
 
 	var out, errb bytes.Buffer
-	if code := probeDiscard(realGit, repo, []string{"a.txt", "new.txt", "seed.txt"}, &out, &errb); code != 0 {
+	if code := probeDiscard(realGit, repo, []string{"a.txt", "new.txt", "seed.txt", "--dry"}, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
 	}
 	got := out.String()
-	for _, want := range []string{"a.txt  +3/-1 lines vs HEAD", "new.txt  untracked, 6 bytes", "seed.txt  no change vs HEAD", "--apply"} {
+	for _, want := range []string{"a.txt  +3/-1 lines vs HEAD", "new.txt  untracked, 6 bytes", "seed.txt  no change vs HEAD", "(dry run: not written)"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("dry run output lacks %q:\n%s", want, got)
 		}
@@ -179,6 +179,59 @@ func TestProbeDiscard_DryRunPrintsThePlanAndChangesNothing(t *testing.T) {
 	}
 	if log := readGateLog(t, cfgDir); strings.Contains(log, "probe-discard") {
 		t.Fatalf("a dry run logged a discard:\n%s", log)
+	}
+}
+
+// With no flag at all the verb discards: the file is back at HEAD and a
+// backup exists.
+func TestProbeDiscard_DefaultDiscardsAndBacksUp(t *testing.T) {
+	repo, realGit, cfgDir := probeFixture(t)
+	writeFixtureFile(t, repo, "a.txt", distinctLines("arm", 3))
+
+	var out, errb bytes.Buffer
+	if code := probeDiscard(realGit, repo, []string{"a.txt"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if got := readFixture(t, repo, "a.txt"); got != "a-orig-0\n" {
+		t.Fatalf("a.txt = %q, want HEAD content", got)
+	}
+	if n := len(backupEntries(t, cfgDir)); n != 1 {
+		t.Fatalf("%d backup(s), want 1", n)
+	}
+	if errb.Len() != 0 {
+		t.Fatalf("a default run wrote to stderr: %q", errb.String())
+	}
+}
+
+// A flag written after the positional is parsed: `a.txt --apply` was a silent
+// dry run once, because the flag parser stopped at the first positional.
+func TestProbeDiscard_ApplyAfterThePositionalIsHonouredWithANotice(t *testing.T) {
+	repo, realGit, _ := probeFixture(t)
+	writeFixtureFile(t, repo, "a.txt", distinctLines("arm", 3))
+
+	var out, errb bytes.Buffer
+	if code := probeDiscard(realGit, repo, []string{"a.txt", "--apply"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if got := readFixture(t, repo, "a.txt"); got != "a-orig-0\n" {
+		t.Fatalf("a.txt = %q, want HEAD content", got)
+	}
+	if !strings.Contains(errb.String(), "--apply is a no-op") {
+		t.Fatalf("stderr lacks the deprecation notice:\n%s", errb.String())
+	}
+}
+
+// An unknown flag after the positional is refused and nothing is discarded.
+func TestProbeDiscard_UnknownFlagAfterThePositionalIsRefused(t *testing.T) {
+	repo, realGit, _ := probeFixture(t)
+	writeFixtureFile(t, repo, "a.txt", distinctLines("arm", 3))
+
+	var out, errb bytes.Buffer
+	if code := probeDiscard(realGit, repo, []string{"a.txt", "--bogus"}, &out, &errb); code != 2 {
+		t.Fatalf("exit = %d, want 2\nstderr: %s", code, errb.String())
+	}
+	if got := readFixture(t, repo, "a.txt"); got != "arm-0\narm-1\narm-2\n" {
+		t.Fatalf("a.txt = %q, want it untouched by a refused run", got)
 	}
 }
 

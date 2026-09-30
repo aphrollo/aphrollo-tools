@@ -96,7 +96,7 @@ func RenderCheck(w io.Writer, results []ConfigResult) bool {
 const wholeSchemaNote = `note: sqlc emits models.go from the ENTIRE migrations schema, so any unrelated
 migration (a new column, a new table) changes it even when your query is
 untouched. To land only your query's hunks, use:
-  aphrollo sqlc regen <config> --scoped --apply
+  aphrollo sqlc regen <config> --scoped
 which applies in-scope hunks and leaves pre-existing drift for a separate PR.`
 
 // indent prefixes every non-empty line of s with pad.

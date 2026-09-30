@@ -11,14 +11,14 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const splitCommitUsage = `usage: aphrollo gate split-commit [--apply] [-m <message>]
+const splitCommitUsage = `usage: aphrollo gate split-commit [--dry] [-m <message>]
 
 Split a mixed commit that fail-first would refuse. When the staged tests
 already pass at HEAD, they need no implementation, so they go in a commit of
 their own ahead of it: this proves that the way the commit gate does, then
-lists both commits. Dry run by default; --apply writes the first commit.
+lists both commits and writes the first. --dry lists both and writes nothing.
 
---apply commits the staged test files (and the staged data they read) alone,
+It commits the staged test files (and the staged data they read) alone,
 on top of HEAD, from the index. The rest of the staged change stays staged
 for an ordinary git commit. It never touches the working tree, and it runs
 no checkout, restore, reset or stash, so no edit can be lost. The first
@@ -34,18 +34,22 @@ no source is staged beside them.
 // tested without a toolchain run.
 var splitCommitSuite = tdd.RunSuite(precommitTimeout)
 
-// runGateSplitCommit is `aphrollo gate split-commit`: plan the split, and
-// with --apply write its first commit.
+// runGateSplitCommit is `aphrollo gate split-commit`: plan the split and
+// write its first commit, or with --dry stop at the plan.
 func runGateSplitCommit(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("gate split-commit", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, splitCommitUsage) }
-	apply := fs.Bool("apply", false, "write the test-only commit (default: show the plan)")
+	mut := addMutFlags(fs)
 	msg := fs.String("m", "", "message of the test-only commit")
-	if err := fs.Parse(args); err != nil {
+	pos, err := mut.parse(fs, "gate split-commit", args, stderr)
+	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
 		}
+		return 2
+	}
+	if refuseArgs("gate split-commit", pos, stderr) {
 		return 2
 	}
 	root := tdd.RepoRoot(".")
@@ -63,8 +67,8 @@ func runGateSplitCommit(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	printSplitPlan(stdout, plan, *msg)
-	if !*apply {
-		fmt.Fprintln(stdout, "\ndry run: nothing changed. Run again with --apply to write the first commit.")
+	if !mut.execute() {
+		fmt.Fprintln(stdout, "\ndry run: nothing changed. Run again without --dry to write the first commit.")
 		return 0
 	}
 	if why := splitCommitRefusal(root, plan, *msg); why != "" {

@@ -13,8 +13,8 @@
 //  4. pnpm install (or npm / go mod download) inside the fresh worktree
 //
 // `aphrollo workspace prepare` computes that sequence as a Plan, prints it
-// dry-run by default (the repo's design contract: show exactly what changes
-// before it changes), and runs it on --apply. Every step is idempotent — an
+// and runs it, or with --dry stops at the printed plan (the repo's design
+// contract: show exactly what changes before it changes). Every step is idempotent — an
 // already-marked safe.directory, an existing worktree, or an installed
 // node_modules is reported as skipped rather than redone, so re-running prepare
 // on a half-built workspace finishes the job without clobbering it.
@@ -44,7 +44,7 @@ type Request struct {
 }
 
 // Step is one unit of the plan. A Step with a non-empty Skip is already
-// satisfied and will not run on --apply; its Cmd is still shown so the plan is a
+// satisfied and will not run; its Cmd is still shown so the plan is a
 // complete, honest record of what prepare considered.
 type Step struct {
 	Title    string   // human label

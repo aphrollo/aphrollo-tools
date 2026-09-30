@@ -34,7 +34,7 @@ Commands:
               subsystem to ask (--wait [<dir>] blocks on this checkout's own
               work, or on <dir>'s)
   install     Wire the whole gate (session hooks, global git gate) and a repo's
-              git-hook shims in one run — merges gate init + gate install --apply
+              git-hook shims in one run — merges gate init + gate install
   config      Print the opt-in feature table with this repo's values, costs and enable lines
   issue       Open one labelled issue against the repo's GitHub remote and print its URL
   feedback    Report a defect in the gate itself to the tool's own tracker; alias for gate feedback
@@ -134,14 +134,14 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 }
 
-const refactorUsage = `usage: aphrollo refactor --file F --line N (--symbol S | --col C) --new-name X [--apply]
+const refactorUsage = `usage: aphrollo refactor --file F --line N (--symbol S | --col C) --new-name X [--dry]
 
 Renames a symbol and all its references across the project via the language
-server. Dry-run by default — prints the unified diff; pass --apply to write.
+server and writes the change. --dry prints the unified diff and writes nothing.
 `
 
 // runRefactor IS the rename: flags parse directly on the verb (no subcommand).
-// It stays dry-run-by-default + --apply (only workspace verbs execute by default).
+// It executes by default like every mutating verb; --dry previews the diff.
 func runRefactor(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
 		fmt.Fprint(stdout, refactorUsage)
@@ -155,10 +155,14 @@ func runRefactor(args []string, stdout, stderr io.Writer) int {
 		col     = fs.Int("col", 0, "1-based UTF-16 column of the symbol")
 		symbol  = fs.String("symbol", "", "symbol name to locate on the line (alternative to --col)")
 		newName = fs.String("new-name", "", "new name for the symbol (required)")
-		apply   = fs.Bool("apply", false, "write changes to disk (default: print diff only)")
+		mut     = addMutFlags(fs)
 	)
-	if err := fs.Parse(args); err != nil {
+	pos, err := mut.parse(fs, "refactor", args, stderr)
+	if err != nil {
 		return 2 // flag already printed the error + usage
+	}
+	if refuseArgs("refactor", pos, stderr) {
+		return 2
 	}
 
 	switch {
@@ -184,7 +188,7 @@ func runRefactor(args []string, stdout, stderr io.Writer) int {
 		Col:     *col,
 		Symbol:  *symbol,
 		NewName: *newName,
-		Apply:   *apply,
+		Apply:   mut.execute(),
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
