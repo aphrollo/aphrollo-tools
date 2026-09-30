@@ -71,10 +71,9 @@ func TestPrecommit_FailFirst_AdmitsARustTestTheChangeTurnsGreen(t *testing.T) {
 }
 
 // The Go proof runs the same function, so it shared the gap.
-// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_FailFirst_RefusesAGoTestStillRedWithTheChange(t *testing.T) {
+	t.Parallel()
 	linterAbsent(t)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -85,7 +84,7 @@ func TestPrecommit_FailFirst_RefusesAGoTestStillRedWithTheChange(t *testing.T) {
 	gitDo(t, root, "add", ".")
 
 	var res GateResult
-	stderr := captureStderr(t, func() { res = Precommit(root, RunSuite(precommitTestTimeout)) })
+	stderr := captureGate(t, func() { res = Precommit(root, RunSuite(precommitTestTimeout)) })
 
 	if !res.Blocked {
 		t.Fatal("the new Go test is red at HEAD and still red with the staged change; the commit must be refused")

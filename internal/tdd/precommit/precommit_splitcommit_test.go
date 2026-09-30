@@ -38,13 +38,13 @@ func splitMixedRepo(t *testing.T) string {
 	return root
 }
 
-// Serial: captures the process-wide os.Stderr.
+// Serial: sets the process-wide env vars GOTMPDIR and CLAUDE_CONFIG_DIR (splitMixedRepo).
 func TestPlanSplit_NamesTheGreenTestsAndWhatStaysStaged(t *testing.T) {
 	root := splitMixedRepo(t)
 
 	var plan SplitPlan
 	var err error
-	captureStderr(t, func() { plan, err = PlanSplit(root, splitGreenRun) })
+	captureGate(t, func() { plan, err = PlanSplit(root, splitGreenRun) })
 
 	if err != nil {
 		t.Fatalf("PlanSplit: %v", err)
@@ -64,13 +64,13 @@ func TestPlanSplit_NamesTheGreenTestsAndWhatStaysStaged(t *testing.T) {
 }
 
 // A dry run changes nothing: not HEAD, not the index.
-// Serial: captures the process-wide os.Stderr.
+// Serial: sets the process-wide env vars GOTMPDIR and CLAUDE_CONFIG_DIR (splitMixedRepo).
 func TestPlanSplit_ChangesNothing(t *testing.T) {
 	root := splitMixedRepo(t)
 	head := gitOutT(t, root, "rev-parse", "HEAD")
 	index := gitOutT(t, root, "write-tree")
 
-	captureStderr(t, func() { _, _ = PlanSplit(root, splitGreenRun) })
+	captureGate(t, func() { _, _ = PlanSplit(root, splitGreenRun) })
 
 	if got := gitOutT(t, root, "rev-parse", "HEAD"); got != head {
 		t.Errorf("HEAD moved to %s", got)
@@ -81,13 +81,13 @@ func TestPlanSplit_ChangesNothing(t *testing.T) {
 }
 
 // Tests that go RED at HEAD are what the gate wants: there is nothing to split.
-// Serial: captures the process-wide os.Stderr.
+// Serial: sets the process-wide env vars GOTMPDIR and CLAUDE_CONFIG_DIR (splitMixedRepo).
 func TestPlanSplit_ATestRedAtHeadHasNothingToSplit(t *testing.T) {
 	root := splitMixedRepo(t)
 
 	var plan SplitPlan
 	var err error
-	captureStderr(t, func() { plan, err = PlanSplit(root, splitRedRun) })
+	captureGate(t, func() { plan, err = PlanSplit(root, splitRedRun) })
 
 	if err != nil {
 		t.Fatalf("PlanSplit: %v", err)
@@ -99,6 +99,7 @@ func TestPlanSplit_ATestRedAtHeadHasNothingToSplit(t *testing.T) {
 
 // Nothing staged is nothing to split, and it is not an error.
 func TestPlanSplit_NothingStagedHasNothingToSplit(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 
 	plan, err := PlanSplit(root, splitGreenRun)
@@ -110,13 +111,13 @@ func TestPlanSplit_NothingStagedHasNothingToSplit(t *testing.T) {
 
 // Applying the plan commits the tests alone, keeps the rest staged, and
 // leaves every file of the working tree as it was.
-// Serial: captures the process-wide os.Stderr.
+// Serial: sets the process-wide env vars GOTMPDIR and CLAUDE_CONFIG_DIR (splitMixedRepo).
 func TestApplySplit_CommitsTheTestsAloneAndKeepsTheRestStaged(t *testing.T) {
 	root := splitMixedRepo(t)
 	edited := "package m\n\nfunc Widget() int { return 1 } // edited after staging\n"
 	write(t, root, "widget.go", edited)
 	var plan SplitPlan
-	captureStderr(t, func() { plan, _ = PlanSplit(root, splitGreenRun) })
+	captureGate(t, func() { plan, _ = PlanSplit(root, splitGreenRun) })
 
 	commit, err := ApplySplit(root, plan, "Pin Widget with a test")
 	if err != nil {
@@ -142,11 +143,11 @@ func TestApplySplit_CommitsTheTestsAloneAndKeepsTheRestStaged(t *testing.T) {
 }
 
 // A blank message falls back to the plan's own.
-// Serial: captures the process-wide os.Stderr.
+// Serial: sets the process-wide env vars GOTMPDIR and CLAUDE_CONFIG_DIR (splitMixedRepo).
 func TestApplySplit_ABlankMessageUsesThePlansDefault(t *testing.T) {
 	root := splitMixedRepo(t)
 	var plan SplitPlan
-	captureStderr(t, func() { plan, _ = PlanSplit(root, splitGreenRun) })
+	captureGate(t, func() { plan, _ = PlanSplit(root, splitGreenRun) })
 
 	if _, err := ApplySplit(root, plan, "  "); err != nil {
 		t.Fatalf("ApplySplit: %v", err)
@@ -160,6 +161,7 @@ func TestApplySplit_ABlankMessageUsesThePlansDefault(t *testing.T) {
 
 // An empty plan is refused rather than committing nothing.
 func TestApplySplit_RefusesAPlanWithNoTests(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	head := gitOutT(t, root, "rev-parse", "HEAD")
 
@@ -172,6 +174,7 @@ func TestApplySplit_RefusesAPlanWithNoTests(t *testing.T) {
 }
 
 func TestSplitMessage_NamesTheTestsWhenItKnowsThem(t *testing.T) {
+	t.Parallel()
 	got := splitMessage([]string{"TestA", "TestB"}, []string{"a_test.go"})
 
 	want := "Add tests that pass against the current code\n\nTests: TestA, TestB"
@@ -182,6 +185,7 @@ func TestSplitMessage_NamesTheTestsWhenItKnowsThem(t *testing.T) {
 
 // With no test names (a runner whose filter names none) the files carry it.
 func TestSplitMessage_FallsBackToTheFilesWhenNoNameIsKnown(t *testing.T) {
+	t.Parallel()
 	got := splitMessage(nil, []string{"a_test.go", "b_test.go"})
 
 	want := "Add tests that pass against the current code\n\nFiles: a_test.go, b_test.go"
@@ -191,6 +195,7 @@ func TestSplitMessage_FallsBackToTheFilesWhenNoNameIsKnown(t *testing.T) {
 }
 
 func TestAppendNew_SkipsWhatTheListAlreadyHolds(t *testing.T) {
+	t.Parallel()
 	got := appendNew([]string{"a", "b"}, "b", "c", "a")
 
 	if !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
@@ -201,7 +206,7 @@ func TestAppendNew_SkipsWhatTheListAlreadyHolds(t *testing.T) {
 // The test-only commit is written without a hook, so ApplySplit judges its
 // tree itself: a staged test that breaks a ratchet law is refused and HEAD
 // stays put.
-// Serial: captures the process-wide os.Stderr.
+// Serial: sets the process-wide env vars GOTMPDIR and CLAUDE_CONFIG_DIR (tddtest.VerdictWordTmp).
 func TestApplySplit_RefusesATestTreeThatBreaksARatchetLaw(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

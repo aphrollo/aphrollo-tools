@@ -17,7 +17,7 @@ func withShortLockWaitLog(t *testing.T) {
 // Time spent QUEUED is not time spent failing. A commit that waited out the
 // lock budget wrote the same kind of line as one whose tests went red, so
 // gate stats could not tell a contended box from a broken suite.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
+// Serial: points the process-wide build lock at its own file.
 func TestPrecommit_LockWaitIsItsOwnLogLine(t *testing.T) {
 	withIsolatedBuildLock(t)
 	withShortLockWaitLog(t)
@@ -40,7 +40,7 @@ func TestPrecommit_LockWaitIsItsOwnLogLine(t *testing.T) {
 
 // The line is for a wait worth reporting. An uncontended box takes the lock
 // immediately, and logging that would bury the real waits.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
+// Serial: points the process-wide build lock at its own file.
 func TestPrecommit_ShortLockWaitIsNotLogged(t *testing.T) {
 	withIsolatedBuildLock(t)
 	cfg := t.TempDir()
@@ -59,9 +59,8 @@ func TestPrecommit_ShortLockWaitIsNotLogged(t *testing.T) {
 // The reading an operator needs is "how long did the worst wait get", and a
 // wait must never be counted as gate RUN time — that is what made a queued
 // box look like a slow suite.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestGateStats_LockWaitIsCountedApartFromRunSeconds(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	log := strings.Join([]string{
 		"2026-09-02T10:00:00Z precommit /repo cargo_test lock-wait 210.0s",
 		"2026-09-02T10:00:01Z precommit /repo cargo_test queued-rejected 240.0s",

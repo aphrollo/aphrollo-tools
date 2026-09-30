@@ -290,7 +290,7 @@ func installJSTool(t *testing.T, root, pkg, script string) string {
 	t.Helper()
 	write(t, root, "node_modules/"+pkg+"/package.json", `{"name":"`+pkg+`","bin":{"`+pkg+`":"./`+script+`"}}`)
 	write(t, root, "node_modules/"+pkg+"/"+script, "")
-	t.Cleanup(SetLookNodeForTest(func() (string, error) { return "/opt/node/bin/node", nil }))
+	t.Cleanup(SetLookNodeAtForTest(sandbox(t), func() (string, error) { return "/opt/node/bin/node", nil }))
 	return filepath.Join(root, "node_modules", pkg, script)
 }
 
@@ -299,8 +299,8 @@ func installJSTool(t *testing.T, root, pkg, script string) string {
 // the full `vitest run`, as `node <the installed bin entry>` rather than
 // through npx (#929). The runner is selected by DetectRunner from the repo's
 // package.json, exactly as it is in production.
-// Serial: installs a process-wide test override (SetLookNodeForTest).
 func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
+	t.Parallel()
 	root := makeJSRepo(t, `{"devDependencies":{"vitest":"^1.0.0"}}`)
 	write(t, root, ".gitignore", "node_modules/\n")
 	entry := installJSTool(t, root, "vitest", "vitest.mjs")
@@ -321,8 +321,8 @@ func TestPrecommit_Mechanical_ScopedToStagedVitest(t *testing.T) {
 // TestPrecommit_Mechanical_ScopedToStagedJest guards the jest scoping path: a
 // staged source file in a jest repo runs `jest --findRelatedTests <files>`, not
 // the full `jest`.
-// Serial: installs a process-wide test override (SetLookNodeForTest).
 func TestPrecommit_Mechanical_ScopedToStagedJest(t *testing.T) {
+	t.Parallel()
 	root := makeJSRepo(t, `{"devDependencies":{"jest":"^29.0.0"}}`)
 	write(t, root, ".gitignore", "node_modules/\n")
 	entry := installJSTool(t, root, "jest", "jest.js")
@@ -362,15 +362,15 @@ func TestPrecommit_Mechanical_UnknownRunnerFullSuiteFallback(t *testing.T) {
 
 // A vitest root with no vitest installed cannot be tested at the merge: the
 // gate refuses it and names what is missing, and never reaches for npx.
-// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_Mechanical_RefusesAVitestRootWithoutTheToolInstalled(t *testing.T) {
+	t.Parallel()
 	root := makeJSRepo(t, `{"devDependencies":{"vitest":"^1.0.0"}}`)
 	write(t, root, "src/widget.ts", "export const widget = () => 1\n")
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
 	var res GateResult
-	stderr := captureStderr(t, func() { res = Mechanical(root, recordRunner(&seen, root)) })
+	stderr := captureGate(t, func() { res = Mechanical(root, recordRunner(&seen, root)) })
 	if !res.Blocked {
 		t.Fatal("the merge gate passed a vitest root whose suite it could not run")
 	}
@@ -446,9 +446,8 @@ func TestPrecommit_Mechanical_CacheMissAfterEdit(t *testing.T) {
 
 // A red run is never cached: the same failing state re-runs (and re-blocks
 // with fresh output) every time.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_Mechanical_RedNeverCached(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -479,9 +478,8 @@ func TestPrecommit_Mechanical_RedNeverCached(t *testing.T) {
 // qualifies: PostEdit narrows an edit to `--lib`/`--test <name>` while the
 // commit gate runs `-p <crate>`, and a narrower green must never satisfy the
 // broader check.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPostEdit_GreenRunSeedsMechanicalCache(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeZigRepo(t)
 	write(t, root, "src/root.zig", "pub fn add(a: i32, b: i32) i32 {\n\treturn a + b + 0;\n}\n")
 

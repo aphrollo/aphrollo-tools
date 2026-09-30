@@ -1,7 +1,6 @@
 package precommit
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -108,10 +107,8 @@ func TestCommentOnlyRust_MixedDiffDoesNotQualify(t *testing.T) {
 
 // End to end: a comment-only Rust commit must reach no stage that could take
 // the machine-wide build slot, exactly like a docs-only one.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_CommentOnlyRustCommitRunsNoStageThatCouldQueue(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "// re-pointed note\npub fn base() -> i32 { 0 }\n")
 	gitDo(t, root, "add", ".")
@@ -119,20 +116,15 @@ func TestPrecommit_CommentOnlyRustCommitRunsNoStageThatCouldQueue(t *testing.T) 
 	if res := Precommit(root, refuseToRun(t)); res.Blocked {
 		t.Fatalf("a comment-only Rust commit must not be blocked: %s", res.Message)
 	}
-	log, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("no gate.log written: %v", err)
-	}
+	log := gateLogHere(t)
 	if !strings.Contains(string(log), "comment-only-fastpath") {
 		t.Fatalf("the fast path must name itself in the log, got:\n%s", log)
 	}
 }
 
 // Same wiring at the merge gate.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_CommentOnlyRustMergeTakesTheFastPath(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "// re-pointed note\npub fn base() -> i32 { 0 }\n")
 	gitDo(t, root, "add", ".")
@@ -140,10 +132,7 @@ func TestMechanical_CommentOnlyRustMergeTakesTheFastPath(t *testing.T) {
 	if res := Mechanical(root, refuseToRun(t)); res.Blocked {
 		t.Fatalf("a comment-only Rust merge must not be blocked: %s", res.Message)
 	}
-	log, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("no gate.log written: %v", err)
-	}
+	log := gateLogHere(t)
 	if !strings.Contains(string(log), "comment-only-fastpath") {
 		t.Fatalf("the fast path must name itself in the log, got:\n%s", log)
 	}

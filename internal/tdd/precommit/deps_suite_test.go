@@ -27,12 +27,16 @@ func RetainedSuiteOutput(p0 string) (string, error) { return suite.RetainedSuite
 
 func RunSuite(p0 time.Duration) SuiteRunner { return suite.RunSuite(p0) }
 
-func SetCargoTestTargetsForTest(p0 func(root string) map[string]map[string]bool) func() {
-	return suite.SetCargoTestTargetsForTest(p0)
+func SetCargoTestTargetsAtForTest(p0 string, p1 func(root string) map[string]map[string]bool) func() {
+	return suite.SetCargoTestTargetsAtForTest(p0, p1)
 }
 
-func SetCargoWorkspaceDepsForTest(p0 func(root string) (map[string][]string, error)) func() {
-	return suite.SetCargoWorkspaceDepsForTest(p0)
+func SetCargoWorkspaceDepsAtForTest(p0 string, p1 func(root string) (map[string][]string, error)) func() {
+	return suite.SetCargoWorkspaceDepsAtForTest(p0, p1)
+}
+
+func SetLookNodeAtForTest(p0 string, p1 func() (string, error)) func() {
+	return suite.SetLookNodeAtForTest(p0, p1)
 }
 
 func SetLookNodeForTest(p0 func() (string, error)) func() { return suite.SetLookNodeForTest(p0) }

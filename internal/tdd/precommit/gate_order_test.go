@@ -1,8 +1,6 @@
 package precommit
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -119,10 +117,8 @@ func TestPrecommit_StopsAtTheFirstFailingStage(t *testing.T) {
 // TestPrecommit_GateLogNamesTheRejectingStage pins the trail: the log line
 // says WHICH stage rejected, so a session reading gate.log after a block
 // knows whether it was formatting, a guard crate, a lint or the suite.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_GateLogNamesTheRejectingStage(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := orderedGateRepo(t)
 
 	Precommit(root, func(r Runner, _ string) SuiteResult {
@@ -132,11 +128,8 @@ func TestPrecommit_GateLogNamesTheRejectingStage(t *testing.T) {
 		return SuiteResult{Passed: true}
 	})
 
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("gate.log not written: %v", err)
-	}
-	if !strings.Contains(string(data), "always-run-blocked") {
+	data := gateLogHere(t)
+	if !strings.Contains(data, "always-run-blocked") {
 		t.Fatalf("gate.log must name the stage that rejected, got:\n%s", data)
 	}
 }

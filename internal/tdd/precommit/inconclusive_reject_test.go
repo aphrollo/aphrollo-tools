@@ -10,8 +10,7 @@ import (
 // as one that timed out, so it is refused — but as an OOM-KILLED run, with the
 // cap, and never in a timeout's words (issue #1005).
 func TestPrecommit_MechanicalCapKillIsRefusedAsOOMKilledNotATimeout(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -23,7 +22,7 @@ func TestPrecommit_MechanicalCapKillIsRefusedAsOOMKilledNotATimeout(t *testing.T
 		return SuiteResult{TimedOut: true, Inconclusive: "OOM-KILLED at 11.6 GB", Duration: 12 * time.Second}
 	}
 	var res GateResult
-	captureStderr(t, func() { res = Mechanical(root, run) })
+	captureGate(t, func() { res = Mechanical(root, run) })
 
 	if !res.Blocked {
 		t.Fatal("a commit whose suite the cap ended tested nothing and must be refused")
@@ -34,27 +33,27 @@ func TestPrecommit_MechanicalCapKillIsRefusedAsOOMKilledNotATimeout(t *testing.T
 	if strings.Contains(res.Message, "did not finish") || strings.Contains(strings.ToUpper(res.Message), "TIMEOUT") {
 		t.Fatalf("message = %q must not read as a timeout", res.Message)
 	}
-	requireLoggedVerdict(t, cfg, "inconclusive-rejected")
+	requireVerdictHere(t, "inconclusive-rejected")
 }
 
 func TestGoCheckStage_CapKillIsRefusedAsOOMKilledNotATimeout(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := t.TempDir()
 	run := func(Runner, string) SuiteResult {
 		return SuiteResult{TimedOut: true, Inconclusive: "OOM-KILLED at 4.0 GB", Duration: 5 * time.Second}
 	}
 	var got GateResult
-	captureStderr(t, func() {
+	captureGate(t, func() {
 		got = goCheckStage("precommit", "vet", root, Runner{Cmd: "go", Args: []string{"vet", "./..."}}, run)
 	})
 	if !got.Blocked || !strings.Contains(got.Message, "OOM-KILLED at 4.0 GB") || strings.Contains(got.Message, "did not finish") {
 		t.Fatalf("got blocked=%v message %q, want a refusal naming the cap kill", got.Blocked, got.Message)
 	}
-	requireLoggedVerdict(t, cfg, "inconclusive-rejected")
+	requireVerdictHere(t, "inconclusive-rejected")
 }
 
 func TestQuietUnfinished_NamesTheCapKillOrTheMissingVerdict(t *testing.T) {
+	t.Parallel()
 	kill := quietUnfinished("precommit", "clippy -p crate in /r", SuiteResult{Inconclusive: "OOM-KILLED at 2.0 GB"})
 	if !strings.Contains(kill, "ended as OOM-KILLED at 2.0 GB") {
 		t.Errorf("cap kill message = %q", kill)

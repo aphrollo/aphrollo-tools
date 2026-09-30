@@ -1,8 +1,6 @@
 package precommit
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -11,26 +9,22 @@ import (
 // away, or simply never staged) must not block the commit and must not
 // silently vanish either: it is logged and counted once, the same shape as
 // an absent linter.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestGoFmtStage_LogsAndCountsAStagedPathGitCannotResolve(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeGoRepo(t)
 
 	res := goFmtStage("test", root, root, []string{"nonexistent.go"})
 	if res.Blocked {
 		t.Fatalf("a path git cannot resolve must not block: %s", res.Message)
 	}
-	requireLoggedVerdict(t, cfg, "gofmt-index-unreadable")
+	requireVerdictHere(t, "gofmt-index-unreadable")
 }
 
 // The unreadable count is a REPORT of a systematic miss, so it must stay
 // silent when nothing was missed: a run where every staged path resolves
 // writes no "could not read" line and no gofmt-index-unreadable verdict.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestGoFmtStage_SaysNothingWhenEveryStagedPathResolves(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -41,9 +35,8 @@ func TestGoFmtStage_SaysNothingWhenEveryStagedPathResolves(t *testing.T) {
 	}
 	// An absent log is the strongest form of the same claim: nothing was
 	// reported at all, so read it directly rather than through the helper
-	// that requires the file to exist.
-	logged, _ := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	for line := range strings.SplitSeq(string(logged), "\n") {
+	// that requires a verdict to exist.
+	for line := range strings.SplitSeq(gateLogHere(t), "\n") {
 		if e, ok := parseGateLine(line); ok && e.Verdict == "gofmt-index-unreadable" {
 			t.Fatalf("no path was unreadable, yet the stage reported one: %s", line)
 		}

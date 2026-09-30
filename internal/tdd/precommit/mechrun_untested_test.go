@@ -101,11 +101,9 @@ func TestStageSuiteVerdict_KeepsAZeroSelectionOutOfTheSettledVerdicts(t *testing
 // pass the gate that actually runs the suite — the MERGE one, since the
 // commit gate proves the staged test RED and stops. Only the words and the
 // logged verdict change; the merge is not refused.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
+// Serial: sets the process-wide env var GOTMPDIR (tddtest.VerdictWordTmp).
 func TestMechanical_ZeroTestCrate_IsRelabelledButStillLands(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeCargoRepo(t)
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -120,7 +118,7 @@ func TestMechanical_ZeroTestCrate_IsRelabelledButStillLands(t *testing.T) {
 	if res.Blocked {
 		t.Fatalf("a crate with no test target must still land: %s", res.Message)
 	}
-	logged := gateLogText(t, cfg)
+	logged := gateLogHere(t)
 	if !strings.Contains(logged, NoTestsSelected) {
 		t.Fatalf("gate.log must carry the %s verdict for the suite stage, got:\n%s", NoTestsSelected, logged)
 	}

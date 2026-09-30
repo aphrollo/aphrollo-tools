@@ -71,7 +71,7 @@ func makeVitestRepoWithFakeNpx(t *testing.T) string {
 // the proof to run as node <bin entry>. It must not be certified red-proven,
 // must say what is missing, and must not reach for npx, which may fetch the
 // tool from the registry.
-// Serial: captures the process-wide os.Stderr.
+// Serial: sets the process-wide env vars PATH and FAKE_NPX_LOG, which put the fake npx first and name its log.
 func TestFailFirst_AParentRunThatNeverStartedTheToolIsNotRedProven(t *testing.T) {
 	root := makeVitestRepoWithFakeNpx(t)
 
@@ -128,14 +128,14 @@ func failFirstLine(stderr string) string {
 // A characterization test passes at the parent: it pins nothing the commit
 // changed, and the gate says the test passed there rather than certifying
 // it as a red.
-// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_ATestGreenAtTheParentIsNotRedProven(t *testing.T) {
+	t.Parallel()
 	root := makeCharacterizedVitestRepo(t)
 	green := func(Runner, string) SuiteResult {
 		return SuiteResult{Passed: true, Output: " ✓ src/lib/caps.test.ts (3 tests) 4ms\n Test Files  1 passed (1)\n      Tests  3 passed (3)\n"}
 	}
 	var res GateResult
-	stderr := captureStderr(t, func() { res = Precommit(root, green) })
+	stderr := captureGate(t, func() { res = Precommit(root, green) })
 	line := failFirstLine(stderr)
 	if strings.Contains(line, "red-proven") || !strings.Contains(line, "violated") {
 		t.Fatalf("want a test green at the parent reported as passing there, got %q", line)
@@ -147,12 +147,12 @@ func TestFailFirst_ATestGreenAtTheParentIsNotRedProven(t *testing.T) {
 
 // A test that ran at the parent and failed there is the red the proof
 // exists to find, and is certified as one.
-// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_ATestThatRanAndFailedAtTheParentIsRedProven(t *testing.T) {
+	t.Parallel()
 	root := makeCharacterizedVitestRepo(t)
 	red := redAtHeadThenGreen(SuiteResult{Passed: false, Output: " ❯ src/lib/caps.test.ts (1 test | 1 failed) 5ms\n   × has three 3ms\n AssertionError: expected 2 to be 3\n"}, nil)
 	var res GateResult
-	stderr := captureStderr(t, func() { res = Precommit(root, red) })
+	stderr := captureGate(t, func() { res = Precommit(root, red) })
 	if res.Blocked {
 		t.Fatalf("a proven red refused the commit:\n%s", res.Message)
 	}
@@ -163,15 +163,14 @@ func TestFailFirst_ATestThatRanAndFailedAtTheParentIsRedProven(t *testing.T) {
 
 // What the proof run printed is kept for `aphrollo gate output`: without
 // it, a session told the test was never reached cannot see why.
-// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_TheProofRunsOutputIsKeptForGateOutput(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCharacterizedVitestRepo(t)
 	const printed = "npm error npx canceled due to missing packages and no YES option: [\"vitest@3.2.7\"]\n"
 	unstarted := func(_ Runner, dir string) SuiteResult {
 		return SuiteResult{Passed: false, Output: printed, Dir: dir}
 	}
-	captureStderr(t, func() { Precommit(root, unstarted) })
+	captureGate(t, func() { Precommit(root, unstarted) })
 	got, err := RetainedSuiteOutput(root)
 	if err != nil {
 		t.Fatalf("no output kept for the fail-first run: %v", err)

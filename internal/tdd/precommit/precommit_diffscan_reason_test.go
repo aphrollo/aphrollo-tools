@@ -9,6 +9,7 @@ import (
 // asks a noqa for a reason, and the edit that adds one changes a line that
 // already carried the suppression, so the commit introduces nothing.
 func TestNewSuppression_AllowsAppendingAReasonToAnExistingNoqa(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "svc.py", "def f():\n    try:\n        pass\n    except Exception as e:  # noqa: BLE001\n        pass\n")
@@ -26,6 +27,7 @@ func TestNewSuppression_AllowsAppendingAReasonToAnExistingNoqa(t *testing.T) {
 // TestNewSuppression_BlocksANewCodeOnAnExistingNoqa: the reason edit is free,
 // a wider suppression is not.
 func TestNewSuppression_BlocksANewCodeOnAnExistingNoqa(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "svc.py", "def f():\n    x = 1  # noqa: BLE001\n")

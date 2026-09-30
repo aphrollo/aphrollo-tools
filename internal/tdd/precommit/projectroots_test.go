@@ -101,16 +101,15 @@ func TestPrecommit_MultiRoot_CargoMemberScopedToOwnPackage(t *testing.T) {
 // "no owning package → unnarrowed full-workspace fallback" bug: previously
 // ANY unowned staged cargo file widened the mechanical run to the entire
 // workspace.
-// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_UnownedCargoFile_SkippedWithNote(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeMultiRootRepo(t)
 	write(t, root, "misc.rs", "pub fn misc() -> i32 { 0 }\n")
 	gitDo(t, root, "add", ".")
 
 	var seen []Runner
 	var res GateResult
-	stderr := captureStderr(t, func() {
+	stderr := captureGate(t, func() {
 		res = Precommit(root, recordRunner(&seen, root))
 	})
 	if res.Blocked {

@@ -5,12 +5,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // Issue #904: on an npm root every fail-first proof ended inconclusive,
@@ -20,9 +17,10 @@ import (
 
 // fakeVitestScript is a vitest that passes when src/lib/caps.ts returns 3
 // and fails otherwise, naming the test the way vitest does. It appends the
-// directory it ran in to $FAKE_VITEST_LOG.
+// directory it ran in to runs.log beside itself: no environment variable
+// carries the path, so tests using it run in parallel.
 const fakeVitestScript = `import { appendFileSync, readFileSync } from 'node:fs'
-appendFileSync(process.env.FAKE_VITEST_LOG, process.cwd() + '\n')
+appendFileSync(new URL('./runs.log', import.meta.url), process.cwd() + '\n')
 if (readFileSync('src/lib/caps.ts', 'utf8').includes('=> 3')) {
   console.log(' ✓ src/lib/caps.test.ts (1 test) 1ms')
   console.log(' Test Files  1 passed (1)')
@@ -35,22 +33,12 @@ console.log('      Tests  1 failed (1)')
 process.exit(1)
 `
 
-// withNodeOnPath makes exec's PATH lookup of node succeed, for the proofs
-// whose runs a fake SuiteRunner answers: no node process ever starts.
+// withNodeOnPath makes the gate's lookup of node succeed for this test's
+// roots, for the proofs whose runs a fake SuiteRunner answers: no node process
+// ever starts.
 func withNodeOnPath(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("node"); err == nil {
-		return
-	}
-	bin := t.TempDir()
-	name := "node"
-	if runtime.GOOS == "windows" {
-		name = "node.exe"
-	}
-	if err := proc.WriteExecutable(filepath.Join(bin, name), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Cleanup(SetLookNodeAtForTest(sandbox(t), func() (string, error) { return "node", nil }))
 }
 
 // makeFakeVitestRoot is a committed vitest root whose caps() returns
@@ -70,9 +58,7 @@ func makeFakeVitestRoot(t *testing.T, headCaps string) (root, runLog string) {
 	gitDo(t, root, "commit", "-qm", "base")
 	write(t, root, "node_modules/vitest/package.json", `{"name": "vitest", "type": "module", "bin": {"vitest": "./vitest.mjs"}}`)
 	write(t, root, "node_modules/vitest/vitest.mjs", fakeVitestScript)
-	runLog = filepath.Join(t.TempDir(), "runs.log")
-	t.Setenv("FAKE_VITEST_LOG", runLog)
-	return root, runLog
+	return root, filepath.Join(root, "node_modules", "vitest", "runs.log")
 }
 
 // noHeadWorktreeLeft fails when a proof left its worktree under
@@ -98,16 +84,15 @@ func noHeadWorktreeLeft(t *testing.T, root string) {
 // A new test that is red at HEAD is proven red there, by the root's own
 // vitest run under node in a worktree outside its node_modules, and then
 // green with the change by the same invocation.
-// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_NpmRootProvesRedAtHeadWithTheInstalledVitestUnderNode(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root, runLog := makeFakeVitestRoot(t, "2")
 	write(t, root, "src/lib/caps.ts", "export const caps = () => 3\n")
 	write(t, root, "src/lib/caps.test.ts", "import { caps } from './caps'\nit('has three', () => { expect(caps()).toBe(3) })\n")
 	gitDo(t, root, "add", ".")
 
 	var res GateResult
-	stderr := captureStderr(t, func() {
+	stderr := captureGate(t, func() {
 		res = failFirstStage(root, root, []string{"src/lib/caps.test.ts"}, []string{"src/lib/caps.ts"}, RunSuite(precommitTestTimeout))
 	})
 	if res.Blocked {
@@ -149,16 +134,15 @@ func evalSymlinks(t *testing.T, p string) string {
 
 // A characterization test is green at the parent, and the gate says so
 // rather than certifying it red.
-// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_NpmRootReportsATestGreenAtTheParent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root, _ := makeFakeVitestRoot(t, "3")
 	write(t, root, "src/lib/other.ts", "export const other = 2\n")
 	write(t, root, "src/lib/caps.test.ts", "import { caps } from './caps'\nit('has three', () => { expect(caps()).toBe(3) })\n")
 	gitDo(t, root, "add", ".")
 
 	var res GateResult
-	stderr := captureStderr(t, func() {
+	stderr := captureGate(t, func() {
 		res = failFirstStage(root, root, []string{"src/lib/caps.test.ts"}, []string{"src/lib/other.ts"}, RunSuite(precommitTestTimeout))
 	})
 	if line := failFirstLine(stderr); !strings.Contains(line, "→ violated") {
@@ -172,9 +156,8 @@ func TestFailFirst_NpmRootReportsATestGreenAtTheParent(t *testing.T) {
 
 // A root whose vitest is not installed is inconclusive and says so; the
 // proof runs nothing, npx included.
-// Serial: captures the process-wide os.Stderr.
 func TestFailFirst_NpmRootWithoutItsToolInstalledRunsNothing(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	withNodeOnPath(t)
 	root := makeCharacterizedVitestRepo(t)
 	if err := os.RemoveAll(filepath.Join(root, "node_modules")); err != nil {
@@ -186,7 +169,7 @@ func TestFailFirst_NpmRootWithoutItsToolInstalledRunsNothing(t *testing.T) {
 		return SuiteResult{Passed: false, Output: " × has three\n"}
 	}
 	var res GateResult
-	stderr := captureStderr(t, func() {
+	stderr := captureGate(t, func() {
 		res = failFirstStage(root, root, []string{"src/lib/caps.test.ts"}, []string{"vitest.config.ts"}, record)
 	})
 	if res.Blocked {
@@ -206,8 +189,8 @@ func TestFailFirst_NpmRootWithoutItsToolInstalledRunsNothing(t *testing.T) {
 // The real vitest, installed into the fixture from npm's cache without the
 // network. A characterization test is reported green at the parent; a new
 // test red at HEAD is red-proven and then green with the change.
-// Serial: captures the process-wide os.Stderr.
 func TestFailFirstE2E_RealVitestAtHead(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not on PATH; skipping e2e") // skip-ok: vitest runs on node, which this box lacks
 	}
@@ -215,7 +198,6 @@ func TestFailFirstE2E_RealVitestAtHead(t *testing.T) {
 	if err != nil {
 		t.Skip("npm not on PATH; skipping e2e") // skip-ok: nothing can install vitest here
 	}
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, ".gitignore", "node_modules/\n")
@@ -235,7 +217,7 @@ func TestFailFirstE2E_RealVitestAtHead(t *testing.T) {
 	gate := func(tests, srcs []string) (GateResult, string) {
 		t.Helper()
 		var res GateResult
-		stderr := captureStderr(t, func() { res = failFirstStage(root, root, tests, srcs, RunSuite(precommitTestTimeout)) })
+		stderr := captureGate(t, func() { res = failFirstStage(root, root, tests, srcs, RunSuite(precommitTestTimeout)) })
 		noHeadWorktreeLeft(t, root)
 		return res, stderr
 	}
@@ -314,7 +296,7 @@ func listTree(t *testing.T, dir string) []string {
 // below the repo root, is RED at HEAD and GREEN with the staged change. The
 // GREEN run sees the STAGED tree, not the working tree, and neither run
 // places anything under the root's node_modules.
-// Serial: captures the process-wide os.Stderr.
+// Serial: sets the process-wide env vars FAKE_VITEST_LOG, FAKE_VITEST_SEEN and FAKE_VITEST_ROOT_NM, which carry the fake vitest's paths.
 func TestFailFirst_NpmRootProvesANewModuleGreenOnTheStagedTreeOutsideNodeModules(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not on PATH; the fake vitest is a node script") // skip-ok: the tool under test runs on node, which this box lacks

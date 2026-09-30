@@ -1,8 +1,6 @@
 package precommit
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -123,10 +121,8 @@ test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; fini
 // cargo: a mechanical run whose libtest summary shows every real test
 // filtered out must block the commit with the vacuous-rejected token, not
 // pass because the process happened to exit 0.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_RejectsACargoSuiteThatExecutedZeroTests(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b }\n")
 	gitDo(t, root, "add", ".")
@@ -138,11 +134,8 @@ func TestPrecommit_RejectsACargoSuiteThatExecutedZeroTests(t *testing.T) {
 		t.Fatal("a cargo suite whose real tests were all filtered out must block the commit, not pass")
 	}
 
-	logData, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("gate.log not written: %v", err)
-	}
-	if !strings.Contains(string(logData), "vacuous-rejected") {
+	logData := gateLogHere(t)
+	if !strings.Contains(logData, "vacuous-rejected") {
 		t.Fatalf("expected gate.log to carry the vacuous-rejected token, got:\n%s", logData)
 	}
 }

@@ -81,21 +81,14 @@ func TestNarrowToRelatedTests_CargoTestFiles(t *testing.T) {
 	}
 }
 
-// stubCargoTestTargets states a workspace's real `--test` target names
-// (package name -> its target names) without a cargo metadata run.
-func stubCargoTestTargets(t *testing.T, targets map[string]map[string]bool) {
-	t.Helper()
-	t.Cleanup(SetCargoTestTargetsForTest(func(string) map[string]map[string]bool { return targets }))
-}
-
 // TestNarrowToRelatedTests_CargoNestedDirConfirmedByMetadataRunsThatBinary
 // pins the fix for issue #250: a file inside a folded test binary
 // (tests/integration/affixes.rs, the exact borld shape that produced
 // `--test affixes` naming a target that does not exist) must resolve the
 // candidate directory name against cargo metadata and, once confirmed, scope
 // the run to that real target rather than the file's own stem.
-// Serial: installs a process-wide test override (SetCargoTestTargetsForTest).
 func TestNarrowToRelatedTests_CargoNestedDirConfirmedByMetadataRunsThatBinary(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"item\"\nversion = \"0.1.0\"\n")
 	write(t, root, "tests/integration/affixes.rs", "#[test]\nfn affixes() {}\n")
@@ -117,8 +110,8 @@ func TestNarrowToRelatedTests_CargoNestedDirConfirmedByMetadataRunsThatBinary(t 
 // OTHER binary, not one of its own) must never guess `--test <dir>` -- that
 // names a target that does not exist, a red on green code. It falls back to
 // the whole package run instead, which stays correct, only broader.
-// Serial: installs a process-wide test override (SetCargoTestTargetsForTest).
 func TestNarrowToRelatedTests_CargoNestedDirUnconfirmedFallsBackToPackageRun(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"item\"\nversion = \"0.1.0\"\n")
 	write(t, root, "tests/common/fixtures.rs", "pub fn seed() {}\n")
@@ -245,8 +238,8 @@ func TestNarrowFailFirstTests_CargoNextestPreserved(t *testing.T) {
 // widen into a guessed `--test <dir>` -- the whole run drops --test scoping
 // for the package rather than silently excluding the file it could not
 // verify.
-// Serial: installs a process-wide test override (SetCargoTestTargetsForTest).
 func TestNarrowFailFirstTests_CargoNestedDirUnconfirmedDropsTestScoping(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"pkg1\"\nversion = \"0.1.0\"\n")
 	write(t, root, "tests/common/fixtures.rs", "pub fn seed() {}\n")
@@ -335,6 +328,7 @@ func TestNarrowFailFirstTests_NonCargoUnnarrowedFallback(t *testing.T) {
 // TestNarrowFailFirstTests_PytestRunsTheStagedTestFiles: a pytest proof names
 // the staged test files, never the whole suite of the root.
 func TestNarrowFailFirstTests_PytestRunsTheStagedTestFiles(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "pyproject.toml", "[tool]\n")
 	write(t, root, "test_thing.py", "def test_thing(): pass\n")
@@ -364,10 +358,9 @@ func TestNarrowFailFirstTests_PytestRunsTheStagedTestFiles(t *testing.T) {
 // whole-workspace suite — that fallback was the exact "python commit builds
 // all of Bevy" bug task A1 fixes. Only SOURCE files are staged in both
 // subtests, so fail-first never triggers.
-// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T) {
+	t.Parallel()
 	t.Run("staged sources in different member crates → one -p run per crate root, from the workspace root", func(t *testing.T) {
-		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := makeCargoWorkspaceRepo(t)
 		write(t, root, "crates/beta/src/lib.rs", "pub fn beta() -> i32 { 2 }\n")
 		write(t, root, "crates/alpha/src/lib.rs", "pub fn alpha() -> i32 { 1 }\n")
@@ -397,14 +390,13 @@ func TestPrecommit_Mechanical_CargoWorkspaceScopedToStagedPackages(t *testing.T)
 	})
 
 	t.Run("staged source outside any package → skipped, no cargo run at all", func(t *testing.T) {
-		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		root := makeCargoWorkspaceRepo(t)
 		write(t, root, "tools/gen.rs", "pub fn gen() -> i32 { 0 }\n")
 		gitDo(t, root, "add", ".")
 
 		var seen []Runner
 		var res GateResult
-		stderr := captureStderr(t, func() {
+		stderr := captureGate(t, func() {
 			res = Mechanical(root, recordRunner(&seen, root))
 		})
 		if res.Blocked {

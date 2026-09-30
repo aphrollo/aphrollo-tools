@@ -20,10 +20,8 @@ import (
 // call list contains exactly the ONE scoped mechanical run (no run at a
 // worktree-shaped temp dir), and the fail-first worktree directory under the
 // state dir is never created at all.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_CargoMember_RunsScopedNeverSpawnsFailFirst(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeCargoWorkspaceRepo(t)
 	// A test AND its implementation staged together — exactly the shape that
 	// triggers Precommit's fail-first stage.
@@ -42,7 +40,7 @@ func TestMechanical_CargoMember_RunsScopedNeverSpawnsFailFirst(t *testing.T) {
 		t.Fatalf("mechanical run = %+v, want one %+v", seen, want)
 	}
 
-	failFirstWTDir := filepath.Join(cfg, "gate-state", "failfirst-wt")
+	failFirstWTDir := failFirstWorktreeFor(root)
 	if _, err := os.Stat(failFirstWTDir); !os.IsNotExist(err) {
 		t.Fatalf("Mechanical must never spawn a fail-first worktree, but %s exists", failFirstWTDir)
 	}

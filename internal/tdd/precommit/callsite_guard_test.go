@@ -22,6 +22,7 @@ func callsiteRepo(t *testing.T) string {
 // file runs the argvbatch call-site guard, so a call with no row in
 // spreadCallSites is refused here instead of by CI.
 func TestCallsiteGuardStage_RunsTheGuardWhenAnExecCallChanges(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		stage func(t *testing.T, root string)
@@ -68,6 +69,7 @@ func TestCallsiteGuardStage_RunsTheGuardWhenAnExecCallChanges(t *testing.T) {
 }
 
 func TestCallsiteGuardStage_BlocksOnAFailingGuard(t *testing.T) {
+	t.Parallel()
 	root := callsiteRepo(t)
 	write(t, root, "internal/cli/new.go", "package cli\n\nfunc a(p []string) { exec.Command(\"git\", p...) }\n")
 	gitDo(t, root, "add", "-A")
@@ -81,6 +83,7 @@ func TestCallsiteGuardStage_BlocksOnAFailingGuard(t *testing.T) {
 // go test exits 0 when -run matches nothing: a renamed guard test must not
 // turn the stage into a pass.
 func TestCallsiteGuardStage_BlocksWhenTheGuardNoLongerExists(t *testing.T) {
+	t.Parallel()
 	root := callsiteRepo(t)
 	write(t, root, "internal/cli/new.go", "package cli\n\nfunc a(p []string) { exec.Command(\"git\", p...) }\n")
 	gitDo(t, root, "add", "-A")
@@ -92,6 +95,7 @@ func TestCallsiteGuardStage_BlocksWhenTheGuardNoLongerExists(t *testing.T) {
 }
 
 func TestCallsiteGuardStage_SkipsWhatCannotMoveACallSite(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		stage func(t *testing.T, root string)
@@ -123,6 +127,7 @@ func TestCallsiteGuardStage_SkipsWhatCannotMoveACallSite(t *testing.T) {
 }
 
 func TestCallsiteGuardStage_SkipsARepoWithoutTheGuard(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/cli/new.go", "package cli\n\nfunc a(p []string) { exec.Command(\"git\", p...) }\n")
 	gitDo(t, root, "add", "-A")
@@ -137,7 +142,7 @@ func TestCallsiteGuardStage_SkipsARepoWithoutTheGuard(t *testing.T) {
 
 // The stage is wired into the commit gate.
 func TestPrecommitDecide_RefusesANewExecCallTheGuardDoesNotList(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := callsiteRepo(t)
 	write(t, root, "internal/cli/new.go", "package cli\n\nfunc a(p []string) { exec.Command(\"git\", p...) }\n")
 	gitDo(t, root, "add", "-A")
@@ -149,6 +154,7 @@ func TestPrecommitDecide_RefusesANewExecCallTheGuardDoesNotList(t *testing.T) {
 }
 
 func TestDiffChangesExecCall_JudgesOnlyChangedLinesOfSourceFiles(t *testing.T) {
+	t.Parallel()
 	hunk := func(path, line string) string {
 		return "diff --git a/" + path + " b/" + path + "\n--- a/" + path + "\n+++ b/" + path + "\n@@ -1 +1 @@\n" + line + "\n"
 	}
@@ -185,6 +191,7 @@ func TestDiffChangesExecCall_JudgesOnlyChangedLinesOfSourceFiles(t *testing.T) {
 // A deleted file shows its path only on the --- side, and an added file only
 // on the +++ side; either must still be attributed to its file.
 func TestDiffChangesExecCall_AttributesAddedAndDeletedFiles(t *testing.T) {
+	t.Parallel()
 	added := "diff --git a/n.go b/n.go\nnew file mode 100644\n--- /dev/null\n+++ b/n.go\n@@ -0,0 +1 @@\n+\texec.Command(\"x\")\n"
 	deleted := "diff --git a/n.go b/n.go\ndeleted file mode 100644\n--- a/n.go\n+++ /dev/null\n@@ -1 +0,0 @@\n-\texec.Command(\"x\")\n"
 	addedTest := strings.ReplaceAll(added, "n.go", "n_test.go")
@@ -202,6 +209,7 @@ func TestDiffChangesExecCall_AttributesAddedAndDeletedFiles(t *testing.T) {
 // A removed line that begins with "-- " looks like a --- header; inside a
 // hunk it is content, and the file it belongs to stays the one the header named.
 func TestDiffChangesExecCall_ReadsHeaderLookalikesInsideAHunkAsContent(t *testing.T) {
+	t.Parallel()
 	diff := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -1,2 +1,2 @@\n--- a/other_test.go\n+++ b/other_test.go\n+\texec.Command(\"x\")\n"
 	if !diffChangesExecCall(diff) {
 		t.Fatal("an exec call added to a.go after a header lookalike was not seen")

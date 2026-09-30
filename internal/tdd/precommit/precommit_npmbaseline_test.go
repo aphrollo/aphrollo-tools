@@ -51,14 +51,14 @@ func makeProbedRepo(t *testing.T, extra map[string]string) string {
 // this commit's to answer for: holding it would refuse every commit to the
 // root until somebody fixed it. The report still counts it, and the HEAD
 // tree it was measured in leaves nothing behind.
-// Serial: captures the process-wide os.Stderr.
 func TestNpmBaseline_AnErrorAlreadyAtHeadInAnUntouchedFileDoesNotBlock(t *testing.T) {
+	t.Parallel()
 	root := makeProbedRepo(t, nil)
 	write(t, root, "src/b.ts", "export const b = 1\n")
 	gitDo(t, root, "add", "src/b.ts")
 
 	var res GateResult
-	stderr := captureStderr(t, func() { res = Precommit(root, RunSuite(precommitTestTimeout)) })
+	stderr := captureGate(t, func() { res = Precommit(root, RunSuite(precommitTestTimeout)) })
 	if res.Blocked {
 		t.Fatalf("a HEAD-only error refused the commit:\n%s", res.Message)
 	}
@@ -209,9 +209,8 @@ func eslintJSONPath(s string) string {
 
 // A cache entry that cannot be read is a miss, run again, never an empty
 // baseline that would excuse nothing — or everything.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestReadHeadCache_AnUnreadableEntryIsAMiss(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, dir, "garbage.json", "not json")
 	write(t, dir, "good.json", `[{"key": "k", "line": "l"}]`)
@@ -227,8 +226,8 @@ func TestReadHeadCache_AnUnreadableEntryIsAMiss(t *testing.T) {
 
 // The exit status is the verdict: a run that exits 0 passed, whatever
 // error-shaped text it printed, and costs no run at HEAD.
-// Serial: swaps the package-level node lookup.
 func TestNpmBaseline_ARunThatExitsZeroPassesWithoutAHeadRun(t *testing.T) {
+	t.Parallel()
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json":  `{"name": "app"}`,

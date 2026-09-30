@@ -23,6 +23,7 @@ func useRealPytestProbe(t *testing.T) {
 // pytest lives in the root's virtualenv failed the merge with a raw exec
 // error. It runs `python -m pytest` under the first interpreter that imports
 // pytest, as the commit gate's proof does.
+// Serial: swaps the package-level pytest probe (pytestResolveFn).
 func TestGateRoot_MergeRunsAPytestRootUnderAnInterpreterThatImportsPytest(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	useRealPytestProbe(t)
@@ -46,6 +47,7 @@ func TestGateRoot_MergeRunsAPytestRootUnderAnInterpreterThatImportsPytest(t *tes
 // interpreter able to import pytest, the merge gate says NOT RUN with the
 // reason and refuses the merge without starting a run, rather than reading a
 // missing runner as a suite failure.
+// Serial: swaps the package-level pytest probe (pytestResolveFn) and sets the process-wide env var PATH.
 func TestGateRoot_MergeSaysNotRunWhenNoInterpreterImportsPytest(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	useRealPytestProbe(t)
