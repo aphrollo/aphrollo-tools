@@ -53,6 +53,9 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		text = withGateNote(text, note)
 		// Judged after gofmt, on the bytes the commit will carry.
 		text = withGateNote(text, lawRefusalNote([]string{in.ToolInput.FilePath}))
+		// The linter's findings on the lines this edit changed, on the same
+		// bytes; the commit gate's lint refuses over them.
+		text = withGateNote(text, lintEdited(in.ToolInput.FilePath))
 	}
 	// The harvest first, so a finished mutation run is reported before the
 	// next one is started over the same tree.

@@ -23,6 +23,10 @@ func TestMain(m *testing.M) {
 	os.Exit(tddtest.Main(m, tddtest.Seams{
 		Run: func() int {
 			spawnPhaseFn = func(j DeferredJob) (DeferredJob, bool) { return j, false }
+			// golangci-lint is absent for the whole run, the answer a box
+			// without it gives and the one every test not about the edit-time
+			// lint wants stated; a test of the lint installs its own seams.
+			lintEditLook = func() bool { return false }
 			return m.Run()
 		},
 		GitBinary:        gitx.GitBinary,

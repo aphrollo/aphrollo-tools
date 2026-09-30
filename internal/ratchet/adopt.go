@@ -58,8 +58,17 @@ func Adopt(opts AdoptOptions) (AdoptResult, error) {
 	_, statErr := os.Stat(path)
 	hasBaseline := statErr == nil
 	if hasBaseline && !opts.LawChangedSinceHEAD {
-		return AdoptResult{}, fmt.Errorf(
-			"%s: a baseline already exists and the law is unchanged since HEAD — adoption is for a new or widened law, not an unrelated raise", law.Name)
+		// A baseline written before the scan-view stamp may be moved onto the
+		// current lexers without a changed law, provided the tree is no
+		// higher than it under the lexers it was written by: what the move
+		// records is then only what those lexers could not read.
+		if !legacyBaseline(opts.Root, nil, *law) {
+			return AdoptResult{}, fmt.Errorf(
+				"%s: a baseline already exists and the law is unchanged since HEAD — adoption is for a new or widened law, not an unrelated raise", law.Name)
+		}
+		if err := legacyWithinBaseline(opts.Root, *law); err != nil {
+			return AdoptResult{}, err
+		}
 	}
 
 	hits, err := adoptHits(opts.Root, *law)
@@ -74,6 +83,25 @@ func Adopt(opts AdoptOptions) (AdoptResult, error) {
 			return AdoptResult{}, err
 		}
 	}
+	rows := adoptOnto(baseline, *law, hits)
+	if _, err := baseline.WriteIfChanged(path); err != nil {
+		return AdoptResult{}, err
+	}
+	return AdoptResult{Law: law.Name, Path: path, Rows: rows}, nil
+}
+
+// adoptHits measures one law over the whole tracked... here, the whole real
+// tree — adoption always reads disk, never a proposed or narrowed set, since
+// its entire point is to record what is actually there.
+func adoptHits(root string, law Law) ([]Hit, error) {
+	return adoptHitsIn(Options{Root: root}, law)
+}
+
+// adoptOnto sets baseline to exactly what hits measure for law, stamping it
+// when the law is one a lexer change can move, and returns the row count. It is
+// the one place a baseline is written from a measurement, whether --adopt or
+// the automatic migration asks.
+func adoptOnto(baseline *Baseline, law Law, hits []Hit) int {
 	measured := map[string]int{}
 	sites := map[string][]string{}
 	for _, h := range hits {
@@ -85,32 +113,57 @@ func Adopt(opts AdoptOptions) (AdoptResult, error) {
 		sort.Strings(keys)
 	}
 	baseline.AdoptWithSites(measured, sites)
-	if _, err := baseline.WriteIfChanged(path); err != nil {
-		return AdoptResult{}, err
+	if law.viewSensitive() {
+		baseline.Stamp()
 	}
-	return AdoptResult{Law: law.Name, Path: path, Rows: len(measured)}, nil
+	return len(measured)
 }
 
-// adoptHits measures one law over the whole tracked... here, the whole real
-// tree — adoption always reads disk, never a proposed or narrowed set, since
-// its entire point is to record what is actually there.
-func adoptHits(root string, law Law) ([]Hit, error) {
-	scan, err := scanTree(Options{Root: root}, []Law{law})
+// adoptHitsIn measures law over the view opts describes: the disk for
+// adoption, the staged tree for the commit guard's recomputation.
+func adoptHitsIn(opts Options, law Law) ([]Hit, error) {
+	root := opts.Root
+	scan, err := scanTree(opts, []Law{law})
 	if err != nil {
 		return nil, err
 	}
 	hits := scan.byLaw[law.Name]
 	switch law.Matcher.Kind {
 	case KindRegistryBothWays:
-		return registryHits(diskView(root), law, scan.files, scan.content, true, true)
+		return registryHits(viewOf(opts), law, scan.files, scan.content, true, true)
 	case KindDepGraphForbids:
 		return depGraphHits(root, law)
 	case KindDepGraphCeiling:
 		return depGraphCeilingHits(root, law)
 	case KindFileSetContainment:
-		return containmentHits(diskView(root), law)
+		return containmentHits(viewOf(opts), law)
 	case KindJSONNumberCeiling, KindGoBenchCeiling:
-		return ceilingHits(diskView(root), law, true, cargoTargetDir())
+		return ceilingHits(viewOf(opts), law, true, cargoTargetDir())
 	}
 	return hits, nil
+}
+
+// legacyWithinBaseline refuses a scan-view migration over a tree that is
+// already above its baseline as the lexers it was written under read it: that
+// is a raise the law does not justify, whatever the lexers are.
+func legacyWithinBaseline(root string, law Law) error {
+	law.LegacyView = true
+	hits, err := adoptHits(root, law)
+	if err != nil {
+		return err
+	}
+	baseline, err := LoadBaseline(filepath.Join(root, filepath.FromSlash(law.Baseline)), baselineForm(law))
+	if err != nil {
+		return err
+	}
+	measured := map[string]int{}
+	for _, h := range hits {
+		measured[baseline.Identity(h.Key)] += h.Weight
+	}
+	if over := baseline.Regressions(measured); len(over) > 0 {
+		return fmt.Errorf(
+			"%s: the tree is above its baseline (%d key(s), first %q) as the baseline's own lexers read it — fix or escape those hits first; adoption would raise a ceiling nothing justifies",
+			law.Name, len(over), over[0].Key)
+	}
+	return nil
 }

@@ -37,7 +37,7 @@ aphrollo update                       # rebuild from origin/main and swap it in
 | `aphrollo dev` | dev-tier units: `up`, `down`, `restart`, `status`, `logs` |
 | `aphrollo guardrail` | PreToolUse policy for long foreground waits and noisy commands |
 | `aphrollo gate` | the TDD + law gates: hook entry points, `status`, `stats`, `output`, `allow`/`revoke`, `mutants`, `escape`, `probe discard`, `split-commit`, `gc`, `classify-diff` |
-| `aphrollo ratchet` | the law engine: `check`, `test`, `init`, `presets`, `--adopt` |
+| `aphrollo ratchet` | the law engine: `check`, `test`, `init`, `presets`; `check --adopt <law>` writes a new or widened law's first baseline |
 | `aphrollo docs` | `docs check`: every repo path a tracked `*.md` cites must resolve |
 | `aphrollo sqlc` | `check` for sqlc drift, `regen --scoped` |
 | `aphrollo check` | judge the tree read-only: ratchet, docs, sqlc, doctor |

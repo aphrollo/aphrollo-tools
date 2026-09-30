@@ -67,6 +67,12 @@ type Finding struct {
 	// write, or the fact that there is none. A denial that names the offence
 	// and stops sends the reader to open the law file.
 	Remedy string `json:"remedy,omitempty"`
+	// Excess is how many occurrences this finding stands for above its
+	// baseline, and Files the files holding those the baseline has no row for,
+	// most first. Both are set only where one key counts occurrences across
+	// files (see excessOf).
+	Excess int         `json:"excess,omitempty"`
+	Files  []FileCount `json:"files,omitempty"`
 }
 
 // Result is one run's verdict.
@@ -196,6 +202,9 @@ func Check(opts Options) (Result, error) {
 	if len(laws) == 0 {
 		return res, nil
 	}
+	for i := range laws {
+		laws[i].LegacyView = legacyBaseline(opts.Root, opts.Proposed, laws[i])
+	}
 
 	// A line-count law's bar is decided per KEY — the ceiling for a key the
 	// baseline has never seen, the re-entry bar for one it already carries —
@@ -204,7 +213,7 @@ func Check(opts Options) (Result, error) {
 		if laws[i].Matcher.Kind != KindLineCount || laws[i].Baseline == "" {
 			continue
 		}
-		b, _, err := loadLawBaseline(opts.Root, laws[i])
+		b, _, err := loadLawBaseline(opts, laws[i])
 		if err != nil {
 			return Result{}, err
 		}
@@ -217,7 +226,13 @@ func Check(opts Options) (Result, error) {
 	}
 	res.FilesScanned, res.FilesRead, res.FilesMatched = scan.scanned, scan.read, scan.matched
 
+	baseHits, err := baseHitsByLaw(opts, laws)
+	if err != nil {
+		return Result{}, err
+	}
 	var pending []pendingTighten
+	var migrating []pendingMigration
+	migrated := map[string]bool{}
 	graph := graphTreeOf(opts)
 	for _, law := range laws {
 		if disarmed(law) {
@@ -280,7 +295,7 @@ func Check(opts Options) (Result, error) {
 		if len(opts.Files) == 0 {
 			hits = append(hits, scopeHits(viewOf(opts), law, scan.files, scan.ignored)...)
 		}
-		baseline, path, err := loadLawBaseline(opts.Root, law)
+		baseline, path, err := loadLawBaseline(opts, law)
 		if err != nil {
 			return Result{}, err
 		}
@@ -312,10 +327,21 @@ func Check(opts Options) (Result, error) {
 			repathCountedBaseline(opts, baseline, measured)
 		}
 		baselineKeys := baseline.LiteralKeyCounts()
+		regs := regressions(baseline, measured, law.Matcher.TolerancePct)
+		var baseSites map[string]int
+		if bh, ok := baseHits[law.Name]; ok {
+			// Judged against the base too: what it carried is no one's doing.
+			base := newBaseCeiling(baseline, bh)
+			regs = base.raise(regs)
+			baselineKeys = base.literalKeys(baselineKeys)
+			baseSites = base.sites
+		}
 		findingsBefore := len(res.Findings)
-		for _, r := range regressions(baseline, measured, law.Matcher.TolerancePct) {
+		for _, r := range regs {
 			h := representativeHit(r.Key, sites[r.Key], hitsByKey, baselineKeys, located)
-			res.Findings = append(res.Findings, lawFinding(law, h, r))
+			f := lawFinding(law, h, r)
+			f.Excess, f.Files = excessOf(baseline.form, r, sites[r.Key], hitsByKey, baselineKeys)
+			res.Findings = append(res.Findings, f)
 		}
 		// The per-SITE half of the same comparison (#675). Deciding that a
 		// site is NEW rather than relocated needs every other site of that
@@ -327,7 +353,7 @@ func Check(opts Options) (Result, error) {
 		// hook) the aggregate ceiling remains the whole guard, as it always
 		// was, with the new site caught by the whole-tree run at commit.
 		if len(opts.Files) == 0 {
-			for _, r := range baseline.NewSiteRegressions(sites) {
+			for _, r := range baseline.NewSiteRegressionsBeyond(sites, baseSites) {
 				res.Findings = append(res.Findings, lawFinding(law, hitsByKey[r.Key], r))
 			}
 		}
@@ -363,7 +389,12 @@ func Check(opts Options) (Result, error) {
 			}
 			res.Notes = append(res.Notes, lineModeNotes(law.Name, baseline.Counts(), actual)...)
 		}
-		if tightenBaseline(opts, law, baseline, path, measured, sites) {
+		// A legacy law whose tree is at or below its baseline as the old
+		// lexers read it (no finding of its own above) moves onto the current
+		// lexers instead of tightening under the old ones.
+		if law.LegacyView && len(res.Findings) == findingsBefore && writesBaselines(opts, path) {
+			migrating = append(migrating, pendingMigration{law: law, baseline: baseline, path: path})
+		} else if tightenBaseline(opts, law, baseline, path, measured, sites) {
 			pending = append(pending, pendingTighten{law: law, baseline: baseline, path: path})
 		}
 	}
@@ -376,6 +407,20 @@ func Check(opts Options) (Result, error) {
 			return Result{}, err
 		}
 		res.Tightened = tightened
+		written, notes, err := commitMigrations(opts, migrating)
+		if err != nil {
+			return Result{}, err
+		}
+		res.Tightened = append(res.Tightened, written...)
+		res.Notes = append(res.Notes, notes...)
+		for _, m := range migrating {
+			migrated[m.law.Name] = true
+		}
+	}
+	for _, law := range laws {
+		if law.LegacyView && !migrated[law.Name] {
+			res.Notes = append(res.Notes, legacyNote(law))
+		}
 	}
 	return res, nil
 }
@@ -450,46 +495,6 @@ func regressions(baseline *Baseline, measured map[string]int, tolerancePct int) 
 		}
 	}
 	return out
-}
-
-// lineKeyedKinds are the matchers whose hits are `<path> | <trimmed line>`:
-// one offending LINE inside one in-scope file. Their debt is a multiset of
-// TEXT, so moving the file that carries a line is not a regression. The
-// whole-tree kinds are excluded on purpose — a dependency PATH, a registry
-// name or a containment capture is already path-free, and stripping at the
-// first ` | ` there would only blur two categories into one.
-var lineKeyedKinds = map[MatcherKind]bool{
-	KindRegexAbsent:       true,
-	KindMarkerWithinLines: true,
-	KindRegexNear:         true,
-	KindMarkerInPackage:   true,
-	KindDocPathResolves:   true,
-	KindHunkRegex:         true,
-}
-
-// baselineForm is the shape a law's baseline file is read in: counted per
-// file, a multiset of exact keys, or a multiset of offending text.
-func baselineForm(law Law) Form {
-	switch {
-	case law.Matcher.Key == KeyFile:
-		return Counted
-	case lineKeyedKinds[law.Matcher.Kind]:
-		return MultisetByText
-	default:
-		return Multiset
-	}
-}
-
-// loadLawBaseline reads a law's baseline in the form its key kind implies. A
-// law with no baseline declared is judged at a bar of zero.
-func loadLawBaseline(root string, law Law) (*Baseline, string, error) {
-	form := baselineForm(law)
-	if law.Baseline == "" {
-		return &Baseline{form: form}, "", nil
-	}
-	path := filepath.Join(root, filepath.FromSlash(law.Baseline))
-	b, err := LoadBaseline(path, form)
-	return b, path, err
 }
 
 func plural(n int, word string) string {

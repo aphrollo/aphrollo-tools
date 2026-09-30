@@ -360,3 +360,38 @@ path = "ms"
 		t.Fatalf("an untracked JSON file is not part of the commit: %s", res.Message)
 	}
 }
+
+// The baseline is a file of the tree the stage judges too. A run that tightened
+// it in the working tree and left it unstaged (the shape a partial-staging split
+// of a large change produces) must not decide a commit whose index still holds
+// the row it dropped.
+func TestRatchetStage_ReadsTheBaselineFromTheIndexNotTheWorkingTree(t *testing.T) {
+	root := t.TempDir()
+	gitInit(t, root)
+	mustWrite(t, filepath.Join(root, ".ratchet", "laws", "todo.toml"), `
+name = "todo"
+description = "No TODO left in the code"
+severity = "deny"
+baseline = ".ratchet/baselines/todo.txt"
+
+[scope]
+include = ["src/**/*.txt"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "TODO"
+`)
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "todo.txt"), "src/a.txt | TODO one\n")
+	mustWrite(t, filepath.Join(root, "src", "a.txt"), "TODO one\n")
+	mustWrite(t, filepath.Join(root, "src", "b.txt"), "fine\n")
+	gitAddAll(t, root)
+	commitAll(t, root)
+
+	mustWrite(t, filepath.Join(root, ".ratchet", "baselines", "todo.txt"), "")
+	mustWrite(t, filepath.Join(root, "src", "b.txt"), "fine, still\n")
+	gitAddPath(t, root, "src/b.txt")
+
+	if res := ratchetStage("precommit", root); res.Blocked {
+		t.Fatalf("the index's baseline records the site; the unstaged tightened copy is not the commit's: %s", res.Message)
+	}
+}

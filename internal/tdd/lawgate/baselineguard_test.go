@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
@@ -526,5 +527,20 @@ func TestLastSHALine_RejectsANonHexByteEvenAtLength40(t *testing.T) {
 	}
 	if got := lastSHALine(notHex); got != "" {
 		t.Fatalf("lastSHALine(%q) = %q, want \"\" — a non-hex byte must reject even at the right length", notHex, got)
+	}
+}
+
+// ratchet: test_removed TestBaselineGuard_AllowsARaiseThatAddsTheScanViewStamp: a stamp is admitted only when it equals its recomputation; baselineguard_scanview_test.go covers both sides
+
+// Once stamped, a baseline is an ordinary one: a raise on top of the stamp is
+// the hand-raise the guard exists to refuse.
+func TestBaselineGuard_RefusesARaiseOnABaselineThatWasAlreadyStamped(t *testing.T) {
+	root := baselineRepo(t, ".ratchet/baselines/dated_comment_py.txt",
+		ratchet.ScanViewStamp+"\napp/a.py | x = 1  # 2026-01-01\n",
+		ratchet.ScanViewStamp+"\napp/a.py | x = 1  # 2026-01-01\napp/b.py | y = 2  # 2026-01-02\n")
+
+	res := baselineStage("precommit", root)
+	if !res.Blocked || !strings.Contains(res.Message, "app/b.py") {
+		t.Fatalf("a raise over an already stamped baseline must reject: %+v", res)
 	}
 }

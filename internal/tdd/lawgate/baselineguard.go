@@ -54,6 +54,14 @@ func baselineStage(gateName, repoRoot string) GateResult {
 		if len(raised) == 0 {
 			continue
 		}
+		if migrated, refusal := scanViewMigration(repoRoot, rel, parents, after); migrated {
+			AppendGateLog(gateName, repoRoot, "baseline guard",
+				fmt.Sprintf("baseline-scan-view-migrated:%s:%d", rel, len(raised)), 0)
+			continue
+		} else if refusal != "" {
+			offences = append(offences, refusal)
+			continue
+		}
 		if lawName, rows, adopted := adoptionCovers(repoRoot, rel, len(raised)); adopted {
 			AppendGateLog(gateName, repoRoot, "baseline guard",
 				fmt.Sprintf("baseline-adopted:%s:%d", lawName, rows), 0)

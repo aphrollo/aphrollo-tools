@@ -41,7 +41,9 @@ and acts now.
 - `guardrail pretooluse` — Claude PreToolUse policy hook (block long fg waits, warn noisy cmds).
 - `ratchet` — the law engine: `check` judges a repo against its declared
   `.ratchet/laws/*.toml` (`--adopt <law>` is the one path that creates or
-  raises a baseline row, gated on the law being new or changed since HEAD),
+  raises a baseline row, gated on the law being new or changed since HEAD; a
+  baseline written before its `# scan-view: 2` stamp is migrated by the tightening
+  `check` itself, and the commit guard admits it only when it equals its recomputation),
   `test` proves each law against its fixtures, `init`/`presets` copy the
   embedded law library (`internal/ratchet/presets/{common,rust,go}`) into a
   repo via `extends`/`[params]`.

@@ -7,7 +7,7 @@ mask_strings = true
 
 [scope]
 include = ["**/*.ts", "**/*.tsx"]
-exclude = ["**/node_modules/**", ".ratchet/fixtures/**"]
+exclude = ["**/node_modules/**"]
 
 [matcher]
 kind    = "regex-absent"

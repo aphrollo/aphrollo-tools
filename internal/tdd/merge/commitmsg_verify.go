@@ -16,8 +16,31 @@ import (
 // flags before merge") — so verificationClaimCheck never blocks on the text
 // alone. It also asks whether a real green suite ran against the exact tree
 // this commit is about to create.
+//
+// The phrases are claims about tests and runs ("tests pass", "verified by",
+// "tested with"), never the bare word: a change to an AI-draft verifier
+// writes "not verified" as behaviour, and claims nothing (#984).
 var verificationClaimPattern = regexp.MustCompile(
-	`(?i)\btests? pass(es)?\b|\ball green\b|\bverified\b|\bconfirmed working\b|\bsuite passes\b|\bno regressions\b`)
+	`(?i)\btests? (?:all )?pass(?:es|ed)?\b|\b(?:test )?suite pass(?:es|ed)\b|\ball green\b|` +
+		`\bverified (?:by|with|against|under|locally|via|on)\b|\btested (?:with|by|locally|against|under)\b|` +
+		`\bconfirmed working\b|\bno regressions\b`)
+
+// claimNegation matches the end of the text before a claim when a negator
+// stands up to two words ahead of it: "not verified by", "was never really
+// tested with". A negated claim describes what did not happen.
+var claimNegation = regexp.MustCompile(
+	`(?i)\b(?:not|never|no|without|isn't|wasn't|aren't|weren't|doesn't|don't|didn't|hasn't|haven't|cannot|can't|couldn't)\s+(?:\w+\s+){0,2}$`)
+
+// verificationClaimed reports whether body claims the change was tested: a
+// claim phrase that no negator leads.
+func verificationClaimed(body string) bool {
+	for _, at := range verificationClaimPattern.FindAllStringIndex(body, -1) {
+		if !claimNegation.MatchString(body[:at[0]]) {
+			return true
+		}
+	}
+	return false
+}
 
 // verificationClaimCheck rejects a commit-msg body claiming verification
 // with no fresh green suite behind the tree being committed.
@@ -42,7 +65,7 @@ var verificationClaimPattern = regexp.MustCompile(
 // commit over a broken or absent git.
 func verificationClaimCheck(repoRoot, body string) (GateResult, bool) {
 	var none GateResult
-	if !verificationClaimPattern.MatchString(body) {
+	if !verificationClaimed(body) {
 		return none, false
 	}
 	tree := indexTree(repoRoot)
