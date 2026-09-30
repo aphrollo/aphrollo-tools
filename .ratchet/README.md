@@ -564,6 +564,8 @@ pattern = '@(?:file:)?Suppress\b'
 
 [tests]
 patterns = ['@Test\s+fun\s+(\w+)']    # test declarations; one capture group holds the name
+# selectable = ['@Test\s*fun\s+(\w+)']  # optional: the same, read as tolerantly as the language's runner does, to name the tests a proof runs; omitted, `patterns` serve
+# declarations = ['^\s*@Test\b']      # optional: a LINE that declares a test, with no name to capture; fail-first reads the added lines through these
 ```
 
 A row that declares no comments, strings or escape (Go, JavaScript,
@@ -584,7 +586,8 @@ needs a `.masked` fixture, one with `[tests]` a `.tests` one, one with
 fails; the embedded defaults are proved wherever a repo ships their fixtures,
 as this one does.
 
-The suppression smell reads every row's directives in every file, so a
+The suppression smell reads every row's directives in every file, the rows of
+the repository's own `.ratchet/languages` included, so a
 language's `@Suppress` or `# noqa` is caught wherever it is written, and a
 directive whose row names a `reason` is admitted when the rest of its own
 comment matches it. A `symbol-removed` law with no `pattern` captures tests by

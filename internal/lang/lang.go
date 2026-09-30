@@ -54,6 +54,15 @@ type Language struct {
 	// Tests are test-declaration patterns; each captures the test's name in
 	// its one group.
 	Tests []*regexp.Regexp
+	// Selectable are name-capturing patterns like Tests, read as tolerantly as
+	// the language's test runner reads its own sources, for naming the tests a
+	// proof runs; empty means Tests serve.
+	Selectable []*regexp.Regexp
+	// Declarations recognise ONE LINE that declares a test — an attribute, a
+	// function header, a registration call — with no name to capture. Fail-first
+	// reads the lines an edit adds through them, to tell a commit that adds a
+	// test from one that changes an assertion inside an existing test.
+	Declarations []*regexp.Regexp
 }
 
 // LineComment is a marker that opens a comment ending at the line's end.

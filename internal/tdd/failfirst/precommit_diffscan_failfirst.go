@@ -118,7 +118,7 @@ func stagedTestsAddDeclIn(repoRoot string, testFiles []string) bool {
 			continue
 		}
 		ext := strings.ToLower(filepath.Ext(fa.Path))
-		if _, known := testDeclRes[ext]; !known {
+		if _, known := declaresTest(ext, ""); !known {
 			return true
 		}
 		post, err := git(repoRoot, "show", ":"+fa.Path)

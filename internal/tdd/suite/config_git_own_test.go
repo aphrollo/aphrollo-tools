@@ -98,6 +98,114 @@ func TestDeclaresTest_RecognisesADeclarationPerLanguage(t *testing.T) {
 	}
 }
 
+// TestDeclaresTest_TheLanguageTableKeepsEveryShapeTheHardCodedTableRead is the
+// behaviour parity for moving the declaration shapes into the language rows:
+// each line is judged as the per-extension regexes it replaced judged it.
+func TestDeclaresTest_TheLanguageTableKeepsEveryShapeTheHardCodedTableRead(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		ext, line string
+		want      bool
+	}{
+		{".go", "func Test(t *testing.T) {", true},
+		{".go", "func TestWidget(t *testing.T) {", true},
+		{".go", "func TestWidget (t *testing.T) {", true},
+		{".go", "func  TestWidget(t *testing.T) {", true},
+		{".go", "\tfunc TestIndented(t *testing.T) {", true},
+		{".go", "func TestMainLoop(t *testing.T) {", true},
+		{".go", "func TestMai(t *testing.T) {", true},
+		{".go", "func TestM(t *testing.T) {", true},
+		{".go", "func Test_x(t *testing.T) {", true},
+		{".go", "func BenchmarkWidget(b *testing.B) {", true},
+		{".go", "func FuzzWidget(f *testing.F) {", true},
+		{".go", "func ExampleWidget() {", true},
+		{".go", `	t.Run("sub", func(t *testing.T) {`, true},
+		{".go", `x := t.Run("sub", f)`, true},
+		{".go", "func TestMain(m *testing.M) {", false},
+		{".go", "func TestMain (m *testing.M) {", false},
+		{".go", "\tfunc TestMain(m *testing.M) {", false},
+		{".go", "func testWidget(t *testing.T) {", false},
+		{".go", "func (s *S) TestWidget(t *testing.T) {", false},
+		{".go", "func Widget() {", false},
+		{".go", "// func TestCommented(", false},
+		{".go", "t.Runner()", false},
+		{".rs", "#[test]", true},
+		{".rs", "    #[test]", true},
+		{".rs", "#[ test ]", true},
+		{".rs", "#[tokio::test]", true},
+		{".rs", "#[tokio::test(flavor = \"multi_thread\")]", true},
+		{".rs", "#[rstest]", true},
+		{".rs", "#[rstest::rstest]", true},
+		{".rs", "#[test_case(1, 2)]", true},
+		{".rs", "#[testing]", false},
+		{".rs", "#[cfg(test)]", false},
+		{".rs", "fn test_thing() {", false},
+		{".py", "def test_widget():", true},
+		{".py", "    def test_widget(self):", true},
+		{".py", "async def test_widget():", true},
+		{".py", "  async  def test_widget():", true},
+		{".py", "def testwidget():", false},
+		{".py", "def helper_test_x():", false},
+		{".zig", `test "widget" {`, true},
+		{".zig", "test {", true},
+		{".zig", "  test \"indented\" {", true},
+		{".zig", "test widget {", false},
+		{".zig", "fn helper() void {", false},
+		{".js", `it("does a thing", () => {`, true},
+		{".js", `  test("does a thing", () => {`, true},
+		{".js", `describe("a suite", () => {`, true},
+		{".js", `it.only("x", () => {`, true},
+		{".js", `test.each([1, 2])("x", () => {`, true},
+		{".js", `it ("spaced", () => {`, true},
+		{".js", `expect(it).toBe(1)`, false},
+		{".js", `waitit("x")`, false},
+		{".jsx", `it("x", () => {`, true},
+		{".mjs", `it("x", () => {`, true},
+		{".cjs", `it("x", () => {`, true},
+		{".ts", `it("x", () => {`, true},
+		{".tsx", `describe("x", () => {`, true},
+		{".mts", `test("x", () => {`, true},
+		{".cts", `test("x", () => {`, true},
+		{".ts", `const x = 1`, false},
+	}
+	for _, c := range cases {
+		decl, known := declaresTest(c.ext, c.line)
+		if !known || decl != c.want {
+			t.Errorf("declaresTest(%q, %q) = (%v, %v), want (%v, true)", c.ext, c.line, decl, known, c.want)
+		}
+	}
+}
+
+// TestDeclaresTest_ALanguageWithNoDeclarationShapeIsUnknown pins that a row
+// which lists no declaration pattern stays unknown, so fail-first keeps
+// erring toward running the suite for it.
+func TestDeclaresTest_ALanguageWithNoDeclarationShapeIsUnknown(t *testing.T) {
+	t.Parallel()
+	for _, ext := range []string{".java", ".kt", ".cs", ".php", ".rb", ".sh", ".yaml", ".toml", ".md", ""} {
+		if decl, known := declaresTest(ext, "@Test void x() {}"); decl || known {
+			t.Errorf("declaresTest(%q) = (%v, %v), want (false, false)", ext, decl, known)
+		}
+	}
+}
+
+// TestGoTestFuncNames_ReadsTheGoRowsTestPatterns pins the Go names a staged
+// file contributes to the -run filter: every Test function, in declaration
+// order, with TestMain, helpers, methods and other declarations left out.
+func TestGoTestFuncNames_ReadsTheGoRowsTestPatterns(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, root, "x_test.go", "package x\n\nfunc TestMain(m *testing.M) {}\nfunc TestWear(t *testing.T) {}\nfunc  TestGrip (t *testing.T) {}\n"+
+		"func BenchmarkWear(b *testing.B) {}\nfunc FuzzWear(f *testing.F) {}\nfunc testHelper() {}\nfunc (s S) TestMethod() {}\n"+
+		"func TestMainLoop(t *testing.T) {}\nfunc Test_x(t *testing.T) {}\n  func TestIndented() {}\n")
+	got := strings.Join(goTestFuncNames(root, "x_test.go"), ",")
+	if want := "TestWear,TestGrip,TestMainLoop,Test_x"; got != want {
+		t.Errorf("goTestFuncNames = %s, want %s", got, want)
+	}
+	if names := goTestFuncNames(root, "absent_test.go"); len(names) != 0 {
+		t.Errorf("an unreadable file names %v", names)
+	}
+}
+
 // TestDeclaresTest_AGoTestMainIsNotATest pins the exemption: TestMain has a
 // test's name and none of its meaning.
 func TestDeclaresTest_AGoTestMainIsNotATest(t *testing.T) {

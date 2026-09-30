@@ -208,21 +208,10 @@ func checkLanguageAnswer(row lang.Language, suffix, src string, lexer *mask.Lexe
 	case ".masked":
 		return firstLineDifference(lexer.Lex(src, true, true), want)
 	case ".tests":
-		return listDifference(testNames(row, src), want)
+		return listDifference(row.TestNames(src), want)
 	default:
 		return listDifference(suppressionKinds(row, lexer.Lex(src, true, false)), want)
 	}
-}
-
-// testNames are the names the row's test patterns capture in src.
-func testNames(row lang.Language, src string) []string {
-	var names []string
-	for _, p := range row.Tests {
-		for _, idx := range wholeFileSymbolPattern(p).FindAllStringSubmatchIndex(src, -1) {
-			names = append(names, src[idx[2]:idx[3]])
-		}
-	}
-	return names
 }
 
 // suppressionKinds are the kinds of suppression the row's directives find in

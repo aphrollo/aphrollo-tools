@@ -33,7 +33,7 @@ func (l Law) SymbolPatterns() ([]*regexp.Regexp, error) {
 }
 
 // symbolPatterns is SymbolPatterns as the engine matches them: against a
-// file's whole text (see wholeFileSymbolPattern).
+// file's whole text (see lang.WholeFile).
 func (l Law) symbolPatterns() ([]*regexp.Regexp, error) {
 	raw, err := l.SymbolPatterns()
 	if err != nil {
@@ -41,7 +41,7 @@ func (l Law) symbolPatterns() ([]*regexp.Regexp, error) {
 	}
 	whole := make([]*regexp.Regexp, len(raw))
 	for i, p := range raw {
-		whole[i] = wholeFileSymbolPattern(p)
+		whole[i] = lang.WholeFile(p)
 	}
 	return whole, nil
 }

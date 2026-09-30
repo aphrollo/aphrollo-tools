@@ -5,5 +5,13 @@ extensions = [".go"]
 kind = "lint"
 pattern = '//\s*nolint'
 
+# `patterns` capture a Test function's name: Test plus a suffix that is not
+# lowercase-led, and never TestMain, the binary's entry point that `go test
+# -run` does not select. `selectable` is the same shape read as tolerantly as
+# `go test` does, for naming the tests a proof runs, whatever the file's
+# spacing. `declarations` also recognise the Benchmark, Fuzz and Example
+# functions and a subtest registration.
 [tests]
 patterns = ['^func (Test(?:[A-LN-Za-z0-9_][A-Za-z0-9_]*|M|Ma|Mai|M[A-Z0-9_b-z][A-Za-z0-9_]*|Ma[A-Z0-9_a-hj-z][A-Za-z0-9_]*|Mai[A-Z0-9_a-mo-z][A-Za-z0-9_]*|Main[A-Za-z0-9_]+))\(']
+selectable = ['^func\s+(Test(?:[A-LN-Za-z0-9_][A-Za-z0-9_]*|M|Ma|Mai|M[A-Z0-9_b-z][A-Za-z0-9_]*|Ma[A-Z0-9_a-hj-z][A-Za-z0-9_]*|Mai[A-Z0-9_a-mo-z][A-Za-z0-9_]*|Main[A-Za-z0-9_]+))\s*\(']
+declarations = ['^\s*func\s+(?:Test(?:[A-LN-Za-z0-9_][A-Za-z0-9_]*|M|Ma|Mai|M[A-Z0-9_b-z][A-Za-z0-9_]*|Ma[A-Z0-9_a-hj-z][A-Za-z0-9_]*|Mai[A-Z0-9_a-mo-z][A-Za-z0-9_]*|Main[A-Za-z0-9_]+)?|(?:Benchmark|Fuzz|Example)[A-Za-z0-9_]*)\s*\(', '\bt\.Run\s*\(']

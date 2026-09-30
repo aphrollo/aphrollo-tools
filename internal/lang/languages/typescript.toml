@@ -13,3 +13,4 @@ pattern = '@ts-nocheck'
 
 [tests]
 patterns = ['\b(?:it|test)\(\s*"([^"\n]+)"', "\\b(?:it|test)\\(\\s*'([^'\\n]+)'"]
+declarations = ['^\s*(it|test|describe)(\.\w+)?\s*\(']

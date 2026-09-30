@@ -183,18 +183,39 @@ func parseTests(doc *toml.Document, file string, l *Language) error {
 	}
 	f := toml.NewFields(t, file)
 	patterns := f.List("patterns")
+	selectable := f.List("selectable")
+	declarations := f.List("declarations")
 	if err := f.Finish(); err != nil {
 		return err
 	}
+	for _, p := range declarations {
+		re, err := regexp.Compile(p)
+		if err != nil {
+			return fmt.Errorf("%s: [tests] declaration %q is not a regular expression: %v", file, p, err)
+		}
+		l.Declarations = append(l.Declarations, re)
+	}
+	var err error
+	if l.Tests, err = compileNamed(patterns, "pattern", file); err != nil {
+		return err
+	}
+	l.Selectable, err = compileNamed(selectable, "selectable pattern", file)
+	return err
+}
+
+// compileNamed compiles test patterns that each capture a test's name in
+// exactly one group; what names the key in an error.
+func compileNamed(patterns []string, what, file string) ([]*regexp.Regexp, error) {
+	var out []*regexp.Regexp
 	for _, p := range patterns {
 		re, err := regexp.Compile(p)
 		if err != nil {
-			return fmt.Errorf("%s: [tests] pattern %q is not a regular expression: %v", file, p, err)
+			return nil, fmt.Errorf("%s: [tests] %s %q is not a regular expression: %v", file, what, p, err)
 		}
 		if re.NumSubexp() != 1 {
-			return fmt.Errorf("%s: [tests] pattern %q must capture the test's name in exactly one group, it has %d", file, p, re.NumSubexp())
+			return nil, fmt.Errorf("%s: [tests] %s %q must capture the test's name in exactly one group, it has %d", file, what, p, re.NumSubexp())
 		}
-		l.Tests = append(l.Tests, re)
+		out = append(out, re)
 	}
-	return nil
+	return out, nil
 }
