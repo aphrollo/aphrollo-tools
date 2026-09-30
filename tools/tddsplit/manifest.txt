@@ -328,6 +328,8 @@ failfirst_refuse.go                                failfirst
 failfirst_refuse_test.go                           failfirst
 failfirst_skipped.go                               failfirst
 failfirst_skipped_test.go                          failfirst
+failfirst_split.go                                 failfirst
+failfirst_split_test.go                            failfirst
 failfirst_testmain_test.go                         failfirst
 failfirstinputs.go                                 failfirst
 features.go                                        install
@@ -762,6 +764,8 @@ precommit_npmtypecheck_test.go                     precommit
 precommit_quality.go                               precommit
 precommit_quality_test.go                          precommit
 precommit_reject_test.go                           precommit
+precommit_splitcommit.go                           precommit
+precommit_splitcommit_test.go                      precommit
 precommit_svelte_test.go                           precommit
 precommit_test.go                                  precommit
 precommit_wsmanifest.go                            precommit
@@ -915,6 +919,8 @@ smell_test.go                                      smell
 smellscope.go                                      smell
 smellscope_own_test.go                             smell
 smellscope_test.go                                 postedit  # prefix says smell; its test body reaches postedit
+splitcommit.go                                     gitx
+splitcommit_test.go                                gitx
 stagedfiles_test.go                                tdd
 staleartifact.go                                   suite
 staleartifact_hint_test.go                         suite
