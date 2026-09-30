@@ -682,6 +682,8 @@ policy_test.go                                     smell
 postedit_fastfail_test.go                          precommit
 postmerge.go                                       merge
 postmerge_test.go                                  tdd       # prefix says merge; its test body reaches tdd
+postmerge_testmap.go                               merge
+postmerge_testmap_test.go                          tdd       # prefix says merge; its test body reaches tdd
 posttooluse.go                                     postedit
 posttooluse_advisory.go                            postedit
 posttooluse_advisory_test.go                       postedit

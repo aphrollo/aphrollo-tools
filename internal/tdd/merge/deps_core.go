@@ -4,6 +4,7 @@ package merge
 
 import (
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
+	exec "os/exec"
 	time "time"
 )
 
@@ -36,6 +37,8 @@ func pidRunningFn(p0 int) bool { return core.PidRunningFn(p0) }
 func primaryCheckoutRoot(p0 string) string { return core.PrimaryCheckoutRoot(p0) }
 
 func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }
+
+func silentStdio(p0 *exec.Cmd) func() { return core.SilentStdio(p0) }
 
 func tomlBoolSetIn(p0 string, p1 string, p2 string) (bool, bool) {
 	return core.TomlBoolSetIn(p0, p1, p2)
