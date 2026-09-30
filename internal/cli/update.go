@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
@@ -21,13 +22,14 @@ import (
 // or carrying an edit of its own. `gate self-install`, which built from an
 // arbitrary checkout and could therefore point the box at unmerged code, was
 // retired with the bootstrap that needed it (#659, #673).
-const updateUsage = `usage: aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--branch NAME] [--no-init]
+const updateUsage = `usage: aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--branch NAME] [--no-init] [--dry]
 
 Fetches <remote>/<branch>, builds ./cmd/aphrollo from a detached temporary
 worktree at that commit (never the working tree, which may be behind or
 dirty), swaps it in for --bin, sweeps stale copies beside it, then runs gate
 init UNDER THE NEW BINARY (so the managed files come from its templates, not
-the outgoing build's) unless --no-init.
+the outgoing build's) unless --no-init. --dry prints the ref it would fetch,
+what it would build and the path it would swap, and stops before the fetch.
 
 This is the only command that replaces the installed binary: gate
 self-install, which built from an arbitrary checkout, is retired.
@@ -58,8 +60,17 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		noInit  = fs.Bool("no-init", false, "replace the binary only; skip `gate init`")
 		remote  = fs.String("remote", "origin", "remote to fetch and build from")
 		branch  = fs.String("branch", "main", "branch to build")
+		dry     = fs.Bool("dry", false, "print the ref, build target and swap path and stop before the fetch")
 	)
-	if err := fs.Parse(args); err != nil {
+	// Everything after a bare "--" is forwarded to `gate init` untouched; what
+	// comes before it is this verb's own flags, read wherever they sit.
+	var forwarded []string
+	if i := slices.Index(args, "--"); i >= 0 {
+		forwarded = args[i+1:]
+		args = args[:i]
+	}
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil || refuseArgs("update", pos, stderr) {
 		return 2
 	}
 
@@ -84,6 +95,12 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "aphrollo update: %s is not writable by this account — it is deployed by the repo pipeline on merge, not by aphrollo update here\n", bin)
 		}
 		return 1
+	}
+
+	if *dry {
+		fmt.Fprintf(stdout, "aphrollo update (dry run): nothing fetched, built or swapped\n  fetch: %s/%s in %s\n  build: ./cmd/aphrollo from a detached worktree at that ref\n  swap:  %s\n",
+			*remote, *branch, *repo, bin)
+		return 0
 	}
 
 	git, err := resolveRealGit()
@@ -154,7 +171,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	if *noInit {
 		return 0
 	}
-	return initAfterSwap("aphrollo update", bin, fs.Args(), stdout, stderr)
+	return initAfterSwap("aphrollo update", bin, forwarded, stdout, stderr)
 }
 
 // shortSHA reports the first 7 characters of a full commit sha, the width

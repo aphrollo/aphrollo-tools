@@ -10,11 +10,11 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const feedbackUsage = `usage: aphrollo gate feedback "<title>" [--label <name>]... [--body <text>] [--repo <dir>] [--upstream <owner/name>]
+const feedbackUsage = `usage: aphrollo gate feedback "<title>" [--label <name>]... [--body <text>] [--repo <dir>] [--upstream <owner/name>] [--dry]
 
 Opens one issue against the TOOL's tracker rather than the repo you are
 standing in, and prints its URL — the only line on stdout, so the command
-pipes.
+pipes. --dry prints the title, labels and body and calls no gh.
 
 ` + "`gate issue`" + ` files where you are, which is right for your own open points and
 wrong for a defect in the gate itself: the issue lands in front of maintainers
@@ -40,15 +40,7 @@ func runGateFeedback(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	// The title is positional and may sit on either side of the flags, the
-	// same as `gate issue` — a title typed first has to be lifted off before
-	// parsing, one typed last comes back as fs.Args().
-	var leading []string
-	// walk-terminates: args loses its first element every turn
-	for len(args) > 0 && args[0] != "" && args[0][0] != '-' {
-		leading = append(leading, args[0])
-		args = args[1:]
-	}
-
+	// same as `gate issue`.
 	fs := flag.NewFlagSet("feedback", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var labels stringList
@@ -57,11 +49,13 @@ func runGateFeedback(args []string, stdout, stderr io.Writer) int {
 		body     = fs.String("body", "", "what you saw — paste the verbatim output")
 		repo     = fs.String("repo", ".", "the checkout the report is coming FROM")
 		upstream = fs.String("upstream", "", "override the tracker to file into, as owner/name")
+		dry      = fs.Bool("dry", false, "print the title, labels and body and open nothing")
 	)
-	if err := fs.Parse(args); err != nil {
+	words, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
 		return 2
 	}
-	title := strings.Join(append(leading, fs.Args()...), " ")
+	title := strings.Join(words, " ")
 	if strings.TrimSpace(title) == "" {
 		fmt.Fprintf(stderr, "aphrollo gate feedback: a report needs a title\n\n%s", feedbackUsage)
 		return 2
@@ -76,6 +70,11 @@ func runGateFeedback(args []string, stdout, stderr io.Writer) int {
 	if line := undercoverTextRefusal(root, [2]string{"report title", title}, [2]string{"report body", *body}); line != "" {
 		fmt.Fprintf(stderr, "aphrollo gate feedback: %s\n", line)
 		return 1
+	}
+	if *dry {
+		printIssuePreview(stdout, "aphrollo gate feedback", strings.TrimSpace(title), labels, tdd.FeedbackBody(root, *body))
+		fmt.Fprintf(stdout, "tracker: %s\n", target)
+		return 0
 	}
 	url, _, err := tdd.OpenIssue(tdd.IssueOptions{
 		Repo:       root,

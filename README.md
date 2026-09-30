@@ -6,9 +6,10 @@ lifecycle, the dev-tier control plane, and the TDD + law gates.
 
 Every verb is **lossless**, **deterministic** and **idempotent** (done work
 reports `[skip]`). Every mutating verb (`workspace`, `refactor`, `sqlc regen`,
-`gate gc`, `gate probe discard`, `gate split-commit`, `gate install`) executes by
-default and `--dry` previews; `--apply` is a legacy no-op that prints a notice;
-`dev` acts immediately.
+`gate gc`, `gate probe discard`, `gate split-commit`, `gate install`, `update`,
+`ratchet init`, `ratchet check`, `gate mutants hold`, `issue`, `gate feedback`,
+`gate escape record`) executes by default and `--dry` previews; `--apply` is a
+legacy no-op that prints a notice; `dev` acts immediately.
 
 **The reference is the tool itself:** `aphrollo <verb> --help`. This file only
 maps the verbs.

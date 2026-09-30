@@ -107,29 +107,9 @@ func EscapeLogPath() string {
 // is reported IN GH'S OWN WORDS, because "no issue opened" leaves the
 // operator guessing between a missing label, no auth, and no network.
 func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
-	reason := strings.TrimSpace(o.Reason)
-	if reason == "" {
-		return EscapeRecord{}, fmt.Errorf("an escape needs a reason: what got through, in one line")
-	}
-	kind := o.Kind
-	if kind == "" {
-		kind = EscapeKind
-	}
-	if kind != EscapeKind && kind != FalsePositiveKind {
-		return EscapeRecord{}, fmt.Errorf("kind is %q or %q, got %q", EscapeKind, FalsePositiveKind, kind)
-	}
-	now := time.Now().UTC()
-	r := EscapeRecord{
-		ID:          escapeID(now, reason),
-		Kind:        kind,
-		Reason:      reason,
-		FromCI:      o.FromCI,
-		Evidence:    o.Evidence,
-		At:          now,
-		Labels:      o.Labels,
-		Check:       o.Check,
-		ClosesBy:    o.ClosesBy,
-		Fingerprint: o.Fingerprint,
+	r, err := newEscapeRecord(o, time.Now().UTC())
+	if err != nil {
+		return EscapeRecord{}, err
 	}
 	if err := appendEscape(r); err != nil {
 		return EscapeRecord{}, err
@@ -141,6 +121,44 @@ func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
 		fmt.Fprintf(w, "escape %s: %v\n", r.ID, err)
 	}
 	return r, nil
+}
+
+// newEscapeRecord validates o and builds the record RecordEscape would write.
+func newEscapeRecord(o EscapeOptions, at time.Time) (EscapeRecord, error) {
+	reason := strings.TrimSpace(o.Reason)
+	if reason == "" {
+		return EscapeRecord{}, fmt.Errorf("an escape needs a reason: what got through, in one line")
+	}
+	kind := o.Kind
+	if kind == "" {
+		kind = EscapeKind
+	}
+	if kind != EscapeKind && kind != FalsePositiveKind {
+		return EscapeRecord{}, fmt.Errorf("kind is %q or %q, got %q", EscapeKind, FalsePositiveKind, kind)
+	}
+	return EscapeRecord{
+		ID:          escapeID(at, reason),
+		Kind:        kind,
+		Reason:      reason,
+		FromCI:      o.FromCI,
+		Evidence:    o.Evidence,
+		At:          at,
+		Labels:      o.Labels,
+		Check:       o.Check,
+		ClosesBy:    o.ClosesBy,
+		Fingerprint: o.Fingerprint,
+	}, nil
+}
+
+// PreviewEscape is what `gate escape record --dry` prints: the title, labels
+// and body RecordEscape would open an issue with. It writes no record and
+// calls no gh, and it refuses what RecordEscape refuses.
+func PreviewEscape(o EscapeOptions) (title string, labels []string, body string, err error) {
+	r, err := newEscapeRecord(o, time.Now().UTC())
+	if err != nil {
+		return "", nil, "", err
+	}
+	return escapeIssueTitle(r), append([]string{r.Kind}, r.Labels...), escapeIssueBody(r), nil
 }
 
 // escapeID names a record stably: when it happened, plus a short hash of what

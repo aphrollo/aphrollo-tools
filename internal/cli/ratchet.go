@@ -23,11 +23,14 @@ const ratchetUsage = `usage: aphrollo ratchet <subcommand>
 
 Subcommands:
   check    Judge the tree against .ratchet/laws/*.toml (--repo, --only, --proposed
-           file=contentfile, --format text|json, --no-tighten, --no-cache, --base <ref>)
+           file=contentfile, --format text|json, --dry, --no-cache, --base <ref>).
+           --dry writes no baseline (--no-tighten is its alias for one release);
+           with --adopt <law> it prints the baseline it would write
   test     Run every law against its .ratchet/fixtures/<law>/{hit,clean} files
            (--repo, --only name[,name...], --format text|json)
   init     Copy embedded law presets into .ratchet/laws/ (--repo, --preset
-           group[,group...], --param name=value, repeatable)
+           group[,group...], --param name=value, repeatable, --dry lists the
+           files and writes none)
   presets  List every embedded preset and the params its template asks for;
            an optional one shows the default init renders when it is unset
 
@@ -87,7 +90,8 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		repo      = fs.String("repo", ".", "repository to check")
 		only      = fs.String("only", "", "run exactly one law by name")
 		format    = fs.String("format", "text", "text or json")
-		noTighten = fs.Bool("no-tighten", false, "never write a baseline down (report only)")
+		dry       = fs.Bool("dry", false, "report only: never write a baseline (down, or with --adopt, anywhere)")
+		noTighten = fs.Bool("no-tighten", false, "alias of --dry (kept for one release)")
 		noCache   = fs.Bool("no-cache", false, "ignore the per-file scan cache")
 		adopt     = fs.String("adopt", "", "manual override: write <law>'s baseline from the current tree (new law, or one whose .toml differs from HEAD); a pre-stamp baseline migrates on its own when check tightens")
 		base      = fs.String("base", "", "git ref the tree is judged against: a diff-scoped law (symbol-removed) compares with it, and a hit it already carries is not a regression")
@@ -107,7 +111,7 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		root = r
 	}
 	if *adopt != "" {
-		return runRatchetAdopt(root, *adopt, stdout, stderr)
+		return runRatchetAdopt(root, *adopt, *dry || *noTighten, stdout, stderr)
 	}
 	if !ratchet.HasLaws(root) {
 		if *format == "json" {
@@ -122,7 +126,7 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		Root:     root,
 		Only:     *only,
 		Proposed: proposed,
-		Tighten:  !*noTighten,
+		Tighten:  !*dry && !*noTighten,
 		Base:     *base,
 		// A ref given is the tree the run is judged against: only what the
 		// tree added since it counts.
@@ -308,15 +312,20 @@ func ratchetTestJSON(results []ratchet.FixtureResult, stdout, stderr io.Writer) 
 // measures — the only path that ever CREATES a baseline file or RAISES a
 // row, refused unless the law has none yet or its .toml has moved since
 // HEAD (see ratchet.Adopt in internal/ratchet for the refusal itself).
-func runRatchetAdopt(root, law string, stdout, stderr io.Writer) int {
+func runRatchetAdopt(root, law string, dry bool, stdout, stderr io.Writer) int {
 	res, err := ratchet.Adopt(ratchet.AdoptOptions{
 		Root:                root,
 		Law:                 law,
 		LawChangedSinceHEAD: lawChangedSinceHEAD(root, law),
+		DryRun:              dry,
 	})
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo ratchet: %v\n", err)
 		return 1
+	}
+	if dry {
+		fmt.Fprintf(stdout, "ratchet: would adopt %s — %d row(s) written to %s\n", res.Law, res.Rows, res.Path)
+		return 0
 	}
 	fmt.Fprintf(stdout, "ratchet: adopted %s — %d row(s) written to %s\n", res.Law, res.Rows, res.Path)
 	return 0
@@ -381,10 +390,12 @@ func runRatchetInit(args []string, stdout, stderr io.Writer) int {
 	var (
 		repo   = fs.String("repo", ".", "repository to init")
 		preset = fs.String("preset", "", "comma-separated preset groups to copy, e.g. common,rust")
+		dry    = fs.Bool("dry", false, "list the files that would be written and write nothing")
 		params = paramFlag{}
 	)
 	fs.Var(params, "param", "name=value substituted into a preset's {{name}} slots (repeatable)")
-	if err := fs.Parse(args); err != nil {
+	pos, err := parseFlagsAnywhere(fs, args)
+	if err != nil || refuseArgs("ratchet init", pos, stderr) {
 		return 2
 	}
 	if *preset == "" {
@@ -435,6 +446,11 @@ func runRatchetInit(args []string, stdout, stderr io.Writer) int {
 				continue
 			}
 			final := ratchet.WithExtends(rendered, e.Group, e.Name, params, e.Params)
+			if *dry {
+				fmt.Fprintf(stdout, "[would write] %s/%s\n", e.Group, e.Name)
+				written++
+				continue
+			}
 			if err := os.MkdirAll(lawsDir, 0o755); err != nil {
 				fmt.Fprintf(stderr, "aphrollo ratchet init: %v\n", err)
 				return 1

@@ -18,10 +18,14 @@ Module `github.com/aphrollo/aphrollo-tools`, go 1.26.6. Single binary —
 - **Deterministic** — same inputs, same bytes out (sorted, stable).
 - **Visible** — one mutation model: every mutating verb (`workspace`,
   `refactor`, `sqlc regen`, `gate gc`, `gate probe discard`, `gate split-commit`,
-  `gate install`) **executes by default**; pass `--dry` to print the plan and
-  stop. `--apply` is accepted as a legacy no-op that prints a one-line notice on
-  stderr. Flags are honoured before or after positionals (one shared splitter,
-  `parseFlagsAnywhere`), and an unknown `--flag` is refused, never ignored.
+  `gate install`, `update`, `ratchet init`, `ratchet check`, `gate mutants hold`,
+  `issue`, `gate feedback`, `gate escape record`) **executes by default**; pass
+  `--dry` to print the plan and stop (`aphrollo install` and `gate init` take no
+  `--dry` yet). `--apply` is accepted as a legacy no-op on the verbs that once
+  needed it, and prints a one-line notice on stderr; `ratchet check --no-tighten`
+  is an alias of `--dry`. Flags are honoured before or after positionals (one
+  shared splitter, `parseFlagsAnywhere`), and an unknown `--flag` is refused,
+  never ignored.
   Each step is **idempotent** — already-done work reports `[skip]`, never redone,
   so re-running on a half-built state finishes the job without clobbering it.
   Fail loud with a fix suggestion rather than guessing.

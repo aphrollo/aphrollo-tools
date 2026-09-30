@@ -336,8 +336,10 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
                      the named packages or every package with tests, skipping
                      the ones already current. The post-merge hook starts it in
                      the background; silent where mutants-at-commit is not set.
-  hold <file>...     take the pre-mutation WORKING state of each file, for a
-                     hand proof run by editor rather than by "prove". The
+  hold [--dry] <file>...
+                     take the pre-mutation WORKING state of each file, for a
+                     hand proof run by editor rather than by "prove" (--dry
+                     prints the file it would hold and holds nothing). The
                      restore afterwards is "MUTATION=1 git checkout -- <file>":
                      the git shim serves it from the held bytes, so it puts
                      back what the proof started from — including any
