@@ -85,7 +85,12 @@ mutants-before-pr = "ci"
 # spent before every mutant was judged leaves those mutants NOT MEASURED, and
 # CI's mutants-verdict decides them. The per-function test maps it selects with
 # are built in the background after a merge (`gate mutants testmap`).
-mutants-at-commit = true
+#
+# Off in this repo: test processes the commit-time runner and the background
+# test-map build started reached the real repository and the user's global git
+# config through inherited git state. The stage stays off until those runs are
+# isolated from every real repository and config.
+mutants-at-commit = false
 
 # How many runners the CI measurement divides across: the width of the
 # mutants-shard matrix. Shards split the lane's changed source files by added
