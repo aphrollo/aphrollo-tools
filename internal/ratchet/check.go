@@ -328,13 +328,13 @@ func Check(opts Options) (Result, error) {
 		}
 		baselineKeys := baseline.LiteralKeyCounts()
 		regs := regressions(baseline, measured, law.Matcher.TolerancePct)
-		judged := baseline
+		var baseSites map[string]int
 		if bh, ok := baseHits[law.Name]; ok {
 			// Judged against the base too: what it carried is no one's doing.
 			base := newBaseCeiling(baseline, bh)
 			regs = base.raise(regs)
 			baselineKeys = base.literalKeys(baselineKeys)
-			judged = baseline.withSites(base.sites)
+			baseSites = base.sites
 		}
 		findingsBefore := len(res.Findings)
 		for _, r := range regs {
@@ -353,7 +353,7 @@ func Check(opts Options) (Result, error) {
 		// hook) the aggregate ceiling remains the whole guard, as it always
 		// was, with the new site caught by the whole-tree run at commit.
 		if len(opts.Files) == 0 {
-			for _, r := range judged.NewSiteRegressions(sites) {
+			for _, r := range baseline.NewSiteRegressionsBeyond(sites, baseSites) {
 				res.Findings = append(res.Findings, lawFinding(law, hitsByKey[r.Key], r))
 			}
 		}

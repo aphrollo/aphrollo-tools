@@ -129,3 +129,26 @@ func TestCheck_BaseRelativeJudgesAFileKeyedLawByTheBaseCount(t *testing.T) {
 		t.Fatalf("Findings = %+v, want big.py at 10 against the base's 9", res.Findings)
 	}
 }
+
+// TestNewSiteRegressionsBeyond_KnownSitesCountAsRecordedAtTheirOwnCount pins
+// the boundary: a site the base holds once is recorded once, so a second
+// occurrence of it is new while the identity's two baseline rows are gone.
+func TestNewSiteRegressionsBeyond_KnownSitesCountAsRecordedAtTheirOwnCount(t *testing.T) {
+	b, err := ParseBaseline("gone1.py | except Exception:\ngone2.py | except Exception:\n", MultisetByText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const site = "a.py | except Exception:"
+	sites := map[string][]string{"except Exception:": {site, site}}
+
+	if got := b.NewSiteRegressionsBeyond(sites, map[string]int{site: 2}); len(got) != 0 {
+		t.Errorf("known twice: %+v, want none", got)
+	}
+	got := b.NewSiteRegressionsBeyond(sites, map[string]int{site: 1})
+	if len(got) != 1 || got[0].Key != site || got[0].Baseline != 1 || got[0].Measured != 2 {
+		t.Errorf("known once: %+v, want the second occurrence at baseline 1, now 2", got)
+	}
+	if got := b.NewSiteRegressionsBeyond(sites, nil); len(got) != 0 {
+		t.Errorf("nothing known: %+v, want none — two sites appeared for two vanished rows, a move", got)
+	}
+}

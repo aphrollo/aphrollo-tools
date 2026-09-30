@@ -1,9 +1,6 @@
 package ratchet
 
-import (
-	"fmt"
-	"sort"
-)
+import "fmt"
 
 // baseScopedKinds are the matchers whose hits a file's own bytes decide, so a
 // base tree's hits can be measured the way the working tree's are. Whole-tree
@@ -107,7 +104,7 @@ func (c baseCeiling) raise(regs []Regression) []Regression {
 // literalKeys is the bag of sites a run treats as already accounted for: the
 // baseline's rows and the base's sites, each site at the higher of the two.
 func (c baseCeiling) literalKeys(baselineKeys map[string]int) map[string]int {
-	out := make(map[string]int, len(baselineKeys)+len(c.sites))
+	out := map[string]int{}
 	for k, n := range baselineKeys {
 		out[k] = n
 	}
@@ -115,26 +112,4 @@ func (c baseCeiling) literalKeys(baselineKeys map[string]int) map[string]int {
 		out[k] = max(out[k], n)
 	}
 	return out
-}
-
-// withSites is b with a row added for every site the base held beyond the rows
-// b already has, so the per-site comparison reads a site the base carried as
-// recorded. Only a text-keyed baseline has that comparison.
-func (b *Baseline) withSites(sites map[string]int) *Baseline {
-	if b.form != MultisetByText {
-		return b
-	}
-	have := b.LiteralKeyCounts()
-	clone := &Baseline{form: b.form, path: b.path, lines: append([]baselineLine(nil), b.lines...)}
-	keys := make([]string, 0, len(sites))
-	for k := range sites {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		for range sites[k] - have[k] {
-			clone.lines = append(clone.lines, baselineLine{data: true, key: k, count: 1})
-		}
-	}
-	return clone
 }

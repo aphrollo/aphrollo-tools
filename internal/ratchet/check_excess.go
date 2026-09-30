@@ -1,8 +1,9 @@
 package ratchet
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 )
 
@@ -56,11 +57,8 @@ func excessOf(form Form, r Regression, sites []string, hitsByKey map[string]Hit,
 	for f, n := range perFile {
 		files = append(files, FileCount{File: f, Count: n})
 	}
-	sort.Slice(files, func(i, j int) bool {
-		if files[i].Count != files[j].Count {
-			return files[i].Count > files[j].Count
-		}
-		return files[i].File < files[j].File
+	slices.SortFunc(files, func(a, b FileCount) int {
+		return cmp.Or(cmp.Compare(b.Count, a.Count), strings.Compare(a.File, b.File))
 	})
 	return r.Measured - r.Baseline, files
 }
@@ -76,11 +74,8 @@ func excessText(f Finding) string {
 	if len(f.Files) == 1 {
 		noun = "file"
 	}
-	listed := f.Files
-	if len(listed) > maxListedFiles {
-		listed = listed[:maxListedFiles]
-	}
-	parts := make([]string, 0, len(listed)+1)
+	listed := f.Files[:min(len(f.Files), maxListedFiles)]
+	var parts []string
 	for _, fc := range listed {
 		parts = append(parts, fmt.Sprintf("%s %d", fc.File, fc.Count))
 	}

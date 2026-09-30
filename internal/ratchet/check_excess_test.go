@@ -130,5 +130,8 @@ func TestResult_LinesListAtMostFiveFilesAndSayHowManyMore(t *testing.T) {
 		if !strings.Contains(line, want) {
 			t.Errorf("%d files: line = %q, want it to contain %q", n, line, want)
 		}
+		if n <= 5 && strings.Contains(line, "more") {
+			t.Errorf("%d files: line = %q, want no count of files left out", n, line)
+		}
 	}
 }
