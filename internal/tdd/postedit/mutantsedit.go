@@ -162,20 +162,38 @@ func spawnMutantsEdit(job mutantsEditJob) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
-	log, err := os.Create(job.Log)
+	return mutantsEditLaunchFn(mutantsEditCommand(self, job), job.Log)
+}
+
+// mutantsEditLaunchFn starts a prepared command detached with its stderr in a
+// log, a seam so a test can say the real spawn declined without a process
+// being started.
+var mutantsEditLaunchFn = launchMutantsEdit
+
+// mutantsEditCommand is the verb run by the binary at self on one job.
+func mutantsEditCommand(self string, job mutantsEditJob) *exec.Cmd {
+	cmd := exec.Command(self, CmdName, "mutants", "edit", "--file", job.File, "--done", job.Done)
+	cmd.Dir = job.Root
+	cmd.Env = proc.ChildEnv(os.Environ(), append(os.Environ(), "CI=1", "NO_COLOR=1"))
+	return cmd
+}
+
+// launchMutantsEdit starts cmd in a session of its own, its report going to
+// the log at logPath, and answers its pid. A launch that fails leaves no log
+// behind, so nothing reads it as a run's.
+func launchMutantsEdit(cmd *exec.Cmd, logPath string) (int, bool) {
+	log, err := os.Create(logPath)
 	if err != nil {
 		return 0, false
 	}
 	defer func() { _ = log.Close() }()
-	cmd := exec.Command(self, CmdName, "mutants", "edit", "--file", job.File, "--done", job.Done)
-	cmd.Dir = job.Root
-	cmd.Env = proc.ChildEnv(os.Environ(), append(os.Environ(), "CI=1", "NO_COLOR=1"))
 	closeStdio := silentStdio(cmd)
 	cmd.Stderr = log
 	cmd.SysProcAttr = detachedAttrs()
 	err = cmd.Start()
 	closeStdio()
 	if err != nil {
+		_ = os.Remove(logPath)
 		return 0, false
 	}
 	pid := cmd.Process.Pid
@@ -257,8 +275,5 @@ func lastLines(text string, n int) string {
 			lines = append(lines, line)
 		}
 	}
-	if len(lines) > n {
-		lines = lines[len(lines)-n:]
-	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines[max(len(lines)-n, 0):], "\n")
 }

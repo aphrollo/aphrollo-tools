@@ -77,9 +77,9 @@ func RunMutantsTestMap(root string, dirs []string, stdout, stderr io.Writer) int
 		dirs = parseTestedDirs(root, listing)
 	}
 	workers, _ := mutantsJobsForThisBoxFn(mutantsGoJobGB)
-	start := time.Now()
+	start := commitNowFn()
 	built, fresh, err := refreshTestMaps(ctx, root, cfg, dirs, workers, stdout)
-	fmt.Fprintf(stdout, "test maps: %d built, %d current in %s\n", built, fresh, time.Since(start).Round(100*time.Millisecond))
+	fmt.Fprintf(stdout, "test maps: %d built, %d current in %s\n", built, fresh, commitNowFn().Sub(start).Round(100*time.Millisecond))
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate mutants testmap: %v\n", err)
 		return 1

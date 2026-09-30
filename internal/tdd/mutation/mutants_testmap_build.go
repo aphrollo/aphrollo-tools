@@ -80,7 +80,7 @@ func packageTestHash(ctx context.Context, root, dir string) (string, error) {
 // failing test covered what it ran up to the failure.
 func buildTestMap(ctx context.Context, root string, cfg MutantsConfig, dir string, workers int, log io.Writer) (testMap, bool, error) {
 	workers = max(workers, 1)
-	start := time.Now()
+	start := commitNowFn()
 	hash, err := packageTestHash(ctx, root, dir)
 	if err != nil {
 		return testMap{}, false, err
@@ -149,7 +149,7 @@ feed:
 	}
 	m := assembleTestMap(dir, hash, perTest)
 	logf(log, "mutants: test map of %s: %d tests, %d functions, built in %s",
-		dir, len(m.Tests), len(m.Funcs), time.Since(start).Round(100*time.Millisecond))
+		dir, len(m.Tests), len(m.Funcs), commitNowFn().Sub(start).Round(100*time.Millisecond))
 	return m, true, nil
 }
 
@@ -209,10 +209,7 @@ func packageFuncSpans(dir string) map[string][]funcSpan {
 // what the command said.
 func tail(output string) string {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
-	if len(lines) > 12 {
-		lines = lines[len(lines)-12:]
-	}
-	return strings.Join(lines, "\n")
+	return strings.Join(lines[max(len(lines)-12, 0):], "\n")
 }
 
 // refreshTestMaps builds and keeps the map of each package dirs names whose

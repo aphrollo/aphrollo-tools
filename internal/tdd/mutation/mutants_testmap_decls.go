@@ -153,8 +153,8 @@ func testChanges(decls []testDecl, added map[string]map[int]bool) (touched []str
 
 // anyLineIn reports whether lines holds a line from start to end inclusive.
 func anyLineIn(lines map[int]bool, start, end int) bool {
-	for l := start; l <= end; l++ {
-		if lines[l] {
+	for line := range lines {
+		if start <= line && line <= end {
 			return true
 		}
 	}

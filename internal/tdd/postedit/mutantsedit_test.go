@@ -2,7 +2,9 @@ package postedit
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -224,15 +226,57 @@ func TestMutantsEditHarvest_ARunPastItsLimitIsReportedNotMeasured(t *testing.T) 
 }
 
 // The real spawn never starts from a Go test binary, which would answer the
-// verb by running its whole suite, and leaves no log behind when it declines.
+// verb by running its whole suite, and never reaches the launch.
 func TestSpawnMutantsEdit_DeclinesFromATestBinary(t *testing.T) {
 	dir := t.TempDir()
 	job := mutantsEditJob{Session: "s", Root: dir, File: filepath.Join(dir, "x.go"), Log: filepath.Join(dir, "x.log"), Done: filepath.Join(dir, "x.done")}
+	launched := 0
+	prev := mutantsEditLaunchFn
+	mutantsEditLaunchFn = func(*exec.Cmd, string) (int, bool) { launched++; return 1, true }
+	t.Cleanup(func() { mutantsEditLaunchFn = prev })
 	if pid, ok := spawnMutantsEdit(job); ok || pid != 0 {
 		t.Errorf("spawnMutantsEdit = (%d, %v) from a test binary, want it to decline", pid, ok)
 	}
+	if launched != 0 {
+		t.Errorf("the spawn launched %d command(s) from a test binary", launched)
+	}
 	if _, err := os.Stat(job.Log); err == nil {
 		t.Error("a declined spawn left a log behind")
+	}
+}
+
+func TestMutantsEditCommand_RunsTheVerbOnTheEditInTheTree(t *testing.T) {
+	t.Parallel()
+	job := mutantsEditJob{Root: "/repo", File: "/repo/x.go", Done: "/state/x.done"}
+	cmd := mutantsEditCommand("/usr/local/bin/aphrollo", job)
+	want := []string{"/usr/local/bin/aphrollo", "gate", "mutants", "edit", "--file", "/repo/x.go", "--done", "/state/x.done"}
+	if !slices.Equal(cmd.Args, want) {
+		t.Errorf("argv = %v, want %v", cmd.Args, want)
+	}
+	if cmd.Dir != "/repo" {
+		t.Errorf("dir = %q, want /repo", cmd.Dir)
+	}
+	for _, env := range []string{"CI=1", "NO_COLOR=1"} {
+		if !slices.Contains(cmd.Env, env) {
+			t.Errorf("env lacks %s", env)
+		}
+	}
+}
+
+// A launch that cannot open its log, or cannot start the command, starts
+// nothing and leaves no log to be mistaken for a run's.
+func TestLaunchMutantsEdit_WhatCannotStartLeavesNothingBehind(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	if pid, ok := launchMutantsEdit(exec.Command(filepath.Join(dir, "no-such-binary")), filepath.Join(dir, "missing-dir", "x.log")); ok || pid != 0 {
+		t.Errorf("a log that cannot be opened = (%d, %v), want it declined", pid, ok)
+	}
+	log := filepath.Join(dir, "x.log")
+	if pid, ok := launchMutantsEdit(exec.Command(filepath.Join(dir, "no-such-binary")), log); ok || pid != 0 {
+		t.Errorf("a command with no binary = (%d, %v), want it declined", pid, ok)
+	}
+	if _, err := os.Stat(log); err == nil {
+		t.Error("a launch that failed left its log behind")
 	}
 }
 

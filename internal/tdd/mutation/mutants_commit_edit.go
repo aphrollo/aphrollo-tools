@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // The edit-time form of the commit stage: the same run, over the lines one
@@ -46,7 +45,7 @@ func editStage(root, file string) GateResult {
 	if !ok {
 		return mutantsResult(false, "")
 	}
-	start := time.Now()
+	start := commitNowFn()
 	added, err := editAddedLines(root, rel)
 	if err != nil {
 		return commitUnmeasured("edit", root, "diff", err.Error())
@@ -89,10 +88,9 @@ func editAddedLines(root, rel string) (map[string]map[int]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	total := bytes.Count(data, []byte("\n")) + 1
 	lines := map[int]bool{}
-	for n := 1; n <= total; n++ {
-		lines[n] = true
+	for n := range bytes.Count(data, []byte("\n")) + 1 {
+		lines[n+1] = true
 	}
 	return map[string]map[int]bool{rel: lines}, nil
 }

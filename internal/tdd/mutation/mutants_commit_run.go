@@ -286,7 +286,7 @@ func failingTestNames(output string) []string {
 // cutOffGap classifies a run that did not finish: the budget's end, or, with
 // time left, a `go test` that could not start.
 func cutOffGap(ctx context.Context, deadline time.Time, detail string) commitGap {
-	if ctx.Err() != nil || time.Until(deadline) <= 0 {
+	if ctx.Err() != nil || time.Now().After(deadline) {
 		return commitGap{gapBudget, detail}
 	}
 	return commitGap{gapRunner, detail}

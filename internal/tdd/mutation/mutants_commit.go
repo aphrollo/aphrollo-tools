@@ -32,7 +32,7 @@ func mutantsAtCommitStage(displayName, repoRoot string) GateResult {
 	if !isGoModuleRepo(repoRoot) {
 		return commitStandDown(displayName, repoRoot, "this repo is not a Go module, and the commit-time run measures Go", "not-go")
 	}
-	start := time.Now()
+	start := commitNowFn()
 	added, err := stagedAddedLines(repoRoot)
 	if err != nil {
 		return commitUnmeasured(displayName, repoRoot, "diff", err.Error())
@@ -69,8 +69,8 @@ func measureAddedLines(displayName, repoRoot string, cfg MutantsConfig, added ma
 	defer release()
 	jobs, _ := mutantsJobsForThisBoxFn(mutantsGoJobGB)
 	plans := commitPlans(repoRoot, mutants, added)
-	runs := runCommitMutants(context.Background(), repoRoot, cfg, plans, mutants, jobs, budget-time.Since(start), os.Stderr)
-	return commitVerdict(displayName, repoRoot, cfg, runs, time.Since(start))
+	runs := runCommitMutants(context.Background(), repoRoot, cfg, plans, mutants, jobs, budget-commitNowFn().Sub(start), os.Stderr)
+	return commitVerdict(displayName, repoRoot, cfg, runs, commitNowFn().Sub(start))
 }
 
 // commitStandDown passes the commit without measuring, saying why on stderr

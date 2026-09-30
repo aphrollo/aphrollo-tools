@@ -44,6 +44,10 @@ func startTestMapBuild(root string) {
 	}
 }
 
+// testMapLaunchFn starts a prepared command detached, a seam so a test can say
+// the real spawn declined without a process being started.
+var testMapLaunchFn = launchDetached
+
 // spawnTestMapBuild runs `aphrollo gate mutants testmap` detached in root, so
 // it outlives the hook that started it. It refuses to start from a Go test
 // binary, which would answer the verb by running its whole suite. A build that
@@ -53,15 +57,28 @@ func spawnTestMapBuild(root string) {
 	if err != nil {
 		return
 	}
+	testMapLaunchFn(testMapCommand(self, root))
+}
+
+// testMapCommand is the verb run by the binary at self in root.
+func testMapCommand(self, root string) *exec.Cmd {
 	cmd := exec.Command(self, "gate", "mutants", "testmap")
 	cmd.Dir = root
 	cmd.Env = proc.ChildEnv(os.Environ(), append(os.Environ(), "CI=1", "NO_COLOR=1"))
+	return cmd
+}
+
+// launchDetached starts cmd in a session of its own with its streams on the
+// null device, so the hook's exit leaves it running, and reports whether it
+// started.
+func launchDetached(cmd *exec.Cmd) bool {
 	closeStdio := silentStdio(cmd)
 	cmd.SysProcAttr = detachedAttrs()
-	err = cmd.Start()
+	err := cmd.Start()
 	closeStdio()
 	if err != nil {
-		return
+		return false
 	}
 	_ = cmd.Process.Release()
+	return true
 }

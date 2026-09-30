@@ -102,7 +102,7 @@ func commitPlans(root string, mutants []commitMutant, added map[string]map[int]b
 
 // commitReport renders what a run found: the verdict over the mutants that
 // were measured, and one line counting the ones that were not, by kind.
-func commitReport(cfg MutantsConfig, runs []commitRun) (v Verdict, measured int, unmeasured string) {
+func commitReport(cfg MutantsConfig, runs []commitRun) (Verdict, int, string) {
 	var outcomes []MutantOutcome
 	gaps := map[string]int{}
 	for _, r := range runs {
@@ -112,10 +112,7 @@ func commitReport(cfg MutantsConfig, runs []commitRun) (v Verdict, measured int,
 		}
 		outcomes = append(outcomes, r.Outcome)
 	}
-	if len(outcomes) > 0 {
-		v = judgeMutants(cfg, outcomes)
-	}
-	return v, len(outcomes), gapSummary(gaps)
+	return judgeMutants(cfg, outcomes), len(outcomes), gapSummary(gaps)
 }
 
 // gapSummary is "3 budget, 1 runner" for the mutants left unmeasured, "" for
