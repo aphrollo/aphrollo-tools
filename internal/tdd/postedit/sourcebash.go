@@ -2,6 +2,7 @@ package postedit
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -51,7 +52,7 @@ var scriptWriteCalls = []scriptWriteCall{
 }
 
 // sourceLiteralRe finds a quoted source-file path anywhere in a script.
-var sourceLiteralRe = regexp.MustCompile("['\"`]([^'\"`\\s{}$]+\\.(?:" + strings.Join(sourceBashExts, "|") + "))['\"`]")
+var sourceLiteralRe = regexp.MustCompile(fmt.Sprintf("['\"`]([^'\"`\\s{}$]+\\.(?:%s))['\"`]", strings.Join(sourceBashExts, "|")))
 
 // stringLiteralRe reads a whole argument as one plain string literal.
 var stringLiteralRe = regexp.MustCompile("^[rbRB]?(['\"`])([^'\"`{}$]*)['\"`]$")
