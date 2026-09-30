@@ -1,0 +1,18 @@
+internal/ratchet/toml.go | for body != "" {
+internal/tdd/lawgate/primary_lawgate.go | for dir != "" {
+internal/tdd/mutation/mutants_disk.go | for dir != "" {
+internal/tdd/suite/rusttestspans.go | for h >= 0 && isSpaceByte(masked[h]) {
+internal/refactor/retry.go | for isLoadingError(err) {
+internal/tdd/suite/rusttestspans.go | for j >= 0 && isSpaceByte(masked[j]) {
+internal/cli/feedback.go | for len(args) > 0 && args[0] != "" && args[0][0] != '-' {
+internal/cli/issue.go | for len(args) > 0 && args[0] != "" && args[0][0] != '-' {
+internal/cli/cli_workspace.go | for len(args) > 0 {
+internal/tdd/suite/go_test_reach.go | for len(frontier) != 0 {
+internal/undercover/strip.go | for len(head) > 0 && separator.MatchString(strings.TrimSpace(head[len(head)-1])) {
+internal/tdd/shell/shellgroups.go | for len(inner) > 0 {
+internal/ratchet/wholetree.go | for len(parts) > 0 {
+internal/ratchet/glob.go | for len(pat) > 0 {
+internal/ratchet/wholetree.go | for len(queue) > 0 {
+internal/tdd/suite/clippyscope.go | for len(queue) > 0 {
+internal/sqlc/scoped.go | for s-1 >= 0 {
+internal/tdd/suite/rusttestspans.go | for src[j] == '#' {

@@ -1,0 +1,21 @@
+name        = "walk_loop_unbounded"
+description = "A condition loop (`for <cond> {`, no range, no `;` clause) in non-test Go whose condition carries no numeric bound and no visited-set, budget or deadline check. Such a loop walks state its own body mutates (`for cur != nil { cur = next(cur) }`, `for len(queue) > 0 { ... }`), and a mutant that inverts or drops the condition or the step turns it into an infinite loop that times out unmeasured and costs a CI round (retro #1028). Bound the walk (a counter against a limit, a visited set consulted in the condition), or mark a loop proven to terminate with `walk-terminates: <why>` on the line above, naming what shrinks each turn."
+severity    = "warn"
+escape      = "walk-terminates:"
+baseline    = ".ratchet/baselines/walk_loop_unbounded.txt"
+code_only   = true
+# A range loop, a bare `for {`, a `for true {` and a reader loop (`.Scan()`,
+# `.More()`, `.Next()`, bounded by its input) are not condition walks over state. A
+# condition holding a comparison against something other than zero (`i < n`,
+# `x <= limit`) or naming a visited set, a budget or a deadline is bounded.
+trigger_exclude = "\\brange\\b|^\\s*for\\s*\\{|^\\s*for\\s+true\\s*\\{|[<>]=?\\s*[^\\s0=-]|\\.(?:Scan|More|Next)\\(\\)|(?i:visited|seen|budget|limit|deadline|remaining|attempt|retries)"
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go", "tools/**/*.go"]
+exclude = ["**/*_test.go", "**/testdata/**", ".ratchet/**"]
+min_files = 250
+
+[matcher]
+kind    = "regex-absent"
+pattern = "^\\s*for\\s+[^;{]+\\{\\s*$"
+key     = "file:line-content-hash"
