@@ -44,7 +44,7 @@ func intersectLines(p0 map[int]bool, p1 map[int]bool) map[int]bool {
 	return smell.IntersectLines(p0, p1)
 }
 
-func langOf(p0 string) lang { return smell.LangOf(p0) }
+func langOf(p0 string, p1 string) lang { return smell.LangOf(p0, p1) }
 
 func newView(p0 string, p1 lang) view { return smell.NewView(p0, p1) }
 

@@ -44,7 +44,7 @@ func newSuppression(repoRoot string) string {
 		// nothing on stdout for a path HEAD or the index does not hold.
 		pre, _ := git(repoRoot, "show", "HEAD:"+path)
 		post, _ := git(repoRoot, "show", ":"+path)
-		l := langOf(path)
+		l := langOf(repoRoot, path)
 		for text, n := range removedTexts(pre, post, l) {
 			pool[text] += n
 		}

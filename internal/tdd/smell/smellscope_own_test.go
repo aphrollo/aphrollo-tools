@@ -581,7 +581,7 @@ func TestLangOf_ReadsTheCommentSyntaxFromTheExtension(t *testing.T) {
 		"a":      {hash, "a = 1 # it' \n    'q'\n"},
 	}
 	for path, c := range cases {
-		if got := langOf(path).mask(c.src, false); got != c.want {
+		if got := langOf("", path).mask(c.src, false); got != c.want {
 			t.Errorf("langOf(%q).mask(%q) = %q, want %q", path, c.src, got, c.want)
 		}
 	}

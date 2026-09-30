@@ -45,24 +45,29 @@ var embeddedRows = sync.OnceValue(func() []langtable.Language {
 	return tbl.Rows()
 })
 
-// suppressed reports whether directives carry a suppression of the kind, that
-// is not justified in place, in any row's vocabulary.
-func suppressed(kind, directives string) bool {
-	return langtable.Suppressed(embeddedRows(), kind, directives)
+// suppressed reports whether the view's directives carry a suppression of the
+// kind, that is not justified in place, in any row's vocabulary: the rows of
+// the table the view's file was read by, else the embedded ones.
+func suppressed(kind string, v view) bool {
+	rows := v.rows
+	if rows == nil {
+		rows = embeddedRows()
+	}
+	return langtable.Suppressed(rows, kind, v.directives)
 }
 
 var (
 	lintSuppressPolicy = policy{
 		name: "lint-suppress", category: suppressionCat, reason: lintSuppressReason, directive: true,
-		hit: func(v view) bool { return suppressed(langtable.KindLint, v.directives) },
+		hit: func(v view) bool { return suppressed(langtable.KindLint, v) },
 	}
 	typeSuppressPolicy = policy{
 		name: "type-suppress", category: suppressionCat, reason: typeSuppressReason, directive: true,
-		hit: func(v view) bool { return suppressed(langtable.KindType, v.directives) },
+		hit: func(v view) bool { return suppressed(langtable.KindType, v) },
 	}
 	coverageSuppressPolicy = policy{
 		name: "coverage-suppress", category: suppressionCat, reason: coverageSuppressReason, directive: true,
-		hit: func(v view) bool { return suppressed(langtable.KindCoverage, v.directives) },
+		hit: func(v view) bool { return suppressed(langtable.KindCoverage, v) },
 	}
 )
 
