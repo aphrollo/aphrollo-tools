@@ -837,6 +837,7 @@ ratchetgate.go                                     lawgate
 ratchetgate_bench_test.go                          tdd
 ratchetgate_lanebuild.go                           lawgate
 ratchetgate_lanebuild_e2e_test.go                  lawgate
+ratchetgate_lanebuild_scratch_test.go              lawgate
 ratchetgate_lanebuild_test.go                      lawgate
 ratchetgate_stagedgraph.go                         lawgate
 ratchetgate_suite.go                               suite     # created by P2

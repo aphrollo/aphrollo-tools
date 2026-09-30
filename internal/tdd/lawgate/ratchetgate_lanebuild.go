@@ -160,14 +160,30 @@ func laneJudgedLaws(repoRoot string) []string {
 	return out
 }
 
-// laneFixtureBuild compiles the checkout under judgement into a temporary
-// directory, returning the binary and the cleanup that removes it. A var so
+// laneBuildDir makes the lane build's own directory under scratch, the gate's
+// disk go-scratch directory, where the scratch sweep reclaims one a killed
+// build left behind. An empty scratch (no resolvable primary checkout) falls
+// back to the OS temp dir, as MkdirTemp reads "".
+func laneBuildDir(scratch string) (string, error) {
+	if scratch != "" {
+		if err := os.MkdirAll(scratch, 0o755); err != nil {
+			return "", err
+		}
+	}
+	return os.MkdirTemp(scratch, "aphrollo-lane-*")
+}
+
+// laneFixtureBuild compiles the checkout under judgement into a directory
+// under the gate's go-scratch dir, returning the binary and the cleanup that
+// removes it. The go tool's own staging goes there too (GOTMPDIR), because a
+// tmpfs OS temp dir is memory (issue #1005). A var so
 // the stage's decision can be tested without a toolchain run.
 //
 // -buildvcs=false for the reason `aphrollo update` uses it: this runs from a linked worktree with a dirty index, where
 // stamping VCS info either fails or embeds the wrong revision.
 var laneFixtureBuild = func(root string) (string, func(), error) {
-	dir, err := os.MkdirTemp("", "aphrollo-lane-*")
+	scratch := GoTmpRootDir(root)
+	dir, err := laneBuildDir(scratch)
 	if err != nil {
 		return "", func() {}, err
 	}
@@ -177,6 +193,9 @@ var laneFixtureBuild = func(root string) (string, func(), error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", bin, "./cmd/aphrollo")
 	cmd.Dir = root
+	if scratch != "" {
+		cmd.Env = append(os.Environ(), "GOTMPDIR="+scratch)
+	}
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
