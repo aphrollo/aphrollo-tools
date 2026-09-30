@@ -143,12 +143,24 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 
 	// Read CI so the receipt carries it without a follow-up call. Cached on p
 	// for the same reason as prInfo above.
-	ci, ciErr := ghCIStatus(wt, branch)
+	// The pushed commit's own checks: the PR's head on GitHub may still be the
+	// previous commit for a moment after the push.
+	ci, ciErr := pushedCI(wt)
 	p.ci, p.ciErr = ci, ciErr
 	if ciErr == nil {
-		fmt.Fprintf(stdout, "ci %s\n", ci.State)
+		fmt.Fprintf(stdout, "ci %s\n", ci.Word())
 	}
 	return nil
+}
+
+// pushedCI reads CI for the commit the worktree has checked out — the one the
+// push just published.
+func pushedCI(wt string) (CIStatus, error) {
+	sha, err := laneHeadSHA(wt)
+	if err != nil {
+		return CIStatus{}, err
+	}
+	return ghCIStatus(wt, sha)
 }
 
 func (p *Push) state() string {

@@ -136,6 +136,7 @@ func (p *ghAPIPull) info() *PRInfo {
 	return &PRInfo{
 		Number: p.Number, URL: p.HTMLURL, State: p.state(),
 		IsDraft: p.Draft, Mergeable: p.mergeableWord(), MergeStateStatus: p.mergeStateStatus(),
+		HeadSHA: p.Head.SHA,
 	}
 }
 

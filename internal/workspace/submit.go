@@ -273,8 +273,8 @@ func (s *Submit) receiptTail(stdout io.Writer, info *PRInfo, newCommits string, 
 		fmt.Fprintf(stdout, "  ci green\n")
 	case ci.State == "red":
 		fmt.Fprintf(stdout, "  ci red (%d failing) — push a fix (review arms when green)\n", ci.Failing)
-	default: // pending | none
-		fmt.Fprintf(stdout, "  ci %s — review arms when green\n", ci.State)
+	default: // pending
+		fmt.Fprintf(stdout, "  ci %s — review arms when green\n", ci.Word())
 	}
 	fmt.Fprintf(stdout, "  handoff in_progress -> review\n")
 	fmt.Fprintf(stdout, "  %s\n", info.URL)

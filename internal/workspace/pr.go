@@ -22,6 +22,8 @@ type PRInfo struct {
 	// BEHIND | BLOCKED | CLEAN | UNSTABLE | HAS_HOOKS | DRAFT | UNKNOWN. DIRTY
 	// corroborates CONFLICTING.
 	MergeStateStatus string `json:"mergeStateStatus"`
+	// HeadSHA is the commit GitHub currently holds as the PR's head.
+	HeadSHA string `json:"-"`
 }
 
 // prStateWord maps a gh PR to the canonical lifecycle word the rlndx kanban git
@@ -104,69 +106,64 @@ var (
 	}
 )
 
-// CIStatus is the resolved CI state for a branch's PR: State is one of "green"
-// (all checks passed), "red" (at least one failed), "pending" (still running or
-// none reported yet), or "none" (no PR / no checks). Failing is the count of
-// failed checks, surfaced in the blocked receipt.
+// CIStatus is the resolved CI state for one commit: State is one of "green"
+// (all checks passed), "red" (at least one failed) or "pending" (still running,
+// or no check has started on the commit yet — NoRun). Failing is the count of
+// failed checks, surfaced in the blocked receipt. SHA is the commit judged.
 type CIStatus struct {
-	State   string // green | red | pending | none
+	State   string // green | red | pending
 	Failing int
+	SHA     string
+	NoRun   bool // no check exists for SHA yet
 }
 
-// ghCIStatus is the seam over `gh pr checks` — a package var so submit/push tests
-// drive the CI gate without gh or the network. The real implementation reads the
-// branch PR's combined check state in the worktree's repo. Push.Apply is the
-// ONLY caller that issues it during a submit; Submit reuses Push's cached
-// result (p.ci/p.ciErr) rather than calling it again.
-//
-// `gh pr checks` exits 0 when all checks pass, 8 when checks are pending, and
-// non-zero otherwise (failures). We parse its TSV rows for the per-check verdict
-// to distinguish red from pending and to count failures, falling back to the
-// exit code when the output is empty.
-//
-// ghCIStatusArgs builds the `gh pr checks --json state` argv. branch is
-// guarded behind "--", matching every sibling gh call site in this package
-// (ghEditPRBodyArgs, ghReadyPR in submit.go; ghViewPR and ghCreatePR's
-// --head= here): gh's flag parser treats a branch starting with "-" as a
-// flag reference regardless of position, and git ref names ARE allowed to
-// start with "-" (see #160). "--json state" must come BEFORE "--": pflag
-// stops recognizing flags the instant it sees "--", so "--" sits
-// immediately before the trailing branch positional, never earlier.
-func ghCIStatusArgs(branch string) []string {
-	return []string{"pr", "checks", "--json", "state", "--", branch}
+// Word renders the state for a receipt line: a commit CI has not reached reads
+// "pending (no run yet for <sha>)", never the state of an earlier commit.
+func (c CIStatus) Word() string {
+	if c.NoRun {
+		return fmt.Sprintf("%s (no run yet for %s)", c.State, short(c.SHA))
+	}
+	return c.State
 }
 
-var ghCIStatus = func(wt, branch string) (CIStatus, error) {
-	out, err := ghOutput(wt, ghCIStatusArgs(branch)...)
-	if err == nil && len(strings.TrimSpace(string(out))) == 0 {
-		return CIStatus{State: "none"}, nil
+// ghCIStatus is the seam over the checks of ONE commit — a package var so
+// submit/push/merge tests drive the CI gate without gh or the network. It
+// reads commits/{sha}/check-runs and .../status (ghChecksAt), never the PR's
+// head as GitHub currently holds it: right after a push that is still the
+// previous commit, whose green would be reported for the new one. A commit no
+// check has started on is pending with NoRun. Push.Apply is the ONLY caller
+// that issues it during a submit; Submit reuses Push's cached result
+// (p.ci/p.ciErr) rather than calling it again.
+var ghCIStatus = func(wt, sha string) (CIStatus, error) {
+	if sha == "" {
+		return CIStatus{}, fmt.Errorf("no commit to read CI for")
 	}
-	// --json emits an array of {state}; classify it. A non-zero exit with no
-	// parseable JSON (e.g. no PR yet) is treated as "none", not an error, so the
-	// caller stays re-callable.
-	var rows []struct {
-		State string `json:"state"`
+	runs, err := ghChecksAt(wt, sha)
+	if err != nil {
+		return CIStatus{}, err
 	}
-	if jerr := json.Unmarshal(out, &rows); jerr != nil || len(rows) == 0 {
-		return CIStatus{State: "none"}, nil
-	}
-	failing, pending := 0, 0
-	for _, r := range rows {
-		switch strings.ToUpper(r.State) {
-		case "SUCCESS", "NEUTRAL", "SKIPPED":
-		case "FAILURE", "ERROR", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE":
+	failing, pending, seen := 0, 0, 0
+	for _, r := range runs {
+		if r.SHA != sha {
+			continue
+		}
+		seen++
+		switch classifyCheckRun(r) {
+		case "fail":
 			failing++
-		default: // PENDING, QUEUED, IN_PROGRESS, EXPECTED, ""
+		case "pending":
 			pending++
 		}
 	}
 	switch {
+	case seen == 0:
+		return CIStatus{State: "pending", SHA: sha, NoRun: true}, nil
 	case failing > 0:
-		return CIStatus{State: "red", Failing: failing}, nil
+		return CIStatus{State: "red", Failing: failing, SHA: sha}, nil
 	case pending > 0:
-		return CIStatus{State: "pending"}, nil
+		return CIStatus{State: "pending", SHA: sha}, nil
 	default:
-		return CIStatus{State: "green"}, nil
+		return CIStatus{State: "green", SHA: sha}, nil
 	}
 }
 
