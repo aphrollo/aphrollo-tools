@@ -706,8 +706,10 @@ and the same token table gremlins uses for its default mutators
 and the name CI's `mutants-verdict` gives it. gremlins' own dry run is not
 used to list them: it gathers coverage for the whole module first, measured
 at 3 min 17 s on this repo, which cannot sit on a commit's path. A position
-outside every function declaration, a test file, test data, vendored code, a
-file this platform's build leaves out and a file with unstaged edits are left
+outside every function declaration, a test file, test data (`testdata/**` and
+a ratchet law's `.ratchet/fixtures/**`, which every mutation path leaves out:
+this run, the CI measurement, `gate mutants run` and the test-map build),
+vendored code, a file this platform's build leaves out and a file with unstaged edits are left
 out (the copy the run works in holds the working tree, so a file whose working
 copy is not what is staged would be judged as something the commit does not
 hold).

@@ -8,6 +8,35 @@ import (
 
 // Only Go production code is mutated: not a test, not test data, not vendored
 // code, and not a file of another language.
+// The measurement's own file list leaves out what the commit-time run leaves
+// out: test data and a ratchet law's fixtures are data for a test, never code
+// of the repo, whatever their extension says.
+func TestMeasureGoDiff_LeavesOutTestDataAndRatchetFixtures(t *testing.T) {
+	root := makeGoRepo(t)
+	base := strings.TrimSpace(gitOutT(t, root, "rev-parse", "HEAD"))
+	for _, rel := range []string{
+		"pkg/real.go",
+		"pkg/real_test.go",
+		"pkg/testdata/data.go",
+		".ratchet/fixtures/law/hit/fixture.go",
+		".ratchet/fixturesx/kept.go",
+		"pkg/testdatax/kept.go",
+	} {
+		write(t, root, rel, "package p\n")
+	}
+	gitDo(t, root, "add", "-A")
+
+	got, err := measureGoDiff(root, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{".ratchet/fixturesx/kept.go", "pkg/real.go", "pkg/testdatax/kept.go"}
+	if !slices.Equal(got, want) {
+		t.Errorf("measureGoDiff = %v, want %v", got, want)
+	}
+}
+
 func TestIsCommitSource_WhatIsMutated(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
@@ -21,6 +50,10 @@ func TestIsCommitSource_WhatIsMutated(t *testing.T) {
 		{"internal/x/testdata/x.go", false},
 		{"testdata/x.go", false},
 		{"internal/testdatax/x.go", true},
+		{".ratchet/fixtures/law/hit/x.go", false},
+		{"sub/.ratchet/fixtures/x.go", false},
+		{".ratchet/fixturesx/x.go", true},
+		{".ratchet/laws/x.go", true},
 		{"vendor/m/x.go", false},
 		{"internal/vendor/m/x.go", false},
 		{"internal/vendored/x.go", true},
