@@ -60,11 +60,23 @@ type MutantOutcome struct {
 // own form, `file:line:col MUTATOR (not covered|inconclusive)`, followed by
 // its note when it carries one.
 func (m MutantOutcome) GapLine() string {
+	return m.gapText(fmt.Sprintf("%s:%d:%d %s", m.File, m.Line, m.Col, m.Mutation))
+}
+
+// GapAnnotation names the same refused gap in the `file:line:col: text` shape
+// CI's Go problem matcher turns into an Error annotation, which GapLine's
+// accept-list form (no colon after the column) never matches.
+func (m MutantOutcome) GapAnnotation() string {
+	return m.gapText(mutantLineOf(m.File, m.Line, m.Col, m.Mutation))
+}
+
+// gapText appends the gap's kind and note to head.
+func (m MutantOutcome) gapText(head string) string {
 	kind := "not covered"
 	if m.Status == gremlinsScopeUnknown {
 		kind = "inconclusive"
 	}
-	line := fmt.Sprintf("%s:%d:%d %s (%s)", m.File, m.Line, m.Col, m.Mutation, kind)
+	line := head + " (" + kind + ")"
 	if m.Note != "" {
 		line += " — " + m.Note
 	}
