@@ -54,7 +54,13 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		// Judged after gofmt, on the bytes the commit will carry.
 		text = withGateNote(text, lawRefusalNote([]string{in.ToolInput.FilePath}))
 	}
-	return withSessionHarvest(text, in.SessionID)
+	// The harvest first, so a finished mutation run is reported before the
+	// next one is started over the same tree.
+	out := withSessionHarvest(text, in.SessionID)
+	if strings.Contains(text, "→ green") {
+		startMutantsEdit(in.SessionID, FindProjectRoot(in.ToolInput.FilePath), in.ToolInput.FilePath)
+	}
+	return out
 }
 
 // postEditFile is the whole post-edit path for ONE changed file — the body

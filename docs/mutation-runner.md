@@ -29,6 +29,8 @@ everything else. The Cargo spelling wins when a repo has both.
 |---|---|---|
 | `mutants-at-merge` | `true`, `false` or `"ci"` | `true`: run the measurement at pre-merge-commit. `"ci"`: the measurement is the PR pipeline's `mutants-verdict` check and the local gate measures nothing (see "Measuring in CI" below). Absent or false: the stage logs `mutants-skipped:not-declared` and passes. Any other value is refused |
 | `mutants-before-pr` | `true`, `false` or `"ci"` | `true`: `workspace pr`, `ship` and `submit` measure the lane's diff first. `"ci"`: they skip the run and print `mutants: measured in CI (mutants-verdict)` |
+| `mutants-at-commit` | `true` or `false` | `true`: the commit gate mutates the lines the commit adds and runs each mutant against the tests selected for its function (see "At commit" below). Go repos only. Absent or false: the stage is inert and prints nothing. Any other value is refused |
+| `mutants-commit-budget` | positive integer | the seconds the commit-time run may spend, 60 when absent. A value that is not a positive whole number is refused |
 | `mutants-integration-packages` | string array | package directories (for example `"internal/cli"`) whose mutants are settled against the tests of the packages that import them; see "Mutants nothing judged" below. Every package not listed is judged by its own tests alone |
 | `mutants-env` | string array | `NAME=VALUE` switches exported for the run — the suites a mutant's code is only reachable from |
 | `mutation-baseline-exclude` | string array | `"<nextest filter> # why"` entries, folded into one `-E not(...)` for the run's whole test invocation |
@@ -687,6 +689,95 @@ once before it mutates anything, so a single flaky test anywhere aborts the
 run with `failed to gather coverage`, naming coverage rather than the test
 that caused it.
 
+## At commit
+
+With `mutants-at-commit = true` the commit gate measures the commit itself
+(`internal/tdd/mutation/mutants_commit.go`), after the root's own checks have
+passed and before the commit lands. The same run is `aphrollo gate mutants
+commit` by hand. It is Go only, and it is a different measurement from the
+pre-merge one: it mutates only the lines the staged change adds or changes,
+and it runs each mutant against a selection of tests instead of the package.
+
+**Which mutants.** The staged diff (`git diff --cached -U0`) names the added
+lines. The mutants on them are enumerated by walking the same five node kinds
+and the same token table gremlins uses for its default mutators
+(`ARITHMETIC_BASE`, `CONDITIONALS_BOUNDARY`, `CONDITIONALS_NEGATION`,
+`INCREMENT_DECREMENT`, `INVERT_NEGATIVES`), so a mutant here has the position
+and the name CI's `mutants-verdict` gives it. gremlins' own dry run is not
+used to list them: it gathers coverage for the whole module first, measured
+at 3 min 17 s on this repo, which cannot sit on a commit's path. A position
+outside every function declaration, a test file, test data, vendored code, a
+file this platform's build leaves out and a file with unstaged edits are left
+out (the copy the run works in holds the working tree, so a file whose working
+copy is not what is staged would be judged as something the commit does not
+hold).
+
+**Which tests.** Each mutant runs `go test -overlay <mutant> -run <tests>
+./<package>` in a disposable copy of the lane (the same copy `gate mutants
+prove` makes, so a mutant that writes or resets acts on the copy), under the
+memory cap every gate-started process is held to, with `-count=1 -failfast`
+(`internal/tdd/mutation/mutants_commit_run.go`). The tests are the ones the
+package's test map lists for the mutant's enclosing function, plus every test
+the map has never seen and every test the commit touches (a test with an added
+line in it; every test of a file whose helper, variable or type the commit
+changed; a changed `TestMain` runs the whole package), keeping only tests the
+package still has. A selection with no map, no entry for the function, nothing
+left, or a `-run` pattern over 8000 characters runs the whole package for that
+mutant. A mutant the selection does not kill is run again against the whole
+package before it is called a survivor, because a map built before this commit
+may not list a test that now reaches the function. A failure is credited as a
+kill only when the tests that failed pass without the mutant.
+
+**The test map** (`internal/tdd/mutation/mutants_testmap.go`) is one file per
+package under the gate state for the repository (keyed on its primary
+checkout, so every lane reads what a merge built). It is built by `aphrollo
+gate mutants testmap [--pkg <dir>]...`: compile the package's test binary
+once with coverage of the package, run each test alone under
+`-test.coverprofile`, and map each executed block to the function declaration
+holding its first line. It holds the hash of everything the test binary is
+built from, and a map whose hash is stale is still used, since it is keyed by
+function and a function's tests rarely change when its body does; it is
+rebuilt when the tree's hash differs. The post-merge hook starts the build
+in the background, detached, in a repo that declares the key. It is never
+built on the commit path.
+
+**The budget.** The run has `mutants-commit-budget` seconds of wall-clock,
+counted from the start of the stage, on at most as many workers as the Go
+measurement derives for the box (`min(cores/3, free memory/2 GB, 8)`), each
+with its own copy of the lane. A mutant not started when the budget ends, and
+a run cut by it, is NOT MEASURED. The stage also measures nothing when the box
+has no memory headroom, or when another mutation run holds the box-wide lock
+for the whole budget. None of these refuses the commit: each is printed as
+
+```
+gate precommit: mutants → NOT MEASURED (<why>) — this commit carries no commit-time mutation evidence; CI's mutants-verdict decides
+```
+
+and counted in the gate log as `mutants-unmeasured:commit-<kind>`.
+
+**The verdict.** A survivor no `mutation-accept` entry admits refuses the
+commit, named as the pre-merge report names it, with the counts and the
+remedy:
+
+```
+gate precommit: mutants → REJECTED — a mutant of a line this commit adds survived its tests (12.3s, slowest mutant 4.1s)
+internal/tdd/mutation/mutants_config.go:12:7: CONDITIONALS_BOUNDARY
+mutants: 10 tested, 9 caught, 0 unviable, 1 missed (0 accepted), 0 unmeasured
+```
+
+**Edit time.** After an edit of a Go source file whose tests came back green,
+in a repo that declares the key, the edit hook starts `aphrollo gate mutants
+edit --file <path> --done <path>` detached
+(`internal/tdd/postedit/mutantsedit.go`): the same run over the lines that
+edit changed against HEAD, in the working tree as it stands, with its report
+going to a log and its outcome (`ok` or `refused`) written last to the `--done`
+file. The next hook of the session, an edit, a Bash call or a prompt, prints
+`gate: deferred mutants in <tree> (<file>) → refused|ok` with the tail of the
+report, once, and clears the record. There is one run per session and tree at a
+time: an edit made while the last one is unfinished, or finished and not yet
+read, starts nothing. A run past ten minutes is dropped with a NOT MEASURED
+line, and records older than a day are swept.
+
 ## Gate-log tokens
 
 Every verdict writes one line, so `gate stats` can answer how many merges the
@@ -704,6 +795,16 @@ stage refused and for what without re-running anything.
 | `mutants-refused:config` | a retired key, or a `mutants-after` naming a file that is not there |
 | `mutants-refused:no-lane-tip` | neither `MERGE_HEAD` nor `GIT_REFLOG_ACTION` named the branch coming in |
 | `mutants-refused:runner-failed` | the runner never started, so nothing was measured |
+| `mutants-passed:` / `mutants-refused:` + the same counts | the commit-time run reached a verdict (the same tokens the merge writes; the commit gate's run logs under the stage `precommit`) |
+| `mutants-unmeasured:commit-budget` | the commit-time run left mutants NOT MEASURED because its wall-clock budget ended |
+| `mutants-unmeasured:commit-runner` | the commit-time run could not set up or start a mutant (no copy of the lane, a source that could not be read, a `go test` that did not start) |
+| `mutants-unmeasured:commit-unconfirmed` | a failure under a mutant was not shown to be its kill: the same tests fail without it |
+| `mutants-unmeasured:commit-headroom` | the box had no memory headroom to start the commit-time run |
+| `mutants-unmeasured:commit-lock` | another mutation run held the box-wide lock for the whole budget |
+| `mutants-unmeasured:commit-diff` | git could not say what the commit adds |
+| `mutants-edit-abandoned` | an edit-time run did not finish within ten minutes and the next hook dropped it, reporting it NOT MEASURED |
+| `mutants-skipped:not-go` | `mutants-at-commit` in a repo that is not a Go module |
+| `mutants-skipped:nothing-to-measure` | the commit adds no line a mutant sits on |
 | `mutants-skipped:not-declared` | the repo declares no `mutants-at-merge` |
 | `mutants-skipped:catch-up` | trunk merged INTO a lane; nothing lands, so nothing is measured |
 | `mutants-skipped:not-a-merge` | a conflicted cherry-pick or revert being concluded |

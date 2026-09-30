@@ -358,6 +358,49 @@ func TestClaudeMDBlock_StatesTheMutationRulesOnlyWhereTheRepoMeasures(t *testing
 	}
 }
 
+// A repo that measures at commit says what the commit gate does with a
+// survivor and with a box that cannot measure, keeps the mutation rules, and a
+// repo that does not is told nothing about it.
+func TestClaudeMDBlock_ARepoThatMeasuresAtCommitSaysSo(t *testing.T) {
+	t.Parallel()
+	block := ClaudeMDBlock(BlockFlags{MutantsAtCommit: true})
+	for _, want := range []string{
+		"**A commit is measured:**", "`mutants-at-commit = true`", "refuses a survivor by name", "NOT MEASURED",
+		"aphrollo gate mutants commit", "aphrollo gate mutants prove",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("a repo measuring at commit is not told %q:\n%s", want, block)
+		}
+	}
+	if strings.Contains(ClaudeMDBlock(BlockFlags{MutantsAtMerge: true}), "**A commit is measured:**") {
+		t.Error("a repo that declares no mutants-at-commit is told its commits are measured")
+	}
+	if strings.Contains(ClaudeMDBlock(BlockFlags{}), "aphrollo gate mutants commit") {
+		t.Error("a repo that measures nothing is told about the commit-time run")
+	}
+}
+
+func TestClaudeMDBlock_CIAndCommitBothMeasureAndTheRulesSayWhich(t *testing.T) {
+	t.Parallel()
+	block := ClaudeMDBlock(BlockFlags{MutantsAtMerge: true, MutantsAtMergeCI: true, MutantsAtCommit: true})
+	want := "CI's `mutants-verdict` measures this repo's mutants, and the commit gate measures the lines a commit adds"
+	if !strings.Contains(block, want) {
+		t.Errorf("the mutation rules do not say both measure:\n%s", block)
+	}
+	if strings.Contains(block, "and the local box does not") {
+		t.Errorf("the rules still say the local box measures nothing:\n%s", block)
+	}
+}
+
+func TestManagedBlockFor_ReadsMutantsAtCommit(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\nmutants-at-commit = true\n")
+	if block := managedBlockFor(repo); !strings.Contains(block, "**A commit is measured:**") {
+		t.Errorf("mutants-at-commit = true must render the commit line:\n%s", block)
+	}
+}
+
 func TestManagedBlockFor_ReadsMutantsBeforePR(t *testing.T) {
 	t.Parallel()
 	repo := t.TempDir()

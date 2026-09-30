@@ -22,6 +22,8 @@ func GoRanNoTests(p0 Runner, p1 SuiteResult) bool { return goRanNoTests(p0, p1) 
 
 func GoSelectedDirs(p0 Runner) ([]string, bool) { return goSelectedDirs(p0) }
 
+func IsCommitSource(p0 string) bool { return isCommitSource(p0) }
+
 func JudgeMutants(p0 MutantsConfig, p1 []MutantOutcome) Verdict { return judgeMutants(p0, p1) }
 
 func MeasureLogVerdict(p0 Verdict) string { return measureLogVerdict(p0) }
@@ -29,6 +31,8 @@ func MeasureLogVerdict(p0 Verdict) string { return measureLogVerdict(p0) }
 func MeasureTempDir(p0 string) string { return measureTempDir(p0) }
 
 func MutantLineOf(p0 string, p1 int, p2 int, p3 string) string { return mutantLineOf(p0, p1, p2, p3) }
+
+func MutantsAtCommitStage(p0 string, p1 string) GateResult { return mutantsAtCommitStage(p0, p1) }
 
 func MutantsConfigStage(p0 string, p1 string) (MutantsConfig, GateResult) {
 	return mutantsConfigStage(p0, p1)
