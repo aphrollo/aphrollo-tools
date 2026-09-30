@@ -58,6 +58,10 @@ func IssueLabels(p0 string) []string { return escape.IssueLabels(p0) }
 
 func ListEscapes(p0 io.Writer, p1 bool) { escape.ListEscapes(p0, p1) }
 
+func NoteGitWorldEscape(p0 string, p1 string, p2 string, p3 io.Writer) {
+	escape.NoteGitWorldEscape(p0, p1, p2, p3)
+}
+
 func NoteMergeGateEscape(p0 string, p1 string, p2 io.Writer) { escape.NoteMergeGateEscape(p0, p1, p2) }
 
 func OpenEscapes() (int, time.Duration) { return escape.OpenEscapes() }

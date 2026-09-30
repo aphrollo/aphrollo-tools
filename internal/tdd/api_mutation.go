@@ -53,6 +53,10 @@ func MeasureLane(p0 string, p1 MutantsConfig, p2 MeasureOpts) (Verdict, error) {
 
 func MutationHoldFor(p0 string) (MutationHold, bool) { return mutation.MutationHoldFor(p0) }
 
+func NoteGitWorldChange(p0 string, p1 string, p2 string, p3 io.Writer) {
+	mutation.NoteGitWorldChange(p0, p1, p2, p3)
+}
+
 func ParseShardSpec(p0 string) (int, int, error) { return mutation.ParseShardSpec(p0) }
 
 func ReadMutantsConfig(p0 string) (MutantsConfig, error) { return mutation.ReadMutantsConfig(p0) }
@@ -80,6 +84,10 @@ func RunMutantsTestMap(p0 string, p1 []string, p2 io.Writer, p3 io.Writer) int {
 func SetCIRunnerJobsForTest(p0 func() []int) func() { return mutation.SetCIRunnerJobsForTest(p0) }
 
 func SetFreeSpaceForTest(p0 int, p1 bool) func() { return mutation.SetFreeSpaceForTest(p0, p1) }
+
+func SetGitWorldRecorder(p0 func(root string, runner string, evidence string, log io.Writer)) func() {
+	return mutation.SetGitWorldRecorder(p0)
+}
 
 func SetMutantsExecForTest(p0 func(ctx context.Context, dir string, env []string, argv []string, log io.Writer) (int, error)) func() {
 	return mutation.SetMutantsExecForTest(p0)

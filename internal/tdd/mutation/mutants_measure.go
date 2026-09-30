@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
@@ -208,6 +209,18 @@ func MeasureLane(root string, cfg MutantsConfig, opts MeasureOpts) (Verdict, err
 	if log == nil {
 		log = io.Discard
 	}
+	canary := watchGitWorld(root, "measurement")
+	verdict, err := measureLane(root, cfg, opts, log)
+	if changes := canary.verify(log); len(changes) > 0 {
+		// The tests the run started reached the real git state: whatever it
+		// judged, it judged in a world it changed.
+		return Verdict{Refused: true, Message: gitWorldRefusal("measurement", root, changes)}, nil
+	}
+	return verdict, err
+}
+
+// measureLane is MeasureLane's measurement, before the canary judges the run.
+func measureLane(root string, cfg MutantsConfig, opts MeasureOpts, log io.Writer) (Verdict, error) {
 	ctx := opts.Ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -530,6 +543,11 @@ func measureEnv(root string, cfg MutantsConfig) []string {
 		}
 	}
 	out = append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
+	// The tests this run starts must not reach the box's git: a hook's GIT_DIR
+	// is dropped, the temp dirs above are walled off from every repository
+	// around them, and the global git config is an empty file in the same
+	// area (#1043).
+	out = gitenv.Sealed(out, tmp)
 	// No CARGO_TARGET_DIR here, and never the LANE's: an editor's slotted
 	// build owns that directory behind cargo's own blocking lock, and a
 	// measurement that took it would hold it for hours. measureShardEnv

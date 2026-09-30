@@ -12,6 +12,19 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
+// homeVars is every variable a Go program, git, or a tool the tests spawn
+// resolves the operator's real home, config, data or cache directory from —
+// on unix, on Windows, and through the XDG spellings. os.UserHomeDir reads
+// HOME on unix but USERPROFILE on Windows, os.UserConfigDir reads APPDATA
+// there, and git reads HOME, then USERPROFILE: a suite that redirects only
+// HOME (the unix habit) leaves every Windows path pointing at the operator's
+// real profile.
+var homeVars = []string{
+	"HOME", "USERPROFILE",
+	"APPDATA", "LOCALAPPDATA",
+	"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME",
+}
+
 // inside reports whether path is dir or under it, ignoring case on Windows.
 func inside(dir, path string) bool {
 	rel, err := filepath.Rel(dir, path)
@@ -58,58 +71,6 @@ func TestMain_TheStdlibHomeLookupsResolveInsideTheTempRoot(t *testing.T) {
 	cache, err := os.UserCacheDir()
 	if err != nil || !inside(root, cache) {
 		t.Errorf("os.UserCacheDir() = %q, %v; want a path under %q", cache, err, root)
-	}
-}
-
-// Moving the home must not move the toolchain: with the caches pinned to where
-// they resolved before the move, no `go` a test spawns rebuilds the world.
-func TestPinToolchainHomes_KeepsTheGoCachesOutOfTheTempHome(t *testing.T) {
-	root := filepath.Dir(os.Getenv("CLAUDE_CONFIG_DIR"))
-	for _, name := range []string{"GOPATH", "GOCACHE", "GOMODCACHE", "GOENV"} {
-		v := os.Getenv(name)
-		if v == "" || inside(root, v) {
-			t.Errorf("%s = %q, want the toolchain's own location, outside the temp root %q", name, v, root)
-		}
-	}
-}
-
-func TestPinToolchainHomes_LeavesTheEnvironmentAloneWhenGoCannotAnswer(t *testing.T) {
-	t.Setenv("PATH", "")
-	t.Setenv("GOCACHE", "/keep/this")
-	pinToolchainHomes()
-	if got := os.Getenv("GOCACHE"); got != "/keep/this" {
-		t.Fatalf("GOCACHE = %q after a failed lookup, want it untouched", got)
-	}
-}
-
-func TestPinToolchainHomes_PointsRustupAtTheHomeItReplaces_ButKeepsOneThatIsSet(t *testing.T) {
-	t.Setenv("RUSTUP_HOME", "")
-	pinToolchainHomes()
-	home, _ := os.UserHomeDir()
-	if got, want := os.Getenv("RUSTUP_HOME"), filepath.Join(home, ".rustup"); got != want {
-		t.Fatalf("RUSTUP_HOME = %q, want %q", got, want)
-	}
-	t.Setenv("RUSTUP_HOME", "/opt/rustup")
-	pinToolchainHomes()
-	if got := os.Getenv("RUSTUP_HOME"); got != "/opt/rustup" {
-		t.Fatalf("RUSTUP_HOME = %q, want the one that was already set", got)
-	}
-}
-
-func TestHomeLayout_PutsEveryVariableUnderTheFakeHome(t *testing.T) {
-	fake := filepath.Join(t.TempDir(), "home")
-	layout := homeLayout(fake)
-	if len(layout) != len(homeVars) {
-		t.Fatalf("layout has %d entries for %d variables", len(layout), len(homeVars))
-	}
-	for _, name := range homeVars {
-		path, ok := layout[name]
-		if !ok || !inside(fake, path) {
-			t.Errorf("%s -> %q (present=%v), want a path under %q", name, path, ok, fake)
-		}
-	}
-	if layout["USERPROFILE"] != fake || layout["HOME"] != fake {
-		t.Errorf("HOME/USERPROFILE = %q/%q, want the fake home itself %q", layout["HOME"], layout["USERPROFILE"], fake)
 	}
 }
 
@@ -204,3 +165,8 @@ func TestMain_GitNeverRunsMaintenanceInTheBackground(t *testing.T) {
 		}
 	}
 }
+
+// ratchet: test_removed TestPinToolchainHomes_KeepsTheGoCachesOutOfTheTempHome: moved to internal/gitiso, which owns pinToolchainHomes
+// ratchet: test_removed TestPinToolchainHomes_LeavesTheEnvironmentAloneWhenGoCannotAnswer: moved to internal/gitiso, which owns pinToolchainHomes
+// ratchet: test_removed TestPinToolchainHomes_PointsRustupAtTheHomeItReplaces_ButKeepsOneThatIsSet: moved to internal/gitiso, which owns pinToolchainHomes
+// ratchet: test_removed TestHomeLayout_PutsEveryVariableUnderTheFakeHome: moved to internal/gitiso, which owns homeLayout

@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/gitiso"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
@@ -158,8 +159,10 @@ func Main(m *testing.M, s Seams) int {
 	}
 	// Every OTHER place a tool resolves the operator's profile from — HOME,
 	// but also USERPROFILE and APPDATA on Windows, XDG_*, git's own config —
-	// is a temp home too; see isolateHome.
-	isolateHome(dir)
+	// is a temp home too; see gitiso.Isolate.
+	if _, err := gitiso.Isolate(dir); err != nil {
+		panic(err)
+	}
 	// Same net for the OPERATOR's real ~/.cargo/config.toml: cargoConfigTargetDir
 	// (issue #285) reads a user cargo config as part of resolveTargetDir's
 	// normal path, which every cargo-runner test reaches. A dev box that sets

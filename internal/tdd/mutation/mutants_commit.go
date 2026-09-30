@@ -3,6 +3,7 @@ package mutation
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -69,7 +70,14 @@ func measureAddedLines(displayName, repoRoot string, cfg MutantsConfig, added ma
 	defer release()
 	jobs, _ := mutantsJobsForThisBoxFn(mutantsGoJobGB)
 	plans := commitPlans(repoRoot, mutants, added)
+	canary := watchGitWorld(repoRoot, "commit-time run")
 	runs := runCommitMutants(context.Background(), repoRoot, cfg, plans, mutants, jobs, budget-commitNowFn().Sub(start), os.Stderr)
+	if changes := canary.verify(io.Discard); len(changes) > 0 {
+		// The tests the run started reached the real git state: refuse the
+		// commit rather than judge it on what such a run said.
+		AppendGateLog(displayName, repoRoot, "mutants", "mutants-refused:git-world-changed", 0)
+		return mutantsResult(true, gitWorldRefusal("commit-time run", repoRoot, changes))
+	}
 	return commitVerdict(displayName, repoRoot, cfg, runs, commitNowFn().Sub(start))
 }
 

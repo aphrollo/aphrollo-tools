@@ -3,13 +3,10 @@ package workspace
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 
-	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
+	"github.com/aphrollo/aphrollo-tools/internal/gitiso"
 )
 
 // stubDirs holds every temp dir a package-lifetime fixture built (a compiled
@@ -47,7 +44,8 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	redirectHome(dir)
+	realHomeAtStart, _ = os.UserHomeDir()
+	gitiso.MustIsolate(dir)
 	leaveTheBoxQueue()
 	ghRefusalPath = installRefusingGh()
 	// The vast majority of this package's tests stub the individual gh seams
@@ -80,62 +78,3 @@ func TestMain(m *testing.M) {
 // realHomeAtStart is the operator's own home, recorded before it is replaced,
 // so a test can prove the replacement happened.
 var realHomeAtStart string
-
-// redirectHome points HOME (and the Windows and XDG spellings of it) at a
-// throwaway directory, after pinning the Go caches so moving HOME cannot move
-// them too.
-func redirectHome(dir string) {
-	gitenv.DisableMaintenance(func(k, v string) {
-		if err := os.Setenv(k, v); err != nil {
-			panic(err)
-		}
-	})
-	if home, err := os.UserHomeDir(); err == nil {
-		realHomeAtStart = home
-	}
-	pinGoEnv()
-	fake := filepath.Join(dir, "home")
-	if err := os.MkdirAll(filepath.Join(fake, ".config"), 0o755); err != nil {
-		panic(err)
-	}
-	for _, k := range []string{"HOME", "USERPROFILE"} {
-		if err := os.Setenv(k, fake); err != nil {
-			panic(err)
-		}
-	}
-	if err := os.Setenv("XDG_CONFIG_HOME", filepath.Join(fake, ".config")); err != nil {
-		panic(err)
-	}
-	// Windows resolves the per-user config and cache dirs from these two, and
-	// the Go env file lives under the first.
-	for k, sub := range map[string]string{"APPDATA": "Roaming", "LOCALAPPDATA": "Local"} {
-		p := filepath.Join(fake, "AppData", sub)
-		if err := os.MkdirAll(p, 0o755); err != nil {
-			panic(err)
-		}
-		if err := os.Setenv(k, p); err != nil {
-			panic(err)
-		}
-	}
-}
-
-// pinGoEnv writes the toolchain's resolved cache locations into the
-// environment, so redirecting HOME cannot move them: a suite that rebuilt
-// every dependency from scratch because its cache moved is a suite nobody
-// waits for.
-func pinGoEnv() {
-	names := []string{"GOPATH", "GOCACHE", "GOMODCACHE"}
-	out, err := exec.Command("go", "env", strings.Join(names, " ")).Output()
-	if err != nil {
-		out, err = exec.Command("go", "env", names[0], names[1], names[2]).Output()
-	}
-	if err != nil {
-		return
-	}
-	values := strings.Split(strings.ReplaceAll(strings.TrimSpace(string(out)), "\r\n", "\n"), "\n")
-	for i, name := range names {
-		if i < len(values) && strings.TrimSpace(values[i]) != "" {
-			_ = os.Setenv(name, strings.TrimSpace(values[i]))
-		}
-	}
-}
