@@ -14,7 +14,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 )
 
@@ -52,20 +51,14 @@ func (t *Table[T]) Set(root string, v T) (restore func()) {
 func (t *Table[T]) Get(root string) (v T, ok bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if len(t.m) == 0 {
-		return v, false
-	}
-	at := filepath.Clean(root)
-	best := -1
-	for key, val := range t.m {
-		if at != key && !strings.HasPrefix(at, key+string(filepath.Separator)) {
-			continue
-		}
-		if len(key) > best {
-			best, v, ok = len(key), val, true
+	// Longest root first: the path itself, then each parent in turn.
+	// walk-terminates: filepath.Dir shortens dir each turn until it is its own parent
+	for dir, prev := filepath.Clean(root), ""; dir != prev; dir, prev = filepath.Dir(dir), dir {
+		if val, found := t.m[dir]; found {
+			return val, true
 		}
 	}
-	return v, ok
+	return v, false
 }
 
 var stderr Table[io.Writer]

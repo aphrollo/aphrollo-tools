@@ -142,12 +142,12 @@ var ghCIStatus = func(wt, sha string) (CIStatus, error) {
 	if err != nil {
 		return CIStatus{}, err
 	}
-	failing, pending, seen := 0, 0, 0
+	failing, pending, reached := 0, 0, false
 	for _, r := range runs {
 		if r.SHA != sha {
 			continue
 		}
-		seen++
+		reached = true
 		switch classifyCheckRun(r) {
 		case "fail":
 			failing++
@@ -156,7 +156,7 @@ var ghCIStatus = func(wt, sha string) (CIStatus, error) {
 		}
 	}
 	switch {
-	case seen == 0:
+	case !reached:
 		return CIStatus{State: "pending", SHA: sha, NoRun: true}, nil
 	case failing > 0:
 		return CIStatus{State: "red", Failing: failing, SHA: sha}, nil
