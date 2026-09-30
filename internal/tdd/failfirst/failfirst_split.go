@@ -73,8 +73,8 @@ func splitAdvice(tests, names []string) string {
 	}
 	fmt.Fprintf(&b, "Test files: %s\n", strings.Join(tests, ", "))
 	b.WriteString("They need no implementation to pass, so commit them alone first and the rest second:\n")
-	b.WriteString("    aphrollo gate split-commit                                      (dry run: names both commits)\n")
-	b.WriteString("    aphrollo gate split-commit --apply -m \"<what the tests pin>\"    (commits the tests alone; the rest stays staged)\n")
-	b.WriteString("    git commit                                                      (the rest, with its own message)\n")
+	b.WriteString("    aphrollo gate split-commit --dry                              (names both commits, writes nothing)\n")
+	b.WriteString("    aphrollo gate split-commit -m \"<what the tests pin>\"          (commits the tests alone; the rest stays staged)\n")
+	b.WriteString("    git commit                                                    (the rest, with its own message)\n")
 	return b.String()
 }

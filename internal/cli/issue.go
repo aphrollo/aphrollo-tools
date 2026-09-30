@@ -10,10 +10,11 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const issueUsage = `usage: aphrollo issue "<title>" [--label <name>]... [--body <text>] [--repo <dir>] [--new-label]
+const issueUsage = `usage: aphrollo issue "<title>" [--label <name>]... [--body <text>] [--repo <dir>] [--new-label] [--dry]
 
 Opens one issue against the repo's GitHub remote and prints its URL — the only
-line on stdout, so the command pipes. A label the repo has not declared is
+line on stdout, so the command pipes. --dry prints the title, labels and body
+and calls no gh, which is also how to preview the undercover check. A label the repo has not declared is
 refused with the declared list, because the common case is a typo and a typo
 opens a theme nobody ever filters on; --new-label is how a deliberate new theme
 goes through. The list is ` + "`issue-labels`" + ` under [workspace.metadata.aphrollo] in
@@ -35,6 +36,16 @@ func (s *stringList) Set(v string) error {
 	return nil
 }
 
+// printIssuePreview is what --dry prints in place of calling gh: the title,
+// the labels and the body the issue would carry. It is a separate function so
+// `issue`, `feedback` and `gate escape record` preview in one shape.
+func printIssuePreview(w io.Writer, verb, title string, labels []string, body string) {
+	fmt.Fprintf(w, "%s (dry run): nothing opened\n", verb)
+	fmt.Fprintf(w, "title: %s\n", title)
+	fmt.Fprintf(w, "labels: %s\n", strings.Join(labels, ", "))
+	fmt.Fprintf(w, "body:\n%s\n", body)
+}
+
 // runGateIssue opens one labelled issue. Everything it says goes to stderr;
 // stdout carries the URL alone.
 func runGateIssue(args []string, stdout, stderr io.Writer) int {
@@ -42,18 +53,9 @@ func runGateIssue(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, issueUsage)
 		return 0
 	}
-	// The title is positional and may sit on EITHER side of the flags: Go's
-	// flag package stops at the first non-flag argument, so a title typed
-	// first has to be lifted off before parsing, and one typed last comes
-	// back as fs.Args(). Both spellings are how a hand actually types this,
-	// and discarding either one refuses a title that is right there.
-	var leading []string
-	// walk-terminates: args loses its first element every turn
-	for len(args) > 0 && args[0] != "" && args[0][0] != '-' {
-		leading = append(leading, args[0])
-		args = args[1:]
-	}
-
+	// The title is positional and may sit on either side of the flags, or
+	// between them: a hand types all three spellings, and discarding a flag
+	// that follows the title refuses input that is right there.
 	fs := flag.NewFlagSet("issue", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var labels stringList
@@ -62,11 +64,13 @@ func runGateIssue(args []string, stdout, stderr io.Writer) int {
 		body     = fs.String("body", "", "the issue body")
 		repo     = fs.String("repo", ".", "the checkout whose GitHub remote the issue is opened against")
 		newLabel = fs.Bool("new-label", false, "admit a label the repo has not declared")
+		dry      = fs.Bool("dry", false, "print the title, labels and body and open nothing")
 	)
-	if err := fs.Parse(args); err != nil {
+	words, err := parseFlagsAnywhere(fs, args)
+	if err != nil {
 		return 2
 	}
-	title := strings.Join(append(leading, fs.Args()...), " ")
+	title := strings.Join(words, " ")
 	if strings.TrimSpace(title) == "" {
 		fmt.Fprintf(stderr, "aphrollo issue: an issue needs a title\n\n%s", issueUsage)
 		return 2
@@ -75,6 +79,14 @@ func runGateIssue(args []string, stdout, stderr io.Writer) int {
 	if line := undercoverTextRefusal(tdd.RepoRoot(*repo), [2]string{"issue title", title}, [2]string{"issue body", *body}); line != "" {
 		fmt.Fprintf(stderr, "aphrollo issue: %s\n", line)
 		return 1
+	}
+	if *dry {
+		if err := tdd.CheckIssueLabels(tdd.RepoRoot(*repo), labels, *newLabel); err != nil {
+			fmt.Fprintf(stderr, "aphrollo issue: %v\n", err)
+			return 1
+		}
+		printIssuePreview(stdout, "aphrollo issue", strings.TrimSpace(title), labels, *body)
+		return 0
 	}
 	url, _, err := tdd.OpenIssue(tdd.IssueOptions{
 		Repo:          tdd.RepoRoot(*repo),

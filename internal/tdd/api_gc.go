@@ -13,6 +13,8 @@ func AllGCScopes() GCScope { return gc.AllGCScopes() }
 
 func ApplyGCFor(p0 string, p1 []GCCandidate) (int64, []string, int) { return gc.ApplyGCFor(p0, p1) }
 
+func BackgroundGCArgs(p0 string) []string { return gc.BackgroundGCArgs(p0) }
+
 func GCAfterWorktreeChange(p0 string, p1 string) int64 { return gc.GCAfterWorktreeChange(p0, p1) }
 
 func KnownGCRepos() []string { return gc.KnownGCRepos() }

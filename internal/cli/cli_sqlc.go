@@ -19,7 +19,8 @@ Subcommands:
                         Regenerate, then apply ONLY the hunks that derive from a
                         query the working tree changed (vs the base, default
                         origin/main); pre-existing drift is reported, not applied.
-                        Dry-run by default; --apply writes. (--repo DIR, --base REF)
+                        Writes the in-scope hunks; --dry prints the plan and
+                        writes nothing. (--repo DIR, --base REF)
 
 Gating. Some generated trees are intentionally hand-post-edited, so a clean regen
 always differs (aphrollo-api's sqlcgen — see its sqlc.yaml header). Mark those
@@ -95,9 +96,9 @@ func runSqlcRegen(args []string, stdout, stderr io.Writer) int {
 		repo   = fs.String("repo", ".", "repository to regen in (default: cwd)")
 		base   = fs.String("base", "origin/main", "git ref to compare queries against for in-scope detection")
 		scoped = fs.Bool("scoped", true, "apply only in-scope (changed-query) hunks; leave drift")
-		apply  = fs.Bool("apply", false, "write the in-scope hunks (default: print the plan and stop)")
+		mut    = addMutFlags(fs)
 	)
-	pos, err := parseFlagsAnywhere(fs, args)
+	pos, err := mut.parse(fs, "sqlc regen", args, stderr)
 	if err != nil {
 		return 2
 	}
@@ -130,8 +131,8 @@ func runSqlcRegen(args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 			return 1
 		}
-		fmt.Fprint(stdout, res.Render(*apply))
-		if *apply {
+		fmt.Fprint(stdout, res.Render(mut.execute()))
+		if mut.execute() {
 			if err := res.Apply(); err != nil {
 				fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 				return 1

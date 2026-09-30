@@ -249,7 +249,7 @@ func prStateOrUnknown(e worktreeEntry) string {
 }
 
 // Removal tears down a ticket's worktree AND its local branch, kept dry-run
-// friendly: the caller prints Display, then calls Run on --apply. Both steps are
+// friendly: the caller prints Display, then calls Run unless --dry. Both steps are
 // idempotent — an already-gone worktree or branch is a [skip], not a failure —
 // so a cleanup path can re-run on redelivery without wedging.
 type Removal struct {

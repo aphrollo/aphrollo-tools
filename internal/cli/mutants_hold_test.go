@@ -38,6 +38,25 @@ func TestGateMutantsHold_HoldsTheWorkingStateOfEachFile(t *testing.T) {
 	}
 }
 
+func TestGateMutantsHold_DryNamesTheFileAndHoldsNothing(t *testing.T) {
+	gateConfigDir(t)
+	t.Setenv("CLAUDE_SESSION_ID", "s-hold-verb-dry")
+	one := filepath.Join(t.TempDir(), "one.go")
+	writeFile(t, one, "package p // one\n")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "hold", one, "--dry"}, strings.NewReader(""), &out, &errb)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "would hold "+one) {
+		t.Fatalf("stdout = %q, want the file it would hold", out.String())
+	}
+	if _, ok := tdd.MutationHoldFor(one); ok {
+		t.Fatal("--dry took a hold")
+	}
+}
+
 func TestGateMutantsHold_RefusesAFileItCannotRead(t *testing.T) {
 	gateConfigDir(t)
 	t.Setenv("CLAUDE_SESSION_ID", "s-hold-verb-missing")
@@ -50,6 +69,32 @@ func TestGateMutantsHold_RefusesAFileItCannotRead(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "nope.go") {
 		t.Fatalf("stderr = %q, want it to name the file", errb.String())
+	}
+}
+
+func TestGateMutantsHold_AFlagAloneIsAUsageError(t *testing.T) {
+	gateConfigDir(t)
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "hold", "--dry"}, strings.NewReader(""), &out, &errb)
+	if code != 2 || !strings.Contains(errb.String(), "usage: aphrollo gate mutants hold") {
+		t.Fatalf("exit %d, stderr %q; want the usage error", code, errb.String())
+	}
+}
+
+func TestGateMutantsHold_AnUnknownFlagIsRefusedAndHoldsNothing(t *testing.T) {
+	gateConfigDir(t)
+	t.Setenv("CLAUDE_SESSION_ID", "s-hold-verb-bogus")
+	one := filepath.Join(t.TempDir(), "one.go")
+	writeFile(t, one, "package p\n")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "hold", one, "--bogus"}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit %d, want 2; stderr: %s", code, errb.String())
+	}
+	if _, ok := tdd.MutationHoldFor(one); ok {
+		t.Fatal("a refused run took a hold")
 	}
 }
 

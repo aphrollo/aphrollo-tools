@@ -60,7 +60,7 @@ func RenderGC(cands []GCCandidate, applied bool, freed int64) string {
 		return b.String()
 	}
 	writeTierTotals(&b, cands)
-	fmt.Fprintf(&b, "%s reclaimable in %d directories — run `aphrollo gate gc --apply` to free it\n", formatBytes(total), len(cands))
+	fmt.Fprintf(&b, "%s reclaimable in %d directories — run `aphrollo gate gc` to free it\n", formatBytes(total), len(cands))
 	return b.String()
 }
 

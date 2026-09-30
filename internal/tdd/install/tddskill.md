@@ -79,8 +79,8 @@ then `MUTATION=1 git checkout -- <file>` puts back the held working state.
 A bare `git checkout --` is refused over unstaged work, and the refusal exits
 non-zero, so a `&&` chain stops there; the environment markers that force it
 restore the index and destroy that work. A probe arm the probe refused goes
-back to HEAD through `aphrollo gate probe discard <files>` (dry run; `--apply`
-backs the diff up first), never a reverse `git apply`. Unmutated tests over
+back to HEAD through `aphrollo gate probe discard <files>` (it backs the diff up
+first; `--dry` previews), never a reverse `git apply`. Unmutated tests over
 existing code certify nothing.
 
 ## Done means evidence
