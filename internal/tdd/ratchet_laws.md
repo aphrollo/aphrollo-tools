@@ -648,7 +648,7 @@ aphrollo ratchet check --format json         # what the hooks read
 aphrollo ratchet check --no-tighten          # report only
 aphrollo ratchet check --proposed crates/a.rs=/tmp/new.rs   # judge content not on disk
 aphrollo ratchet check --adopt nan-guard     # write nan-guard's baseline from the tree (new or widened law only)
-aphrollo ratchet check --base HEAD~1         # judge a diff-scoped law (symbol-removed) against that ref
+aphrollo ratchet check --base HEAD~1         # judge against that ref: symbol-removed reads it, and a hit it already carries is no regression
 aphrollo ratchet test                        # prove every law against its fixtures
 aphrollo ratchet test --only nan-guard       # prove exactly these laws (comma-separated)
 aphrollo ratchet test --format json          # each law's verdict as data, for the gate's split run

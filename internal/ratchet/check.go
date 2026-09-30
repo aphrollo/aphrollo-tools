@@ -228,6 +228,10 @@ func Check(opts Options) (Result, error) {
 	}
 	res.FilesScanned, res.FilesRead, res.FilesMatched = scan.scanned, scan.read, scan.matched
 
+	baseHits, err := baseHitsByLaw(opts, laws)
+	if err != nil {
+		return Result{}, err
+	}
 	var pending []pendingTighten
 	graph := graphTreeOf(opts)
 	for _, law := range laws {
@@ -323,8 +327,17 @@ func Check(opts Options) (Result, error) {
 			repathCountedBaseline(opts, baseline, measured)
 		}
 		baselineKeys := baseline.LiteralKeyCounts()
+		regs := regressions(baseline, measured, law.Matcher.TolerancePct)
+		judged := baseline
+		if bh, ok := baseHits[law.Name]; ok {
+			// Judged against the base too: what it carried is no one's doing.
+			base := newBaseCeiling(baseline, bh)
+			regs = base.raise(regs)
+			baselineKeys = base.literalKeys(baselineKeys)
+			judged = baseline.withSites(base.sites)
+		}
 		findingsBefore := len(res.Findings)
-		for _, r := range regressions(baseline, measured, law.Matcher.TolerancePct) {
+		for _, r := range regs {
 			h := representativeHit(r.Key, sites[r.Key], hitsByKey, baselineKeys, located)
 			f := lawFinding(law, h, r)
 			f.Excess, f.Files = excessOf(baseline.form, r, sites[r.Key], hitsByKey, baselineKeys)
@@ -340,7 +353,7 @@ func Check(opts Options) (Result, error) {
 		// hook) the aggregate ceiling remains the whole guard, as it always
 		// was, with the new site caught by the whole-tree run at commit.
 		if len(opts.Files) == 0 {
-			for _, r := range baseline.NewSiteRegressions(sites) {
+			for _, r := range judged.NewSiteRegressions(sites) {
 				res.Findings = append(res.Findings, lawFinding(law, hitsByKey[r.Key], r))
 			}
 		}
