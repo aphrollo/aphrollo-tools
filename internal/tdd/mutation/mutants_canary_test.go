@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -111,8 +112,8 @@ func TestLineDiff_ListsAddedAndRemovedLinesUpToACap(t *testing.T) {
 		many.WriteString("line" + string(rune('a'+i)) + "\n")
 	}
 	got := strings.Split(lineDiff("", many.String()), "\n")
-	if len(got) != diffLineCap+1 || !strings.HasPrefix(got[diffLineCap], "…") {
-		t.Errorf("lineDiff of %d added lines = %d lines %q, want %d and a closing note", diffLineCap+3, len(got), got, diffLineCap+1)
+	if len(got) != diffLineCap+1 || got[diffLineCap] != "…3 more" {
+		t.Errorf("lineDiff of %d added lines = %d lines %q, want %d and a closing note counting the 3 left out", diffLineCap+3, len(got), got, diffLineCap+1)
 	}
 	exactly := strings.Split(lineDiff("", strings.Repeat("x\n", diffLineCap)), "\n")
 	if len(exactly) != diffLineCap {
@@ -128,13 +129,14 @@ func TestSnapshotGitWorld_AGlobalConfigAppearingOrGoingIsAChange(t *testing.T) {
 	mustWrite(t, global, "[user]\n\tname = x\n")
 	appeared := snapshotGitWorld(repo)
 
-	if changes := before.changesTo(appeared); len(changes) != 1 || !strings.HasPrefix(changes[0], "the global git config") {
+	if changes := before.changesTo(appeared); len(changes) != 1 || !strings.HasPrefix(changes[0], "the global git config") ||
+		!strings.Contains(changes[0], "(it was not there)") {
 		t.Errorf("appearing: %v", changes)
 	}
 	if err := os.Remove(global); err != nil {
 		t.Fatal(err)
 	}
-	if changes := appeared.changesTo(snapshotGitWorld(repo)); len(changes) != 1 {
+	if changes := appeared.changesTo(snapshotGitWorld(repo)); len(changes) != 1 || !strings.Contains(changes[0], "(it is gone)") {
 		t.Errorf("going: %v", changes)
 	}
 }
@@ -233,5 +235,51 @@ func TestSetGitWorldRecorder_RestoresThePreviousOne(t *testing.T) {
 
 	if first != 1 || second != 1 {
 		t.Errorf("first ran %d times and second %d, want 1 and 1", first, second)
+	}
+}
+
+// A world whose set of watched things differs — a repository where there was
+// none — is reported, not compared item by item.
+func TestChangesTo_ADifferentSetOfWatchedThingsIsAChange(t *testing.T) {
+	repo, _ := canaryRepo(t)
+	inside, outside := snapshotGitWorld(repo), snapshotGitWorld(t.TempDir())
+
+	got := inside.changesTo(outside)
+
+	if len(got) != 1 || !strings.Contains(got[0], "a repository appeared or went away") {
+		t.Errorf("changes = %v, want the one line naming the difference", got)
+	}
+	if again := inside.changesTo(inside); len(again) != 0 {
+		t.Errorf("a world differs from itself: %v", again)
+	}
+}
+
+// Where git reads the global config from when GIT_CONFIG_GLOBAL does not say.
+func TestGlobalGitConfigs_FollowGitsOwnSearch(t *testing.T) {
+	home, xdg := filepath.Join(t.TempDir(), "home"), filepath.Join(t.TempDir(), "xdg")
+	cases := []struct {
+		name                    string
+		global, homeDir, xdgDir string
+		want                    []string
+	}{
+		{"named", "/named/config", home, xdg, []string{"/named/config"}},
+		{"xdg set", "", home, xdg, []string{filepath.Join(xdg, "git", "config"), filepath.Join(home, ".gitconfig")}},
+		{"xdg unset", "", home, "", []string{filepath.Join(home, ".config", "git", "config"), filepath.Join(home, ".gitconfig")}},
+		{"no home", "", "", xdg, []string{filepath.Join(xdg, "git", "config")}},
+		{"nothing", "", "", "", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("GIT_CONFIG_GLOBAL", c.global)
+			t.Setenv("HOME", c.homeDir)
+			t.Setenv("USERPROFILE", c.homeDir)
+			t.Setenv("XDG_CONFIG_HOME", c.xdgDir)
+
+			got := globalGitConfigs()
+
+			if !slices.Equal(got, c.want) {
+				t.Errorf("globalGitConfigs = %v, want %v", got, c.want)
+			}
+		})
 	}
 }

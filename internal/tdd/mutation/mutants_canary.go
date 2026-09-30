@@ -85,11 +85,13 @@ func globalGitConfigs() []string {
 // changesTo names each part of w that differs in after, with the lines it
 // gained and lost.
 func (w gitWorld) changesTo(after gitWorld) []string {
+	if len(w) != len(after) {
+		// One side is a repository and the other is not: what is watched is
+		// itself different, which no test process should be able to do.
+		return []string{fmt.Sprintf("what is watched changed (%d things, then %d): a repository appeared or went away", len(w), len(after))}
+	}
 	var changes []string
 	for i, was := range w {
-		if i >= len(after) {
-			break
-		}
 		now := after[i]
 		if was.Label != now.Label || (was.Present == now.Present && was.Text == now.Text) {
 			continue

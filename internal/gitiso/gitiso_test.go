@@ -2,6 +2,7 @@ package gitiso
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -205,3 +206,156 @@ func TestMustIsolate_PanicsWhereIsolateFails(t *testing.T) {
 
 // ratchet: test_removed TestCeilingList_NamesEachDirOnceAndSkipsEmpty: moved to internal/gitenv, which owns CeilingList
 // ratchet: test_removed TestCeilingList_AddsTheResolvedSpellingOfASymlinkedDir: moved to internal/gitenv, which owns CeilingList
+
+// Isolate changes nothing about the process until it can finish: a root that
+// cannot hold the run's directories leaves the git variables as they were.
+func TestIsolate_ARootThatCannotHoldItsDirsLeavesTheGitVariablesAlone(t *testing.T) {
+	before := map[string]string{}
+	for _, name := range []string{"GIT_CEILING_DIRECTORIES", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_NOSYSTEM", "GIT_CONFIG_COUNT"} {
+		before[name] = os.Getenv(name)
+		if before[name] == "" {
+			t.Fatalf("setup: %s is not set in an isolated run", name)
+		}
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "tmp"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_DIR", "/inherited/.git")
+
+	if _, err := Isolate(root); err == nil {
+		t.Fatal("Isolate answered no error")
+	}
+
+	for name, want := range before {
+		if got := os.Getenv(name); got != want {
+			t.Errorf("%s = %q after a failed Isolate, want %q", name, got, want)
+		}
+	}
+	if got := os.Getenv("GIT_DIR"); got != "/inherited/.git" {
+		t.Errorf("GIT_DIR = %q after a failed Isolate, want it left alone", got)
+	}
+}
+
+// The probe passes in a run Main has isolated; VerifyNoLeak proves that the
+// same probe fails in one that is not.
+func TestProbe_PassesInAnIsolatedRun(t *testing.T) {
+	t.Setenv(ProbeEnv, "1")
+	ran := false
+	t.Run("probe", func(t *testing.T) {
+		defer func() { ran = !t.Skipped() }()
+		Probe(t)
+	})
+	if !ran {
+		t.Error("Probe skipped although the probe variable is set")
+	}
+}
+
+// Everything a leaked fixture writes to the repository around a run shows in the
+// state VerifyNoLeak compares: config, HEAD, the index and the refs.
+func TestVictimState_ChangesWithEachThingALeakedFixtureWrites(t *testing.T) {
+	cases := []struct {
+		name string
+		leak func(t *testing.T, victim string)
+	}{
+		{"config", func(t *testing.T, victim string) { gitIn(t, victim, "config", "leak.key", "1") }},
+		{"HEAD", func(t *testing.T, victim string) { gitIn(t, victim, "symbolic-ref", "HEAD", "refs/heads/elsewhere") }},
+		{"refs", func(t *testing.T, victim string) { gitIn(t, victim, "branch", "feat/x") }},
+		{"index", func(t *testing.T, victim string) {
+			if err := os.WriteFile(filepath.Join(victim, "new.txt"), []byte("x\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			gitIn(t, victim, "add", "new.txt")
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			victim := makeVictim(t)
+			before := victimState(victim)
+			if again := victimState(victim); again != before {
+				t.Fatal("setup: the state of an untouched repository is not stable")
+			}
+
+			c.leak(t, victim)
+
+			if victimState(victim) == before {
+				t.Errorf("a leaked %s did not change the state", c.name)
+			}
+		})
+	}
+}
+
+// gitIn runs git in dir with the process's git variables dropped.
+func gitIn(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = cleanedEnv()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// The probe's environment carries what the scenario needs and nothing that
+// would leak the real one: a hook's variables in one scenario, a TMPDIR inside
+// the victim in the other, and in both a home that is not the operator's.
+func TestHostileEnv_CarriesTheScenarioAndDropsWhatNamesTheRealWorld(t *testing.T) {
+	home, victim := t.TempDir(), t.TempDir()
+	for name, value := range map[string]string{
+		"GIT_CEILING_DIRECTORIES": "/keep/out", "GIT_CONFIG_NOSYSTEM": "1", "HOME": "/real/home", "USERPROFILE": "/real/home",
+		"TMPDIR": "/real/tmp", "TMP": "/real/tmp", "TEMP": "/real/tmp", "GOTMPDIR": "/real/tmp",
+		"XDG_CONFIG_HOME": "/real/xdg", "APPDATA": "/real/appdata", "LOCALAPPDATA": "/real/local", "KEEP_ME": "kept",
+	} {
+		t.Setenv(name, value)
+	}
+
+	hook := hostileEnv(home, victim, true)
+	walk := hostileEnv(home, victim, false)
+
+	for label, env := range map[string][]string{"hook": hook, "walk": walk} {
+		got := envMap(env)
+		for _, name := range []string{"GIT_CEILING_DIRECTORIES", "GIT_CONFIG_NOSYSTEM", "XDG_CONFIG_HOME", "APPDATA", "LOCALAPPDATA"} {
+			if v, ok := got[name]; ok {
+				t.Errorf("%s: %s = %q survived", label, name, v)
+			}
+		}
+		if got["KEEP_ME"] != "kept" {
+			t.Errorf("%s: an unrelated variable was dropped", label)
+		}
+		if got[ProbeEnv] != "1" || got["HOME"] != home || got["USERPROFILE"] != home {
+			t.Errorf("%s: probe %q home %q profile %q, want 1 and %q", label, got[ProbeEnv], got["HOME"], got["USERPROFILE"], home)
+		}
+	}
+	h := envMap(hook)
+	if h["GIT_DIR"] != filepath.Join(victim, ".git") || h["GIT_INDEX_FILE"] != filepath.Join(victim, ".git", "index") ||
+		h["GIT_CONFIG_GLOBAL"] != filepath.Join(home, ".gitconfig") {
+		t.Errorf("the hook environment lacks the repository and global config: %v", h)
+	}
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP", "GOTMPDIR"} {
+		if v, ok := h[name]; ok {
+			t.Errorf("hook: %s = %q, want it dropped", name, v)
+		}
+	}
+	w := envMap(walk)
+	tmp := filepath.Join(victim, "tmp")
+	for _, name := range []string{"TMPDIR", "TMP", "TEMP"} {
+		if w[name] != tmp {
+			t.Errorf("walk: %s = %q, want %q inside the victim", name, w[name], tmp)
+		}
+	}
+	for _, name := range []string{"GIT_DIR", "GIT_INDEX_FILE", "GIT_CONFIG_GLOBAL", "GOTMPDIR"} {
+		if v, ok := w[name]; ok {
+			t.Errorf("walk: %s = %q, want it absent", name, v)
+		}
+	}
+}
+
+func envMap(env []string) map[string]string {
+	m := map[string]string{}
+	for _, kv := range env {
+		if name, value, ok := strings.Cut(kv, "="); ok {
+			m[name] = value
+		}
+	}
+	return m
+}

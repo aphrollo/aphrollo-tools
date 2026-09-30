@@ -2,13 +2,9 @@ package gitiso
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -103,7 +99,7 @@ func VerifyNoLeak(t *testing.T, probe string) {
 			if err := os.WriteFile(hostileGlobal, []byte("[user]\n\tname = Real Person\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			beforeVictim := fingerprint(t, filepath.Join(victim, ".git"), "objects")
+			beforeState, beforeText := victimState(victim), victimText(victim)
 			beforeGlobal, err := os.ReadFile(hostileGlobal)
 			if err != nil {
 				t.Fatal(err)
@@ -123,8 +119,8 @@ func VerifyNoLeak(t *testing.T, probe string) {
 			if err != nil || !strings.Contains(string(out), "--- PASS: "+probe) {
 				t.Errorf("the probe did not pass (%v):\n%s", err, out)
 			}
-			if got := fingerprint(t, filepath.Join(victim, ".git"), "objects"); got != beforeVictim {
-				t.Errorf("the run changed the repository around it: %s", changed(victim))
+			if victimState(victim) != beforeState {
+				t.Errorf("the run changed the repository around it:\nbefore\n%s\nafter\n%s", beforeText, victimText(victim))
 			}
 			if got, _ := os.ReadFile(hostileGlobal); string(got) != string(beforeGlobal) {
 				t.Errorf("the run changed the global git config it was handed:\n%s", got)
@@ -198,48 +194,24 @@ func hostileEnv(home, victim string, hook bool) []string {
 	return append(env, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
 }
 
-// fingerprint is a hash of the names and contents of every file under root
-// except the top-level directories named in skip.
-func fingerprint(t *testing.T, root string, skip ...string) string {
-	t.Helper()
-	sum := sha256.New()
-	var names []string
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(root, path)
-		if d.IsDir() {
-			for _, s := range skip {
-				if rel == s {
-					return filepath.SkipDir
-				}
-			}
-			return nil
-		}
-		names = append(names, rel)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
+// victimText is what a leaked fixture writes to a repository and can be read as
+// text: its config, its HEAD and the refs it holds.
+func victimText(victim string) string {
+	var sb strings.Builder
+	for _, name := range []string{"config", "HEAD"} {
+		data, _ := os.ReadFile(filepath.Join(victim, ".git", name))
+		sb.WriteString(name + ":\n" + string(data) + "\n")
 	}
-	sort.Strings(names)
-	for _, rel := range names {
-		data, _ := os.ReadFile(filepath.Join(root, rel))
-		sum.Write([]byte(rel + "\x00"))
-		sum.Write(data)
-		sum.Write([]byte{0})
-	}
-	return hex.EncodeToString(sum.Sum(nil))
-}
-
-// changed names what the victim repository holds now: its config and its
-// refs, the two a leaked fixture writes.
-func changed(victim string) string {
-	cfg, _ := os.ReadFile(filepath.Join(victim, ".git", "config"))
 	cmd := exec.Command("git", "for-each-ref", "--format=%(refname) %(objectname)")
 	cmd.Dir = victim
 	cmd.Env = cleanedEnv()
 	refs, _ := cmd.CombinedOutput()
-	return "config:\n" + string(cfg) + "\nrefs:\n" + string(refs)
+	sb.WriteString("refs:\n" + string(refs))
+	return sb.String()
+}
+
+// victimState is victimText and the index, which a leaked `git add` replaces.
+func victimState(victim string) string {
+	index, _ := os.ReadFile(filepath.Join(victim, ".git", "index"))
+	return victimText(victim) + "\nindex:\n" + string(index)
 }

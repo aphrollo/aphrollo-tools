@@ -70,11 +70,6 @@ func homeLayout(fake string) map[string]string {
 // moving the home does not make every `go` a test spawns rebuild the world.
 func Isolate(root string) (home string, err error) {
 	pinToolchainHomes()
-	for _, kv := range os.Environ() {
-		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "GIT_") {
-			_ = os.Unsetenv(name) // a name taken from the environment is always valid
-		}
-	}
 	tmp := filepath.Join(root, "tmp")
 	home = filepath.Join(root, "home")
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
@@ -95,6 +90,13 @@ func Isolate(root string) (home string, err error) {
 	env["GIT_CEILING_DIRECTORIES"] = gitenv.CeilingList(root, enclosingRepo(cwd))
 	env["GIT_CONFIG_GLOBAL"] = gitconfig
 	env["GIT_CONFIG_NOSYSTEM"] = "1"
+	// The environment changes only once everything it names exists: a root that
+	// cannot hold them leaves the process as it was.
+	for _, kv := range os.Environ() {
+		if name, _, _ := strings.Cut(kv, "="); strings.HasPrefix(name, "GIT_") {
+			_ = os.Unsetenv(name) // a name taken from the environment is always valid
+		}
+	}
 	for name, value := range env {
 		_ = os.Setenv(name, value) // fails only on an empty or malformed name, and these are literals
 	}
