@@ -40,6 +40,9 @@ type BlockFlags struct {
 	// keys: the measurement is CI's `mutants-verdict` check and the local
 	// gate measures nothing. Each implies its switch above.
 	MutantsAtMergeCI, MutantsBeforePRCI bool
+	// MutantsAtCommit is mutants-at-commit: the commit gate mutates the lines
+	// a commit adds and refuses a survivor.
+	MutantsAtCommit bool
 	// Cargo, Go and Npm are the toolchains whose manifests the repo carries;
 	// the block names only their commands and commit stages (#889). Whether
 	// the queue shims are on the agent's PATH is a fact about the box, so the
@@ -49,7 +52,9 @@ type BlockFlags struct {
 
 // measures reports whether the repo measures mutants at all, which is what
 // brings the mutation rules into the block.
-func (f BlockFlags) measures() bool { return f.MutantsAtMerge || f.MutantsBeforePR }
+func (f BlockFlags) measures() bool {
+	return f.MutantsAtMerge || f.MutantsBeforePR || f.MutantsAtCommit
+}
 
 // ClaudeMDBlock renders the managed block for a repo declaring f.
 func ClaudeMDBlock(f BlockFlags) string {
@@ -107,6 +112,9 @@ func ClaudeMDBlock(f BlockFlags) string {
 	} else {
 		b.WriteString("- **A merge is checked, not measured:** this repo declares no `mutants-at-merge`, so the merge gate runs the mechanical suite and NO mutation measurement; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
 	}
+	if f.MutantsAtCommit {
+		b.WriteString("- **A commit is measured:** this repo declares `mutants-at-commit = true`, so the commit gate mutates the lines the commit adds, runs each mutant against the tests of its own function and refuses a survivor by name; a box with no memory headroom, or a run past its wall-clock budget, prints `NOT MEASURED` for what it did not reach and CI decides; `aphrollo gate mutants commit` runs it by hand.\n")
+	}
 	// The rules that exist only because this repo measures mutants. The
 	// builder agent is one file per user and reaches every repo, so they live
 	// here, where they reach only a repo that declared the measurement.
@@ -114,6 +122,9 @@ func ClaudeMDBlock(f BlockFlags) string {
 		who := "this repo measures mutants"
 		if f.MutantsAtMergeCI || f.MutantsBeforePRCI {
 			who = "CI's `mutants-verdict` measures this repo's mutants, and the local box does not"
+			if f.MutantsAtCommit {
+				who = "CI's `mutants-verdict` measures this repo's mutants, and the commit gate measures the lines a commit adds"
+			}
 		}
 		b.WriteString("- **Mutation rules** (" + who + "): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`\n")
 		b.WriteString("  KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.\n")
@@ -200,6 +211,7 @@ func blockFlagsFor(repoRoot string) BlockFlags {
 		Undercover:      cargoAphrolloFlag(ws, "undercover") || aphrolloTomlFlag(repoRoot, "undercover"),
 		MutantsAtMerge:  cfg.AtMerge,
 		MutantsBeforePR: cfg.BeforePR,
+		MutantsAtCommit: cfg.AtCommit,
 
 		MutantsAtMergeCI:  cfg.AtMergeCI,
 		MutantsBeforePRCI: cfg.BeforePRCI,
