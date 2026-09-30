@@ -183,6 +183,46 @@ func TestFirstSourceWrite_DepthBoundIsExact(t *testing.T) {
 	}
 }
 
+func TestFirstSourceWrite_SubstitutionAndHeredocDepthBoundsAreExact(t *testing.T) {
+	dir := sourceBashRepo(t)
+	subst := "echo $(echo $(echo a > a.go))"
+	if got := firstSourceWrite(subst, dir, maxSourceBashDepth-2); got != "a.go" {
+		t.Errorf("substitution two levels deep, bound not reached: got %q, want a.go", got)
+	}
+	if got := firstSourceWrite(subst, dir, maxSourceBashDepth-1); got != "" {
+		t.Errorf("substitution past the bound: got %q, want none", got)
+	}
+	heredoc := "bash <<EOF\nbash -c \"cat > a.go\"\nEOF"
+	if got := firstSourceWrite(heredoc, dir, maxSourceBashDepth-2); got != "a.go" {
+		t.Errorf("heredoc shell, bound not reached: got %q, want a.go", got)
+	}
+	if got := firstSourceWrite(heredoc, dir, maxSourceBashDepth-1); got != "" {
+		t.Errorf("heredoc shell past the bound: got %q, want none", got)
+	}
+}
+
+func TestFirstSourceWrite_EveryShellReadsItsHeredoc(t *testing.T) {
+	dir := sourceBashRepo(t)
+	for _, sh := range []string{"bash", "sh", "zsh", "/bin/sh"} {
+		if got := firstSourceWrite(sh+" <<EOF\ncat > a.go\nEOF", dir, 0); got != "a.go" {
+			t.Errorf("%s heredoc: got %q, want a.go", sh, got)
+		}
+	}
+	if got := firstSourceWrite("cat <<EOF\ncat > a.go\nEOF", dir, 0); got != "" {
+		t.Errorf("a heredoc fed to a non-shell is data: got %q, want none", got)
+	}
+}
+
+func TestScriptSourceWrite_ReadsEveryCallNotJustTheFirst(t *testing.T) {
+	dir := sourceBashRepo(t)
+	if got := scriptSourceWrite("open('out.txt', 'w')\nopen('x.go', 'w')", dir); got != "x.go" {
+		t.Errorf("second write call: got %q, want x.go", got)
+	}
+	if got := scriptSourceWrite("p = 'testdata/a.go'\nq = 'x.go'\nopen(out, 'w')", dir); got != "x.go" {
+		t.Errorf("second source literal in a variable-path script: got %q, want x.go", got)
+	}
+}
+
 func TestScriptSourceWrite_OpenModeBoundary(t *testing.T) {
 	dir := sourceBashRepo(t)
 	for mode, want := range map[string]string{"w": "x.go", "a": "x.go", "x": "x.go", "r+": "x.go", "wb": "x.go", "r": "", "rb": ""} {
