@@ -51,6 +51,7 @@ func StripFooter(body string, tells List) (kept string, stripped []string) {
 		return body, nil
 	}
 	head := lines[:cut]
+	// walk-terminates: head loses its last line every turn
 	for len(head) > 0 && separator.MatchString(strings.TrimSpace(head[len(head)-1])) {
 		head = head[:len(head)-1]
 	}

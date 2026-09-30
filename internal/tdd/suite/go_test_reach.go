@@ -183,6 +183,7 @@ func (g goReachGraph) Layers(dir string) [][]string {
 	seen := map[string]bool{dir: true}
 	frontier := []string{dir}
 	var layers [][]string
+	// walk-terminates: only packages not yet in seen enter the next frontier, and each enters once
 	for len(frontier) != 0 {
 		var next []string
 		for _, cur := range frontier {
