@@ -9,7 +9,7 @@ import (
 
 // A test suite the gate starts runs in a scratch directory of its own, and its
 // git is sealed to it: no directory the tests make can find a repository by
-// walking up, the global config is an empty file there, and nothing a hook
+// walking up, the global config is a neutral one there, and nothing a hook
 // exported (GIT_DIR, GIT_INDEX_FILE) reaches it (#1043).
 func TestSuiteEnv_GoCargoAndLintRunnersAreSealedToTheirScratchDir(t *testing.T) {
 	t.Setenv("GIT_DIR", "/outer/.git")
@@ -36,8 +36,8 @@ func TestSuiteEnv_GoCargoAndLintRunnersAreSealedToTheirScratchDir(t *testing.T) 
 			t.Errorf("%s: GIT_DIR = %q, want it dropped", cmd, got)
 		}
 	}
-	if data, err := os.ReadFile(filepath.Join(scratch, "gitconfig")); err != nil || len(data) != 0 {
-		t.Errorf("the sealed global config = %q, %v; want an empty file", data, err)
+	if data, err := os.ReadFile(filepath.Join(scratch, "gitconfig")); err != nil || !strings.Contains(string(data), "aphrollo-test") {
+		t.Errorf("the sealed global config = %q, %v; want the neutral identity", data, err)
 	}
 }
 

@@ -23,7 +23,7 @@ func lastBoundValue(env []string, name string) string {
 
 // Every test process a measurement starts has its git sealed to the run's own
 // area: what a hook exported is dropped, no temp dir under the area can find a
-// repository by walking up, and the global git config is an empty file there
+// repository by walking up, and the global git config is a neutral one there
 // (#1043).
 func TestMeasureEnv_SealsGitToTheRunsArea(t *testing.T) {
 	t.Setenv("GIT_DIR", "/outer/.git")

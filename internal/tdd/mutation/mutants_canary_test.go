@@ -19,6 +19,7 @@ import (
 func canaryRepo(t *testing.T) (repo, globalConfig string) {
 	t.Helper()
 	repo = makeGoRepo(t)
+	gitDo(t, repo, "branch", "-M", "main")
 	globalConfig = filepath.Join(t.TempDir(), "gitconfig")
 	t.Setenv("GIT_CONFIG_GLOBAL", globalConfig)
 	return repo, globalConfig
@@ -41,45 +42,118 @@ func TestSnapshotGitWorld_NamesEachThingALeakChanges(t *testing.T) {
 	cases := []struct {
 		name  string
 		label string
-		leak  func(t *testing.T, repo, global string)
+		leak  func(t *testing.T, repo, sibling, global string)
 	}{
-		{"a config key", "the repository's config", func(t *testing.T, repo, _ string) {
+		{"a config key", "the repository's config", func(t *testing.T, repo, _, _ string) {
 			gitDo(t, repo, "config", "leak.key", "1")
 		}},
-		{"a new branch", "the branches", func(t *testing.T, repo, _ string) {
+		{"a new branch", "the branches", func(t *testing.T, repo, _, _ string) {
 			gitDo(t, repo, "branch", "feat/x")
 		}},
-		{"a moved HEAD", "this checkout's HEAD", func(t *testing.T, repo, _ string) {
-			gitDo(t, repo, "switch", "-q", "-c", "other")
+		{"a deleted branch", "the branches", func(t *testing.T, repo, _, _ string) {
+			gitDo(t, repo, "branch", "-D", "spare")
 		}},
-		{"a fixture commit", "the checked-out commit", func(t *testing.T, repo, _ string) {
-			write(t, repo, "fixture.txt", "x\n")
-			gitDo(t, repo, "add", "fixture.txt")
-			gitDo(t, repo, "commit", "-qm", "fixture")
+		{"a switched worktree HEAD", "the worktree HEADs", func(t *testing.T, _, sibling, _ string) {
+			gitDo(t, sibling, "switch", "-q", "-c", "other")
 		}},
-		{"packed refs", "packed-refs", func(t *testing.T, repo, _ string) {
-			gitDo(t, repo, "pack-refs", "--all")
+		{"a new worktree", "the worktree registrations", func(t *testing.T, repo, _, _ string) {
+			gitDo(t, repo, "worktree", "add", "-q", "--detach", filepath.Join(t.TempDir(), "extra"))
 		}},
-		{"the global config", "the global git config", func(t *testing.T, _, global string) {
+		{"a moved main", "the tip of main", func(t *testing.T, repo, _, _ string) {
+			gitDo(t, repo, "commit", "-q", "--allow-empty", "-m", "fixture")
+		}},
+		{"a moved checkout", "the checked-out commit", func(t *testing.T, _, _, _ string) {}},
+		{"the global config", "the global git config", func(t *testing.T, _, _, global string) {
 			mustWrite(t, global, "[user]\n\tname = Jane Doe\n")
 		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			repo, global := canaryRepo(t)
+			if c.name == "a moved checkout" {
+				// The checkout's own commit moves when its own branch does.
+				repo, _, _ := canaryLanes(t)
+				lane := filepath.Join(t.TempDir(), "mine")
+				gitDo(t, repo, "worktree", "add", "-q", "-b", "mine", lane)
+				before := snapshotGitWorld(lane)
+				gitDo(t, lane, "commit", "-q", "--allow-empty", "-m", "mine")
+				requireChange(t, before.changesTo(snapshotGitWorld(lane)), c.label)
+				return
+			}
+			repo, sibling, global := canaryLanes(t)
 			before := snapshotGitWorld(repo)
 
-			c.leak(t, repo, global)
+			c.leak(t, repo, sibling, global)
 
-			changes := before.changesTo(snapshotGitWorld(repo))
-			found := false
-			for _, change := range changes {
-				found = found || strings.HasPrefix(change, c.label)
-			}
-			if !found {
-				t.Errorf("no change named %q among %v", c.label, changes)
-			}
+			requireChange(t, before.changesTo(snapshotGitWorld(repo)), c.label)
 		})
+	}
+}
+
+// canaryLanes is a repository with a sibling lane checked out beside it, and the
+// global config the canary reads a file of the test's own.
+func canaryLanes(t *testing.T) (repo, sibling, globalConfig string) {
+	t.Helper()
+	repo, globalConfig = canaryRepo(t)
+	sibling = filepath.Join(t.TempDir(), "sibling")
+	gitDo(t, repo, "worktree", "add", "-q", "-b", "sibling", sibling)
+	gitDo(t, repo, "branch", "spare")
+	return repo, sibling, globalConfig
+}
+
+func requireChange(t *testing.T, changes []string, label string) {
+	t.Helper()
+	for _, change := range changes {
+		if strings.HasPrefix(change, label) {
+			return
+		}
+	}
+	t.Errorf("no change named %q among %v", label, changes)
+}
+
+// Ordinary work on a busy box is not a leak: a sibling lane committing to its own
+// branch, a push writing an upstream, the operator fetching.
+func TestSnapshotGitWorld_OrdinaryWorkByASiblingLaneIsNotAChange(t *testing.T) {
+	repo, sibling, _ := canaryLanes(t)
+	before := snapshotGitWorld(repo)
+
+	write(t, sibling, "work.txt", "x\n")
+	gitDo(t, sibling, "add", "work.txt")
+	gitDo(t, sibling, "commit", "-qm", "sibling work")
+	gitDo(t, repo, "config", "branch.sibling.remote", "origin")
+	gitDo(t, repo, "config", "branch.sibling.merge", "refs/heads/sibling")
+
+	if changes := before.changesTo(snapshotGitWorld(repo)); len(changes) != 0 {
+		t.Errorf("a sibling's commit and an upstream stanza looked like a leak: %v", changes)
+	}
+}
+
+func TestWithoutBranchStanzas_DropsOnlyTheBranchSections(t *testing.T) {
+	config := "[core]\n\tbare = false\n[branch \"a\"]\n\tremote = origin\n[remote \"origin\"]\n\turl = u\n[branch \"b\"]\n\tmerge = m\n[user]\n\tname = n\n"
+
+	got := withoutBranchStanzas(config)
+
+	want := "[core]\n\tbare = false\n[remote \"origin\"]\n\turl = u\n[user]\n\tname = n\n"
+	if got != want {
+		t.Errorf("withoutBranchStanzas =\n%q\nwant\n%q", got, want)
+	}
+	if got := withoutBranchStanzas(""); got != "" {
+		t.Errorf("an empty config became %q", got)
+	}
+	if got := withoutBranchStanzas("[branches]\n\tx = 1\n"); got != "[branches]\n\tx = 1\n" {
+		t.Errorf("a section merely starting like branch was dropped: %q", got)
+	}
+}
+
+func TestWorktreeFacts_ListsPathsAndWhatEachHasCheckedOut(t *testing.T) {
+	porcelain := "worktree /b\nHEAD 111\nbranch refs/heads/two\n\nworktree /a\nHEAD 222\ndetached\n\nworktree /c\nHEAD 333\nbranch refs/heads/one\n"
+
+	paths, heads := worktreeFacts(porcelain)
+
+	if want := "/a\n/b\n/c"; paths != want {
+		t.Errorf("paths = %q, want %q", paths, want)
+	}
+	if want := "/a -> detached\n/b -> refs/heads/two\n/c -> refs/heads/one"; heads != want {
+		t.Errorf("heads = %q, want %q", heads, want)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -30,30 +31,73 @@ type gitWorldPart struct {
 type gitWorld []gitWorldPart
 
 // snapshotGitWorld reads what a test process reaching the real git would
-// change: the config, the HEAD of the checkout at root and of the repository it
-// belongs to, packed-refs, the branch list and the checked-out commit of that
-// repository, and the operator's global git config. Outside a repository only
-// the global config is read.
+// change, leaving out what ordinary work on a busy box changes all the time: the
+// shared config without its [branch "…"] stanzas (a push writes those), every
+// worktree's HEAD and the list of worktrees, the checked-out commit of the
+// checkout at root, the tip of main, the set of branch names (not their tips: a
+// sibling lane's commit moves its own branch), and the operator's global git
+// config. Outside a repository only the global config is read.
 func snapshotGitWorld(root string) gitWorld {
 	var w gitWorld
 	if lane := RepoRoot(root); lane != "" {
-		gitDir := strings.TrimSpace(gitOut(lane, "rev-parse", "--absolute-git-dir"))
 		common := strings.TrimSpace(gitOut(lane, "rev-parse", "--path-format=absolute", "--git-common-dir"))
 		if common != "" {
-			w = append(w, filePart("the repository's config", filepath.Join(common, "config")))
-			w = append(w, filePart("the repository's HEAD", filepath.Join(common, "HEAD")))
-			w = append(w, filePart("packed-refs", filepath.Join(common, "packed-refs")))
+			config := filePart("the repository's config", filepath.Join(common, "config"))
+			config.Text = withoutBranchStanzas(config.Text)
+			w = append(w, config)
 		}
-		if gitDir != "" {
-			w = append(w, filePart("this checkout's HEAD", filepath.Join(gitDir, "HEAD")))
-		}
+		registrations, heads := worktreeFacts(gitOut(lane, "worktree", "list", "--porcelain"))
+		w = append(w, gitWorldPart{"the worktree registrations", true, registrations})
+		w = append(w, gitWorldPart{"the worktree HEADs", true, heads})
 		w = append(w, gitWorldPart{"the branches", true, gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads")})
 		w = append(w, gitWorldPart{"the checked-out commit", true, strings.TrimSpace(gitOut(lane, "rev-parse", "HEAD"))})
+		w = append(w, gitWorldPart{"the tip of main", true, strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/heads/main"))})
 	}
 	for _, path := range globalGitConfigs() {
 		w = append(w, filePart("the global git config "+path, path))
 	}
 	return w
+}
+
+// withoutBranchStanzas is a git config without its [branch "…"] sections, which
+// record upstreams and which every push writes.
+func withoutBranchStanzas(config string) string {
+	if config == "" {
+		return ""
+	}
+	var kept []string
+	inBranch := false
+	for _, line := range strings.Split(strings.TrimSuffix(config, "\n"), "\n") {
+		if header := strings.TrimSpace(line); strings.HasPrefix(header, "[") {
+			inBranch = strings.HasPrefix(header, `[branch "`)
+		}
+		if !inBranch {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n") + "\n"
+}
+
+// worktreeFacts reads `git worktree list --porcelain` into the paths of the
+// registered worktrees and what each has checked out (a branch, or detached),
+// one per line, sorted by the listing's own order.
+func worktreeFacts(porcelain string) (registrations, heads string) {
+	var paths, checkouts []string
+	path := ""
+	for _, line := range strings.Split(porcelain, "\n") {
+		switch {
+		case strings.HasPrefix(line, "worktree "):
+			path = strings.TrimPrefix(line, "worktree ")
+			paths = append(paths, path)
+		case strings.HasPrefix(line, "branch "):
+			checkouts = append(checkouts, path+" -> "+strings.TrimPrefix(line, "branch "))
+		case line == "detached":
+			checkouts = append(checkouts, path+" -> detached")
+		}
+	}
+	slices.Sort(paths)
+	slices.Sort(checkouts)
+	return strings.Join(paths, "\n"), strings.Join(checkouts, "\n")
 }
 
 // filePart reads one file into a part; a file that is not there is a part that
