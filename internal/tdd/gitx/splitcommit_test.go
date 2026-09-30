@@ -182,3 +182,22 @@ func TestCommitStagedSubset_LeavesNoScratchIndexBehind(t *testing.T) {
 		t.Fatalf("scratch index left behind: %v", left)
 	}
 }
+
+// gitApplyIndex lands a patch in the worktree's index as well as its files,
+// and reports a patch that does not apply.
+func TestGitApplyIndex_StagesThePatchAndReportsAFailure(t *testing.T) {
+	src := splitRepo(t)
+	patch := splitGit(t, src, "diff", "--cached", "--no-renames", "--", "widget_test.go") + "\n"
+	dst := makeGoRepo(t)
+
+	if err := gitApplyIndex(dst, patch); err != nil {
+		t.Fatalf("gitApplyIndex: %v", err)
+	}
+	if staged := splitGit(t, dst, "diff", "--cached", "--name-only"); staged != "widget_test.go" {
+		t.Fatalf("staged = %q, want widget_test.go", staged)
+	}
+
+	if err := gitApplyIndex(dst, patch); err == nil {
+		t.Fatal("applying the same new-file patch twice must fail")
+	}
+}
