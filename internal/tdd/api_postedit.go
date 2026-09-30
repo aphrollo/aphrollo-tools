@@ -89,8 +89,6 @@ func RunPhase(p0 string) int { return postedit.RunPhase(p0) }
 
 func SetDiscardClockForTest(p0 func() time.Time) func() { return postedit.SetDiscardClockForTest(p0) }
 
-func SourceBashDecision(p0 []byte) Decision { return postedit.SourceBashDecision(p0) }
-
 func UndercoverBashDecision(p0 []byte) Decision { return postedit.UndercoverBashDecision(p0) }
 
 func WaitDeferredEditJob(p0 string) (string, bool) { return postedit.WaitDeferredEditJob(p0) }

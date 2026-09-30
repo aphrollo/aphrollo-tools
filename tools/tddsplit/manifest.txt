@@ -955,8 +955,6 @@ smell_test.go                                      smell
 smellscope.go                                      smell
 smellscope_own_test.go                             smell
 smellscope_test.go                                 postedit  # prefix says smell; its test body reaches postedit
-sourcebash.go                                      postedit
-sourcebash_test.go                                 postedit
 splitcommit.go                                     gitx
 splitcommit_test.go                                gitx
 stagedfiles_test.go                                tdd

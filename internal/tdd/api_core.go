@@ -19,8 +19,6 @@ const StateSchema = core.StateSchema
 
 const WallPrimary = core.WallPrimary
 
-const WallSourceBash = core.WallSourceBash
-
 const Warn = core.Warn
 
 type Decision = core.Decision

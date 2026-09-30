@@ -82,7 +82,7 @@ func RevokeForSession(session, cwd, wall string) (string, error) {
 
 // walls is every wall `allow` and `revoke` can waive, in the order usage
 // lines name them. The CLI verbs and the /tdd session verb both read it.
-var walls = [...]string{WallPrimary, WallDiscard, WallSourceBash}
+var walls = [...]string{WallPrimary, WallDiscard}
 
 // KnownWall reports whether wall is one `allow`/`revoke` can waive.
 func KnownWall(wall string) bool {
@@ -94,7 +94,7 @@ func KnownWall(wall string) bool {
 	return false
 }
 
-// WallNames lists every waivable wall as "primary|discard|source-bash", for
+// WallNames lists every waivable wall as "primary|discard", for
 // usage and error text.
 func WallNames() string {
 	return strings.Join(walls[:], "|")
