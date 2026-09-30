@@ -1,11 +1,12 @@
 name = "php"
 extensions = [".php"]
-view = 3
+view = 4
+earlier = "php-v3"
 
-# `#` opens a comment, so an attribute such as `#[Test]` reads as one. Heredocs
-# are not lexed.
+# `#` opens a comment, except `#[`, which opens an attribute and is code.
 [comments]
 line = ["//", "#"]
+line_except = ["#["]
 block = ["/* */"]
 
 [string.single]
@@ -17,6 +18,11 @@ multiline = true
 open = '"'
 escape = "backslash"
 multiline = true
+
+# A heredoc or nowdoc, `<<<EOT ... EOT;`: the body is a string.
+[string.heredoc]
+open = "<<<"
+heredoc = true
 
 [suppress.phpcs]
 kind = "lint"

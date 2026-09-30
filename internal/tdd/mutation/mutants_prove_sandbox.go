@@ -53,11 +53,17 @@ func proveSandboxArea(lane string) string {
 // installed node_modules linked in, and answers the copy. A failure removes
 // whatever part of the copy was made.
 func newProveSandbox(lane, projectRoot string) (*proveSandbox, error) {
+	return newWorkerSandbox(lane, projectRoot, 0)
+}
+
+// newWorkerSandbox is newProveSandbox for the nth concurrent worker of a
+// run, which keeps its copy in the slot workerSlot(n) names.
+func newWorkerSandbox(lane, projectRoot string, worker int) (*proveSandbox, error) {
 	area := proveSandboxArea(lane)
 	if err := os.MkdirAll(area, 0o755); err != nil {
 		return nil, err
 	}
-	dir, err := claimSandboxDir(area)
+	dir, err := claimSandboxSlot(area, workerSlot(worker))
 	if err != nil {
 		return nil, err
 	}
@@ -85,12 +91,24 @@ const proveSandboxRunPrefix = "run-"
 // running in now, even when the pid has since been reused.
 const proveSandboxHolder = ".aphrollo-prove-holder"
 
-// claimSandboxDir takes the reusable slot in area when it is free, or when
-// the proof holding it is gone, and a directory of its own otherwise. A slot
-// whose holder cannot be read is treated as held: it may be a proof that has
-// made it and not yet written its record.
-func claimSandboxDir(area string) (string, error) {
-	slot := filepath.Join(area, proveSandboxSlot)
+// workerSlot is the name of the slot the nth concurrent worker of one run
+// keeps its copy in: the first keeps the proofs' slot, every other one a slot
+// of its own, so each worker's copy sits at the same path in every run and
+// the go build cache, which keys a compile on the directory, stays warm for
+// all of them. A run-w slot is a proof's directory to gc like any run- one.
+func workerSlot(n int) string {
+	if n <= 0 {
+		return proveSandboxSlot
+	}
+	return proveSandboxRunPrefix + "w" + strconv.Itoa(n)
+}
+
+// claimSandboxSlot takes the reusable slot called name in area when it is
+// free, or when the proof holding it is gone, and a directory of its own
+// otherwise. A slot whose holder cannot be read is treated as held: it may be
+// a proof that has made it and not yet written its record.
+func claimSandboxSlot(area, name string) (string, error) {
+	slot := filepath.Join(area, name)
 	if err := os.Mkdir(slot, 0o755); err == nil {
 		return holdSandboxDir(slot)
 	}

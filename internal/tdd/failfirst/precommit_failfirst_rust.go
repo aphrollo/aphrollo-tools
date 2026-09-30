@@ -61,7 +61,7 @@ func failFirstStageWithRustNotice(repoRoot, root string, tests, srcs []string, r
 
 // stagedSourceAddsInlineRustTest reports whether any of srcFiles (a root's
 // OWN staged Source-classified files) is a .rs file whose staged diff adds a
-// line matching testDeclRes[".rs"] — the same declaration shape
+// line declaring a test in the rust row — the same declaration shape
 // stagedTestsAddDeclIn looks for in a Test-classified file, applied here to
 // Source-classified ones so the inline `#[cfg(test)]` shape is DETECTED even
 // though fail-first cannot yet run against it.

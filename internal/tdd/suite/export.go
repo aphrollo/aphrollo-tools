@@ -73,8 +73,6 @@ var RegisteredStages = registeredStages
 
 var SuiteRanGreen = &suiteRanGreen
 
-var TestDeclRes = testDeclRes
-
 func ApplyEdit(p0 string, p1 string, p2 string, p3 bool) string { return applyEdit(p0, p1, p2, p3) }
 
 func AttemptedScope(p0 string) runScope { return attemptedScope(p0) }

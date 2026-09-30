@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	langtable "github.com/aphrollo/aphrollo-tools/internal/lang"
 )
 
 // Go fail-first scoping: the proof runs the STAGED TESTS, not the packages
@@ -15,12 +17,6 @@ import (
 // RED at HEAD — internal/tdd's own package suite is 400-600s to answer it for
 // one test, which is what made the 600s fail-open reachable on every commit
 // (#567).
-
-// goTestFuncRe matches a top-level `func TestXxx(` declaration, the only shape
-// `go test -run` can select. Benchmark/Fuzz/Example declarations are
-// deliberately NOT matched: -run does not select them, so naming one would
-// build a filter that matches nothing.
-var goTestFuncRe = regexp.MustCompile(`(?m)^func\s+(Test[\p{L}\p{N}_]*)\s*\(`)
 
 // goRunFilter is the `-run` value selecting exactly names and nothing else:
 // anchored at both ends so TestFoo does not also pull in TestFooBar, and each
@@ -37,23 +33,27 @@ func goRunFilter(names []string) string {
 }
 
 // goTestFuncNames is the Test function names declared in the file at
-// root/rel, in declaration order. An unreadable file reads as none, which the
-// caller turns into the package-scoped fallback rather than a partial filter.
+// root/rel, in declaration order, as the go row of the language table names
+// them: a top-level `func TestXxx(`, the only shape `go test -run` can select.
+// Benchmark/Fuzz/Example declarations are deliberately NOT named: -run does
+// not select them, so naming one would build a filter that matches nothing,
+// and TestMain, the binary's entry point, is never one. An unreadable file
+// reads as none, which the caller turns into the package-scoped fallback
+// rather than a partial filter.
 func goTestFuncNames(root, rel string) []string {
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
 	if err != nil {
 		return nil
 	}
-	var names []string
-	for _, m := range goTestFuncRe.FindAllStringSubmatch(string(data), -1) {
-		// TestMain is the binary's entry point, never selectable by -run
-		// (goTestMainRe); naming it would widen the filter to nothing.
-		if m[1] == "TestMain" {
-			continue
-		}
-		names = append(names, m[1])
+	tbl, err := langtable.Defaults()
+	if err != nil {
+		return nil
 	}
-	return names
+	row, ok := tbl.Named("go")
+	if !ok {
+		return nil
+	}
+	return row.SelectableNames(string(data))
 }
 
 // narrowGoFailFirst scopes a Go fail-first runner to the packages owning the

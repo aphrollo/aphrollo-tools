@@ -46,6 +46,15 @@ type Language struct {
 	// this row's files as the default row, so a law over them is judged by
 	// that reading until it migrates. 1, the default, means it always was.
 	View int
+	// Earlier names the row that read this row's files at the views before
+	// View, where the default row would otherwise: a row whose lexing changed
+	// keeps its previous lexing as a row of its own that owns no extension,
+	// and a baseline written under it is judged by it until it migrates.
+	Earlier string
+
+	// LineExcept lists openers that begin with a line comment marker and are
+	// code, not a comment: PHP's `#[` opens an attribute.
+	LineExcept []string
 
 	LineComments  []LineComment
 	BlockComments []BlockComment
@@ -54,6 +63,15 @@ type Language struct {
 	// Tests are test-declaration patterns; each captures the test's name in
 	// its one group.
 	Tests []*regexp.Regexp
+	// Selectable are name-capturing patterns like Tests, read as tolerantly as
+	// the language's test runner reads its own sources, for naming the tests a
+	// proof runs; empty means Tests serve.
+	Selectable []*regexp.Regexp
+	// Declarations recognise ONE LINE that declares a test — an attribute, a
+	// function header, a registration call — with no name to capture. Fail-first
+	// reads the lines an edit adds through them, to tell a commit that adds a
+	// test from one that changes an assertion inside an existing test.
+	Declarations []*regexp.Regexp
 }
 
 // LineComment is a marker that opens a comment ending at the line's end.
@@ -96,6 +114,12 @@ type StringForm struct {
 	// char literal's shape closes on the same line — one char or one escape —
 	// and is otherwise code (Rust's lifetime and loop-label sigil).
 	CharLiteral bool
+	// Heredoc: the literal is a heredoc or nowdoc. Open is its operator; an
+	// optionally quoted identifier and a line end follow it, and the body runs
+	// to the first line that holds that identifier alone, after any blanks and
+	// before a byte that could continue it. The head and the closing line stay
+	// code, so there is no Close.
+	Heredoc bool
 }
 
 // Directive is a comment that silences a quality gate.
