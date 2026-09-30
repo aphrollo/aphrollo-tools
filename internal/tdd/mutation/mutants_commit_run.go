@@ -45,6 +45,9 @@ type commitRun struct {
 	WholePackage bool
 	// Took is how long the mutant's own runs took, measured or not.
 	Took time.Duration
+	// pending says the cheap run did not settle the mutant: it waits for its
+	// run against the whole package.
+	pending bool
 }
 
 // The kinds of gap a mutant can be left in, counted separately in the gate
@@ -55,6 +58,26 @@ const (
 	gapRunner      = "runner"
 	gapUnconfirmed = "unconfirmed"
 )
+
+// forEachWorker calls do(worker, index) for every index, on at most workers
+// goroutines, each identified by its own number, and returns when all are
+// done.
+func forEachWorker(workers int, indexes []int, do func(worker, index int)) {
+	jobs := make(chan int)
+	var wg sync.WaitGroup
+	for w := range min(workers, len(indexes)) {
+		wg.Go(func() {
+			for i := range jobs {
+				do(w, i)
+			}
+		})
+	}
+	for _, i := range indexes {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
+}
 
 // commitGap is why a mutant was not judged. The zero value is no gap.
 type commitGap struct{ Kind, Why string }
@@ -83,45 +106,98 @@ func runCommitMutants(ctx context.Context, root string, cfg MutantsConfig, plans
 	work := filepath.Join(measureTempDir(root), "commit")
 	defer func() { _ = os.RemoveAll(work) }()
 
-	jobs := make(chan int)
-	var wg sync.WaitGroup
-	for w := range workers {
-		wg.Go(func() {
-			lane := &commitBox{root: root}
-			defer lane.close()
-			for i := range jobs {
-				m := mutants[i]
-				runs[i] = commitRun{Mutant: m, Outcome: MutantOutcome{
-					File: m.File, Line: m.Line, Col: m.Col, Mutation: m.Mutation,
-					Name: mutantLineOf(m.File, m.Line, m.Col, m.Mutation),
-				}}
-				if !time.Now().Before(deadline) {
-					runs[i].leave(commitGap{gapBudget, budgetSpent(budget)})
-					continue
-				}
-				boxRoot, err := lane.open()
-				if err != nil {
-					runs[i].leave(commitGap{gapRunner, err.Error()})
-					continue
-				}
-				began := commitNowFn()
-				runOneCommitMutant(ctx, boxRoot, env, plans[goMutantPackageDir(m.File)], &runs[i], deadline,
-					filepath.Join(work, strconv.Itoa(w), strconv.Itoa(i)))
-				runs[i].Took = commitNowFn().Sub(began)
+	boxes := make([]*commitBox, workers)
+	for w := range boxes {
+		boxes[w] = &commitBox{root: root, worker: w}
+		defer boxes[w].close()
+	}
+	all := make([]int, len(mutants))
+	for i, m := range mutants {
+		all[i] = i
+		runs[i] = commitRun{Mutant: m, Outcome: MutantOutcome{
+			File: m.File, Line: m.Line, Col: m.Col, Mutation: m.Mutation,
+			Name: mutantLineOf(m.File, m.Line, m.Col, m.Mutation),
+		}}
+	}
+	known := &killChecks{}
+	step := func(confirm bool) func(w, i int) {
+		return func(w, i int) {
+			r := &runs[i]
+			if !time.Now().Before(deadline) {
+				r.leave(commitGap{gapBudget, budgetSpent(budget)})
+				return
 			}
-		})
+			boxRoot, err := boxes[w].open()
+			if err != nil {
+				r.leave(commitGap{gapRunner, err.Error()})
+				return
+			}
+			runOneCommitMutant(ctx, boxRoot, env, plans[goMutantPackageDir(r.Mutant.File)], r, deadline,
+				filepath.Join(work, strconv.Itoa(w), strconv.Itoa(i)), known, confirm)
+		}
 	}
-	for i := range mutants {
-		jobs <- i
+	// Every mutant gets its cheap run first, so a slow confirmation never
+	// keeps a mutant that a selected test kills in seconds waiting for a
+	// worker. What the selection did not settle, and what had no selection,
+	// is then run against the whole package.
+	forEachWorker(workers, all, step(false))
+	var pending []int
+	for i := range runs {
+		if runs[i].pending {
+			runs[i].pending = false
+			pending = append(pending, i)
+		}
 	}
-	close(jobs)
-	wg.Wait()
+	forEachWorker(workers, pending, step(true))
 	for _, r := range runs {
 		if r.NotMeasured != "" {
 			logf(log, "mutants: %s NOT MEASURED — %s", plainName(r.Outcome), r.NotMeasured)
 		}
 	}
 	return runs
+}
+
+// killChecks remembers what the run without a mutant said about a set of
+// failing tests. The copy the checks run in is the lane as staged, the same
+// for every mutant of the run, so the answer for one set of tests is the
+// answer for every mutant they fail under: a test that fails under five
+// mutants is checked once, not five times. A check that was cut off is not
+// remembered, since it said nothing.
+type killChecks struct {
+	mu   sync.Mutex
+	seen map[string]killCheck
+}
+
+// killCheck is one remembered answer.
+type killCheck struct {
+	verdict resolveVerdict
+	detail  string
+}
+
+// check answers the remembered verdict for the tests named by killers and
+// extra, or runs ask and remembers its answer. A nil killChecks remembers
+// nothing.
+func (k *killChecks) check(killers, extra []string, ask func() (resolveVerdict, string)) (resolveVerdict, string) {
+	if k == nil {
+		return ask()
+	}
+	key := strings.Join(killers, "\x00") + "\x01" + strings.Join(extra, "\x00")
+	k.mu.Lock()
+	got, ok := k.seen[key]
+	k.mu.Unlock()
+	if ok {
+		return got.verdict, got.detail
+	}
+	verdict, detail := ask()
+	if verdict == resolveSurvived || verdict == resolveKilled {
+		k.mu.Lock()
+		if k.seen == nil {
+			k.seen = map[string]killCheck{}
+		}
+		k.seen[key] = killCheck{verdict, detail}
+		k.mu.Unlock()
+	}
+	return verdict, detail
 }
 
 // commitNowFn is the clock a mutant's own time is read from, a seam so a test
@@ -137,11 +213,14 @@ func budgetSpent(budget time.Duration) string {
 // mutant needs it and removed when the worker is done.
 type commitBox struct {
 	root string
-	box  *proveSandbox
-	path string
-	err  error
-	made bool
-	stop func()
+	// worker is which concurrent worker this copy is for, so each keeps its
+	// copy at a path of its own that every run reuses (workerSlot).
+	worker int
+	box    *proveSandbox
+	path   string
+	err    error
+	made   bool
+	stop   func()
 }
 
 // open answers the root of the worker's copy, making it the first time.
@@ -155,7 +234,7 @@ func (b *commitBox) open() (string, error) {
 		b.err = fmt.Errorf("%s is not inside a git repository to copy", b.root)
 		return "", b.err
 	}
-	box, err := newProveSandbox(lane, b.root)
+	box, err := newWorkerSandbox(lane, b.root, b.worker)
 	if err != nil {
 		b.err = fmt.Errorf("a disposable copy of %s to run in could not be made (%v)", lane, err)
 		return "", b.err
@@ -179,12 +258,24 @@ func (b *commitBox) close() {
 }
 
 // runOneCommitMutant measures one mutant in the copy at root and records the
-// answer in run: the selected tests first, then, when they miss it, the whole
-// package, since a map built before this commit may not list a test that now
-// reaches the function.
+// answer in run. Without confirm it runs the selected tests and stops there:
+// a mutant they kill is caught, and one they miss, or one with no selection,
+// is left pending for the run against the whole package, since a map built
+// before this commit may not list a test that now reaches the function. With
+// confirm it runs the tests the selection did not, which is the whole package
+// once the selection has passed.
 func runOneCommitMutant(ctx context.Context, root string, env []string, plan *commitPlan, run *commitRun,
-	deadline time.Time, work string) {
+	deadline time.Time, work string, known *killChecks, confirm bool) {
 	m := run.Mutant
+	names, whole := []string(nil), true
+	if plan != nil && !plan.Whole {
+		names, whole = selectTests(plan.Map, plan.Current, plan.Touched, m.Func)
+	}
+	run.Selected, run.WholePackage = names, whole
+	if whole && !confirm {
+		run.pending = true
+		return
+	}
 	path := filepath.Join(root, filepath.FromSlash(m.File))
 	src, err := os.ReadFile(path)
 	if err != nil {
@@ -202,20 +293,23 @@ func runOneCommitMutant(ctx context.Context, root string, env []string, plan *co
 		return
 	}
 	dir := goMutantPackageDir(m.File)
-	args := packageArgs([]string{dir})
 	var extra []string
-	names, whole := []string(nil), true
-	if plan != nil && !plan.Whole {
-		names, whole = selectTests(plan.Map, plan.Current, plan.Touched, m.Func)
-	}
-	if !whole {
+	switch {
+	case confirm && !whole:
+		// The selection passed under this mutant, so the tests left are the
+		// rest of the package: together the two runs are the whole package,
+		// and no test runs twice.
+		run.WholePackage = true
+		extra = []string{"-skip", runPattern(names)}
+	case !whole:
 		extra = []string{"-run", runPattern(names)}
 	}
-	run.Selected, run.WholePackage = names, whole
-	status, gap := settleRun(ctx, root, env, overlay, args, extra, deadline)
-	if status == "missed" && !whole {
-		run.WholePackage = true
-		status, gap = settleRun(ctx, root, env, overlay, args, nil, deadline)
+	began := commitNowFn()
+	status, gap := settleRun(ctx, root, env, overlay, packageArgs([]string{dir}), extra, deadline, known)
+	run.Took += commitNowFn().Sub(began)
+	if status == "missed" && !confirm {
+		run.pending = true
+		return
 	}
 	if run.leave(gap) {
 		return
@@ -230,7 +324,8 @@ func runOneCommitMutant(ctx context.Context, root string, env []string, plan *co
 // "caught", "missed" or "unviable", or, in why, what stopped it from being
 // judged. A failure is credited as a kill only when the same run without the
 // mutant is green (issue #957).
-func settleRun(ctx context.Context, root string, env []string, overlay string, args, extra []string, deadline time.Time) (status string, gap commitGap) {
+func settleRun(ctx context.Context, root string, env []string, overlay string, args, extra []string,
+	deadline time.Time, known *killChecks) (status string, gap commitGap) {
 	// A budget already spent is a run that is cut off at once, which is what
 	// runResolveTestsOut answers for a timeout of nothing.
 	verdict, detail, output := runResolveTestsOut(ctx, root, env, overlay, args, extra, time.Until(deadline))
@@ -249,7 +344,9 @@ func settleRun(ctx context.Context, root string, env []string, overlay string, a
 	if failing := failingTestNames(output); len(failing) > 0 {
 		extra = []string{"-run", runPattern(failing)}
 	}
-	verdict, detail = runResolveTestsWith(ctx, root, env, "", killers, extra, time.Until(deadline))
+	verdict, detail = known.check(killers, extra, func() (resolveVerdict, string) {
+		return runResolveTestsWith(ctx, root, env, "", killers, extra, time.Until(deadline))
+	})
 	switch verdict {
 	case resolveSurvived:
 		return "caught", commitGap{}
