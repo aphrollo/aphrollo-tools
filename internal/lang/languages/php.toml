@@ -1,0 +1,40 @@
+name = "php"
+extensions = [".php"]
+view = 4
+earlier = "php-v3"
+
+# `#` opens a comment, except `#[`, which opens an attribute and is code.
+[comments]
+line = ["//", "#"]
+line_except = ["#["]
+block = ["/* */"]
+
+[string.single]
+open = "'"
+escape = "backslash"
+multiline = true
+
+[string.double]
+open = '"'
+escape = "backslash"
+multiline = true
+
+# A heredoc or nowdoc, `<<<EOT ... EOT;`: the body is a string.
+[string.heredoc]
+open = "<<<"
+heredoc = true
+
+[suppress.phpcs]
+kind = "lint"
+pattern = 'phpcs:(?:ignore|disable)'
+
+[suppress.phpstan]
+kind = "type"
+pattern = '@phpstan-ignore'
+
+[suppress.psalm]
+kind = "type"
+pattern = '@psalm-suppress'
+
+[tests]
+patterns = ['\bfunction\s+(test[A-Za-z0-9_]*)\s*\(']

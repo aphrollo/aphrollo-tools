@@ -56,7 +56,7 @@ func IntersectLines(p0 map[int]bool, p1 map[int]bool) map[int]bool { return inte
 
 func IntroducedLines(p0 string, p1 string, p2 lang) map[int]bool { return introducedLines(p0, p1, p2) }
 
-func LangOf(p0 string) lang { return langOf(p0) }
+func LangOf(p0 string, p1 string) lang { return langOf(p0, p1) }
 
 func NewView(p0 string, p1 lang) view { return newView(p0, p1) }
 

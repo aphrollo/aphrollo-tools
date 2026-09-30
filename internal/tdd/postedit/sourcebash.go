@@ -74,7 +74,7 @@ type sourceBashInput struct {
 // (python, node, ruby, perl, deno, bun) is read for calls that open a source
 // path for writing. A command that only runs a generator or formatter
 // (`go run ./tools/tddsplit -regen`, `gofmt -w`, `go generate`, an
-// `aphrollo ... --apply` verb) names no write target and so passes.
+// `aphrollo refactor ...` verb) names no write target and so passes.
 // `aphrollo gate allow source-bash` waives the wall for the session.
 func SourceBashDecision(raw []byte) Decision {
 	var in sourceBashInput

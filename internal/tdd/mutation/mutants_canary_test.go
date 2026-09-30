@@ -127,6 +127,163 @@ func TestSnapshotGitWorld_OrdinaryWorkByASiblingLaneIsNotAChange(t *testing.T) {
 	}
 }
 
+// laneDirOf is where the lanes of repo's checkout live: beside it, in
+// .worktrees/<repo>, which is also where the gate's own scratch areas are.
+func laneDirOf(repo string) string {
+	return filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+}
+
+// The gate registers worktrees of its own during a run (a trunk preview, a PR
+// merge checkout, a fail-first checkout) and lanes are made and removed, so a
+// registration that is a lane or a gate path is ordinary work, never a leak.
+func TestSnapshotGitWorld_LanesAndGateWorktreesComingAndGoingAreNotAChange(t *testing.T) {
+	cases := []struct {
+		name string
+		path func(t *testing.T, repo string) string
+	}{
+		{"a new lane", func(t *testing.T, repo string) string { return filepath.Join(laneDirOf(repo), "new-lane") }},
+		{"a gate PR merge checkout", func(t *testing.T, repo string) string {
+			return filepath.Join(laneDirOf(repo), "gate-prmerge-123")
+		}},
+		{"a gate trunk preview", func(t *testing.T, _ string) string {
+			return filepath.Join(t.TempDir(), "gate-trunkpreview-456")
+		}},
+		{"a fail-first checkout", func(t *testing.T, _ string) string {
+			return filepath.Join(t.TempDir(), "gate-state", "failfirst-wt", "0123abcd")
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			repo, _ := canaryRepo(t)
+			path := c.path(t, repo)
+			before := snapshotGitWorld(repo)
+
+			gitDo(t, repo, "worktree", "add", "-q", "--detach", path)
+			if changes := before.changesTo(snapshotGitWorld(repo)); len(changes) != 0 {
+				t.Errorf("adding %s looked like a leak: %v", path, changes)
+			}
+			added := snapshotGitWorld(repo)
+			gitDo(t, repo, "worktree", "remove", "--force", path)
+			if changes := added.changesTo(snapshotGitWorld(repo)); len(changes) != 0 {
+				t.Errorf("removing %s looked like a leak: %v", path, changes)
+			}
+		})
+	}
+}
+
+// A lane that was there when the run started and is gone when it ends is
+// somebody pruning it, and a lane's own HEAD moving is not a change of a
+// worktree the run could have reached: only a switched branch is.
+func TestSnapshotGitWorld_AnExistingLanePrunedMidRunIsNotAChange(t *testing.T) {
+	repo, _ := canaryRepo(t)
+	lane := filepath.Join(laneDirOf(repo), "old-lane")
+	gitDo(t, repo, "worktree", "add", "-q", "-b", "old-lane", lane)
+	before := snapshotGitWorld(repo)
+
+	gitDo(t, repo, "worktree", "remove", "--force", lane)
+
+	if changes := before.changesTo(snapshotGitWorld(repo)); len(changes) != 0 {
+		t.Errorf("pruning a lane looked like a leak: %v", changes)
+	}
+}
+
+// The gate re-points its own checkouts (a fail-first worktree is reused from
+// one run to the next), so a gate checkout switching what it has checked out is
+// not a worktree the run changed.
+func TestSnapshotGitWorld_AGateCheckoutRePointedMidRunIsNotAChange(t *testing.T) {
+	repo, _, _ := canaryLanes(t)
+	gate := filepath.Join(laneDirOf(repo), "gate-prmerge-9")
+	gitDo(t, repo, "worktree", "add", "-q", "--detach", gate)
+	before := snapshotGitWorld(repo)
+
+	gitDo(t, gate, "switch", "-q", "spare")
+
+	if changes := before.changesTo(snapshotGitWorld(repo)); len(changes) != 0 {
+		t.Errorf("a gate checkout switching branch looked like a leak: %v", changes)
+	}
+}
+
+// Lanes coming and going do not hide a real change: the sibling that was there
+// all along switching branches is named, whatever else was added beside it.
+func TestSnapshotGitWorld_AnExistingWorktreesHeadChangeShowsAmidLaneChurn(t *testing.T) {
+	repo, sibling, _ := canaryLanes(t)
+	before := snapshotGitWorld(repo)
+
+	gitDo(t, repo, "worktree", "add", "-q", "-b", "churn", filepath.Join(laneDirOf(repo), "churn"))
+	gitDo(t, sibling, "switch", "-q", "-c", "other")
+
+	changes := before.changesTo(snapshotGitWorld(repo))
+
+	requireChange(t, changes, "the worktree HEADs")
+	for _, change := range changes {
+		if strings.Contains(change, filepath.Join(laneDirOf(repo), "churn")) {
+			t.Errorf("the new lane's own HEAD is reported: %s", change)
+		}
+	}
+}
+
+// What a test process of the run leaves behind lies in the run's own temp
+// areas, or anywhere that is neither a lane nor a gate path: both are leaks.
+func TestSnapshotGitWorld_AWorktreeInTheRunsTempAreaOrOutsideAnyLaneIsAChange(t *testing.T) {
+	cases := []struct {
+		name string
+		path func(t *testing.T, repo, runTmp string) string
+	}{
+		{"the run's temp dir", func(_ *testing.T, _, runTmp string) string { return filepath.Join(runTmp, "leak") }},
+		{"the shared go scratch dir", func(_ *testing.T, repo, _ string) string {
+			return filepath.Join(laneDirOf(repo), "gotmp", "aphrollo-x", "leak")
+		}},
+		{"the mutation area", func(_ *testing.T, repo, _ string) string {
+			return filepath.Join(laneDirOf(repo), ".mutants", "lane", "leak")
+		}},
+		{"a path that is no lane's", func(t *testing.T, _, _ string) string { return filepath.Join(t.TempDir(), "elsewhere", "leak") }},
+		{"a directory inside a lane's", func(t *testing.T, repo, _ string) string {
+			return filepath.Join(laneDirOf(repo), "a-lane", "nested")
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			repo, _ := canaryRepo(t)
+			runTmp := filepath.Join(t.TempDir(), "runtmp")
+			before := snapshotGitWorld(repo)
+
+			gitDo(t, repo, "worktree", "add", "-q", "--detach", c.path(t, repo, runTmp))
+
+			requireChange(t, before.changesTo(snapshotGitWorld(repo)), "the worktree registrations")
+		})
+	}
+}
+
+// The exact edges of "a lane of this repository" and of a gate path.
+func TestIsWatchedWorktree_TheEdgesOfALaneDirAndOfAGatePath(t *testing.T) {
+	laneDir := "/w/.worktrees/repo"
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"/w/.worktrees/repo/lane", false},
+		{"/w/.worktrees/repo/lane/nested", true},
+		{"/w/.worktrees/repo/gotmp/x", true},
+		{"/w/.worktrees/repo/.mutants/lane/x", true},
+		{"/w/.worktrees/repo", true},
+		{"/w/.worktrees/other/lane", true},
+		{"/w/repo", true},
+		{"/tmp/run/leak", true},
+		{"/w/.worktrees/repo/gate-prmerge-1", false},
+		{"/tmp/gate-trunkpreview-1", false},
+		{"/tmp/gate-failfirst-1", false},
+		{"/s/gate-state/failfirst-wt/ab12", false},
+		{"/tmp/gate-prmerge", true},
+		{"/tmp/gate-trunkpreview", true},
+		{"/tmp/gate-failfirst", true},
+	}
+	for _, c := range cases {
+		if got := isWatchedWorktree(c.path, laneDir); got != c.want {
+			t.Errorf("isWatchedWorktree(%q) = %v, want %v", c.path, got, c.want)
+		}
+	}
+}
+
 func TestWithoutBranchStanzas_DropsOnlyTheBranchSections(t *testing.T) {
 	config := "[core]\n\tbare = false\n[branch \"a\"]\n\tremote = origin\n[remote \"origin\"]\n\turl = u\n[branch \"b\"]\n\tmerge = m\n[user]\n\tname = n\n"
 

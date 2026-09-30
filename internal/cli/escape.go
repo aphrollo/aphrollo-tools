@@ -17,7 +17,8 @@ Subcommands:
   record "<reason>"   Record a red that arrived after a local green, and open its
                       issue (--kind escape|false-positive, --from-ci <job>,
                       --evidence <text>, --repo <dir>, --label <theme>,
-                      --check <stage|law>, --closes-by <path>). A themed
+                      --check <stage|law>, --closes-by <path>, --dry prints
+                      the issue and records nothing). A themed
                       defect needs --check: an
                       escape is a claim that some check could have caught it,
                       and a plain defect belongs in aphrollo issue
@@ -82,6 +83,7 @@ func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 		check    = fs.String("check", "", "the stage or law that could have caught it — required for a themed escape")
 		closesBy = fs.String("closes-by", "", "the law, stage or test file whose change closes it — fills the issue's closes-by line")
 		newLabel = fs.Bool("new-label", false, "admit a theme label the repo has not declared")
+		dry      = fs.Bool("dry", false, "print the title, labels and body the issue would carry; record and open nothing")
 	)
 	// Flags are read wherever they sit, not just before the reason. `flag`
 	// stops parsing at the first non-flag argument, and the reason IS one --
@@ -110,6 +112,23 @@ func runEscapeRecord(args []string, stdout, stderr io.Writer) int {
 	if err := tdd.CheckIssueLabels(root, labels, *newLabel); err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate escape record: %v\n", err)
 		return 2
+	}
+
+	if *dry {
+		ev := *evidence
+		if ev == "" && *fromCI != "" {
+			ev = reason
+		}
+		title, issueLabels, body, err := tdd.PreviewEscape(tdd.EscapeOptions{
+			Reason: reason, Kind: *kind, FromCI: *fromCI, Evidence: ev,
+			Labels: labels, Check: *check, ClosesBy: *closesBy,
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo gate escape: %v\n", err)
+			return 2
+		}
+		printIssuePreview(stdout, "aphrollo gate escape record", title, issueLabels, body)
+		return 0
 	}
 
 	// A CI job's report is judged before it is recorded: the tip has to carry

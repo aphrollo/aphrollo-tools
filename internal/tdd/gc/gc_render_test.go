@@ -41,7 +41,7 @@ func TestRenderGC_padsShorterPathToLongestPathWidth(t *testing.T) {
 	row1 := "a         100 B  r1\n" // "a" padded to width 4, then two spaces, %9s "100 B", two spaces, reason
 	row2 := "bbbb      200 B  r2\n" // "bbbb" already width 4, no pad
 	tier := "  incremental caches         300 B\n"
-	summary := "300 B reclaimable in 2 directories — run `aphrollo gate gc --apply` to free it\n"
+	summary := "300 B reclaimable in 2 directories — run `aphrollo gate gc` to free it\n"
 	want := row1 + row2 + tier + summary
 	if out != want {
 		t.Fatalf("RenderGC output =\n%q\nwant\n%q", out, want)

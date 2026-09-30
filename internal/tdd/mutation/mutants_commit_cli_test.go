@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,27 @@ func TestParseTestedDirs_RelativeSortedAndInsideTheRepo(t *testing.T) {
 	}
 	if got := parseTestedDirs(root, filepath.Join(root, "only")); len(got) != 1 || got[0] != "only" {
 		t.Errorf("dirs of one package = %v, want [only]", got)
+	}
+}
+
+// A directory of test data or of a law's fixtures is never a package whose
+// tests the map is built for, whatever the listing says.
+func TestParseTestedDirs_LeavesOutTestDataAndRatchetFixtures(t *testing.T) {
+	t.Parallel()
+	root := filepath.Join(t.TempDir(), "repo")
+	listing := strings.Join([]string{
+		filepath.Join(root, "internal", "a"),
+		filepath.Join(root, "internal", "a", "testdata", "p"),
+		filepath.Join(root, ".ratchet", "fixtures", "law", "hit"),
+		filepath.Join(root, ".ratchet", "fixturesx"),
+		filepath.Join(root, "testdatax"),
+	}, "\n")
+
+	got := parseTestedDirs(root, listing)
+
+	want := []string{".ratchet/fixturesx", "internal/a", "testdatax"}
+	if !slices.Equal(got, want) {
+		t.Errorf("dirs = %v, want %v", got, want)
 	}
 }
 

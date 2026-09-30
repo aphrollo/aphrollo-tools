@@ -1,6 +1,8 @@
 package merge
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,7 +27,16 @@ func retroDir() string {
 	return filepath.Join(StateDir(), "retro")
 }
 
-// retroSlug makes a path or id safe as one file name.
+// retroSlugMax is the longest slug: a file name is at most 255 bytes, and the
+// caller adds a suffix (.json, .pending) and an atomic write's temp tail. A
+// longer path keeps its first retroSlugKeep bytes and a hash of the whole, so
+// the name is bounded and two long paths still get two names.
+const (
+	retroSlugMax  = 160
+	retroSlugKeep = 140
+)
+
+// retroSlug makes a path or id safe as one file name, at most retroSlugMax bytes.
 func retroSlug(s string) string {
 	var b strings.Builder
 	for _, r := range s {
@@ -36,7 +47,12 @@ func retroSlug(s string) string {
 			b.WriteByte('_')
 		}
 	}
-	return b.String()
+	slug := b.String()
+	if len(slug) > retroSlugMax {
+		sum := sha256.Sum256([]byte(s))
+		slug = slug[:retroSlugKeep] + "-" + hex.EncodeToString(sum[:8])
+	}
+	return slug
 }
 
 // retroRepoKey names dir's repo by its primary checkout, so a lane and its

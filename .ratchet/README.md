@@ -17,6 +17,8 @@ them: at **pre-edit** time (before the write lands), at **post-edit** time
   baselines/<name>.txt      # the ceiling it may not exceed (only ever goes down)
   fixtures/<name>/hit/…     # files the law MUST catch, listed in expected.txt
   fixtures/<name>/clean/…   # files it must stay silent on
+  languages/<name>.toml     # a language row, added to the embedded table (below)
+  fixtures/languages/<name>/…   # files a row must read as their answers say
 ```
 
 #### The schema
@@ -31,7 +33,7 @@ escape_lines = 2                               # optional: how far above (defaul
 baseline     = ".ratchet/baselines/nan-guard.txt"   # optional
 code_only    = true                            # optional: strip trailing comments first
 mask_strings = true                            # optional: blank string CONTENTS first, keep comments
-comment_prefix = "#"                           # optional: what opens one (default "//")
+comment_prefix = "#"                           # optional: what opens one (default: the language table's marker for the scope, else "//")
 contiguous   = true                            # optional: suppression must be in the comment run above
 trigger_exclude = "^\s*(pub )?use "            # optional: lines that can never be a trigger
 
@@ -106,7 +108,9 @@ single-line attributes, broken by the first code or blank line. Counting lines
 instead lets one `// nan-safe:` exempt an unrelated call four lines below,
 across code it says nothing about. `comment_prefix` is what opens a comment in
 the language being scanned, so a TOML or shell law strips `#` comments and a
-commented-out entry stops satisfying a `regex-present` law. `trigger_exclude`
+commented-out entry stops satisfying a `regex-present` law. A law that states
+none reads the line comment marker of the language rows its `include` globs
+name, and `//` when they name none or disagree. `trigger_exclude`
 disqualifies a line from ever BEING a trigger, which is what an import needs:
 putting `use` in the marker regex instead exempts everything in the window
 below the import.
@@ -152,7 +156,7 @@ accepts either. `contiguous` applies in whichever direction is chosen.
 | `dep-graph-ceiling` | `roots`, `edges`, `counts`, `min_reachable` | how MUCH a root may reach at all: one hit per root, weighted by the count of packages reachable from it, so the baseline ceilings that count the way `json-number-ceiling` ceilings a measured number | a crate whose fan-out across the workspace nobody was watching |
 | `file-set-containment` | `superset_file`, `subset_file`, `capture` OR `subset_capture`+`superset_capture` | every capture in `subset_file` must also appear in `superset_file` | a headless stand-in whose query must refuse at least what the real one refuses |
 | `json-number-ceiling` | `files`, `path`, `tolerance_pct`, `enabled_env` | a number read out of generated JSON may not exceed its baseline by more than the tolerance | a criterion bench figure nobody was reading |
-| `symbol-removed` | `pattern` (exactly one capture group) | a symbol captured at `--base <ref>` must still be captured somewhere in scope at the current tree, or be admitted by a tombstone comment naming it and a reason (or naming the PATH it stood in, once that whole file is gone and nothing from it survives) | a deleted test, invisible to every file-at-a-time law |
+| `symbol-removed` | `pattern` (exactly one capture group; omitted, the `[tests]` patterns of the language rows the scope names) | a symbol captured at `--base <ref>` must still be captured somewhere in scope at the current tree, or be admitted by a tombstone comment naming it and a reason (or naming the PATH it stood in, once that whole file is gone and nothing from it survives) | a deleted test, invisible to every file-at-a-time law |
 
 The last five judge a whole TREE rather than a file at a time, and each
 refuses to reach a VACUOUS verdict: a dependency walk that resolved nothing, a
@@ -523,6 +527,80 @@ block comment can make the law look right against input no compiler would ever
 accept. Where a law reads STRUCTURE rather than lines, write the fixture so it
 would compile, and keep it small enough to check by eye.
 
+#### The language table
+
+What the tools know about a language is data: one TOML row per language, read
+by the ratchet engine (`mask_strings`, `code_only`), by the suppression smell
+and by `symbol-removed`. The defaults are embedded; a repo adds a language, or
+replaces a default, with `.ratchet/languages/<name>.toml` (the file stem is the
+row's name). A row that does not load fails every `ratchet` run with the file
+and line.
+
+```toml
+name        = "kotlin"                # must equal the file stem
+extensions  = [".kt", ".kts"]         # lowercase, with the dot
+filenames   = []                      # exact base names, for files with no suffix
+code_escape = false                   # a backslash outside a string escapes the next byte
+view        = 3                       # the scan view the row's lexing took effect at (default 1)
+# earlier   = "kotlin-v2"             # the row that read this row's files at the views before `view`; omitted, the default row
+
+[comments]
+line            = ["//"]              # markers that run to the line's end
+line_word_start = false               # a marker opens only at the start of a word (shell, YAML)
+# line_except   = ["//["]             # openers that begin with a marker and are code (PHP's `#[`)
+block           = ["/* */"]           # "<opener> <closer>" pairs
+block_nested    = true                # an opener inside a block needs its own closer
+
+[string.raw]                          # one table per string form: [string.<id>]
+open        = '"""'                   # forms are tried longest opener first
+close       = '"""'                   # default: the opener
+escape      = "none"                  # none | backslash | doubling (two closers are one literal)
+multiline   = true                    # default: a string ends at its line
+# opens_after = ":-[{,?"              # opens only at a line's start or after one of these
+# line_start  = true                  # opens only where its line starts
+# blank_open  = true                  # the opener is masked with the body
+# char_literal = true                 # a one-byte quote opening only a char literal's shape (Rust)
+# heredoc     = true                  # `open` is a heredoc operator (`<<<`): an optionally quoted identifier and a line end follow, and the body runs to the line holding that identifier; no `close`
+
+[suppress.suppress]                   # a comment that silences a quality gate
+kind    = "lint"                      # lint | type | coverage
+pattern = '@(?:file:)?Suppress\b'
+# reason = '\s-{2,}\s+\S'             # the rest of the comment must match for the directive to be admitted
+
+[tests]
+patterns = ['@Test\s+fun\s+(\w+)']    # test declarations; one capture group holds the name
+# selectable = ['@Test\s*fun\s+(\w+)']  # optional: the same, read as tolerantly as the language's runner does, to name the tests a proof runs; omitted, `patterns` serve
+# declarations = ['^\s*@Test\b']      # optional: a LINE that declares a test, with no name to capture; fail-first reads the added lines through these
+```
+
+A row that declares no comments, strings or escape (Go, JavaScript,
+TypeScript) is lexed as the `default` row: `//` and `/* */` comments and the
+quote and backtick strings. `default-hash` is that row that also reads `#` as a
+comment. The lexer blanks the contents of what a row names, keeping a string's
+own delimiters, and never reads a quote inside a comment as opening a string.
+
+A row nobody proved lexes nothing right, so `ratchet test` proves each row
+against `.ratchet/fixtures/languages/<name>/`: source files the row owns, and
+beside each the answer the row must give — `<file>.masked` (the file with its
+strings and comments blanked, byte for byte), `<file>.tests` (the test names
+the `[tests]` patterns capture, one per line) and `<file>.suppressed` (the
+kinds of suppression the row's directives find, one per line). An empty answer
+file means the row must find nothing. A row that declares comments or strings
+needs a `.masked` fixture, one with `[tests]` a `.tests` one, one with
+`[suppress.*]` a `.suppressed` one. A row of the repo's own with no fixtures
+fails; the embedded defaults are proved wherever a repo ships their fixtures,
+as this one does.
+
+The suppression smell reads every row's directives in every file, the rows of
+the repository's own `.ratchet/languages` included, so a
+language's `@Suppress` or `# noqa` is caught wherever it is written, and a
+directive whose row names a `reason` is admitted when the rest of its own
+comment matches it. A `symbol-removed` law with no `pattern` captures tests by
+the `[tests]` patterns of the rows its `include` globs name, and refuses to
+load a scope that names none. A repo row's `view` belongs to the repo: raise it
+when a change to the row moves what a lexer blanks, and every baseline over its
+extensions is judged by the old reading until it migrates.
+
 #### Pre-edit denial
 
 The PreToolUse hook reconstructs what a `Write`/`Edit`/`MultiEdit` would leave
@@ -609,26 +687,30 @@ baseline is ITSELF staged with a `[matcher]` or `[scope]` change in the same
 commit, logged `baseline-adopted:<law>:<rows>`, and refused exactly as before
 otherwise.
 
-A `mask_strings` law over Python, shell, TOML, Ruby or YAML files moves onto the
-current lexers by itself. A baseline that carries no `# scan-view: 2` line was
-written by lexers that read a quote inside a `#` comment as opening a string, so
-an apostrophe there blanked every line down to the next one and its ceilings
-never counted a hit on them. Such a law is judged by those lexers, so a tree
-that has not changed stays clean. The first `ratchet check` that tightens, over
-a tree at or below that baseline as the old lexers read it, rewrites the
-baseline under the current lexers with the stamp, in the same pass, and prints
-one line: `ratchet: migrated <law> to the current lexers (<n> rows)`. The next
-commit carries it. A tree above its baseline as the old lexers read it is not
+A `mask_strings` law (or a `code_only` law whose comments open with `//`) moves
+onto the current lexers by itself. A baseline records what the lexers of its
+time read, so it carries a scan-view stamp, `# scan-view: <n>`, naming the view
+its rows were written under: the highest `view` among the
+[language rows](#the-language-table) its law's scope names (Python, shell, TOML,
+Ruby and YAML are view 2, Java, C#, Kotlin and PHP view 3; a baseline with no
+stamp is view 1). A baseline stamped below the view its scope now reaches is
+judged by the lexers of its own view, which read a file kind whose row took
+effect later as the default row, so a tree that has not changed stays clean.
+The first `ratchet check` that tightens, over a tree at or below that baseline
+as those lexers read it, rewrites the baseline under the current lexers with
+the raised stamp, in the same pass, and prints one line:
+`ratchet: migrated <law> to the current lexers (<n> rows)`. The next commit
+carries it. A tree above its baseline as its own lexers read it is not
 migrated: the law stays legacy, `check` reports its real regressions and prints
 one note naming it, and a run that reports any regression writes no baseline.
-The staged-baseline guard admits the raise in that commit only when the staged
-baseline equals its own recomputation (the legacy baseline's rows and the
+The staged-baseline guard admits a stamp raised in a commit only when the
+staged baseline equals its own recomputation (the old baseline's rows and the
 staged tree, read by the current lexers), logged
 `baseline-scan-view-migrated:<file>:<rows>`. A hand-made stamp, an extra row or
 a row left out is refused with one line saying which, and any raise on a
-baseline that already carries the stamp is refused. `--adopt <law>` stays a
-manual override for the same move, with the same refusal over a tree above its
-baseline; no flow needs it.
+baseline that already carries the stamp its law needs is refused. `--adopt
+<law>` stays a manual override for the same move, with the same refusal over a
+tree above its baseline; no flow needs it.
 
 #### The law library (`ratchet init` / `ratchet presets`)
 
@@ -664,7 +746,7 @@ aphrollo ratchet check --no-tighten          # report only
 aphrollo ratchet check --proposed crates/a.rs=/tmp/new.rs   # judge content not on disk
 aphrollo ratchet check --adopt nan-guard     # write nan-guard's baseline from the tree (new or widened law only)
 aphrollo ratchet check --base HEAD~1         # judge against that ref: symbol-removed reads it, and a hit it already carries is no regression
-aphrollo ratchet test                        # prove every law against its fixtures
+aphrollo ratchet test                        # prove every law, and every language row with fixtures, against them
 aphrollo ratchet test --only nan-guard       # prove exactly these laws (comma-separated)
 aphrollo ratchet test --format json          # each law's verdict as data, for the gate's split run
 aphrollo ratchet presets                     # list every embedded preset and its params

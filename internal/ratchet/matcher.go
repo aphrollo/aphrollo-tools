@@ -5,7 +5,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/lang"
+	"github.com/aphrollo/aphrollo-tools/internal/mask"
 )
 
 // Hit is one offence: where it is, what it is, and the identity the baseline
@@ -29,22 +33,18 @@ type Hit struct {
 type FileLines struct {
 	raw  []string
 	code map[string][]string
-	// mask blanks the strings of the whole file the way its language spells
-	// them (see maskerFor).
-	mask func(src string) string
-	// legacy is mask as it read the file before the `#`-comment lexers, for a
-	// law still judged by them (see Law.LegacyView).
-	legacy func(src string) string
-	// blank is mask's twin that also blanks the comments, strings only when
-	// asked (see commentBlankerFor).
-	blank func(src string, strings bool) string
+	// langs and file pick the lexer that reads the whole file the way its
+	// language spells strings and comments (see maskerFor).
+	langs *lang.Table
+	file  string
 }
 
 // newFileLines splits content once. Cheap enough to call for a single
 // HitsIn as well as a scanner's per-file loop. The path decides the
-// language the string masker reads the content as.
-func newFileLines(file, content string) *FileLines {
-	return &FileLines{raw: splitLines(content), mask: maskerFor(file), legacy: legacyMaskerFor(file), blank: commentBlankerFor(file)}
+// language the lexer reads the content as, from langs, the language table of
+// the repository the file belongs to.
+func newFileLines(langs *lang.Table, file, content string) *FileLines {
+	return &FileLines{raw: splitLines(content), langs: langs, file: file}
 }
 
 // codeFor returns l's view of the file — comment-stripped for a CodeOnly law,
@@ -58,9 +58,10 @@ func (fl *FileLines) codeFor(l Law) []string {
 	view := prefix
 	if l.MaskStrings {
 		view += "\x00mask"
-		if l.LegacyView {
-			view += "\x00legacy"
-		}
+	}
+	scanView := l.scanView()
+	if scanView != 0 {
+		view += "\x00scan-view" + strconv.Itoa(scanView)
 	}
 	if !l.CodeOnly {
 		view += "\x00keep-comments"
@@ -70,11 +71,8 @@ func (fl *FileLines) codeFor(l Law) []string {
 	}
 	lines := fl.raw
 	if l.MaskStrings {
-		lex := fl.mask
-		if l.LegacyView {
-			lex = fl.legacy
-		}
-		lines = maskStringLines(lines, lex)
+		lexer := mask.ForFile(fl.langs, fl.file, scanView)
+		lines = maskStringLines(lines, func(src string) string { return lexer.Lex(src, true, false) })
 	}
 	code := lines
 	if l.CodeOnly {
@@ -83,7 +81,8 @@ func (fl *FileLines) codeFor(l Law) []string {
 			code[i], _ = splitTrailingComment(lines[i], prefix)
 		}
 		if prefix == "//" {
-			blankBlockComments(code, maskStringLines(fl.raw, func(src string) string { return fl.blank(src, l.MaskStrings) }))
+			blanker := mask.CommentsForFile(fl.langs, fl.file, scanView)
+			blankBlockComments(code, maskStringLines(fl.raw, func(src string) string { return blanker.Lex(src, l.MaskStrings, true) }))
 		}
 	}
 	if fl.code == nil {
@@ -120,7 +119,7 @@ func maskStringLines(raw []string, lex func(string) string) []string {
 // the same code. Registry laws are the exception — they judge the WHOLE scope
 // at once and are answered by the checker, not here.
 func (l Law) HitsIn(file, content string) []Hit {
-	return l.hitsInLines(file, newFileLines(file, content))
+	return l.hitsInLines(file, newFileLines(l.languages(), file, content))
 }
 
 // hitsInLines is HitsIn's lower-level entry point: fl is already split (and,
@@ -299,14 +298,6 @@ func (l Law) regexAbsentHits(file string, raw, code []string) []Hit {
 		}
 	}
 	return hits
-}
-
-// commentPrefix is what opens a comment in the language this law scans.
-func (l Law) commentPrefix() string {
-	if l.CommentPrefix == "" {
-		return "//"
-	}
-	return l.CommentPrefix
 }
 
 // excluded reports whether a line is disqualified from ever being a trigger.

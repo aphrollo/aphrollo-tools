@@ -20,6 +20,8 @@ type AdoptOptions struct {
 	// is refused unless this is true or the law has no baseline file yet —
 	// otherwise "adopt" is just a hand-raised ceiling with an extra step.
 	LawChangedSinceHEAD bool
+	// DryRun measures and reports the rows without writing the baseline.
+	DryRun bool
 }
 
 // AdoptResult is one adoption's outcome.
@@ -84,6 +86,9 @@ func Adopt(opts AdoptOptions) (AdoptResult, error) {
 		}
 	}
 	rows := adoptOnto(baseline, *law, hits)
+	if opts.DryRun {
+		return AdoptResult{Law: law.Name, Path: path, Rows: rows}, nil
+	}
 	if _, err := baseline.WriteIfChanged(path); err != nil {
 		return AdoptResult{}, err
 	}
@@ -113,8 +118,8 @@ func adoptOnto(baseline *Baseline, law Law, hits []Hit) int {
 		sort.Strings(keys)
 	}
 	baseline.AdoptWithSites(measured, sites)
-	if law.viewSensitive() {
-		baseline.Stamp()
+	if view := law.touchedView(); view > 1 {
+		baseline.StampAt(view)
 	}
 	return len(measured)
 }
@@ -148,6 +153,7 @@ func adoptHitsIn(opts Options, law Law) ([]Hit, error) {
 // is a raise the law does not justify, whatever the lexers are.
 func legacyWithinBaseline(root string, law Law) error {
 	law.LegacyView = true
+	law.ViewVersion, _ = baselineView(root, nil, law)
 	hits, err := adoptHits(root, law)
 	if err != nil {
 		return err

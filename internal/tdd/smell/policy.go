@@ -1,9 +1,9 @@
 package smell
 
 import (
-	"path/filepath"
 	"strings"
 
+	langtable "github.com/aphrollo/aphrollo-tools/internal/lang"
 	masklex "github.com/aphrollo/aphrollo-tools/internal/mask"
 )
 
@@ -52,6 +52,9 @@ type view struct {
 	Code       string
 	directives string
 	whole      string
+	// rows are the language rows of the file's table, for the suppression
+	// policies; see lang.rows.
+	rows []langtable.Language
 }
 
 func newView(content string, l lang) view {
@@ -60,16 +63,17 @@ func newView(content string, l lang) view {
 		Code:       code,
 		directives: l.mask(content, false),
 		whole:      code,
+		rows:       l.rows,
 	}
 }
 
 // mask blanks content's strings, and its comments when blankComments is set,
 // lexing it as the file's language.
 func (l lang) mask(content string, blankComments bool) string {
-	if l.rust {
-		return masklex.RustTokens(content, true, blankComments)
+	if l.lexer == nil {
+		return maskTokens(content, true, blankComments, false)
 	}
-	return maskTokens(content, true, blankComments, l.hashComment)
+	return l.lexer.Lex(content, true, blankComments)
 }
 
 // keepLines returns masked restricted to the 1-based line numbers in keep,
@@ -85,37 +89,43 @@ func keepLines(masked string, keep map[int]bool) string {
 	return b.String()
 }
 
-// lang captures the lexical quirks the masker must know about the edited file:
-// whether `#` begins a line comment, and whether the file is Rust, where `'`
-// is a char literal only in a char literal's shape and otherwise the sigil of
-// a lifetime or a label — read as a quote, it blanks every line up to the next
-// apostrophe and hides them from every detector. Getting `#` wrong matters
-// for the suppression detectors, which read the comment-preserving view — a
-// `#` wrongly treated as a comment stops the lexer skipping/scanning the rest
-// of the line, so a directive-looking string after a JS private field could
-// leak and trip a false suppression.
+// lang is the lexer that reads the edited file, from its row of the language
+// table: which markers open a comment (`#` is a comment in Python and Ruby, a
+// private-field sigil in JS/TS, absent in Go) and how its strings are spelled
+// (in Rust `'` is a char literal only in a char literal's shape and otherwise
+// the sigil of a lifetime or a label — read as a quote, it blanks every line
+// up to the next apostrophe and hides them from every detector). Getting a
+// comment marker wrong matters for the suppression detectors, which read the
+// comment-preserving view: a `#` wrongly treated as a comment stops the lexer
+// scanning the rest of the line, so a directive-looking string after a JS
+// private field could leak and trip a false suppression. A file with no row
+// reads as the default row, where `#` is code.
 type lang struct {
-	hashComment bool
-	rust        bool
+	lexer *masklex.Lexer
+	// rows is every row of the table the file was read by, whose directives
+	// the suppression policies look for. Nil reads the embedded rows.
+	rows []langtable.Language
 }
 
-// langOf derives the lexical quirks from a file path. `#` is a comment in
-// Python and Ruby; in Go it never appears and in JS/TS it is a private-field
-// sigil, so the default is `#`-is-code.
-func langOf(path string) lang {
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".py", ".rb":
-		return lang{hashComment: true}
-	case ".rs":
-		return lang{rust: true}
-	default:
-		return lang{hashComment: false}
+// langOf is the lexer of a file path's row of the language table of the
+// repository at root: the embedded rows plus its `.ratchet/languages`, read
+// the way the ratchet engine reads them. An empty root, or a repository whose
+// rows do not load, reads the embedded table alone, so a broken row never
+// turns a gate off.
+func langOf(root, path string) lang {
+	tbl, err := langtable.ForRoot(root)
+	if err != nil {
+		tbl, err = langtable.Defaults()
 	}
+	if err != nil {
+		return defaultLang
+	}
+	return lang{lexer: masklex.ForFile(tbl, path, 0), rows: tbl.Rows()}
 }
 
-// defaultLang is for content evaluated without a path (test helpers). It assumes
-// the C-family majority where `#` is not a comment.
-var defaultLang = lang{hashComment: false}
+// defaultLang is for content evaluated without a path (test helpers). It
+// reads the default row, the C-family majority where `#` is not a comment.
+var defaultLang = lang{}
 
 // policy is one detector: a name (for tests and future telemetry), the
 // integrity category it protects, the reason+fix to surface on a hit, and the

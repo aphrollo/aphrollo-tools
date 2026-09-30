@@ -125,8 +125,8 @@ func TestGateInstall_RefusesAnUnstableDefaultBinaryWhenApplying(t *testing.T) {
 	fakeRunningAs(t, scratch, scratch)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"gate", "install", "--repo", f.lane, "--apply"}, strings.NewReader(""), &out, &errb); code == 0 {
-		t.Fatalf("gate install --apply exit = 0 for a default binary in a temp dir\nstdout: %s", out.String())
+	if code := Run([]string{"gate", "install", "--repo", f.lane}, strings.NewReader(""), &out, &errb); code == 0 {
+		t.Fatalf("gate install exit = 0 for a default binary in a temp dir\nstdout: %s", out.String())
 	}
 	if got := realHookFiles(t, filepath.Join(f.primary, ".git", "hooks")); len(got) != 0 {
 		t.Errorf("repo-level hooks %v were written despite the refusal", got)
@@ -141,7 +141,7 @@ func TestGateInstall_PrintsThePlanForAnUnstableDefaultBinaryWithoutApply(t *test
 	fakeRunningAs(t, scratch, scratch)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"gate", "install", "--repo", f.lane}, strings.NewReader(""), &out, &errb); code != 0 {
+	if code := Run([]string{"gate", "install", "--repo", f.lane, "--dry"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("gate install (dry) exit = %d\nstderr: %s", code, errb.String())
 	}
 	if got := realHookFiles(t, filepath.Join(f.primary, ".git", "hooks")); len(got) != 0 {

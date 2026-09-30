@@ -44,7 +44,7 @@ func parseTestedDirs(root, listing string) []string {
 			continue
 		}
 		rel, err := filepath.Rel(root, line)
-		if err != nil || !filepath.IsLocal(rel) {
+		if err != nil || !filepath.IsLocal(rel) || isMutationData(rel+"/") {
 			continue
 		}
 		dirs = append(dirs, filepath.ToSlash(rel))

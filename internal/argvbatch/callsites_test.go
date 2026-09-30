@@ -68,6 +68,7 @@ var spreadCallSites = map[string]string{
 	"internal/refactor/spawn.go:Spawn":                               "bounded: the language server's fixed arguments",
 	"internal/tdd/escape/issue.go:OpenIssue":                         "bounded: one title, one body and the declared label set",
 	"internal/tdd/escape/issue.go:ensureLabel":                       "bounded: one label",
+	"internal/tdd/gc/gc_session.go:backgroundGCCommand":              "bounded: the fixed gc flags and one repository path",
 	"internal/tdd/gitx/gitplumbing.go:git":                           "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",
 	"internal/tdd/gitx/gitplumbing.go:gitStaged":                     "batched: Run splits the staged-path list (#960)",
 	"internal/tdd/gitx/gitplumbing.go:gitStdin":                      "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",

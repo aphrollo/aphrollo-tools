@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/lang"
 )
 
 // Severity decides what a NEW hit costs. Deny fails the gate and denies the
@@ -282,10 +284,15 @@ type Law struct {
 	// strictly broader than the edit-time detector scanning the same tree for
 	// the same thing, and fires on exactly the lines that detector ignores.
 	MaskStrings bool
-	// CommentPrefix opens a comment in the language the law scans (`//` by
-	// default, `#` for TOML/shell), deciding what CodeOnly strips and what
-	// counts as a comment line in a contiguous run.
+	// CommentPrefix opens a comment in the language the law scans, deciding
+	// what CodeOnly strips and what counts as a comment line in a contiguous
+	// run. Unset, the language table's line comment marker for the law's
+	// scope applies (`#` for a law over TOML or shell, `//` when the scope
+	// names no language or several that disagree).
 	CommentPrefix string
+	// scopePrefix is that table default, resolved when the law is loaded; empty
+	// reads as `//`.
+	scopePrefix string
 	// Contiguous binds an escape or a marker to the COMMENT RUN directly above
 	// the trigger: any code or blank line between breaks it. Counting lines
 	// instead lets one comment exempt an unrelated call below it.
@@ -316,6 +323,10 @@ type Law struct {
 	// the scan-view stamp: its rows record what the lexers of that time read,
 	// so it is judged by them (see scanview.go).
 	LegacyView bool
+	// ViewVersion is the scan view that baseline was written under, read when
+	// LegacyView is set: 0 and 1 are the lexers before any stamp, a higher
+	// number the lexers as of that stamp (see ScanViewOf).
+	ViewVersion int
 	// Source is the law file's text, hashed into the scan cache key: a rule
 	// that changed must never be answered from a cache filled under the old one.
 	Source string
@@ -386,6 +397,15 @@ func LoadLaws(root string) ([]Law, error) {
 	}
 	if err := resolveScopeAliases(laws, sets); err != nil {
 		return nil, err
+	}
+	// A repository row that does not load fails the whole load, like a
+	// malformed law: every law's view of a file depends on the table.
+	tbl, err := lang.ForRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	for i := range laws {
+		laws[i].scopePrefix = laws[i].tablePrefix(tbl)
 	}
 	sort.Slice(laws, func(i, j int) bool { return laws[i].Name < laws[j].Name })
 	return laws, nil
@@ -536,6 +556,9 @@ func ParseLaw(text, wantName string) (Law, error) {
 	}
 	if law.Matcher.Contiguous {
 		law.Contiguous = true
+	}
+	if tbl, err := lang.Defaults(); err == nil {
+		law.scopePrefix = law.tablePrefix(tbl)
 	}
 	return law, nil
 }

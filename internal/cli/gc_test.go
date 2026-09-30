@@ -28,10 +28,8 @@ func mkAgedFile(t *testing.T, path, content string, age time.Duration) {
 	}
 }
 
-// TestRunTDDGC_DryRunListsAndDeletesNothing pins the command's default: a
-// bare `aphrollo gate gc` is a REPORT. The directory it named must still be
-// there afterwards — a disk sweep that deletes without being asked is the
-// one bug this whole feature cannot have.
+// TestRunTDDGC_DryRunListsAndDeletesNothing pins --dry: it REPORTS. The
+// directory it named must still be there afterwards.
 func TestRunTDDGC_DryRunListsAndDeletesNothing(t *testing.T) {
 	gateConfigDir(t)
 	repo := t.TempDir()
@@ -39,21 +37,41 @@ func TestRunTDDGC_DryRunListsAndDeletesNothing(t *testing.T) {
 	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
 
 	var stdout, stderr bytes.Buffer
-	code := runGateGC([]string{"--repo", repo}, &stdout, &stderr)
+	code := runGateGC([]string{"--repo", repo, "--dry"}, &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr.String())
 	}
 	out := stdout.String()
-	if !strings.Contains(out, "stale-1a2b") || !strings.Contains(out, "--apply") {
-		t.Fatalf("dry run must name the candidate and the apply command, got:\n%s", out)
+	if !strings.Contains(out, "stale-1a2b") || !strings.Contains(out, "aphrollo gate gc") {
+		t.Fatalf("dry run must name the candidate and the command that reclaims it, got:\n%s", out)
 	}
 	if _, err := os.Stat(stale); err != nil {
 		t.Fatal("a dry run must delete nothing")
 	}
 }
 
-// TestRunTDDGC_ApplyDeletesAndReports pins --apply: the candidates go, and
-// the operator is told what was freed.
+// TestRunTDDGC_DefaultDeletesAndReports pins the default: a bare
+// `aphrollo gate gc` reclaims the candidates and says what was freed.
+func TestRunTDDGC_DefaultDeletesAndReports(t *testing.T) {
+	gateConfigDir(t)
+	repo := t.TempDir()
+	stale := filepath.Join(repo, "target", "debug", "incremental", "stale-1a2b")
+	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
+
+	var stdout, stderr bytes.Buffer
+	if code := runGateGC([]string{"--repo", repo}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatal("the default run must actually delete the candidate")
+	}
+	if !strings.Contains(stdout.String(), "freed") {
+		t.Fatalf("the default run must report what it freed, got:\n%s", stdout.String())
+	}
+}
+
+// TestRunTDDGC_LegacyApplyStillDeletesAndNotes pins the one-release bridge:
+// --apply is a no-op that executes and says so on stderr.
 func TestRunTDDGC_ApplyDeletesAndReports(t *testing.T) {
 	gateConfigDir(t)
 	repo := t.TempDir()
@@ -65,10 +83,68 @@ func TestRunTDDGC_ApplyDeletesAndReports(t *testing.T) {
 		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr.String())
 	}
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Fatal("--apply must actually delete the candidate")
+		t.Fatal("--apply must still delete the candidate")
 	}
-	if !strings.Contains(stdout.String(), "freed") {
-		t.Fatalf("--apply must report what it freed, got:\n%s", stdout.String())
+	if !strings.Contains(stderr.String(), "--apply is a no-op") {
+		t.Fatalf("--apply must print its deprecation notice, got stderr:\n%s", stderr.String())
+	}
+}
+
+// TestRunTDDGC_StrayArgumentIsRefused pins that a positional, which the verb
+// does not take, is an error and never a silently ignored word that hides a
+// flag written after it.
+func TestRunTDDGC_StrayArgumentIsRefused(t *testing.T) {
+	gateConfigDir(t)
+	repo := t.TempDir()
+	stale := filepath.Join(repo, "target", "debug", "incremental", "stale-1a2b")
+	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
+
+	var stdout, stderr bytes.Buffer
+	if code := runGateGC([]string{"--repo", repo, "stray", "--dry"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("exit = %d, want 2; stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatal("a refused run must delete nothing")
+	}
+}
+
+// TestRunTDDGC_FlagAfterTheRepoValueIsHonoured pins flag placement: --dry
+// written last still previews.
+func TestRunTDDGC_FlagAfterTheRepoValueIsHonoured(t *testing.T) {
+	gateConfigDir(t)
+	repo := t.TempDir()
+	stale := filepath.Join(repo, "target", "debug", "incremental", "stale-1a2b")
+	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
+
+	var stdout, stderr bytes.Buffer
+	if code := runGateGC([]string{"--repo", repo, "--older-than", "1d", "--dry"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(stale); err != nil {
+		t.Fatal("--dry after other flags must still delete nothing")
+	}
+}
+
+// TestRunTDDGC_SessionStartSweepStillReclaims pins the detached sweep's own
+// argv through the real verb: with no --dry among them it deletes, so the
+// default flip cannot turn the background sweep into a silent report.
+func TestRunTDDGC_SessionStartSweepStillReclaims(t *testing.T) {
+	gateConfigDir(t)
+	defer tdd.SetLockDirForTest(t.TempDir())()
+	repo := t.TempDir()
+	stale := filepath.Join(repo, "target", "debug", "incremental", "stale-1a2b")
+	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
+
+	var stdout, stderr bytes.Buffer
+	args := tdd.BackgroundGCArgs(repo)
+	if args[0] != "gc" {
+		t.Fatalf("background argv = %v, want it to start with the gc verb", args)
+	}
+	if code := runGateGC(args[1:], &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d, want 0; stderr=%s", code, stderr.String())
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatal("the session-start sweep left the stale candidate in place")
 	}
 }
 
@@ -82,13 +158,13 @@ func TestRunTDDGC_OlderThanBoundsWhatQualifies(t *testing.T) {
 	mkAgedFile(t, filepath.Join(fiveDays, "dep-graph.bin"), "01234", 5*24*time.Hour)
 
 	var stdout, stderr bytes.Buffer
-	runGateGC([]string{"--repo", repo}, &stdout, &stderr)
+	runGateGC([]string{"--repo", repo, "--dry"}, &stdout, &stderr)
 	if !strings.Contains(stdout.String(), "five-days") {
 		t.Fatalf("the default 3d threshold must reclaim a 5-day-old cache, got:\n%s", stdout.String())
 	}
 
 	stdout.Reset()
-	runGateGC([]string{"--repo", repo, "--older-than", "14d"}, &stdout, &stderr)
+	runGateGC([]string{"--repo", repo, "--older-than", "14d", "--dry"}, &stdout, &stderr)
 	if strings.Contains(stdout.String(), "five-days") {
 		t.Fatalf("--older-than 14d must spare a 5-day-old cache, got:\n%s", stdout.String())
 	}
@@ -99,7 +175,7 @@ func TestRunTDDGC_OlderThanBoundsWhatQualifies(t *testing.T) {
 // sweeps more than the operator asked for.
 func TestRunTDDGC_RejectsAnUnparseableAge(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	if code := runGateGC([]string{"--older-than", "soon", "--apply"}, &stdout, &stderr); code == 0 {
+	if code := runGateGC([]string{"--older-than", "soon"}, &stdout, &stderr); code == 0 {
 		t.Fatal("an unparseable --older-than must fail, not guess")
 	}
 	if !strings.Contains(stderr.String(), "soon") {
@@ -118,7 +194,7 @@ func TestRunTDDGC_QuietApplyIsSilentButStillRecordsTheSweep(t *testing.T) {
 	mkAgedFile(t, filepath.Join(stale, "dep-graph.bin"), "0123456789", 30*24*time.Hour)
 
 	var stdout, stderr bytes.Buffer
-	if code := runGateGC([]string{"--repo", repo, "--apply", "--quiet"}, &stdout, &stderr); code != 0 {
+	if code := runGateGC([]string{"--repo", repo, "--quiet"}, &stdout, &stderr); code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	if stdout.Len() != 0 || stderr.Len() != 0 {
@@ -165,13 +241,13 @@ func TestRunTDDGC_KnownAlsoSweepsTheReposTheGateWorkedIn(t *testing.T) {
 	}
 
 	var without, with, stderr bytes.Buffer
-	if code := runGateGC([]string{"--repo", here}, &without, &stderr); code != 0 {
+	if code := runGateGC([]string{"--repo", here, "--dry"}, &without, &stderr); code != 0 {
 		t.Fatalf("exit = %d; stderr=%s", code, stderr.String())
 	}
 	if strings.Contains(without.String(), "stale-9z") {
 		t.Fatalf("without --known the other repo must not be swept:\n%s", without.String())
 	}
-	if code := runGateGC([]string{"--repo", here, "--known"}, &with, &stderr); code != 0 {
+	if code := runGateGC([]string{"--repo", here, "--known", "--dry"}, &with, &stderr); code != 0 {
 		t.Fatalf("exit = %d; stderr=%s", code, stderr.String())
 	}
 	if !strings.Contains(with.String(), "stale-9z") {
@@ -196,7 +272,7 @@ func TestRunTDDGC_KnownWalksTheTempDirScratchOnce(t *testing.T) {
 	}
 
 	var out, stderr bytes.Buffer
-	if code := runGateGC([]string{"--repo", t.TempDir(), "--known"}, &out, &stderr); code != 0 {
+	if code := runGateGC([]string{"--repo", t.TempDir(), "--known", "--dry"}, &out, &stderr); code != 0 {
 		t.Fatalf("exit = %d; stderr=%s", code, stderr.String())
 	}
 	if got := strings.Count(out.String(), "go-build4242"); got != 1 {

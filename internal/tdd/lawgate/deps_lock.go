@@ -6,4 +6,6 @@ import (
 	lock "github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
 )
 
+func GoTmpRootDir(p0 string) string { return lock.GoTmpRootDir(p0) }
+
 func cargoWorkspaceRoot(p0 string) string { return lock.CargoWorkspaceRoot(p0) }

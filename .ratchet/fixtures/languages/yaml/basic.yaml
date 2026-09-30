@@ -1,0 +1,6 @@
+# it's a comment
+msg: don't stop   # plain scalar
+a: 'it''s'
+b: "say \"hi\""
+c: [ 'x', "y" ]  # tail
+url: http://x/a#b

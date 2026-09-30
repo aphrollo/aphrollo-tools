@@ -116,7 +116,7 @@ func BuildInstallPlan(repoRoot, bin string) (InstallPlan, error) {
 // git answers the linked case itself, via `rev-parse --git-common-dir`, read
 // through the STDOUT-ONLY gitRead: git writes warnings to stderr while still
 // answering on stdout, and folding the two together (CombinedOutput) makes the
-// warning part of the path — a directory `install --apply` then creates, with
+// warning part of the path — a directory `install` then creates, with
 // every hook written under it. Deliberately not `--git-path hooks`, which
 // HONOURS `core.hooksPath`. That
 // setting is global on a box running the gate's own git hooks, so
@@ -174,7 +174,7 @@ func (p InstallPlan) Render(apply bool) string {
 		fmt.Fprintf(&b, "  %s stranded shim %s\n", pruneVerb, path)
 	}
 	if !apply {
-		b.WriteString("run again with --apply to write them.\n")
+		b.WriteString("run again without --dry to write them.\n")
 	}
 	return b.String()
 }

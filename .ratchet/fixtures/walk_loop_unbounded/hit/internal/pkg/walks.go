@@ -1,5 +1,3 @@
-//go:build ignore
-
 package pkg
 
 type node struct{ next *node }

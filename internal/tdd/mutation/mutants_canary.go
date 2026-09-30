@@ -32,11 +32,15 @@ type gitWorld []gitWorldPart
 
 // snapshotGitWorld reads what a test process reaching the real git would
 // change, leaving out what ordinary work on a busy box changes all the time: the
-// shared config without its [branch "…"] stanzas (a push writes those), every
-// worktree's HEAD and the list of worktrees, the checked-out commit of the
-// checkout at root, the tip of main, the set of branch names (not their tips: a
-// sibling lane's commit moves its own branch), and the operator's global git
-// config. Outside a repository only the global config is read.
+// shared config without its [branch "…"] stanzas (a push writes those), the
+// checked-out branch of every worktree that existed at both ends, the
+// registrations that are neither a lane nor a gate path (a lane is made and
+// pruned, and the gate registers checkouts of its own, all through the run),
+// the checked-out commit of the checkout at root, the tip of main with the
+// reflog subjects behind it, the set of branch names other than lane/* (not
+// their tips: a sibling lane's commit moves its own branch), and the
+// operator's global git config. Outside a repository only the global config is
+// read.
 func snapshotGitWorld(root string) gitWorld {
 	var w gitWorld
 	if lane := RepoRoot(root); lane != "" {
@@ -47,11 +51,16 @@ func snapshotGitWorld(root string) gitWorld {
 			w = append(w, config)
 		}
 		registrations, heads := worktreeFacts(gitOut(lane, "worktree", "list", "--porcelain"))
+		laneDir := worktreeLaneDir(lane)
+		registrations = keepWorktrees(registrations, func(path string) bool { return isWatchedWorktree(path, laneDir) })
+		heads = keepWorktrees(heads, func(path string) bool { return !isGateWorktree(path) })
 		w = append(w, gitWorldPart{"the worktree registrations", true, registrations})
-		w = append(w, gitWorldPart{"the worktree HEADs", true, heads})
-		w = append(w, gitWorldPart{"the branches", true, gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads")})
+		w = append(w, gitWorldPart{worktreeHeadsLabel, true, heads})
+		w = append(w, gitWorldPart{"the branches", true, withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads"))})
 		w = append(w, gitWorldPart{"the checked-out commit", true, strings.TrimSpace(gitOut(lane, "rev-parse", "HEAD"))})
-		w = append(w, gitWorldPart{"the tip of main", true, strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/heads/main"))})
+		tip := strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/heads/main"))
+		log := strings.TrimSuffix(gitOut(lane, "log", "-g", "-n", "100", "--format=%gs", "refs/heads/main"), "\n")
+		w = append(w, gitWorldPart{tipOfMainLabel, true, tip + "\n" + log})
 	}
 	for _, path := range globalGitConfigs() {
 		w = append(w, filePart("the global git config "+path, path))
@@ -100,6 +109,114 @@ func worktreeFacts(porcelain string) (registrations, heads string) {
 	return strings.Join(paths, "\n"), strings.Join(checkouts, "\n")
 }
 
+// worktreeHeadsLabel names the part holding what each worktree has checked out,
+// and tipOfMainLabel the one holding main's tip and the subjects of its reflog.
+const (
+	worktreeHeadsLabel = "the worktree HEADs"
+	tipOfMainLabel     = "the tip of main"
+)
+
+// withoutLaneBranches is a list of branch refs, one per line, without the
+// lane/* ones: a lane is made and pruned with its branch through any run.
+func withoutLaneBranches(refs string) string {
+	var kept []string
+	for ref := range strings.SplitSeq(refs, "\n") {
+		if !strings.HasPrefix(ref, "refs/heads/lane/") {
+			kept = append(kept, ref)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+// onlyMergesAdvancedMain reports whether main's part after differs from before
+// only by merges landing on it: the reflog subjects it gained on top are all
+// merges or pulls (`git merge` and `git pull` write "merge <ref>: …" and
+// "pull: …"), there is at least one, and the log below them is the one before
+// had. A commit, a reset or a move with no log entry is not one.
+func onlyMergesAdvancedMain(before, after string) bool {
+	entries := func(text string) []string {
+		_, log, _ := strings.Cut(text, "\n")
+		if log == "" {
+			return nil
+		}
+		return strings.Split(log, "\n")
+	}
+	was, now := entries(before), entries(after)
+	added := len(now) - len(was)
+	if added < 1 || !slices.Equal(now[added:], was) {
+		return false
+	}
+	for _, subject := range now[:added] {
+		if !strings.HasPrefix(subject, "merge ") && !strings.HasPrefix(subject, "pull") {
+			return false
+		}
+	}
+	return true
+}
+
+// worktreeLaneDir is the directory the lanes of lane's repository live in:
+// <parent of the primary>/.worktrees/<repo>. The gate's shared go scratch dir
+// and the mutation area sit in it too, one level down, and a run's test
+// processes make their temp dirs there.
+func worktreeLaneDir(lane string) string {
+	primary := primaryCheckoutRoot(lane)
+	if primary == "" {
+		primary = lane
+	}
+	return filepath.Join(filepath.Dir(primary), ".worktrees", filepath.Base(primary))
+}
+
+// isGateWorktree reports whether path is a checkout the gate itself makes and
+// removes while it works: a trunk preview, a PR merge checkout, a fail-first
+// checkout.
+func isGateWorktree(path string) bool {
+	name := filepath.Base(path)
+	for _, prefix := range []string{"gate-trunkpreview-", "gate-prmerge-", "gate-failfirst-"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return strings.Contains(filepath.ToSlash(path), "/failfirst-wt/")
+}
+
+// isWatchedWorktree reports whether a registration at path is one a leak
+// could have made: not a gate checkout, and not a lane of this repository (a
+// direct child of laneDir). What a test process of the run registers lies
+// deeper, in the run's temp dirs under laneDir, or in the system's; both are
+// watched.
+func isWatchedWorktree(path, laneDir string) bool {
+	return !isGateWorktree(path) && filepath.Dir(path) != laneDir
+}
+
+// keepWorktrees is the lines of text, each starting with a worktree's path
+// (alone, or before " -> "), whose path keep accepts.
+func keepWorktrees(text string, keep func(path string) bool) string {
+	var kept []string
+	for line := range strings.SplitSeq(text, "\n") {
+		if path, _, _ := strings.Cut(line, " -> "); keep(path) {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+// sharedWorktreeHeads is what was and now say about the worktrees they both
+// have: a lane made or removed between the two is not a worktree whose HEAD
+// moved.
+func sharedWorktreeHeads(was, now string) (string, string) {
+	in := func(text string) map[string]bool {
+		paths := map[string]bool{}
+		for _, line := range strings.Split(text, "\n") {
+			path, _, _ := strings.Cut(line, " -> ")
+			paths[path] = true
+		}
+		return paths
+	}
+	wasPaths, nowPaths := in(was), in(now)
+	return keepWorktrees(was, func(path string) bool { return nowPaths[path] }),
+		keepWorktrees(now, func(path string) bool { return wasPaths[path] })
+}
+
 // filePart reads one file into a part; a file that is not there is a part that
 // is not present, which differs from an empty one.
 func filePart(label, path string) gitWorldPart {
@@ -137,6 +254,12 @@ func (w gitWorld) changesTo(after gitWorld) []string {
 	var changes []string
 	for i, was := range w {
 		now := after[i]
+		if was.Label == worktreeHeadsLabel {
+			was.Text, now.Text = sharedWorktreeHeads(was.Text, now.Text)
+		}
+		if was.Label == tipOfMainLabel && onlyMergesAdvancedMain(was.Text, now.Text) {
+			continue
+		}
 		if was.Label != now.Label || (was.Present == now.Present && was.Text == now.Text) {
 			continue
 		}

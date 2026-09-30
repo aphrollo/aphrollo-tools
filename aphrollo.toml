@@ -60,7 +60,8 @@ retro-sinks = [
   "slow-merge -> what held the PR open? -> aphrollo issue \"<title>\" --label <theme>",
 ]
 
-# Mutation testing runs in CI only. The PR pipeline's mutants-verdict check, a
+# The merge is measured in CI, and the commit gate measures the lines a commit
+# adds (mutants-at-commit, below). The PR pipeline's mutants-verdict check, a
 # required check whose shards run in parallel on GitHub-hosted runners,
 # measures the merged tree and refuses an unaccepted survivor, a timeout, or a
 # NOT COVERED or inconclusive mutant on a line the diff adds or changes, each
@@ -86,11 +87,15 @@ mutants-before-pr = "ci"
 # CI's mutants-verdict decides them. The per-function test maps it selects with
 # are built in the background after a merge (`gate mutants testmap`).
 #
-# Off in this repo: test processes the commit-time runner and the background
-# test-map build started reached the real repository and the user's global git
-# config through inherited git state. The stage stays off until those runs are
-# isolated from every real repository and config.
-mutants-at-commit = false
+# On in this repo. Every test process the runner and the map build start runs
+# in the sealed environment (no GIT_* variables, temp dirs walled off from every
+# repository, a neutral global git config) in a disposable copy of the lane,
+# and a canary refuses the run's result when the repository's config, branches,
+# tip of main, non-lane worktree registrations or the global git config differ
+# when it ends. The budget is the default 60 s: a commit never waits longer, and
+# the mutants it does not reach (internal/cli's tests alone take about a minute)
+# are NOT MEASURED and left to CI's mutants-verdict.
+mutants-at-commit = true
 
 # How many runners the CI measurement divides across: the width of the
 # mutants-shard matrix. Shards split the lane's changed source files by added

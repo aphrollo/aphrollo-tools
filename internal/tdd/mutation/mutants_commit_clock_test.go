@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,9 +33,14 @@ func steppingClock(t *testing.T, step time.Duration) {
 func TestMutantsAtCommitStage_TheRunIsGivenTheBudgetLessWhatTheStageSpent(t *testing.T) {
 	_, root := commitStage(t, "")
 	steppingClock(t, 10*time.Second)
+	// The run settles its mutants on parallel workers, so the first reading
+	// is taken under a lock; the stage joins them before it returns.
+	var mu sync.Mutex
 	var left time.Duration
 	prev := resolveExecFn
 	resolveExecFn = func(ctx context.Context, _ string, _ []string, _ []string, _ io.Writer) (int, error) {
+		mu.Lock()
+		defer mu.Unlock()
 		if deadline, ok := ctx.Deadline(); ok && left == 0 {
 			left = time.Until(deadline)
 		}
@@ -44,6 +50,8 @@ func TestMutantsAtCommitStage_TheRunIsGivenTheBudgetLessWhatTheStageSpent(t *tes
 
 	mutantsAtCommitStage("precommit", root)
 
+	mu.Lock()
+	defer mu.Unlock()
 	if left <= 40*time.Second || left > 50*time.Second {
 		t.Errorf("the run's deadline was %s away, want within (40s, 50s] of a 60s budget with 10s spent", left)
 	}

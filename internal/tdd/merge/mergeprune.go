@@ -46,8 +46,8 @@ type PrunedLane struct {
 // regardless of its own branch's merge state.
 //
 // A merged branch with a clean tree is, by definition, work already landed
-// on trunk with nothing left uncommitted, so there is nothing an --apply
-// opt-in would protect that these two checks do not already guarantee;
+// on trunk with nothing left uncommitted, so there is nothing a --dry
+// preview would protect that these two checks do not already guarantee;
 // every prune is announced on stdout as it happens. A kept lane (rule 2) and
 // a removal error are both reported on stderr and do not stop the sweep —
 // one worktree a dirty tree, a lock, or a permission refuses is not a reason

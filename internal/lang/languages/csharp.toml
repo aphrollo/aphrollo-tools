@@ -1,0 +1,46 @@
+name = "csharp"
+extensions = [".cs"]
+view = 3
+
+[comments]
+line = ["//"]
+block = ["/* */"]
+
+# A raw string holds anything up to its closing triple quote.
+[string.raw]
+open = '"""'
+multiline = true
+
+# A verbatim string `@"..."` spans lines and writes a quote as two.
+[string.verbatim]
+open = '@"'
+close = '"'
+escape = "doubling"
+multiline = true
+
+[string.double]
+open = '"'
+escape = "backslash"
+
+[string.char]
+open = "'"
+escape = "backslash"
+
+[suppress.pragma]
+kind = "lint"
+pattern = '#pragma\s+warning\s+disable'
+
+[suppress.suppress_message]
+kind = "lint"
+pattern = '\[\s*(?:assembly:\s*)?SuppressMessage\b'
+
+[suppress.resharper]
+kind = "lint"
+pattern = 'ReSharper\s+disable'
+
+[suppress.exclude_coverage]
+kind = "coverage"
+pattern = '\[\s*ExcludeFromCodeCoverage\b'
+
+[tests]
+patterns = ['\[(?:Fact|Theory|Test|TestMethod|TestCase)\b[^\]]*\]\s*(?:\[[^\]]*\]\s*)*(?:(?:public|internal|protected|private|static|async)\s+)*[\w<>\[\],.?]+\s+(\w+)\s*\(']

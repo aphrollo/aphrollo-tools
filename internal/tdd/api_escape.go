@@ -74,6 +74,10 @@ func OverrideCandidates(p0 io.Reader, p1 time.Time) []OverrideCandidate {
 
 func PostCommit(p0 string) { escape.PostCommit(p0) }
 
+func PreviewEscape(p0 EscapeOptions) (string, []string, string, error) {
+	return escape.PreviewEscape(p0)
+}
+
 func RecordCIEscape(p0 CIEscapeOptions, p1 io.Writer) (EscapeRecord, bool) {
 	return escape.RecordCIEscape(p0, p1)
 }
