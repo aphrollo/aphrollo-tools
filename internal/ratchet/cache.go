@@ -34,7 +34,10 @@ import (
 // 7: `code_only` on a `//`-comment language blanks block comments too, so a
 // `/* ... */` line no longer counts as code. An entry written at 6 can record
 // hits on comment text.
-const cacheVersion = 7
+// 8: a Ruby or YAML file's `mask_strings` view reads `#` as a comment, and a
+// law whose baseline predates the scan-view stamp keeps the old view. An entry
+// written at 7 can record no hits for lines the law never saw.
+const cacheVersion = 8
 
 type cacheEntry struct {
 	Size  int64            `json:"size"`
@@ -164,6 +167,10 @@ func lawsFingerprint(laws []Law) string {
 		h.Write([]byte(l.Name))
 		h.Write([]byte{0})
 		h.Write([]byte(l.Source))
+		h.Write([]byte{0})
+		if l.LegacyView {
+			h.Write([]byte("legacy-view"))
+		}
 		h.Write([]byte{0})
 		for _, k := range sortedKeys(l.Baselined) {
 			h.Write([]byte(k))

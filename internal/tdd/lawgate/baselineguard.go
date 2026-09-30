@@ -54,6 +54,11 @@ func baselineStage(gateName, repoRoot string) GateResult {
 		if len(raised) == 0 {
 			continue
 		}
+		if scanViewMigrated(parents, after) {
+			AppendGateLog(gateName, repoRoot, "baseline guard",
+				fmt.Sprintf("baseline-scan-view-migrated:%s:%d", rel, len(raised)), 0)
+			continue
+		}
 		if lawName, rows, adopted := adoptionCovers(repoRoot, rel, len(raised)); adopted {
 			AppendGateLog(gateName, repoRoot, "baseline guard",
 				fmt.Sprintf("baseline-adopted:%s:%d", lawName, rows), 0)
@@ -69,6 +74,24 @@ func baselineStage(gateName, repoRoot string) GateResult {
 		"baselines are written by the ratchet itself; lower the code, or use the law's escape comment")
 	AppendGateLog(gateName, repoRoot, "baseline guard", "baseline-rejected", 0)
 	return GateResult{Blocked: true, Message: msg}
+}
+
+// scanViewMigrated reports whether the staged baseline is the one
+// `ratchet check --adopt` writes when it moves a baseline onto the current
+// lexers: it carries the scan-view stamp and no parent it is judged against
+// did. The rows that raise are then what the current lexers read and the old
+// ones could not, recorded once; a baseline that already had the stamp gets no
+// such pass.
+func scanViewMigrated(parents []baselineParent, after string) bool {
+	if !ratchet.HasScanViewStamp(after) {
+		return false
+	}
+	for _, p := range parents {
+		if ratchet.HasScanViewStamp(p.text) {
+			return false
+		}
+	}
+	return true
 }
 
 // baselineParent is one version of a baseline file the staged one is judged

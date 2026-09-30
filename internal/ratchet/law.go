@@ -312,6 +312,10 @@ type Law struct {
 	// every key is new to the baseline, which is what a law with no baseline
 	// file is.
 	Baselined map[string]bool
+	// LegacyView is set by Check for a law whose baseline was written before
+	// the scan-view stamp: its rows record what the lexers of that time read,
+	// so it is judged by them (see scanview.go).
+	LegacyView bool
 	// Source is the law file's text, hashed into the scan cache key: a rule
 	// that changed must never be answered from a cache filled under the old one.
 	Source string

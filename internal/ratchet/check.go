@@ -196,6 +196,11 @@ func Check(opts Options) (Result, error) {
 	if len(laws) == 0 {
 		return res, nil
 	}
+	for i := range laws {
+		if laws[i].LegacyView = legacyBaseline(opts.Root, laws[i]); laws[i].LegacyView {
+			res.Notes = append(res.Notes, legacyNote(laws[i]))
+		}
+	}
 
 	// A line-count law's bar is decided per KEY — the ceiling for a key the
 	// baseline has never seen, the re-entry bar for one it already carries —

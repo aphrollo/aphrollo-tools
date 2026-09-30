@@ -58,8 +58,17 @@ func Adopt(opts AdoptOptions) (AdoptResult, error) {
 	_, statErr := os.Stat(path)
 	hasBaseline := statErr == nil
 	if hasBaseline && !opts.LawChangedSinceHEAD {
-		return AdoptResult{}, fmt.Errorf(
-			"%s: a baseline already exists and the law is unchanged since HEAD — adoption is for a new or widened law, not an unrelated raise", law.Name)
+		// A baseline written before the scan-view stamp may be moved onto the
+		// current lexers without a changed law, provided the tree is no
+		// higher than it under the lexers it was written by: what the move
+		// records is then only what those lexers could not read.
+		if !legacyBaseline(opts.Root, *law) {
+			return AdoptResult{}, fmt.Errorf(
+				"%s: a baseline already exists and the law is unchanged since HEAD — adoption is for a new or widened law, not an unrelated raise", law.Name)
+		}
+		if err := legacyWithinBaseline(opts.Root, *law); err != nil {
+			return AdoptResult{}, err
+		}
 	}
 
 	hits, err := adoptHits(opts.Root, *law)
@@ -85,6 +94,9 @@ func Adopt(opts AdoptOptions) (AdoptResult, error) {
 		sort.Strings(keys)
 	}
 	baseline.AdoptWithSites(measured, sites)
+	if law.viewSensitive() {
+		baseline.Stamp()
+	}
 	if _, err := baseline.WriteIfChanged(path); err != nil {
 		return AdoptResult{}, err
 	}
@@ -113,4 +125,29 @@ func adoptHits(root string, law Law) ([]Hit, error) {
 		return ceilingHits(diskView(root), law, true, cargoTargetDir())
 	}
 	return hits, nil
+}
+
+// legacyWithinBaseline refuses a scan-view migration over a tree that is
+// already above its baseline as the lexers it was written under read it: that
+// is a raise the law does not justify, whatever the lexers are.
+func legacyWithinBaseline(root string, law Law) error {
+	law.LegacyView = true
+	hits, err := adoptHits(root, law)
+	if err != nil {
+		return err
+	}
+	baseline, err := LoadBaseline(filepath.Join(root, filepath.FromSlash(law.Baseline)), baselineForm(law))
+	if err != nil {
+		return err
+	}
+	measured := map[string]int{}
+	for _, h := range hits {
+		measured[baseline.Identity(h.Key)] += h.Weight
+	}
+	if over := baseline.Regressions(measured); len(over) > 0 {
+		return fmt.Errorf(
+			"%s: the tree is above its baseline (%d key(s), first %q) as the baseline's own lexers read it — fix or escape those hits first; adoption would raise a ceiling nothing justifies",
+			law.Name, len(over), over[0].Key)
+	}
+	return nil
 }
