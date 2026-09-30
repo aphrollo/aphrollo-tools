@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	"fmt"
 	"path/filepath"
 	"slices"
 	"testing"
@@ -55,6 +56,26 @@ func TestWithTouchedFiles_NamesEveryPackageInTheOrderTheFilesCame(t *testing.T) 
 
 	if want := []string{"test", "./a", "./b", "./c"}; !slices.Equal(got.Args, want) {
 		t.Fatalf("args = %v, want %v", got.Args, want)
+	}
+}
+
+// A widened line names at most maxWidenedTargets packages: one more than that
+// is the root's broad run.
+func TestWithTouchedFiles_TheFortyFirstPackageIsTheBroadRun(t *testing.T) {
+	base := Runner{Cmd: "go", Args: []string{"test", "./..."}}
+	var files []string
+	for i := range maxWidenedTargets + 1 {
+		files = append(files, fmt.Sprintf("p%02d/x.go", i))
+	}
+	root, touched, first := widenFixture(t, base, files...)
+
+	atBound := withTouchedFiles(first, base, root, touched[:maxWidenedTargets])
+	if got := len(atBound.Args) - 1; got != maxWidenedTargets || atBound.Args[maxWidenedTargets] != "./p39" {
+		t.Errorf("at the bound: %d targets ending %q, want %d ending ./p39", got, atBound.Args[len(atBound.Args)-1], maxWidenedTargets)
+	}
+	past := withTouchedFiles(first, base, root, touched)
+	if !slices.Equal(past.Args, base.Args) {
+		t.Errorf("past the bound: args = %v, want the broad run %v", past.Args, base.Args)
 	}
 }
 

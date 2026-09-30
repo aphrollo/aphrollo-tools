@@ -48,6 +48,12 @@ func withTouchedTestTargets(r, base Runner, root string, touched []string) Runne
 	return wide
 }
 
+// maxWidenedTargets is how many files or packages a widened run names before
+// the root's broad run is the better answer: a line past it is not one a
+// Windows command line holds for every tool, and a run that names that many
+// areas of the tree is most of the suite anyway.
+const maxWidenedTargets = 40
+
 // fileArgPos is where the one file or package a narrowed run names sits in
 // r's argv, -1 when r is not one of the narrowed shapes that name exactly one:
 // `go test <pkg>`, `pytest -q <file>`, `npx vitest related <file> --run` and
@@ -79,15 +85,18 @@ func withTouchedFiles(r, base Runner, root string, touched []string) Runner {
 		return r
 	}
 	args := slices.Clone(r.Args)
-	added := 0
+	targets := 1
 	for _, f := range touched {
 		n := NarrowToRelatedTests(base, f, root)
 		if n.Cmd != r.Cmd || fileArgPos(n) != pos || !slices.Equal(n.Args[:pos], r.Args[:pos]) || !slices.Equal(n.Args[pos+1:], r.Args[pos+1:]) {
 			return base
 		}
 		if !slices.Contains(args, n.Args[pos]) {
-			added++
-			args = slices.Insert(args, pos+added, n.Args[pos])
+			if targets == maxWidenedTargets {
+				return base
+			}
+			args = slices.Insert(args, pos+targets, n.Args[pos])
+			targets++
 		}
 	}
 	wide := r
