@@ -129,6 +129,8 @@ buildslots_status_test.go                          lock
 buildslots_targetdir.go                            lock
 buildslots_targetdir_test.go                       lock
 buildslots_test.go                                 suite     # prefix says lock; its test body reaches suite
+callsite_guard.go                                  precommit
+callsite_guard_test.go                             precommit
 cargo_alwaysrun_test.go                            precommit
 cargo_notrun.go                                    suite
 cargo_notrun_test.go                               suite
