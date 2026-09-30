@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	toml "github.com/aphrollo/aphrollo-tools/internal/tomlsubset"
 )
 
 var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
@@ -12,21 +14,21 @@ var nameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
 // Parse reads one language row. file names the source in error messages; it
 // is the row's path for a repo file and the embedded name for a default.
 func Parse(text, file string) (Language, error) {
-	doc, err := readDocument(text)
+	doc, err := toml.Parse(text)
 	if err != nil {
 		return Language{}, fmt.Errorf("%s: %w", file, err)
 	}
 	var l Language
-	root := newFields(doc.root, file)
-	l.Name = root.str("name")
-	l.Extensions = root.list("extensions")
-	l.Filenames = root.list("filenames")
-	l.CodeEscape = root.flag("code_escape")
-	l.View = root.num("view")
-	if err := root.finish(); err != nil {
+	root := toml.NewFields(doc.Root, file)
+	l.Name = root.Str("name")
+	l.Extensions = root.List("extensions")
+	l.Filenames = root.List("filenames")
+	l.CodeEscape = root.Flag("code_escape")
+	l.View = root.Num("view")
+	if err := root.Finish(); err != nil {
 		return Language{}, err
 	}
-	if !root.has("view") {
+	if !root.Has("view") {
 		l.View = 1
 	}
 	if l.View < 1 {
@@ -57,9 +59,9 @@ func Parse(text, file string) (Language, error) {
 	if err := parseTests(doc, file, &l); err != nil {
 		return Language{}, err
 	}
-	for _, t := range doc.tables {
-		if !knownSection(t.name) {
-			return Language{}, fmt.Errorf("%s: unknown table [%s] (line %d)", file, t.name, t.line)
+	for _, t := range doc.Tables {
+		if !knownSection(t.Name) {
+			return Language{}, fmt.Errorf("%s: unknown table [%s] (line %d)", file, t.Name, t.Line)
 		}
 	}
 	return l, nil
@@ -73,16 +75,16 @@ func knownSection(name string) bool {
 	return strings.HasPrefix(name, "string.") || strings.HasPrefix(name, "suppress.")
 }
 
-func parseComments(doc *document, file string, l *Language) error {
-	t := doc.section("comments")
+func parseComments(doc *toml.Document, file string, l *Language) error {
+	t := doc.Section("comments")
 	if t == nil {
 		return nil
 	}
-	f := newFields(t, file)
-	wordStart := f.flag("line_word_start")
-	nested := f.flag("block_nested")
-	lines, blocks := f.list("line"), f.list("block")
-	if err := f.finish(); err != nil {
+	f := toml.NewFields(t, file)
+	wordStart := f.Flag("line_word_start")
+	nested := f.Flag("block_nested")
+	lines, blocks := f.List("line"), f.List("block")
+	if err := f.Finish(); err != nil {
 		return err
 	}
 	for _, marker := range lines {
@@ -101,29 +103,29 @@ func parseComments(doc *document, file string, l *Language) error {
 	return nil
 }
 
-func parseStrings(doc *document, file string, l *Language) error {
-	for _, t := range doc.subsections("string") {
-		f := newFields(t, file)
-		s := StringForm{ID: strings.TrimPrefix(t.name, "string.")}
-		s.Open = f.str("open")
-		s.Close = f.str("close")
-		esc := f.str("escape")
-		s.Multiline = f.flag("multiline")
-		s.LineStart = f.flag("line_start")
-		s.OpensAfter = f.str("opens_after")
-		s.BlankOpen = f.flag("blank_open")
-		s.CharLiteral = f.flag("char_literal")
-		if err := f.finish(); err != nil {
+func parseStrings(doc *toml.Document, file string, l *Language) error {
+	for _, t := range doc.Subsections("string") {
+		f := toml.NewFields(t, file)
+		s := StringForm{ID: strings.TrimPrefix(t.Name, "string.")}
+		s.Open = f.Str("open")
+		s.Close = f.Str("close")
+		esc := f.Str("escape")
+		s.Multiline = f.Flag("multiline")
+		s.LineStart = f.Flag("line_start")
+		s.OpensAfter = f.Str("opens_after")
+		s.BlankOpen = f.Flag("blank_open")
+		s.CharLiteral = f.Flag("char_literal")
+		if err := f.Finish(); err != nil {
 			return err
 		}
 		if s.Open == "" {
-			return fmt.Errorf("%s: [%s] needs an `open`", file, t.name)
+			return fmt.Errorf("%s: [%s] needs an `open`", file, t.Name)
 		}
-		if !f.has("close") {
+		if !f.Has("close") {
 			s.Close = s.Open
 		}
 		if s.Close == "" {
-			return fmt.Errorf("%s: [%s] close is empty", file, t.name)
+			return fmt.Errorf("%s: [%s] close is empty", file, t.Name)
 		}
 		switch Escape(esc) {
 		case "":
@@ -131,10 +133,10 @@ func parseStrings(doc *document, file string, l *Language) error {
 		case EscapeNone, EscapeBackslash, EscapeDoubling:
 			s.Escape = Escape(esc)
 		default:
-			return fmt.Errorf("%s: [%s] escape %q must be none, backslash or doubling", file, t.name, esc)
+			return fmt.Errorf("%s: [%s] escape %q must be none, backslash or doubling", file, t.Name, esc)
 		}
 		if s.CharLiteral && (len(s.Open) != 1 || s.Close != s.Open) {
-			return fmt.Errorf("%s: [%s] a char literal opens and closes with the same one byte", file, t.name)
+			return fmt.Errorf("%s: [%s] a char literal opens and closes with the same one byte", file, t.Name)
 		}
 		l.Strings = append(l.Strings, s)
 	}
@@ -144,29 +146,29 @@ func parseStrings(doc *document, file string, l *Language) error {
 	return nil
 }
 
-func parseSuppress(doc *document, file string, l *Language) error {
-	for _, t := range doc.subsections("suppress") {
-		f := newFields(t, file)
-		d := Directive{ID: strings.TrimPrefix(t.name, "suppress.")}
-		d.Kind = f.str("kind")
-		pattern := f.str("pattern")
-		reason := f.str("reason")
-		if err := f.finish(); err != nil {
+func parseSuppress(doc *toml.Document, file string, l *Language) error {
+	for _, t := range doc.Subsections("suppress") {
+		f := toml.NewFields(t, file)
+		d := Directive{ID: strings.TrimPrefix(t.Name, "suppress.")}
+		d.Kind = f.Str("kind")
+		pattern := f.Str("pattern")
+		reason := f.Str("reason")
+		if err := f.Finish(); err != nil {
 			return err
 		}
 		switch d.Kind {
 		case KindLint, KindType, KindCoverage:
 		default:
-			return fmt.Errorf("%s: [%s] kind %q must be lint, type or coverage", file, t.name, d.Kind)
+			return fmt.Errorf("%s: [%s] kind %q must be lint, type or coverage", file, t.Name, d.Kind)
 		}
 		re, err := regexp.Compile(pattern)
 		if err != nil || pattern == "" {
-			return fmt.Errorf("%s: [%s] pattern %q is not a regular expression: %v", file, t.name, pattern, err)
+			return fmt.Errorf("%s: [%s] pattern %q is not a regular expression: %v", file, t.Name, pattern, err)
 		}
 		d.Pattern = re
 		if reason != "" {
 			if d.Reason, err = regexp.Compile(reason); err != nil {
-				return fmt.Errorf("%s: [%s] reason %q is not a regular expression: %v", file, t.name, reason, err)
+				return fmt.Errorf("%s: [%s] reason %q is not a regular expression: %v", file, t.Name, reason, err)
 			}
 		}
 		l.Suppress = append(l.Suppress, d)
@@ -174,14 +176,14 @@ func parseSuppress(doc *document, file string, l *Language) error {
 	return nil
 }
 
-func parseTests(doc *document, file string, l *Language) error {
-	t := doc.section("tests")
+func parseTests(doc *toml.Document, file string, l *Language) error {
+	t := doc.Section("tests")
 	if t == nil {
 		return nil
 	}
-	f := newFields(t, file)
-	patterns := f.list("patterns")
-	if err := f.finish(); err != nil {
+	f := toml.NewFields(t, file)
+	patterns := f.List("patterns")
+	if err := f.Finish(); err != nil {
 		return err
 	}
 	for _, p := range patterns {

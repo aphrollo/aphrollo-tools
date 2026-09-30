@@ -89,6 +89,7 @@ internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
 internal/ratchet/    Law engine: .ratchet/laws/*.toml schema, matchers, baselines, fixtures
 internal/lang/       language table: one TOML row per language (comments, strings, suppression directives, test patterns), embedded defaults, per-repo .ratchet/languages rows
+internal/tomlsubset/ the one TOML subset reader: language rows and ratchet laws both parse through it
 internal/mask/       the one lexer, reading a language row: blanks strings and comments, keeps length and newlines
 internal/tdd/        TDD + law gates: policy engine, edit smells, anti-cheat, fail-first, install
 internal/tdd/shell/  bash write-target parsing (L0 of the tdd split)
