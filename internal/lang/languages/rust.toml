@@ -29,3 +29,4 @@ blank_open = true
 
 [tests]
 patterns = ['#\[(?:tokio::)?test\]\s*(?:async\s+)?fn\s+([A-Za-z0-9_]+)']
+declarations = ['^\s*#\[\s*(\w+(::\w+)*::)?(test|rstest|test_case)\b']

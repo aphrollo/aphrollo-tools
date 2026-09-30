@@ -37,8 +37,6 @@ var cargoTestResultRe = suite.CargoTestResultRe
 
 var pytestSummaryCategoryRe = suite.PytestSummaryCategoryRe
 
-var testDeclRes = suite.TestDeclRes
-
 func DetectRunner(p0 string) (Runner, bool) { return suite.DetectRunner(p0) }
 
 func ExtractFailingTests(p0 string) []string { return suite.ExtractFailingTests(p0) }

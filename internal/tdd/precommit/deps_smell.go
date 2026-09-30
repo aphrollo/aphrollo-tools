@@ -36,7 +36,7 @@ func introducedLines(p0 string, p1 string, p2 lang) map[int]bool {
 	return smell.IntroducedLines(p0, p1, p2)
 }
 
-func langOf(p0 string) lang { return smell.LangOf(p0) }
+func langOf(p0 string, p1 string) lang { return smell.LangOf(p0, p1) }
 
 func removedDirectives(p0 string, p1 string, p2 lang) map[string]int {
 	return smell.RemovedDirectives(p0, p1, p2)

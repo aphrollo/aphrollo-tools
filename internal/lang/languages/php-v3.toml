@@ -1,0 +1,19 @@
+name = "php-v3"
+view = 3
+
+# How the php row lexed before `#[` was code and heredocs were strings: a
+# baseline stamped at scan view 3 is judged by this reading until it migrates.
+# It owns no extension; the php row names it as its `earlier`.
+[comments]
+line = ["//", "#"]
+block = ["/* */"]
+
+[string.single]
+open = "'"
+escape = "backslash"
+multiline = true
+
+[string.double]
+open = '"'
+escape = "backslash"
+multiline = true

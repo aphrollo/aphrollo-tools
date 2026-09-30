@@ -11,7 +11,7 @@ import (
 // to the next apostrophe and the detectors never saw what sat between.
 func TestNewView_RustFileKeepsTheCodeBelowALifetime(t *testing.T) {
 	src := "fn a(e: &Elements<'_>) {}\nfn b() { x.unwrap(); }\nconst C: char = 'z';\n"
-	code := newView(src, langOf("crates/solver/src/pair.rs")).Code
+	code := newView(src, langOf("", "crates/solver/src/pair.rs")).Code
 	if !strings.Contains(code, "x.unwrap();") {
 		t.Errorf("code view lost the line below the lifetime:\n%s", code)
 	}

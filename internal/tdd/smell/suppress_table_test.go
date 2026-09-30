@@ -1,6 +1,8 @@
 package smell
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	langtable "github.com/aphrollo/aphrollo-tools/internal/lang"
@@ -49,8 +51,8 @@ func TestSuppressed_TheTablesRowsNameTheDirectivesOfEveryLanguage(t *testing.T) 
 		{"no such kind", "a.go", "x() //nolint\n", "style", false},
 	}
 	for _, c := range cases {
-		v := newView(c.src, langOf(c.path))
-		if got := suppressed(c.kind, v.directives); got != c.want {
+		v := newView(c.src, langOf("", c.path))
+		if got := suppressed(c.kind, v); got != c.want {
 			t.Errorf("%s: suppressed(%s) = %v, want %v", c.name, c.kind, got, c.want)
 		}
 	}
@@ -76,9 +78,62 @@ func TestSuppressed_AReasonAdmitsADirectiveWithinItsOwnComment(t *testing.T) {
 		{"two described disables", "// eslint-disable-next-line a -- why\n// eslint-disable-next-line b -- why\n", false},
 	}
 	for _, c := range cases {
-		v := newView(c.src, langOf("a.js"))
-		if got := suppressed(langtable.KindLint, v.directives); got != c.want {
+		v := newView(c.src, langOf("", "a.js"))
+		if got := suppressed(langtable.KindLint, v); got != c.want {
 			t.Errorf("%s: suppressed = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// writeRepoRow writes a repository's own language row under its
+// .ratchet/languages and returns the repository root.
+func writeRepoRow(t *testing.T, name, text string) string {
+	t.Helper()
+	root := t.TempDir()
+	dir := filepath.Join(root, filepath.FromSlash(langtable.Dir))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name+".toml"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// A repository's own row is read as the ratchet engine reads it: a language
+// the embedded table lacks is checked by the directives its row lists.
+func TestSuppressed_ARepositoryRowNamesTheDirectivesOfItsOwnLanguage(t *testing.T) {
+	root := writeRepoRow(t, "zed", "name = \"zed\"\nextensions = [\".zed\"]\n\n[comments]\nline = [\"--\"]\n\n[suppress.zedlint]\nkind = \"lint\"\npattern = 'zedlint-off'\n")
+	src := "x = 1 -- zedlint-off\n"
+	if got := suppressed(langtable.KindLint, newView(src, langOf(root, "a.zed"))); !got {
+		t.Error("a directive of the repository's row was not read")
+	}
+	if got := suppressed(langtable.KindLint, newView(src, langOf("", "a.zed"))); got {
+		t.Error("a directive of a repository row counted in a tree that does not hold it")
+	}
+	other := writeRepoRow(t, "zed", "name = \"zed\"\nextensions = [\".zed\"]\n")
+	if got := suppressed(langtable.KindLint, newView(src, langOf(other, "a.zed"))); got {
+		t.Error("a repository row with no directives inherited another repository's")
+	}
+}
+
+// A repository row of an embedded name replaces it, directives included.
+func TestSuppressed_ARepositoryRowReplacesTheEmbeddedRowOfItsName(t *testing.T) {
+	root := writeRepoRow(t, "go", "name = \"go\"\nextensions = [\".go\"]\n")
+	src := "x() //nolint:errcheck\n"
+	if !suppressed(langtable.KindLint, newView(src, langOf("", "a.go"))) {
+		t.Fatal("the embedded go row no longer reads //nolint")
+	}
+	if suppressed(langtable.KindLint, newView(src, langOf(root, "a.go"))) {
+		t.Error("a replaced row's directives still counted")
+	}
+}
+
+// A repository row that does not parse leaves the embedded table in force: a
+// broken file must not turn every gate off.
+func TestLangOf_AMalformedRepositoryRowFallsBackToTheEmbeddedTable(t *testing.T) {
+	root := writeRepoRow(t, "zed", "name = \n")
+	if !suppressed(langtable.KindLint, newView("x() //nolint\n", langOf(root, "a.go"))) {
+		t.Error("the embedded table was not used")
 	}
 }

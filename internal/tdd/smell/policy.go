@@ -52,6 +52,9 @@ type view struct {
 	Code       string
 	directives string
 	whole      string
+	// rows are the language rows of the file's table, for the suppression
+	// policies; see lang.rows.
+	rows []langtable.Language
 }
 
 func newView(content string, l lang) view {
@@ -60,6 +63,7 @@ func newView(content string, l lang) view {
 		Code:       code,
 		directives: l.mask(content, false),
 		whole:      code,
+		rows:       l.rows,
 	}
 }
 
@@ -98,15 +102,25 @@ func keepLines(masked string, keep map[int]bool) string {
 // reads as the default row, where `#` is code.
 type lang struct {
 	lexer *masklex.Lexer
+	// rows is every row of the table the file was read by, whose directives
+	// the suppression policies look for. Nil reads the embedded rows.
+	rows []langtable.Language
 }
 
-// langOf is the lexer of a file path's row of the embedded language table.
-func langOf(path string) lang {
-	tbl, err := langtable.Defaults()
+// langOf is the lexer of a file path's row of the language table of the
+// repository at root: the embedded rows plus its `.ratchet/languages`, read
+// the way the ratchet engine reads them. An empty root, or a repository whose
+// rows do not load, reads the embedded table alone, so a broken row never
+// turns a gate off.
+func langOf(root, path string) lang {
+	tbl, err := langtable.ForRoot(root)
+	if err != nil {
+		tbl, err = langtable.Defaults()
+	}
 	if err != nil {
 		return defaultLang
 	}
-	return lang{lexer: masklex.ForFile(tbl, path, 0)}
+	return lang{lexer: masklex.ForFile(tbl, path, 0), rows: tbl.Rows()}
 }
 
 // defaultLang is for content evaluated without a path (test helpers). It

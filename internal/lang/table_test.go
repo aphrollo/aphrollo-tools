@@ -21,7 +21,7 @@ func TestDefaults_EveryEmbeddedRowParsesAndNamesItsFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"csharp", "default", "default-hash", "go", "java", "javascript", "kotlin", "php", "python", "ruby", "rust", "shell", "toml", "typescript", "yaml"}
+	want := []string{"csharp", "default", "default-hash", "go", "java", "javascript", "kotlin", "php", "php-v3", "python", "ruby", "rust", "shell", "toml", "typescript", "yaml"}
 	var got []string
 	for _, r := range tbl.Rows() {
 		got = append(got, r.Name)
@@ -35,7 +35,7 @@ func TestDefaults_ViewVersionsMatchWhenEachLexerTookEffect(t *testing.T) {
 	tbl, _ := Defaults()
 	want := map[string]int{
 		"rust": 1, "python": 2, "shell": 2, "toml": 2, "ruby": 2, "yaml": 2,
-		"java": 3, "csharp": 3, "kotlin": 3, "php": 3,
+		"java": 3, "csharp": 3, "kotlin": 3, "php": 4, "php-v3": 3,
 	}
 	for name, view := range want {
 		row, ok := tbl.Named(name)

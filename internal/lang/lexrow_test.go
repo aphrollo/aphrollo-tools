@@ -84,7 +84,8 @@ func TestViewFor_IsTheLatestViewOfTheRowsALawTouches(t *testing.T) {
 		{"go lexes as the default row", []string{".go"}, false, 1},
 		{"python is no slash-comment row", []string{".py"}, true, 1},
 		{"java is a slash-comment row", []string{".java"}, true, 3},
-		{"php is a slash-comment row", []string{".php"}, true, 3},
+		{"php is a slash-comment row", []string{".php"}, true, 4},
+		{"php is the latest row a scope of php and java reaches", []string{".php", ".java"}, false, 4},
 		{"python and java, slash only", []string{".py", ".java"}, true, 3},
 	}
 	for _, c := range cases {
