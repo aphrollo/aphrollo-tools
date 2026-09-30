@@ -82,7 +82,7 @@ var spreadCallSites = map[string]string{
 	"internal/tdd/mutation/mutants_prove_sandbox.go:copyRepository":  "bounded: fixed git config argument pairs",
 	"internal/tdd/postedit/bashedit_mergescope.go:gitPathSet":        "batched: Run splits the merge-scope path list (#960)",
 	"internal/tdd/postedit/deferred_run.go:RunPhase":                 "batched: the phase splits its runner with SplitCommand",
-	"internal/tdd/postedit/posttooluse_lint.go:runLintEdit":          "bounded: fixed golangci-lint flags, one patch path and one package directory",
+	"internal/tdd/postedit/posttooluse_lint.go:runLintWithin":        "bounded: fixed golangci-lint flags, one patch path and one package directory",
 	"internal/tdd/suite/escape_suite.go:runGhTimeout":                "bounded: fixed gh arguments",
 	"internal/tdd/suite/mechcache.go:gitRead":                        "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",
 	"internal/tdd/suite/mechcache.go:gitReadStdin":                   "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",
