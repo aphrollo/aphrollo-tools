@@ -427,6 +427,10 @@ and a merge refused over one cannot be cleared by changing anything in the
 merge. Staging the file is what makes it answer. Pre-edit denial is the other
 side and judges the file being written whether git has seen it or not.
 
+The baselines are read from the index too. A baseline tightened in the working
+tree and left unstaged, as a partial split of a large change leaves it, decides
+nothing: the commit is judged against the rows the index holds.
+
 A file a law's `scope.include` names outright is there when the index has it:
 a file the commit deletes is missing even while a copy stays on disk. The
 dep-graph laws (`dep-graph-forbids`, `dep-graph-ceiling`,

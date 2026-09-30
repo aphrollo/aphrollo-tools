@@ -62,7 +62,7 @@ func Adopt(opts AdoptOptions) (AdoptResult, error) {
 		// current lexers without a changed law, provided the tree is no
 		// higher than it under the lexers it was written by: what the move
 		// records is then only what those lexers could not read.
-		if !legacyBaseline(opts.Root, *law) {
+		if !legacyBaseline(opts.Root, nil, *law) {
 			return AdoptResult{}, fmt.Errorf(
 				"%s: a baseline already exists and the law is unchanged since HEAD — adoption is for a new or widened law, not an unrelated raise", law.Name)
 		}

@@ -58,10 +58,14 @@ func (l Law) viewSensitive() bool {
 
 // legacyBaseline reports whether l is judged by the lexers its baseline was
 // written under: it can tell the lexers apart, and its baseline file exists
-// without a stamp. A law with no baseline file yet has no history to keep.
-func legacyBaseline(root string, l Law) bool {
+// without a stamp. A law with no baseline file yet has no history to keep. The
+// baseline is read from proposed when it holds it, as loadLawBaseline does.
+func legacyBaseline(root string, proposed map[string]string, l Law) bool {
 	if l.Baseline == "" || !l.viewSensitive() {
 		return false
+	}
+	if text, ok := proposed[l.Baseline]; ok {
+		return !HasScanViewStamp(text)
 	}
 	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(l.Baseline)))
 	return err == nil && !HasScanViewStamp(string(data))
