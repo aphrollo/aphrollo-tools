@@ -185,6 +185,7 @@ commentonly.go                                     precommit
 commentonly_go.go                                  precommit
 commentonly_go_test.go                             precommit
 commitmsg.go                                       merge
+commitmsg_claimwords_test.go                       merge
 commitmsg_defaults.go                              merge
 commitmsg_defaults_test.go                         merge
 commitmsg_identity.go                              merge
