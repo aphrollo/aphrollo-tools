@@ -203,9 +203,7 @@ func Check(opts Options) (Result, error) {
 		return res, nil
 	}
 	for i := range laws {
-		if laws[i].LegacyView = legacyBaseline(opts.Root, opts.Proposed, laws[i]); laws[i].LegacyView {
-			res.Notes = append(res.Notes, legacyNote(laws[i]))
-		}
+		laws[i].LegacyView = legacyBaseline(opts.Root, opts.Proposed, laws[i])
 	}
 
 	// A line-count law's bar is decided per KEY — the ceiling for a key the
@@ -233,6 +231,8 @@ func Check(opts Options) (Result, error) {
 		return Result{}, err
 	}
 	var pending []pendingTighten
+	var migrating []pendingMigration
+	migrated := map[string]bool{}
 	graph := graphTreeOf(opts)
 	for _, law := range laws {
 		if disarmed(law) {
@@ -389,7 +389,12 @@ func Check(opts Options) (Result, error) {
 			}
 			res.Notes = append(res.Notes, lineModeNotes(law.Name, baseline.Counts(), actual)...)
 		}
-		if tightenBaseline(opts, law, baseline, path, measured, sites) {
+		// A legacy law whose tree is at or below its baseline as the old
+		// lexers read it (no finding of its own above) moves onto the current
+		// lexers instead of tightening under the old ones.
+		if law.LegacyView && len(res.Findings) == findingsBefore && writesBaselines(opts, path) {
+			migrating = append(migrating, pendingMigration{law: law, baseline: baseline, path: path})
+		} else if tightenBaseline(opts, law, baseline, path, measured, sites) {
 			pending = append(pending, pendingTighten{law: law, baseline: baseline, path: path})
 		}
 	}
@@ -402,6 +407,20 @@ func Check(opts Options) (Result, error) {
 			return Result{}, err
 		}
 		res.Tightened = tightened
+		written, notes, err := commitMigrations(opts, migrating)
+		if err != nil {
+			return Result{}, err
+		}
+		res.Tightened = append(res.Tightened, written...)
+		res.Notes = append(res.Notes, notes...)
+		for _, m := range migrating {
+			migrated[m.law.Name] = true
+		}
+	}
+	for _, law := range laws {
+		if law.LegacyView && !migrated[law.Name] {
+			res.Notes = append(res.Notes, legacyNote(law))
+		}
 	}
 	return res, nil
 }
