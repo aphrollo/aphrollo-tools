@@ -39,6 +39,21 @@ func TestLaneBuildDir_EmptyScratchFallsBackToTheOSTempDir(t *testing.T) {
 	}
 }
 
+func TestLaneBuildEnv_PointsGOTMPDIRAtTheScratchOnlyWhenThereIsOne(t *testing.T) {
+	base := []string{"A=1"}
+	got := laneBuildEnv(base, "/scratch")
+	if len(got) != 2 || got[0] != "A=1" || got[1] != "GOTMPDIR=/scratch" {
+		t.Errorf("laneBuildEnv(base, /scratch) = %v, want [A=1 GOTMPDIR=/scratch]", got)
+	}
+	if len(base) != 1 {
+		t.Errorf("base was modified: %v", base)
+	}
+	got = laneBuildEnv(base, "")
+	if len(got) != 1 || got[0] != "A=1" {
+		t.Errorf("laneBuildEnv(base, \"\") = %v, want base unchanged", got)
+	}
+}
+
 // A checkout whose primary resolves gets its build scratch beside the
 // worktrees, the directory GoTmpRootDir names for the sweep.
 func TestLaneFixtureBuild_ScratchIsTheGateGoTmpRoot(t *testing.T) {

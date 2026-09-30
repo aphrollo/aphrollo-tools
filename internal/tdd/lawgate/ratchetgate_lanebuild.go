@@ -173,6 +173,15 @@ func laneBuildDir(scratch string) (string, error) {
 	return os.MkdirTemp(scratch, "aphrollo-lane-*")
 }
 
+// laneBuildEnv is the environment of the lane's go build: base, plus GOTMPDIR
+// pointing at scratch when there is one. With no scratch it is base itself.
+func laneBuildEnv(base []string, scratch string) []string {
+	if scratch == "" {
+		return base
+	}
+	return append(base[:len(base):len(base)], "GOTMPDIR="+scratch)
+}
+
 // laneFixtureBuild compiles the checkout under judgement into a directory
 // under the gate's go-scratch dir, returning the binary and the cleanup that
 // removes it. The go tool's own staging goes there too (GOTMPDIR), because a
@@ -193,9 +202,7 @@ var laneFixtureBuild = func(root string) (string, func(), error) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", bin, "./cmd/aphrollo")
 	cmd.Dir = root
-	if scratch != "" {
-		cmd.Env = append(os.Environ(), "GOTMPDIR="+scratch)
-	}
+	cmd.Env = laneBuildEnv(os.Environ(), scratch)
 	var errb bytes.Buffer
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
