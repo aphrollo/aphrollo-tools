@@ -1,6 +1,10 @@
 package ratchet
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/aphrollo/aphrollo-tools/internal/lang"
+)
 
 // baseScopedKinds are the matchers whose hits a file's own bytes decide, so a
 // base tree's hits can be measured the way the working tree's are. Whole-tree
@@ -53,6 +57,10 @@ func baseHitsByLaw(opts Options, laws []Law) (map[string][]Hit, error) {
 	if err != nil {
 		return nil, fmt.Errorf("base %s: %w", opts.Base, err)
 	}
+	langs, err := lang.ForRoot(opts.Root)
+	if err != nil {
+		return nil, err
+	}
 	out := map[string][]Hit{}
 	for _, l := range scoped {
 		out[l.Name] = nil
@@ -62,7 +70,7 @@ func baseHitsByLaw(opts Options, laws []Law) (map[string][]Hit, error) {
 		if !ok {
 			continue
 		}
-		fl := newFileLines(rel, string(data))
+		fl := newFileLines(langs, rel, string(data))
 		for _, l := range scoped {
 			if l.Scope.Matches(rel) {
 				out[l.Name] = append(out[l.Name], l.hitsInLines(rel, fl)...)

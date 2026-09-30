@@ -208,3 +208,66 @@ func (t *Table) For(file string) (Language, bool) {
 	}
 	return Language{}, false
 }
+
+// Lexes reports whether the row says how its files are lexed. A row that
+// declares no comment, string form or code escape (go, javascript,
+// typescript) is lexed as the default row.
+func (l Language) Lexes() bool {
+	return l.CodeEscape || len(l.LineComments) > 0 || len(l.BlockComments) > 0 || len(l.Strings) > 0
+}
+
+// LexRow is the row whose lexing reads file under scan view `view`: the
+// file's own row when it declares lexing and took effect by that view, else
+// the default row — what every file was read by before its row. A view of 0
+// is the current one, which no row postdates.
+func (t *Table) LexRow(file string, view int) Language {
+	if row, ok := t.For(file); ok && row.Lexes() && (view == 0 || row.View <= view) {
+		return row
+	}
+	return t.neutral()
+}
+
+// CommentRow is LexRow for the view that blanks comments under a law whose
+// comment marker is `//`: a row whose comments do not open with `//` does not
+// lex such a law's files, and they keep the default row as they always did
+// (Python's `//` is floor division, not a comment).
+func (t *Table) CommentRow(file string, view int) Language {
+	if row := t.LexRow(file, view); row.hasLineMarker("//") {
+		return row
+	}
+	return t.neutral()
+}
+
+func (t *Table) neutral() Language {
+	row, _ := t.Named(Neutral)
+	return row
+}
+
+// ViewFor is the latest scan view at which a row that lexes a file kind
+// `touches` accepts took effect, and never less than 1: the stamp a baseline
+// over those file kinds carries once it is read by the current lexers. With
+// slashOnly only the rows a `//`-comment law's comment blanking reads count
+// (see CommentRow).
+func (t *Table) ViewFor(touches func(ext string) bool, slashOnly bool) int {
+	view := 1
+	for _, r := range t.rows {
+		if !r.Lexes() || (slashOnly && !r.hasLineMarker("//")) {
+			continue
+		}
+		for _, ext := range r.Extensions {
+			if touches(ext) {
+				view = max(view, r.View)
+			}
+		}
+	}
+	return view
+}
+
+func (l Language) hasLineMarker(marker string) bool {
+	for _, c := range l.LineComments {
+		if c.Marker == marker {
+			return true
+		}
+	}
+	return false
+}

@@ -18,11 +18,12 @@ import (
 // empty when the baseline is not a migration at all (no stamp, or a parent
 // already stamped), leaving the ordinary raise rules to judge it.
 func scanViewMigration(repoRoot, rel string, parents []baselineParent, after string) (migrated bool, refusal string) {
-	if !ratchet.HasScanViewStamp(after) {
+	stamped := ratchet.ScanViewOf(after)
+	if stamped < 2 {
 		return false, ""
 	}
 	for _, p := range parents {
-		if ratchet.HasScanViewStamp(p.text) {
+		if ratchet.ScanViewOf(p.text) >= stamped {
 			return false, ""
 		}
 	}

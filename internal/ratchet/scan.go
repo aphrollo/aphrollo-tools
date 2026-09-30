@@ -3,6 +3,8 @@ package ratchet
 import (
 	"path/filepath"
 	"sort"
+
+	"github.com/aphrollo/aphrollo-tools/internal/lang"
 )
 
 // The tree walk: resolving every law's scope into one file list, reading
@@ -25,6 +27,10 @@ type treeScan struct {
 // serving unchanged files from the mtime cache.
 func scanTree(opts Options, laws []Law) (*treeScan, error) {
 	scan := &treeScan{byLaw: map[string][]Hit{}, content: map[string]string{}}
+	langs, err := lang.ForRoot(opts.Root)
+	if err != nil {
+		return nil, err
+	}
 	cache := loadCache(opts.CacheDir, opts.Root, laws)
 
 	paths, ignored, err := collectFiles(opts, laws)
@@ -84,7 +90,7 @@ func scanTree(opts Options, laws []Law) (*treeScan, error) {
 			// keep the half the file's bytes decide and redo the half the
 			// oracle decides (see cache_citations.go).
 			cited := map[string][]Hit{}
-			fl := newFileLines(rel, content)
+			fl := newFileLines(langs, rel, content)
 			for _, law := range laws {
 				if !law.Scope.Matches(rel) {
 					continue

@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/lang"
 )
 
 // The gate runs `ratchet check` before every commit and every edit, so the
@@ -37,7 +40,12 @@ import (
 // 8: a Ruby or YAML file's `mask_strings` view reads `#` as a comment, and a
 // law whose baseline predates the scan-view stamp keeps the old view. An entry
 // written at 7 can record no hits for lines the law never saw.
-const cacheVersion = 8
+// 9: a Java, C#, Kotlin or PHP file is lexed by its row of the language table
+// (text blocks, verbatim strings, nested comments, `#` comments) instead of the
+// default lexer, and a repository's `.ratchet/languages` rows join the cache
+// key. An entry written at 8 can record hits on text those rows now blank and
+// none on text they now read as code.
+const cacheVersion = 9
 
 type cacheEntry struct {
 	Size  int64            `json:"size"`
@@ -67,7 +75,7 @@ func loadCache(dir, root string, laws []Law) *scanCache {
 	if dir == "" {
 		return c
 	}
-	c.Laws = lawsFingerprint(laws)
+	c.Laws = lawsFingerprint(laws) + languagesFingerprint(root)
 	for _, l := range laws {
 		if l.Matcher.Kind == KindDocPathResolves {
 			c.docLaws = append(c.docLaws, l)
@@ -170,6 +178,7 @@ func lawsFingerprint(laws []Law) string {
 		h.Write([]byte{0})
 		if l.LegacyView {
 			h.Write([]byte("legacy-view"))
+			h.Write([]byte(strconv.Itoa(l.ViewVersion)))
 		}
 		h.Write([]byte{0})
 		for _, k := range sortedKeys(l.Baselined) {
@@ -179,6 +188,32 @@ func lawsFingerprint(laws []Law) string {
 		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// languagesFingerprint hashes the repository's own language rows: a row that
+// changed moves what a lexer blanks, so no verdict reached under the old one
+// may answer. A repository with no rows of its own adds nothing to the key.
+func languagesFingerprint(root string) string {
+	dir := filepath.Join(root, filepath.FromSlash(lang.Dir))
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	h := sha256.New()
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		h.Write([]byte(e.Name()))
+		h.Write([]byte{0})
+		h.Write(data)
+		h.Write([]byte{0})
+	}
+	return "+" + hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // cacheKey names one repo's cache file: a readable stem plus a hash, so two

@@ -69,6 +69,7 @@ baselineguard_merge_test.go                        lawgate
 baselineguard_repath.go                            lawgate
 baselineguard_repath_test.go                       lawgate
 baselineguard_scanview.go                          lawgate
+baselineguard_scanview_rows_test.go                lawgate
 baselineguard_scanview_test.go                     lawgate
 baselineguard_staleorigin_test.go                  lawgate
 baselineguard_test.go                              lawgate
@@ -987,6 +988,7 @@ suitetimeout_test.go                               precommit
 suppress.go                                        smell
 suppress_covered.go                                smell
 suppress_covered_test.go                           smell
+suppress_table_test.go                             smell
 suppress_test.go                                   smell
 tdd.go                                             core
 tddskill.go                                        install

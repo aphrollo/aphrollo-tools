@@ -113,8 +113,8 @@ func adoptOnto(baseline *Baseline, law Law, hits []Hit) int {
 		sort.Strings(keys)
 	}
 	baseline.AdoptWithSites(measured, sites)
-	if law.viewSensitive() {
-		baseline.Stamp()
+	if view := law.touchedView(); view > 1 {
+		baseline.StampAt(view)
 	}
 	return len(measured)
 }
@@ -148,6 +148,7 @@ func adoptHitsIn(opts Options, law Law) ([]Hit, error) {
 // is a raise the law does not justify, whatever the lexers are.
 func legacyWithinBaseline(root string, law Law) error {
 	law.LegacyView = true
+	law.ViewVersion, _ = baselineView(root, nil, law)
 	hits, err := adoptHits(root, law)
 	if err != nil {
 		return err

@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/lang"
 )
 
 // Severity decides what a NEW hit costs. Deny fails the gate and denies the
@@ -316,6 +318,10 @@ type Law struct {
 	// the scan-view stamp: its rows record what the lexers of that time read,
 	// so it is judged by them (see scanview.go).
 	LegacyView bool
+	// ViewVersion is the scan view that baseline was written under, read when
+	// LegacyView is set: 0 and 1 are the lexers before any stamp, a higher
+	// number the lexers as of that stamp (see ScanViewOf).
+	ViewVersion int
 	// Source is the law file's text, hashed into the scan cache key: a rule
 	// that changed must never be answered from a cache filled under the old one.
 	Source string
@@ -385,6 +391,11 @@ func LoadLaws(root string) ([]Law, error) {
 		return nil, err
 	}
 	if err := resolveScopeAliases(laws, sets); err != nil {
+		return nil, err
+	}
+	// A repository row that does not load fails the whole load, like a
+	// malformed law: every law's view of a file depends on the table.
+	if _, err := lang.ForRoot(root); err != nil {
 		return nil, err
 	}
 	sort.Slice(laws, func(i, j int) bool { return laws[i].Name < laws[j].Name })
