@@ -449,6 +449,7 @@ installwritable.go                                 tdd
 issue.go                                           escape
 issue_test.go                                      install   # prefix says escape; its test body reaches install
 killtree_test.go                                   postedit
+knownwall_test.go                                  postedit
 lintdeferred.go                                    postedit
 lintdeferred_test.go                               postedit
 lintlock.go                                        lock
@@ -907,6 +908,7 @@ sddskill.md                                        install
 sddskill_test.go                                   install
 seams.go                                           tddtest
 session.go                                         tdd
+session_allow_test.go                              tdd
 session_core.go                                    core      # created by P2
 session_identity.go                                tdd
 session_identity_test.go                           tdd

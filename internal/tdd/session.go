@@ -122,27 +122,23 @@ func tddCommand(sub, arg, session, cwd string) string {
 			return "gate: /tdd primary-edits needs on or off, got " + arg
 		}
 	case "allow":
-		switch arg {
-		case WallPrimary:
-			if err := setWaiver(session, arg, true); err != nil {
-				return "gate: could not persist the override (" + err.Error() + ")"
-			}
-			LogOverride("override-"+arg+"-allow", session, cwd)
-			return waiverAllowedMessage(arg)
-		default:
-			return "gate: /tdd allow needs a wall (primary), got " + arg
+		if !KnownWall(arg) {
+			return "gate: /tdd allow needs a wall (" + WallNames() + "), got " + arg
 		}
+		msg, err := AllowWallForSession(session, cwd, arg)
+		if err != nil {
+			return "gate: could not persist the override (" + err.Error() + ")"
+		}
+		return msg
 	case "revoke":
-		switch arg {
-		case WallPrimary:
-			if err := setWaiver(session, arg, false); err != nil {
-				return "gate: could not persist the override (" + err.Error() + ")"
-			}
-			LogOverride("override-"+arg+"-revoke", session, cwd)
-			return waiverRevokedMessage(arg)
-		default:
-			return "gate: /tdd revoke needs a wall (primary), got " + arg
+		if !KnownWall(arg) {
+			return "gate: /tdd revoke needs a wall (" + WallNames() + "), got " + arg
 		}
+		msg, err := RevokeForSession(session, cwd, arg)
+		if err != nil {
+			return "gate: could not persist the override (" + err.Error() + ")"
+		}
+		return msg
 	case "style":
 		switch arg {
 		case "terse", "plain":

@@ -3,6 +3,7 @@ package postedit
 import (
 	"errors"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -37,18 +38,25 @@ func AllowWall(wall string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return AllowWallForSession(session, "", wall)
+}
+
+// AllowWallForSession waives wall for the named session and returns the line
+// to print; cwd only names where the override was made in gate.log. It is the
+// one body behind `gate allow <wall>` and `/tdd allow <wall>`.
+func AllowWallForSession(session, cwd, wall string) (string, error) {
 	if wall == WallDiscard {
 		until, err := armDiscardWaiver(session)
 		if err != nil {
 			return "", err
 		}
-		LogOverride("override-"+wall+"-allow", session, "")
+		LogOverride("override-"+wall+"-allow", session, cwd)
 		return discardArmedMessage(until), nil
 	}
 	if err := setWaiver(session, wall, true); err != nil {
 		return "", err
 	}
-	LogOverride("override-"+wall+"-allow", session, "")
+	LogOverride("override-"+wall+"-allow", session, cwd)
 	return waiverAllowedMessage(wall), nil
 }
 
@@ -59,11 +67,37 @@ func Revoke(wall string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return RevokeForSession(session, "", wall)
+}
+
+// RevokeForSession restores wall for the named session and returns the line
+// to print; the twin of AllowWallForSession.
+func RevokeForSession(session, cwd, wall string) (string, error) {
 	if err := setWaiver(session, wall, false); err != nil {
 		return "", err
 	}
-	LogOverride("override-"+wall+"-revoke", session, "")
+	LogOverride("override-"+wall+"-revoke", session, cwd)
 	return waiverRevokedMessage(wall), nil
+}
+
+// walls is every wall `allow` and `revoke` can waive, in the order usage
+// lines name them. The CLI verbs and the /tdd session verb both read it.
+var walls = [...]string{WallPrimary, WallDiscard, WallSourceBash}
+
+// KnownWall reports whether wall is one `allow`/`revoke` can waive.
+func KnownWall(wall string) bool {
+	for _, w := range walls {
+		if w == wall {
+			return true
+		}
+	}
+	return false
+}
+
+// WallNames lists every waivable wall as "primary|discard|source-bash", for
+// usage and error text.
+func WallNames() string {
+	return strings.Join(walls[:], "|")
 }
 
 // Waived reports whether the environment's session has an active waiver on

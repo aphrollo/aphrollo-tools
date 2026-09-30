@@ -21,6 +21,10 @@ func ActiveDeferredJobs() []DeferredJob { return postedit.ActiveDeferredJobs() }
 
 func AllowWall(p0 string) (string, error) { return postedit.AllowWall(p0) }
 
+func AllowWallForSession(p0 string, p1 string, p2 string) (string, error) {
+	return postedit.AllowWallForSession(p0, p1, p2)
+}
+
 func ConsumeDiscardBashSpent(p0 []string) bool { return postedit.ConsumeDiscardBashSpent(p0) }
 
 func ConsumeOneShot(p0 string) bool { return postedit.ConsumeOneShot(p0) }
@@ -40,6 +44,8 @@ func DiscardBashDecision(p0 []byte) Decision { return postedit.DiscardBashDecisi
 func EnableDeferredPhases(p0 bool) { postedit.EnableDeferredPhases(p0) }
 
 func IsBashHook(p0 []byte) bool { return postedit.IsBashHook(p0) }
+
+func KnownWall(p0 string) bool { return postedit.KnownWall(p0) }
 
 func ListWaivers() []Waiver { return postedit.ListWaivers() }
 
@@ -75,6 +81,10 @@ func RenderPreToolUse(p0 Decision) ([]byte, int) { return postedit.RenderPreTool
 
 func Revoke(p0 string) (string, error) { return postedit.Revoke(p0) }
 
+func RevokeForSession(p0 string, p1 string, p2 string) (string, error) {
+	return postedit.RevokeForSession(p0, p1, p2)
+}
+
 func RunPhase(p0 string) int { return postedit.RunPhase(p0) }
 
 func SetDiscardClockForTest(p0 func() time.Time) func() { return postedit.SetDiscardClockForTest(p0) }
@@ -86,6 +96,8 @@ func UndercoverBashDecision(p0 []byte) Decision { return postedit.UndercoverBash
 func WaitDeferredEditJob(p0 string) (string, bool) { return postedit.WaitDeferredEditJob(p0) }
 
 func Waived(p0 string) bool { return postedit.Waived(p0) }
+
+func WallNames() string { return postedit.WallNames() }
 
 func WorktreeAdvisory(p0 []byte) Decision { return postedit.WorktreeAdvisory(p0) }
 
@@ -102,7 +114,3 @@ func promptHarvest(p0 string) string { return postedit.PromptHarvest(p0) }
 func reapSessionDeferredJobs(p0 string) int { return postedit.ReapSessionDeferredJobs(p0) }
 
 func setPrimaryEdits(p0 string, p1 bool) error { return postedit.SetPrimaryEdits(p0, p1) }
-
-func waiverAllowedMessage(p0 string) string { return postedit.WaiverAllowedMessage(p0) }
-
-func waiverRevokedMessage(p0 string) string { return postedit.WaiverRevokedMessage(p0) }
