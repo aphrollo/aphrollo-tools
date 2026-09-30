@@ -122,6 +122,40 @@ func TestEscapeRecord_DryPrintsTheIssueAndRecordsNothing(t *testing.T) {
 	}
 }
 
+// A CI escape with no evidence of its own carries the reason as its evidence;
+// one with evidence carries that instead.
+func TestEscapeRecord_DryFromCIFillsBlankEvidenceWithTheReasonOnly(t *testing.T) {
+	repo, _ := stubIssueRepo(t, "https://github.com/o/r/issues/12")
+	var out, errb bytes.Buffer
+	if code := runGate([]string{"escape", "record", "the lint job refused", "--from-ci", "lint", "--dry", "--repo", repo},
+		strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "**Evidence:** caught by lint\n\nthe lint job refused\n") {
+		t.Errorf("blank evidence did not fall back to the reason:\n%s", out.String())
+	}
+
+	out.Reset()
+	if code := runGate([]string{"escape", "record", "the lint job refused", "--from-ci", "lint", "--evidence", "error: x", "--dry", "--repo", repo},
+		strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "**Evidence:** caught by lint\n\nerror: x\n") {
+		t.Errorf("given evidence was not used:\n%s", out.String())
+	}
+}
+
+func TestEscapeRecord_DryWithoutFromCIKeepsBlankEvidenceBlank(t *testing.T) {
+	repo, _ := stubIssueRepo(t, "https://github.com/o/r/issues/12")
+	var out, errb bytes.Buffer
+	if code := runGate([]string{"escape", "record", "a miss", "--dry", "--repo", repo}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "**Evidence:** none recorded\n") {
+		t.Errorf("a blank evidence was filled without --from-ci:\n%s", out.String())
+	}
+}
+
 func TestEscapeRecord_DryRefusesWhatARecordRefuses(t *testing.T) {
 	repo, _ := stubIssueRepo(t, "https://github.com/o/r/issues/12")
 	var out, errb bytes.Buffer

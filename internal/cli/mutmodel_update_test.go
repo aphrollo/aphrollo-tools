@@ -55,6 +55,34 @@ func TestUpdate_DryPrintsThePlanAndFetchesBuildsAndSwapsNothing(t *testing.T) {
 	}
 }
 
+// A "--" in first place carries no update flag before it: everything after it
+// is init's, so the verb goes on to its own checks. The install refusal is how
+// the test sees it got that far, without a fetch, build or swap.
+func TestUpdate_ADoubleDashFirstForwardsEverythingAfterIt(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+	t.Chdir(clone)
+	prevWritable := installWritable
+	installWritable = func(string) bool { return false }
+	t.Cleanup(func() { installWritable = prevWritable })
+
+	var out, errb bytes.Buffer
+	code := runUpdate([]string{"--", "--git-hooks-dir", t.TempDir()}, &out, &errb)
+
+	if code != 1 || !strings.Contains(errb.String(), "not writable") {
+		t.Fatalf("exit %d, stderr %q; want the install refusal (exit 1)", code, errb.String())
+	}
+}
+
+func TestUpdate_UnknownFlagBeforeTheDoubleDashIsRefused(t *testing.T) {
+	var out, errb bytes.Buffer
+
+	code := runUpdate([]string{"--bogus", "--", "--git-hooks-dir", "x"}, &out, &errb)
+
+	if code != 2 {
+		t.Fatalf("exit %d, want 2; stderr: %s", code, errb.String())
+	}
+}
+
 func TestUpdate_StrayArgumentIsRefused(t *testing.T) {
 	var out, errb bytes.Buffer
 

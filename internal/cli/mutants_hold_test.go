@@ -72,6 +72,32 @@ func TestGateMutantsHold_RefusesAFileItCannotRead(t *testing.T) {
 	}
 }
 
+func TestGateMutantsHold_AFlagAloneIsAUsageError(t *testing.T) {
+	gateConfigDir(t)
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "hold", "--dry"}, strings.NewReader(""), &out, &errb)
+	if code != 2 || !strings.Contains(errb.String(), "usage: aphrollo gate mutants hold") {
+		t.Fatalf("exit %d, stderr %q; want the usage error", code, errb.String())
+	}
+}
+
+func TestGateMutantsHold_AnUnknownFlagIsRefusedAndHoldsNothing(t *testing.T) {
+	gateConfigDir(t)
+	t.Setenv("CLAUDE_SESSION_ID", "s-hold-verb-bogus")
+	one := filepath.Join(t.TempDir(), "one.go")
+	writeFile(t, one, "package p\n")
+
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "hold", one, "--bogus"}, strings.NewReader(""), &out, &errb)
+	if code != 2 {
+		t.Fatalf("exit %d, want 2; stderr: %s", code, errb.String())
+	}
+	if _, ok := tdd.MutationHoldFor(one); ok {
+		t.Fatal("a refused run took a hold")
+	}
+}
+
 func TestGateMutantsHold_WithNoFileIsAUsageError(t *testing.T) {
 	gateConfigDir(t)
 

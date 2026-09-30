@@ -1,6 +1,7 @@
 package escape
 
 import (
+	"io"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,18 @@ func TestPreviewEscape_DefaultsTheKindToEscape(t *testing.T) {
 	}
 	if len(labels) != 1 || labels[0] != EscapeKind {
 		t.Errorf("labels = %v, want [%s]", labels, EscapeKind)
+	}
+}
+
+func TestRecordEscape_RefusesABlankReasonBeforeWritingAnything(t *testing.T) {
+	if _, err := RecordEscape(EscapeOptions{Reason: "  "}, io.Discard); err == nil {
+		t.Fatal("a blank reason was recorded")
+	}
+}
+
+func TestRecordEscape_RefusesAnUnknownKindBeforeWritingAnything(t *testing.T) {
+	if _, err := RecordEscape(EscapeOptions{Reason: "x", Kind: "bogus"}, io.Discard); err == nil {
+		t.Fatal("an unknown kind was recorded")
 	}
 }
 

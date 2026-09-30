@@ -72,8 +72,21 @@ func TestRatchetInit_DryListsTheFilesAndWritesNone(t *testing.T) {
 	if strings.Contains(out.String(), "[write]") {
 		t.Errorf("a dry run reported a write: %q", out.String())
 	}
+	if !strings.Contains(out.String(), "ratchet init: 10 written, 0 skipped, 0 missing params") {
+		t.Errorf("the summary must count what would be written: %q", out.String())
+	}
 	if _, err := os.Stat(filepath.Join(root, ".ratchet")); err == nil {
 		t.Error("--dry created .ratchet")
+	}
+}
+
+func TestRatchetInit_UnknownFlagIsRefused(t *testing.T) {
+	var out, errb bytes.Buffer
+
+	code := Run([]string{"ratchet", "init", "--repo", t.TempDir(), "--preset", "common", "--bogus"}, strings.NewReader(""), &out, &errb)
+
+	if code != 2 {
+		t.Fatalf("exit %d, want 2; stderr: %s", code, errb.String())
 	}
 }
 
