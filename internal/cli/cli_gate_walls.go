@@ -23,8 +23,4 @@ var preToolUseWalls = []func(raw []byte) tdd.Decision{
 	// A repo that keeps its history undercover refuses a tell-named branch,
 	// or tell text for a PR or issue, before the command runs (issue #879).
 	tdd.UndercoverBashDecision,
-	// A shell write of a source or test file skips the per-edit gate (format,
-	// deny laws, gate line, edit ledger) the Edit/Write hooks run; the
-	// refusal names the tool to use instead.
-	tdd.SourceBashDecision,
 }

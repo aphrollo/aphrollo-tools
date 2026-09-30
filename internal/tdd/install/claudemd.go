@@ -72,6 +72,8 @@ func ClaudeMDBlock(f BlockFlags) string {
 	// Skill tool can learn where the `tdd` skill lives instead of searching
 	// the filesystem for it. The path is the default one, spelled from the
 	// home dir, so every box renders the same line.
+	b.WriteString("- **A Bash script is fine for multi-file edits.** Each source file it changed gets what an Edit gets (gofmt, deny laws, smell checks, edit ledger, the suite once per root) on the same `gate:` line;\n")
+	b.WriteString("  the one difference is that a deny law cannot refuse a Bash write before it happens: the hit is named right after the write, with file and law, and refused at commit.\n")
 	b.WriteString("- **Before writing or changing code, read the `tdd` skill** at `~/.claude/skills/tdd/SKILL.md` (under `$CLAUDE_CONFIG_DIR` when set; `aphrollo install` writes it).\n")
 	b.WriteString("- **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·\n")
 	b.WriteString("  `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`\n")

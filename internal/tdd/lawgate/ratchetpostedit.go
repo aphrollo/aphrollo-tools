@@ -20,8 +20,9 @@ import (
 //     edited file reads the registry but never the files that use it, so a
 //     README example naming no verb was only judged over the whole tree.
 //   - a write through the shell. A heredoc, a `sed -i` or a script fires no
-//     pre-edit hook at all; a lane denied at the Edit wrote the same text
-//     that way and met the refusal at `git commit`.
+//     pre-edit hook at all, and its content does not exist before it runs;
+//     the post-edit judge is the first to see it, and names the hit right
+//     after the write instead of at `git commit`.
 //
 // So after the write, the edited files are judged as they sit on disk by the
 // laws whose scope covers them, and each would-be refusal is named with its

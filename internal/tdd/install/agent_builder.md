@@ -36,6 +36,11 @@ mutation proof, or ONE targeted run after the hook itself said TIMEOUT/SKIPPED.
 ## Rules
 
 - **Worktrees:** work only in the lane dir the brief names; never edit a repo's primary checkout.
+- **Shell writes:** a Bash script is fine for multi-file edits. Each source file
+  it changed gets what an Edit gets (gofmt, deny laws, smell checks, edit ledger,
+  the suite once per root) on the same `gate:` line. The one difference: a deny
+  law cannot refuse a Bash write before it happens; the hit is named right after
+  the write, with file and law, and refused at commit.
 - **Scratch copies:** make one with `git clone <lane> <scratch>`, never `cp` of
   a worktree — a copied worktree's `.git` file still points at the shared repo
   and a write through it acts on that repo. Before any git write in a scratch

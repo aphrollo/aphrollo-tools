@@ -34,7 +34,25 @@ func gofmtEdited(target string) string {
 	if os.WriteFile(target, formatted, 0o644) != nil {
 		return ""
 	}
-	return "gofmt formatted " + target
+	return gofmtNotePrefix + target
+}
+
+// gofmtNotePrefix opens the note of a file gofmt formatted.
+const gofmtNotePrefix = "gofmt formatted "
+
+// gofmtEditedAll is gofmtEdited over every one of targets, one note naming
+// each file it formatted; "" when it left them all as they were.
+func gofmtEditedAll(targets []string) string {
+	var formatted []string
+	for _, target := range targets {
+		if note := gofmtEdited(target); note != "" {
+			formatted = append(formatted, strings.TrimPrefix(note, gofmtNotePrefix))
+		}
+	}
+	if len(formatted) == 0 {
+		return ""
+	}
+	return gofmtNotePrefix + strings.Join(formatted, ", ")
 }
 
 // withGateNote puts note on the edit's gate line, the first line of text,

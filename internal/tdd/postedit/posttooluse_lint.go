@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -73,68 +74,127 @@ func lintEdited(target string) string {
 // *known (not just the few the note names), when known is not nil, so the
 // deferred run of the full set can leave them unsaid.
 func lintEditedInto(target string, known *[]string) string {
-	if !strings.HasSuffix(target, ".go") {
+	return lintEditedFiles([]string{target}, known)
+}
+
+// lintPackage is the Go files of one package, as paths relative to the repo
+// root that holds them.
+type lintPackage struct {
+	root string
+	dir  string
+	rels []string
+}
+
+// lintPackages groups the Go files among targets by the package directory
+// they sit in, in the order the packages first appear.
+func lintPackages(targets []string) []lintPackage {
+	var pkgs []lintPackage
+	for _, target := range targets {
+		if !strings.HasSuffix(target, ".go") {
+			continue
+		}
+		root := repoRootNear(filepath.Dir(target))
+		if root == "" {
+			continue
+		}
+		rel, err := filepath.Rel(root, target)
+		if err != nil {
+			continue
+		}
+		rel = filepath.ToSlash(rel)
+		dir := path.Dir(rel)
+		at := slices.IndexFunc(pkgs, func(p lintPackage) bool { return p.root == root && p.dir == dir })
+		if at < 0 {
+			pkgs = append(pkgs, lintPackage{root: root, dir: dir})
+			at = len(pkgs) - 1
+		}
+		pkgs[at].rels = append(pkgs[at].rels, rel)
+	}
+	return pkgs
+}
+
+// lintEditedFiles is the gate-line note for the lint findings an edit leaves
+// in every one of the Go files among targets, one linter run per package;
+// "" when there are none, and whenever the lint did not run. known, when not
+// nil, gets every finding there was.
+func lintEditedFiles(targets []string, known *[]string) string {
+	var all []string
+	for _, pkg := range lintPackages(targets) {
+		findings, note := lintPackageEdits(pkg)
+		if note != "" {
+			return note
+		}
+		all = append(all, findings...)
+	}
+	if len(all) == 0 {
 		return ""
 	}
-	root := repoRootNear(filepath.Dir(target))
-	if root == "" {
-		return ""
+	if known != nil {
+		*known = all
 	}
-	rel, err := filepath.Rel(root, target)
-	if err != nil {
-		return ""
-	}
-	rel = filepath.ToSlash(rel)
+	return "golangci-lint: " + namedFindings(all)
+}
+
+// lintPackageEdits runs the fast linters over one package, limited to the
+// lines its files changed against HEAD. It answers the findings in those
+// files, or a note when the run outlived its budget.
+func lintPackageEdits(pkg lintPackage) (findings []string, note string) {
+	root := pkg.root
 	if !lintEditLook() || lintBoxLoaded() || lintBackedOff(root) {
-		return ""
+		return nil, ""
 	}
-	patch := editedLinesPatch(root, rel)
-	if patch == "" {
-		return ""
+	var patch strings.Builder
+	var changed []string
+	for _, rel := range pkg.rels {
+		if p := editedLinesPatch(root, rel); p != "" {
+			patch.WriteString(p)
+			changed = append(changed, rel)
+		}
+	}
+	if len(changed) == 0 {
+		return nil, ""
 	}
 	file, err := os.CreateTemp("", "aphrollo-lint-*.patch")
 	if err != nil {
-		return ""
+		return nil, ""
 	}
 	defer os.Remove(file.Name())
-	_, werr := file.WriteString(patch)
+	_, werr := file.WriteString(patch.String())
 	if cerr := file.Close(); werr != nil || cerr != nil {
-		return ""
+		return nil, ""
 	}
 	// Never waits: a lint another gate step holds the box-wide lock for is a
 	// busy box, and the commit gate lints anyway.
-	release, ok := TryAcquireLintLock("golangci-lint "+rel, root)
+	release, ok := TryAcquireLintLock("golangci-lint "+changed[0], root)
 	if !ok {
-		return ""
+		return nil, ""
 	}
 	defer release()
 
-	pkg := "."
-	if dir := path.Dir(rel); dir != "." {
-		pkg = "./" + dir
+	target := "."
+	if pkg.dir != "." {
+		target = "./" + pkg.dir
 	}
 	started := time.Now()
 	out, timedOut := lintEditRun(root, []string{
 		"run", "--fast-only", "--new-from-patch=" + file.Name(),
-		"--output.text.print-issued-lines=false", "--output.text.colors=false", "--show-stats=false", pkg,
+		"--output.text.print-issued-lines=false", "--output.text.colors=false", "--show-stats=false", target,
 	})
 	if timedOut {
 		markLintBackoff(root)
-		AppendGateLog("postedit", root, LogToken(rel), "lint-timeout", time.Since(started))
-		return "golangci-lint did not finish in " + lintEditBudget.String() + "; skipped for " + lintEditBackoff.String()
+		AppendGateLog("postedit", root, LogToken(changed[0]), "lint-timeout", time.Since(started))
+		return nil, "golangci-lint did not finish in " + lintEditBudget.String() + "; skipped for " + lintEditBackoff.String()
 	}
 	if strings.Contains(out, lintEditContention) {
-		return ""
+		return nil, ""
 	}
-	findings := findingsIn(out, rel)
-	if len(findings) == 0 {
-		return ""
+	for _, rel := range changed {
+		findings = append(findings, findingsIn(out, rel)...)
 	}
-	AppendGateLog("postedit", root, LogToken(rel), fmt.Sprintf("lint-findings:%d", len(findings)), time.Since(started))
-	if known != nil {
-		*known = findings
+	if len(findings) > 0 {
+		AppendGateLog("postedit", root, LogToken(changed[0]), fmt.Sprintf("lint-findings:%d", len(findings)), time.Since(started))
 	}
-	return "golangci-lint: " + namedFindings(findings)
+	return findings, ""
 }
 
 // namedFindings names the first lintEditShown findings and counts the rest.

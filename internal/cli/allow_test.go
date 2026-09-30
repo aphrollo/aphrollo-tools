@@ -73,30 +73,25 @@ func TestAllow_RefusesAnUnknownWall(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2", code)
 	}
-	const want = "usage: aphrollo gate allow [primary|discard|source-bash]\n"
+	const want = "usage: aphrollo gate allow [primary|discard]\n"
 	if errb.String() != want {
 		t.Fatalf("stderr = %q, want %q", errb.String(), want)
 	}
 }
 
-// TestAllow_SourceBashWallIsWaivedAndRestored proves `gate allow source-bash`
-// is a known wall that reports waived, then restored after `gate revoke`.
-func TestAllow_SourceBashWallIsWaivedAndRestored(t *testing.T) {
+// ratchet: test_removed TestAllow_SourceBashWallIsWaivedAndRestored: the source-bash wall is gone, a shell source write is an edit
+// TestAllow_SourceBashIsNoWall proves `gate allow source-bash` is refused as
+// an unknown wall: a shell write of a source file is no longer walled.
+func TestAllow_SourceBashIsNoWall(t *testing.T) {
 	gateConfigDir(t)
 	t.Setenv("CLAUDE_SESSION_ID", "s-source-bash-wall")
 
 	var out, errb bytes.Buffer
-	if code := runGateAllow([]string{"source-bash"}, &out, &errb); code != 0 {
-		t.Fatalf("allow exit = %d, stderr %q", code, errb.String())
+	if code := runGateAllow([]string{"source-bash"}, &out, &errb); code != 2 {
+		t.Fatalf("allow exit = %d, want 2; stderr %q", code, errb.String())
 	}
-	if !tdd.Waived(tdd.WallSourceBash) {
-		t.Fatal("source-bash must be waived after allow")
-	}
-	if code := runGateRevoke([]string{"source-bash"}, &out, &errb); code != 0 {
-		t.Fatalf("revoke exit = %d, stderr %q", code, errb.String())
-	}
-	if tdd.Waived(tdd.WallSourceBash) {
-		t.Fatal("source-bash must be restored after revoke")
+	if code := runGateRevoke([]string{"source-bash"}, &out, &errb); code != 2 {
+		t.Fatalf("revoke exit = %d, want 2; stderr %q", code, errb.String())
 	}
 }
 

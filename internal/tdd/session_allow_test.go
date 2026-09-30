@@ -7,7 +7,7 @@ import (
 
 // The /tdd session verb must accept every wall `aphrollo gate allow` knows.
 func TestTddAllow_AcceptsEveryWallTheCLIKnows(t *testing.T) {
-	for _, wall := range []string{"primary", "source-bash"} {
+	for _, wall := range []string{"primary"} {
 		t.Run(wall, func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			t.Setenv("CLAUDE_SESSION_ID", "s-allow-"+wall)
@@ -49,7 +49,7 @@ func TestTddAllow_RefusesAnUnknownWallNamingEveryKnownOne(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, verb := range []string{"allow", "revoke"} {
 		msg := tddCommand(verb, "nonsense", "s-unknown", "")
-		want := "gate: /tdd " + verb + " needs a wall (primary|discard|source-bash), got nonsense"
+		want := "gate: /tdd " + verb + " needs a wall (primary|discard), got nonsense"
 		if msg != want {
 			t.Fatalf("/tdd %s nonsense = %q, want %q", verb, msg, want)
 		}

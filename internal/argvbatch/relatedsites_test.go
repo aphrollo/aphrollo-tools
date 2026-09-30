@@ -29,6 +29,7 @@ import (
 // builder is not in this table, so the test fails on it: hold it to the
 // budget and add it with what bounds it.
 var relatedRunnerSites = map[string]string{
+	"internal/tdd/postedit/posttooluse_touched.go:fileArgPos":    "reads: recognises the one file a narrowed run names; withTouchedFiles, which widens on it, holds the line to maxWidenedTargets paths and falls back to the full suite past that",
 	"internal/tdd/suite/runner.go:narrowSourceEdit":              "bounded: one edited file",
 	"internal/tdd/suite/runner_scope.go:narrowToStagedUnbounded": "bounded: narrowToStaged falls back to the full suite past the budget, and the executor's relatedWithinBudget holds whatever line still starts",
 	"internal/tdd/suite/runscope.go:npmRunScope":                 "reads: recognises a related run in a command",

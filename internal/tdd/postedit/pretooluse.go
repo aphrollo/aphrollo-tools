@@ -34,6 +34,13 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 	// a smell that already lived in the file is not this edit's, and denying
 	// it leaves an author with no move but to stop working in that file.
 	pre, post := editImages(in, path)
+	return decideImages(kind, path, pre, post), nil
+}
+
+// decideImages is the smell verdict for a file of the given kind that held
+// pre and now holds post: what an Edit is judged by before it lands, and what
+// a Bash command's write is judged by after.
+func decideImages(kind Kind, path, pre, post string) Decision {
 	added := addedLines(pre, post)
 	l := langOf(repoRootNear(filepath.Dir(path)), path)
 	covered := editCovered(pre, post, l, added)
@@ -45,7 +52,7 @@ func DecidePreEdit(raw []byte) (Decision, error) {
 	}
 	full := withQualityNotes(d, path, post, added)
 	full.Escapes = d.Escapes
-	return full, nil
+	return full
 }
 
 // withQualityNotes attaches the advisory test-quality notes to a decision.

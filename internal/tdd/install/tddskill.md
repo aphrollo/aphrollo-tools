@@ -48,6 +48,20 @@ targeted run after the hook said TIMEOUT/SKIPPED.
 One mixed test+impl commit per task; the commit gate re-proves RED and runs the
 touched suites.
 
+## Bash writes are edits
+
+A Bash script is fine for multi-file edits: one call that rewrites twenty files
+costs less than twenty Edits. Every source file the call changed gets what an
+Edit of it gets, reported on the same `gate:` line: gofmt, the deny laws (one
+pass over all the changed files, on the formatted bytes), the smell checks over
+the lines the call added against HEAD, an edit-ledger record, the linter, and
+the suite, once per root and covering every package the call changed.
+
+The one difference: a deny law cannot refuse a Bash write before it happens,
+because the content does not exist until the command has run. A hit is reported
+right after the write, on the gate line, naming the file and the law, and
+refused at commit. Fix it as you would any red.
+
 ## A test worth keeping
 
 - Names the production change that fails it, and that change is a bug. No

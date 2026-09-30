@@ -78,14 +78,18 @@ bashedit.go                                        postedit
 bashedit_attribution_test.go                       postedit
 bashedit_cdtilde_test.go                           postedit
 bashedit_core.go                                   core      # created by P2
+bashedit_files.go                                  postedit
+bashedit_files_test.go                             postedit
 bashedit_mergeinprogress_test.go                   postedit
 bashedit_mergescope.go                             postedit
 bashedit_mergescope_batch_unix_test.go             postedit
 bashedit_mergescope_test.go                        postedit
+bashedit_parity_test.go                            postedit
 bashedit_primary.go                                postedit
 bashedit_primarydirt_test.go                       postedit
 bashedit_skiproots_test.go                         postedit
 bashedit_test.go                                   install   # prefix says postedit; its test body reaches install
+bashedits_docs_test.go                             install
 bashsuite.go                                       postedit
 bashsuite_envswitch.go                             postedit
 bashsuite_envswitch_test.go                        postedit
@@ -284,6 +288,7 @@ e2e_zig_test.go                                    suite
 edit_ownership.go                                  suite
 edit_ownership_own_test.go                         suite
 editledger.go                                      failfirst
+editledger_batch_test.go                           failfirst
 editledger_suite.go                                suite     # created by P2
 editledger_test.go                                 postedit  # prefix says failfirst; its test body reaches postedit
 embed.go                                           core
@@ -536,6 +541,7 @@ mutants_buildjobs.go                               mutation
 mutants_buildjobs_test.go                          mutation
 mutants_canary.go                                  mutation
 mutants_canary_main_test.go                        mutation
+mutants_canary_origin_test.go                      mutation
 mutants_canary_runners_test.go                     mutation
 mutants_canary_test.go                             mutation
 mutants_cancel_test.go                             mutation
@@ -735,6 +741,7 @@ posttooluse_runnertimeout_test.go                  postedit
 posttooluse_suite.go                               suite     # created by P2
 posttooluse_test.go                                postedit
 posttooluse_touched.go                             postedit
+posttooluse_touched_files_test.go                  postedit
 posttooluse_unconstrained.go                       postedit
 pr_closes.go                                       escape
 pr_closes_test.go                                  escape
@@ -958,8 +965,6 @@ smell_test.go                                      smell
 smellscope.go                                      smell
 smellscope_own_test.go                             smell
 smellscope_test.go                                 postedit  # prefix says smell; its test body reaches postedit
-sourcebash.go                                      postedit
-sourcebash_test.go                                 postedit
 splitcommit.go                                     gitx
 splitcommit_test.go                                gitx
 stagedfiles_test.go                                tdd

@@ -221,6 +221,8 @@ retired the root build task). aphrollo-infra no longer force-installs it.
 - **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints
   exactly ONE `gate:` line for the edit, then one `gate: deferred` line per earlier job of the session, in any tree,
   that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with `go vet ./...`, which runs nothing.
+- **A Bash script is fine for multi-file edits.** Each source file it changed gets what an Edit gets (gofmt, deny laws, smell checks, edit ledger, the suite once per root) on the same `gate:` line;
+  the one difference is that a deny law cannot refuse a Bash write before it happens: the hit is named right after the write, with file and law, and refused at commit.
 - **Before writing or changing code, read the `tdd` skill** at `~/.claude/skills/tdd/SKILL.md` (under `$CLAUDE_CONFIG_DIR` when set; `aphrollo install` writes it).
 - **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·
   `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`
