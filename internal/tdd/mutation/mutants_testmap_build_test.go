@@ -25,6 +25,7 @@ type fakeToolchain struct {
 	list     string
 	profiles map[string]string
 	compile  func(argv []string) (int, error)
+	listCode int
 	running  atomic.Int32
 	peak     atomic.Int32
 	perRun   time.Duration
@@ -46,7 +47,7 @@ func (f *fakeToolchain) exec(ctx context.Context, dir string, _ []string, argv [
 	}
 	if slices.Contains(argv, "-test.list=.") {
 		_, err := io.WriteString(log, f.list)
-		return 0, err
+		return f.listCode, err
 	}
 	now := f.running.Add(1)
 	defer f.running.Add(-1)
