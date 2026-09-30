@@ -85,7 +85,7 @@ func ApplySplit(repoRoot string, plan SplitPlan, msg string) (string, error) {
 // one outcome this exists to prevent.
 func judgeSplitTree(repoRoot string, paths []string) GateResult {
 	refuse := func(why string) GateResult {
-		return GateResult{Blocked: true, Message: "gate split-commit: the test-only commit could not be judged: " + why}
+		return GateResult{Blocked: true, Message: fmt.Sprintf("gate split-commit: the test-only commit could not be judged: %s", why)}
 	}
 	wt, err := addGateWorktree(repoRoot)
 	if err != nil {

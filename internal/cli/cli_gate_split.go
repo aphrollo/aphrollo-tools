@@ -107,7 +107,7 @@ func printSplitPlan(w io.Writer, plan tdd.SplitPlan, msg string) {
 func splitCommitRefusal(root string, plan tdd.SplitPlan, msg string) string {
 	realGit, err := resolveRealGit()
 	if err != nil {
-		return "cannot resolve git to judge the primary-checkout wall: " + err.Error()
+		return fmt.Sprintf("cannot resolve git to judge the primary-checkout wall: %v", err)
 	}
 	if line := primaryRefusalLine(realGit, []string{"commit"}, root, false); line != "" {
 		return line
@@ -117,15 +117,15 @@ func splitCommitRefusal(root string, plan tdd.SplitPlan, msg string) string {
 	}
 	f, err := os.CreateTemp("", "aphrollo-split-msg-*")
 	if err != nil {
-		return "cannot write the message to judge it: " + err.Error()
+		return fmt.Sprintf("cannot write the message to judge it: %v", err)
 	}
 	defer os.Remove(f.Name())
 	if _, err := f.WriteString(msg + "\n"); err != nil {
 		f.Close()
-		return "cannot write the message to judge it: " + err.Error()
+		return fmt.Sprintf("cannot write the message to judge it: %v", err)
 	}
 	if err := f.Close(); err != nil {
-		return "cannot write the message to judge it: " + err.Error()
+		return fmt.Sprintf("cannot write the message to judge it: %v", err)
 	}
 	if res := tdd.CommitMsg(root, f.Name()); res.Blocked {
 		return res.Message
