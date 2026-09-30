@@ -178,6 +178,10 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 		return res
 	}
 
+	if res := callsiteGuardStage("precommit", repoRoot, run); collect(res) {
+		return res
+	}
+
 	groups, err := stagedRootGroupsErr(repoRoot)
 	if err != nil {
 		return GateResult{Blocked: true, Message: unreadableIndexMessage("precommit", err)}
