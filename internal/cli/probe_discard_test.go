@@ -221,6 +221,19 @@ func TestProbeDiscard_ApplyAfterThePositionalIsHonouredWithANotice(t *testing.T)
 	}
 }
 
+// Flags with no file named is the usage error, not an empty run.
+func TestProbeDiscard_FlagsWithoutAFilePrintTheUsage(t *testing.T) {
+	repo, realGit, _ := probeFixture(t)
+
+	var out, errb bytes.Buffer
+	if code := probeDiscard(realGit, repo, []string{"--dry"}, &out, &errb); code != 2 {
+		t.Fatalf("exit = %d, want 2\nstderr: %s", code, errb.String())
+	}
+	if !strings.Contains(errb.String(), "usage: aphrollo gate probe discard") {
+		t.Fatalf("stderr lacks the usage:\n%s", errb.String())
+	}
+}
+
 // An unknown flag after the positional is refused and nothing is discarded.
 func TestProbeDiscard_UnknownFlagAfterThePositionalIsRefused(t *testing.T) {
 	repo, realGit, _ := probeFixture(t)
