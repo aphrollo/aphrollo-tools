@@ -647,99 +647,197 @@ jobs:
   # .github/workflows/nightly-mutants.yml for the job and why moving it was
   # safe: the merge itself is measured before it lands, by the pre-merge gate.
   #
-  # `mutants-verdict` below is a different job for a different reason. #334
-  # moved a re-measurement of trunk off the critical path; this one exists
-  # because on a Windows box the pre-merge measurement CANNOT be made at all:
-  # gremlins v0.6.0 maps a mutant's position onto its coverage profile through
-  # filepath.Rel, which returns `internal\tdd\x.go` there against a
-  # slash-separated lookup key, so every mutant in every package below the
-  # module root reads as NOT COVERED -- 4890 of 4890 on this tree. Seventeen
-  # merges landed from that box in one session with nine green stages and no
-  # mutation evidence whatsoever (issue #697). It is Windows-only by
-  # construction: filepath.Rel returns slashes here, which is why this runner
-  # measures the same tree correctly.
+  # The mutation measurement of a PR is three jobs, and only the last is
+  # required. `mutants-plan` reads aphrollo.toml and says whether a
+  # measurement is owed and how many shards it divides into;
+  # `mutants-shard` is a matrix of that many jobs on GitHub-hosted runners,
+  # each measuring its slice of the lane's changed source files; and
+  # `mutants-verdict` merges the slices and judges them once. The aggregate
+  # keeps the name `mutants-verdict` because branch protection requires that
+  # exact name, and because the local merge gate reads a check by it
+  # (internal/tdd/mutation/mutants_ci.go).
   #
-  # So the measurement is made HERE and consumed THERE. What it costs is one
-  # runner for the length of a PR-sized mutation run, and it is gated on
-  # `changes.code` so a docs-only PR pays nothing.
-  mutants-verdict:
+  # The measurement is made HERE and consumed THERE: on a Windows box gremlins
+  # cannot measure at all (issue #697, docs/mutation-runner.md), so the merged
+  # measurement is published as an artifact named for the tree it measured.
+  # All of it is gated on `changes.code`, so a docs-only PR pays nothing and
+  # still reports the required context.
+  mutants-plan:
     # Pull requests only. A push to main has no merge to measure ahead of
-    # itself -- the merge already happened -- and nightly-mutants.yml is the
-    # tripwire that covers trunk.
+    # itself and nightly-mutants.yml is the tripwire that covers trunk.
     if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
     needs: changes
     runs-on: ubuntu-latest
-    # 60, not 30: a lane of ~70 mutants measured under the load of other
-    # lanes' suites on this shared box was still killing mutants (58 caught,
-    # 0 lived) when a 30-minute budget cancelled it at 30m18s, so the check
-    # read red for a measurement that had found nothing wrong.
-    timeout-minutes: 60
+    timeout-minutes: 5
     permissions:
       contents: read
+    outputs:
+      on: ${{ steps.cfg.outputs.on }}
+      count: ${{ steps.cfg.outputs.count }}
+      shards: ${{ steps.cfg.outputs.shards }}
     steps:
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The job measures while `mutants-in-ci` is on, falling back to
+      # `mutants-at-merge` (true or "ci") when the repo does not set it. The
+      # shard count is `mutants-shards`, 4 when absent.
+      - name: Is the measurement on, and across how many shards
+        id: cfg
+        env:
+          CODE: ${{ needs.changes.outputs.code }}
+        run: |
+          set -euo pipefail
+          if [ "$CODE" != true ]; then
+            echo "on=false" >> "$GITHUB_OUTPUT"
+            echo "count=1" >> "$GITHUB_OUTPUT"
+            echo 'shards=[0]' >> "$GITHUB_OUTPUT"
+            echo "no code changed: no measurement"
+            exit 0
+          fi
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, tomllib
+          a = tomllib.load(open('aphrollo.toml', 'rb')).get('aphrollo', {})
+          v = a.get('mutants-in-ci', a.get('mutants-at-merge', False))
+          count = max(1, int(a.get('mutants-shards', 4)))
+          print('on=' + str(v is True or v == 'ci').lower())
+          print('count=%d' % count)
+          print('shards=' + json.dumps(list(range(count))))
+          PY
+
+  mutants-shard:
+    name: mutants-shard ${{ matrix.shard }}
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && needs.mutants-plan.outputs.on == 'true'
+    needs: mutants-plan
+    runs-on: ubuntu-latest
+    # 60, not 30: a lane of ~70 mutants measured under load was still killing
+    # mutants when a 30-minute budget cancelled it, so the check read red for a
+    # measurement that had found nothing wrong.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.mutants-plan.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The default ref for a pull_request event is refs/pull/N/merge --
           # GitHub's own merge of this PR into its base, which is the same
           # tree the local pre-merge gate builds. fetch-depth 0 so both of its
-          # parents resolve: the diff is scoped to merge-base(base, head),
-          # exactly as mergeMeasureBase scopes it locally.
+          # parents resolve: the diff is scoped to merge-base(base, head).
           fetch-depth: 0
-      # The job measures while `mutants-in-ci` is on, falling back to
-      # `mutants-at-merge` when the repo does not set it. A repo that measures
-      # only in CI sets mutants-in-ci = true and mutants-at-merge = false.
-      - name: Is the merge-time mutation stage on
-        id: cfg
-        if: needs.changes.outputs.code == 'true'
-        run: |
-          set -euo pipefail
-          on=$(python3 -c "import tomllib; a=tomllib.load(open('aphrollo.toml','rb')).get('aphrollo',{}); print(str(a.get('mutants-in-ci', a.get('mutants-at-merge', False))).lower())")
-          echo "on=$on" >> "$GITHUB_OUTPUT"
-          [ "$on" = true ] || echo "mutants-in-ci is off in aphrollo.toml: no measurement"
-      - name: Identify the merged tree
-        # Read before anything else writes into the checkout, and read the
-        # same way the consuming gate reads it (internal/tdd/mutation/mutants_runner.go:
-        # `git write-tree`), because the tree id is the whole binding between
-        # this measurement and the merge that consumes it. A name is only an
-        # index: the report itself carries the id the CLI computed, and the
-        # consuming gate checks THAT. If the two ever disagreed, the merge
-        # would report NOT MEASURED rather than trust this run.
-        id: tree
-        if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
-        run: |
-          set -euo pipefail
-          echo "id=$(git write-tree)" >> "$GITHUB_OUTPUT"
-      - if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
       - name: Install gremlins
-        if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
         run: go install github.com/go-gremlins/gremlins/cmd/gremlins@v0.6.0
       - name: Build the CLI from this PR
         # From THIS PR, not /usr/local/bin: a change to how the measurement is
         # scoped, judged or published is measured by the rule the PR proposes.
-        if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
-      - name: aphrollo gate mutants run --report
-        if: needs.changes.outputs.code == 'true' && steps.cfg.outputs.on == 'true'
+      - name: aphrollo gate mutants run --shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARDS: ${{ needs.mutants-plan.outputs.count }}
         run: |
           set -euo pipefail
           # HEAD is the merge; HEAD^1 is the base it was merged into and HEAD^2
           # is this PR's tip. Their merge base is what the lane actually
-          # proposes to change, and it is the base the local gate measures
-          # against too, so both sides scope the same diff over the same tree.
+          # proposes to change, so every shard scopes the same diff over the
+          # same tree, which is what lets them divide its files without gaps.
           base=$(git merge-base HEAD^1 HEAD^2)
-          echo "scoping the run to $base..HEAD (tree ${{ steps.tree.outputs.id }})"
-          ./bin/aphrollo gate mutants run --base "$base" --report mutants-verdict.json
+          echo "shard $SHARD of $SHARDS, scoped to $base..HEAD"
+          ./bin/aphrollo gate mutants run --base "$base" --shard "$SHARD/$SHARDS" --report "mutants-shard-$SHARD.json"
+      - name: Publish this shard's outcomes for the verdict
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutants-shard-${{ matrix.shard }}
+          path: mutants-shard-${{ matrix.shard }}.json
+          # A re-run of a failed shard replaces its own artifact.
+          overwrite: true
+          if-no-files-found: warn
+
+  # The one required check. It runs on every non-draft PR, measuring or not, so
+  # the required context always reports; it fails when the plan failed, when
+  # any shard did, or when the merged outcomes are refused.
+  mutants-verdict:
+    if: ${{ always() && github.event_name == 'pull_request' && github.event.pull_request.draft != true }}
+    needs: [changes, mutants-plan, mutants-shard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: The measurement's own jobs
+        id: gate
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          PLAN: ${{ needs.mutants-plan.result }}
+          SHARDS: ${{ needs.mutants-shard.result }}
+          ON: ${{ needs.mutants-plan.outputs.on }}
+        run: |
+          set -euo pipefail
+          if [ "$CHANGES" != success ] || [ "$PLAN" != success ]; then
+            echo "::error::the jobs that decide the measurement did not succeed (changes: $CHANGES, mutants-plan: $PLAN), so no mutation evidence exists"
+            exit 1
+          fi
+          if [ "$ON" != true ]; then
+            echo "no measurement owed: mutants-in-ci is off in aphrollo.toml, or no code changed"
+            echo "measure=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$SHARDS" != success ]; then
+            echo "::error::mutants-shard finished $SHARDS, so some mutants were NOT measured"
+            exit 1
+          fi
+          echo "measure=true" >> "$GITHUB_OUTPUT"
+      - if: steps.gate.outputs.measure == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Identify the merged tree
+        # Read before anything else writes into the checkout, and read the
+        # same way the consuming gate reads it (internal/tdd/mutation/mutants_runner.go:
+        # `git write-tree`), because the tree id is the whole binding between
+        # this measurement and the merge that consumes it. The shards' reports
+        # carry the id the CLI computed on their own checkouts, and the merged
+        # verdict is refused unless they are all this tree.
+        id: tree
+        if: steps.gate.outputs.measure == 'true'
+        run: |
+          set -euo pipefail
+          echo "id=$(git write-tree)" >> "$GITHUB_OUTPUT"
+      - if: steps.gate.outputs.measure == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build the CLI from this PR
+        if: steps.gate.outputs.measure == 'true'
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: Download the shards' outcomes
+        if: steps.gate.outputs.measure == 'true'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: mutants-shard-*
+          path: shards
+          merge-multiple: true
+      - name: aphrollo gate mutants verdict
+        if: steps.gate.outputs.measure == 'true'
+        env:
+          SHARDS: ${{ needs.mutants-plan.outputs.count }}
+        run: |
+          set -euo pipefail
+          ./bin/aphrollo gate mutants verdict --shards "$SHARDS" --report mutants-verdict.json shards/*.json
       - name: Publish the measurement for the box that cannot make it
         # always(): a run that found an unaccepted survivor exits 1, and that
         # is precisely the measurement the merging box most needs to see. A
         # run that produced no report at all uploads nothing and the merge
         # reports NOT MEASURED, which is the honest outcome either way.
-        if: ${{ always() && needs.changes.outputs.code == 'true' && steps.tree.outputs.id != '' && steps.cfg.outputs.on == 'true' }}
+        if: ${{ always() && steps.tree.outputs.id != '' && steps.gate.outputs.measure == 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           # The tree id is in the name so the consuming gate finds the
@@ -749,6 +847,7 @@ jobs:
           # trusts a measurement of the tree before the move.
           name: mutants-verdict-${{ steps.tree.outputs.id }}
           path: mutants-verdict.json
+          overwrite: true
           if-no-files-found: warn
 
   # `aphrollo ratchet check` on the PR's own merged tree, BEFORE the merge.

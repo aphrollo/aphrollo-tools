@@ -73,7 +73,7 @@ func SetGoReachGraphForTest(fn func(root string) (goReachGraph, error)) (restore
 // path never contains one.
 const goListReachFormat = "{{.ImportPath}}\t{{.Dir}}\t" +
 	"{{range .Deps}}{{.}} {{end}}\t{{range .TestImports}}{{.}} {{end}}\t{{range .XTestImports}}{{.}} {{end}}\t" +
-	"{{len .TestGoFiles}}\t{{len .XTestGoFiles}}"
+	"{{len .TestGoFiles}}\t{{len .XTestGoFiles}}\t{{range .Imports}}{{.}} {{end}}"
 
 // goReachGraph is one module's reach graph, as one `go list` run saw it:
 // which package directories exist, which of them carry a test file at all,
@@ -82,6 +82,12 @@ type goReachGraph struct {
 	// edges is dir -> the dirs its own code or its tests import, keyed the
 	// way goPackageDir names a package.
 	edges map[string][]string
+	// direct is dir -> the dirs it imports DIRECTLY, its production imports
+	// and its two test variants' imports. edges carries the transitive
+	// closure of the production imports, so every importer is one hop away
+	// in it; only these say how far an importer really is (Layers). nil
+	// where a graph was built without it, and Layers then reads edges.
+	direct map[string][]string
 	// Pkgs is every directory `go list` named. A directory absent from it is
 	// not "a package nothing reaches" but one this run never saw, and the
 	// two are opposite answers.
@@ -129,7 +135,70 @@ func loadGoReachGraph(root string) (goReachGraph, error) {
 			g.edges[pkg] = dedupeSorted(to)
 		}
 	}
+	g.direct = parseGoListDirect(root, string(out), dirOf)
 	return g, nil
+}
+
+// parseGoListDirect reads the same lines for the DIRECT imports only: the
+// eighth field (production imports) and the two test variants' import
+// fields. A line with no eighth field contributes its test imports alone.
+func parseGoListDirect(root, out string, dirOf map[string]string) map[string][]string {
+	direct := map[string][]string{}
+	for line := range strings.SplitSeq(out, "\n") {
+		fields := strings.Split(strings.TrimRight(line, "\r"), "\t")
+		if len(fields) < 7 || strings.TrimSpace(fields[0]) == "" {
+			continue
+		}
+		dir := goReachDir(root, strings.TrimSpace(fields[1]))
+		imps := append(strings.Fields(fields[3]), strings.Fields(fields[4])...)
+		if len(fields) > 7 {
+			imps = append(imps, strings.Fields(fields[7])...)
+		}
+		for _, imp := range imps {
+			if d, ok := dirOf[imp]; ok && d != dir {
+				direct[dir] = append(direct[dir], d)
+			}
+		}
+		direct[dir] = dedupeSorted(direct[dir])
+	}
+	return direct
+}
+
+// Layers is the packages that reach dir, grouped by how many import hops
+// separate them from it: the first layer imports dir directly (in its code or
+// its tests), the second imports a package in the first, and so on. Each
+// layer is sorted, dir itself is in none, and a package appears once, at its
+// nearest distance. No importers is no layers.
+func (g goReachGraph) Layers(dir string) [][]string {
+	edges := g.direct
+	if edges == nil {
+		edges = g.edges
+	}
+	reverse := map[string][]string{}
+	for pkg, on := range edges {
+		for _, d := range on {
+			reverse[d] = append(reverse[d], pkg)
+		}
+	}
+	seen := map[string]bool{dir: true}
+	frontier := []string{dir}
+	var layers [][]string
+	for len(frontier) != 0 {
+		var next []string
+		for _, cur := range frontier {
+			for _, up := range reverse[cur] {
+				if !seen[up] {
+					seen[up] = true
+					next = append(next, up)
+				}
+			}
+		}
+		if len(next) > 0 {
+			layers = append(layers, dedupeSorted(next))
+		}
+		frontier = next
+	}
+	return layers
 }
 
 // Reaching is the package directories whose TEST BINARY can reach dir, dir

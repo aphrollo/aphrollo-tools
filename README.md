@@ -93,6 +93,7 @@ With `undercover = true` a tool identity is refused at commit, pre-push and `wor
 |---|---|
 | `mutants-at-merge` | off by default: mutation measurement of the merged tree before every merge; cost: high CPU and wall-clock: a lane runs tens of mutants, each re-running its package's suite |
 | `mutants-before-pr` | off by default: the same measurement before `workspace pr`/`ship`/`submit` open a PR; cost: the mutants-at-merge cost, paid before the PR opens |
+| `mutants-integration-packages` | none by default: package directories whose mutants stay settled against the tests of the packages that import them; every other package's mutant its own tests miss is refused at once; cost: each listed package's missed mutants run the importers' suites, nearest first, within a total time cap |
 | `mutants-shards` | derived by default: the most shards one measurement splits into; only ever lowers the box's own count; cost: fewer shards: less CPU at once, longer wall-clock |
 | `mutants-slots` (box) | 1 by default: measurements this box runs at once, the rest queue (fixed at 1 for now); cost: each slot runs a full shard set, so size it to cores and RAM |
 | `memory-cap` | derived by default: the most memory, in GB, one test, suite or mutation run the gate starts may hold before it is killed and reported OOM-KILLED (inconclusive, never red); derived from RAM, free memory and the slot count; off disables it; cost: a cap below what a build honestly needs kills honest work |

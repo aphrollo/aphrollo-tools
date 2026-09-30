@@ -11,6 +11,8 @@ import (
 
 const ExitMutantsProveUsage = mutation.ExitMutantsProveUsage
 
+const MutantsCISkipLine = mutation.MutantsCISkipLine
+
 const MutationGateEnv = mutation.MutationGateEnv
 
 const MutationGateMarked = mutation.MutationGateMarked
@@ -41,11 +43,17 @@ func FormatMutantsRunStatus(p0 MutantsRunStatus, p1 time.Time) string {
 
 func HoldMutation(p0 string) (MutationHold, error) { return mutation.HoldMutation(p0) }
 
+func JudgeShardReports(p0 string, p1 MutantsConfig, p2 []string, p3 int, p4 string, p5 io.Writer) (Verdict, error) {
+	return mutation.JudgeShardReports(p0, p1, p2, p3, p4, p5)
+}
+
 func MeasureLane(p0 string, p1 MutantsConfig, p2 MeasureOpts) (Verdict, error) {
 	return mutation.MeasureLane(p0, p1, p2)
 }
 
 func MutationHoldFor(p0 string) (MutationHold, bool) { return mutation.MutationHoldFor(p0) }
+
+func ParseShardSpec(p0 string) (int, int, error) { return mutation.ParseShardSpec(p0) }
 
 func ReadMutantsConfig(p0 string) (MutantsConfig, error) { return mutation.ReadMutantsConfig(p0) }
 

@@ -19,7 +19,12 @@ import (
 // MutantsConfig is every mutation key the repo may declare, read from
 // [workspace.metadata.aphrollo] or aphrollo.toml's [aphrollo] table.
 type MutantsConfig struct {
-	AtMerge         bool     // mutants-at-merge
+	// AtMerge is mutants-at-merge declared on, whether `true` or "ci": the
+	// repo has a mutation measurement whose refusals bind. AtMergeCI narrows
+	// it to "ci", where the measurement is CI's mutants-verdict job and the
+	// local gate measures nothing itself.
+	AtMerge         bool
+	AtMergeCI       bool
 	Env             []string // mutants-env, "K=V" each
 	BaselineExclude []string // mutation-baseline-exclude, raw entries
 	Accept          []string // mutation-accept, raw entries
@@ -36,7 +41,16 @@ type MutantsConfig struct {
 	// BeforePR is mutants-before-pr: `workspace pr`, `ship` and `submit`
 	// measure the lane's own diff before they open a PR, and refuse to open
 	// one the merge gate would refuse.
-	BeforePR bool
+	// BeforePRCI is the "ci" spelling of the same key: those verbs skip the
+	// local run and leave the measurement to CI.
+	BeforePR   bool
+	BeforePRCI bool
+	// IntegrationPackages is mutants-integration-packages: the package
+	// directories whose code is only testable from packages above it. A
+	// mutant on a line the diff adds that its own package's tests miss is
+	// refused at once everywhere else; these keep being settled against the
+	// tests of the packages that import them (mutants_resolve.go).
+	IntegrationPackages []string
 }
 
 // The keys a repo declares. mutants-at-merge is the only switch: the trio it
@@ -48,6 +62,11 @@ const (
 	mutantsEnvKey      = "mutants-env"
 	mutantsAcceptKey   = "mutation-accept"
 	mutantsAfterKey    = "mutants-after"
+	// mutantsIntegrationKey names the packages that keep the settle fan-out.
+	mutantsIntegrationKey = "mutants-integration-packages"
+	// mutantsCIMode is the value of mutants-at-merge and mutants-before-pr
+	// that hands the measurement to CI's mutants-verdict check.
+	mutantsCIMode = "ci"
 )
 
 // retiredMutantsKeys are the keys that no longer do anything. A repo that
@@ -73,18 +92,14 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 		}
 	}
 	var cfg MutantsConfig
-	for _, t := range tables {
-		if v, set := tomlBoolSetIn(t.Path, t.Table, mutantsAtMergeKey); set {
-			cfg.AtMerge = v
-			break
-		}
+	var err error
+	if cfg.AtMerge, cfg.AtMergeCI, err = firstDeclaredMode(tables, mutantsAtMergeKey); err != nil {
+		return MutantsConfig{}, err
 	}
-	for _, t := range tables {
-		if v, set := tomlBoolSetIn(t.Path, t.Table, mutantsBeforePRKey); set {
-			cfg.BeforePR = v
-			break
-		}
+	if cfg.BeforePR, cfg.BeforePRCI, err = firstDeclaredMode(tables, mutantsBeforePRKey); err != nil {
+		return MutantsConfig{}, err
 	}
+	cfg.IntegrationPackages = firstDeclaredList(tables, mutantsIntegrationKey)
 	cfg.Env = firstDeclaredList(tables, mutantsEnvKey)
 	cfg.BaselineExclude = firstDeclaredList(tables, mutationBaselineExcludeKey)
 	cfg.Accept = firstDeclaredList(tables, mutantsAcceptKey)
@@ -104,7 +119,6 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 			break
 		}
 	}
-	var err error
 	if cfg.BuildJobs, err = firstDeclaredCount(tables, mutantsBuildJobsKey, "cargo jobs"); err != nil {
 		return MutantsConfig{}, err
 	}
@@ -121,6 +135,31 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// firstDeclaredMode reads a key that is on, off, or "ci" from the first table
+// that declares it. on is true for both `true` and "ci"; ci only for "ci".
+// A value that is none of the three is refused rather than read as off: a
+// repo that wrote it believes it is measured.
+func firstDeclaredMode(tables []mutantsConfigTable, key string) (on, ci bool, err error) {
+	for _, t := range tables {
+		v, set := tomlStringIn(t.Path, t.Table, key)
+		if !set {
+			continue
+		}
+		v, _, _ = strings.Cut(v, "#")
+		switch mode := strings.Trim(strings.TrimSpace(v), `"`); mode {
+		case "true":
+			return true, false, nil
+		case "false":
+			return false, false, nil
+		case mutantsCIMode:
+			return true, true, nil
+		default:
+			return false, false, fmt.Errorf("%s must be true, false or %q, got %q", key, mutantsCIMode, mode)
+		}
+	}
+	return false, false, nil
 }
 
 // firstDeclaredCount reads one whole-number key from the first table that

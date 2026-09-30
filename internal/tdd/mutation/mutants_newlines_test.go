@@ -223,7 +223,7 @@ func TestMeasure_AnInconclusiveMutantOnAnAddedLineIsSettledByTheTestsThatReachIt
 	root, base := measurableTorqueLane(t)
 	stubGremlinsReport(t, root, livedInTorque)
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
+	v, err := MeasureLane(root, fanOutFixturesCfg, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
@@ -243,7 +243,7 @@ func TestMeasure_AnInconclusiveMutantTheBudgetCutsOffIsRefusedAsUnresolved(t *te
 	stubGremlinsReport(t, root, livedInTorque)
 	t.Cleanup(setResolveBudgetForTest(time.Nanosecond))
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base})
+	v, err := MeasureLane(root, fanOutFixturesCfg, MeasureOpts{Base: base})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
@@ -293,12 +293,17 @@ func TestJudgeMutants_ReportsEachSettledMutantWithItsReason(t *testing.T) {
 	})
 
 	for _, want := range []string{
-		"a.go:1:2: ARITHMETIC_BASE — does not compile, so no test can run it\n",
-		"a.go:3:4: CONDITIONALS_BOUNDARY — killed by the tests of p\n",
+		"a.go:1:2 ARITHMETIC_BASE — does not compile, so no test can run it\n",
+		"a.go:3:4 CONDITIONALS_BOUNDARY — killed by the tests of p\n",
 	} {
 		if !strings.Contains(v.Message, want) {
 			t.Errorf("message = %q, want %q", v.Message, want)
 		}
+	}
+	// A mutant that was settled is not a finding: the `file.go:line:col: text`
+	// shape is the one CI turns into an Error annotation.
+	if strings.Contains(v.Message, "a.go:1:2:") || strings.Contains(v.Message, "a.go:3:4:") {
+		t.Errorf("message = %q, want a settled mutant named without a colon after its column", v.Message)
 	}
 	if strings.Contains(v.Message, "a.go:5:6") {
 		t.Errorf("message = %q, want a mutant gremlins itself caught left out", v.Message)

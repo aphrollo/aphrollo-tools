@@ -51,7 +51,12 @@ type RunnerReport struct {
 	// Base is what the measured diff was scoped against, recorded so a
 	// report that measured a different slice of the tree can be recognised
 	// by eye.
-	Base    string          `json:"base"`
+	Base string `json:"base"`
+	// Shard and Shards say which slice of the lane a report measured, when
+	// the run was one of several (mutants_goshard.go). Zero Shards is a
+	// whole-lane report.
+	Shard   int             `json:"shard,omitempty"`
+	Shards  int             `json:"shards,omitempty"`
 	Mutants []MutantOutcome `json:"mutants"`
 }
 
@@ -146,28 +151,36 @@ func measureOnRunner(root string, cfg MutantsConfig, log io.Writer) Verdict {
 // this run measured what it measured, and a failed handoff is the next box's
 // missing evidence, not this one's refused merge.
 func writeRunnerReport(root, path, base string, mutants []MutantOutcome, log io.Writer) {
+	writeShardReport(root, path, base, 0, 0, mutants, log)
+}
+
+// writeShardReport is writeRunnerReport for one shard of the lane (shards 0
+// for the whole lane), and says whether the report was written: a shard's
+// report is its whole product, so a caller that ran one needs to know.
+func writeShardReport(root, path, base string, shard, shards int, mutants []MutantOutcome, log io.Writer) bool {
 	if path == "" {
-		return
+		return false
 	}
 	tree, why := mutantsTreeID(root)
 	if tree == "" {
 		logf(log, "mutants: no report written — %s; a measurement nothing can bind to a tree is not publishable", why)
-		return
+		return false
 	}
 	data, err := json.MarshalIndent(RunnerReport{
-		Tree: tree, Runner: runnerIdentity(), Base: base, Mutants: mutants}, "", "  ")
+		Tree: tree, Runner: runnerIdentity(), Base: base, Shard: shard, Shards: shards, Mutants: mutants}, "", "  ")
 	if err != nil {
 		logf(log, "mutants: no report written — %v", err)
-		return
+		return false
 	}
 	if dir := filepath.Dir(path); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 	}
 	if err := os.WriteFile(path, append(data, '\n'), 0o644); err != nil {
 		logf(log, "mutants: no report written — %v", err)
-		return
+		return false
 	}
 	logf(log, "mutants: wrote the measurement of tree %s to %s", tree, path)
+	return true
 }
 
 // runnerIdentity names the box a measurement was made on, for the line a

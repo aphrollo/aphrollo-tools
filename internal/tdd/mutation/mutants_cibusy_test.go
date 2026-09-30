@@ -92,7 +92,7 @@ func TestMeasure_GoLaneWithNoCIRunnerJobsNeitherWaitsNorSaysSo(t *testing.T) {
 	stubGremlinsReport(t, root, livedInTorque)
 	var log bytes.Buffer
 
-	if _, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Log: &log}); err != nil {
+	if _, err := MeasureLane(root, fanOutFixturesCfg, MeasureOpts{Base: base, Log: &log}); err != nil {
 		t.Fatalf("MeasureLane: %v", err)
 	}
 

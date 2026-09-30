@@ -179,9 +179,11 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   regenerate from the committed tree cannot explain (a hand edit).
 - Run `go test ./tools/tddsplit -run TestCommittedTree_GeneratedFilesMatchTheGenerator`
   before pushing.
-- `mutants-at-merge` is on (`aphrollo.toml`): CI's `mutants-verdict` job refuses
-  an unaccepted survivor, every timeout, and a not-covered or inconclusive
-  mutant on a line the PR adds.
+- `mutants-at-merge = "ci"` (`aphrollo.toml`): CI's `mutants-verdict` check,
+  sharded across hosted runners, refuses an unaccepted survivor, every timeout,
+  and a not-covered or inconclusive mutant on a line the PR adds. A mutant its
+  own package's tests miss is refused at once; only the packages in
+  `mutants-integration-packages` settle against their importers' tests.
 - Prefer giving concurrent lanes disjoint files. Git merges overlapping edits,
   but two lanes rewriting the same function cost a conflict round.
 - A green open PR takes no further pushes; it merges as is and a follow-up goes
@@ -218,7 +220,11 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL; the git queue shim,
   where it is on the agent's PATH, is the WALL (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit).
   Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
-- **A merge is checked, not measured:** this repo declares no `mutants-at-merge`, so the merge gate runs the mechanical suite and NO mutation measurement; `aphrollo gate mutants run` measures THIS checkout by hand.
+- **A merge is measured in CI:** this repo declares `mutants-at-merge = "ci"`, so the merge gate measures nothing locally and refuses to merge unless CI's `mutants-verdict` check passed on the PR head; `aphrollo gate mutants run` measures THIS checkout by hand.
+- **Mutation rules** (CI's `mutants-verdict` measures this repo's mutants, and the local box does not): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`
+  KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.
+  A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already
+  steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.
 - **Orchestrating:** follow-ups on a lane (fix round, base merge, re-measure, red CI) resume its builder with only the delta; a fresh builder is for a new issue. A reviewer did not build the lane and re-reviews its own findings; the coordinator never edits; a brief carries only what the agent lacks.
 - **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (dry run; `--apply` reclaims stale build dirs).
 - **Commit messages** say what the change does and nothing about how it was

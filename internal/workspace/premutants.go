@@ -60,6 +60,10 @@ func mutantsBeforePR(wt, base string, skip SkipMutants, stdout, stderr io.Writer
 		tdd.AppendGateLog("prepr", tdd.LogToken(wt), tdd.LogToken(skip.Reason), "override-skip-mutants", 0)
 		return nil
 	}
+	if cfg.BeforePRCI {
+		fmt.Fprintln(stdout, tdd.MutantsCISkipLine)
+		return nil
+	}
 	if s := tdd.SnapshotMutantsRun(); s.Held {
 		deferMutantsToCI(stdout, "another measurement holds the box-wide mutation-run lock")
 		return nil

@@ -170,6 +170,89 @@ func TestLoadGoReachGraph_ErrorsWhenGoListNamesNoPackage(t *testing.T) {
 	}
 }
 
+// The layers come from the real `go list`: a package's code imports and its
+// tests' imports are both one hop, and a package that imports only through
+// another is a hop further.
+func TestLoadGoReachGraph_LayersGroupImportersByDistance(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		// skip-ok: an environment probe, not a disabled assertion.
+		t.Skip("go not on PATH")
+	}
+	root := t.TempDir()
+	write(t, root, "go.mod", "module m\n\ngo 1.21\n")
+	write(t, root, "root.go", "package m\n\nimport _ \"m/a\"\n")
+	write(t, root, "a/a.go", "package a\n\nimport _ \"m/b\"\n")
+	write(t, root, "b/b.go", "package b\n")
+	write(t, root, "c/c.go", "package c\n")
+	write(t, root, "c/c_test.go", "package c_test\n\nimport _ \"m/b\"\n")
+
+	g, err := loadGoReachGraph(root)
+	if err != nil {
+		t.Fatalf("loadGoReachGraph: %v", err)
+	}
+
+	if got, want := g.Layers("b"), [][]string{{"a", "c"}, {"."}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Layers(b) = %v, want %v", got, want)
+	}
+}
+
+func TestLayers_GroupsByImportDistance(t *testing.T) {
+	cases := []struct {
+		name   string
+		direct map[string][]string
+		dir    string
+		want   [][]string
+	}{
+		{"no importers", map[string][]string{"top": {"mid"}}, "top", nil},
+		{"an empty graph", nil, "leaf", nil},
+		{"one importer", map[string][]string{"top": {"leaf"}}, "leaf", [][]string{{"top"}}},
+		{"a chain is one layer per hop", map[string][]string{"top": {"mid"}, "mid": {"leaf"}}, "leaf",
+			[][]string{{"mid"}, {"top"}}},
+		{"a package reaching it two ways sits at the nearer distance",
+			map[string][]string{"top": {"leaf", "mid"}, "mid": {"leaf"}}, "leaf", [][]string{{"mid", "top"}}},
+		{"two importers of one layer are sorted", map[string][]string{"z": {"leaf"}, "a": {"leaf"}}, "leaf",
+			[][]string{{"a", "z"}}},
+		{"an import cycle ends", map[string][]string{"a": {"leaf", "b"}, "b": {"a"}}, "leaf", [][]string{{"a"}, {"b"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			g := goReachGraph{direct: tc.direct}
+			if got := g.Layers(tc.dir); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("Layers(%s) = %v, want %v", tc.dir, got, tc.want)
+			}
+		})
+	}
+}
+
+// The direct imports are the eighth field plus the two test fields; a line
+// with only seven fields still gives its test imports, a line short of seven
+// or with no import path gives nothing, and an import that is not a module
+// package or is the package itself is no edge.
+func TestParseGoListDirect_ReadsProductionAndTestImports(t *testing.T) {
+	dirOf := map[string]string{"m": ".", "m/a": "a", "m/b": "b", "m/c": "c"}
+	out := "m/a\t/w/a\tm/c \tm/b \t\t1\t0\tm/c fmt m/a \n" +
+		"m/b\t/w/b\t\tm/c \t\t1\t0\n" +
+		"short\t/w/s\n" +
+		"\t/w/blank\t\t\t\t1\t1\tm/a\n"
+
+	got := parseGoListDirect("/w", out, dirOf)
+
+	want := map[string][]string{"a": {"b", "c"}, "b": {"c"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("direct = %v, want %v", got, want)
+	}
+}
+
+// A graph built without direct edges falls back to the transitive ones, so
+// every importer is one layer.
+func TestLayers_FallsBackToTheTransitiveEdges(t *testing.T) {
+	g := goReachGraph{edges: map[string][]string{"top": {"mid", "leaf"}, "mid": {"leaf"}}}
+
+	if got, want := g.Layers("leaf"), [][]string{{"mid", "top"}}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Layers(leaf) = %v, want %v", got, want)
+	}
+}
+
 // Lines short of all seven fields, even by one, and unreadable test counts
 // are skipped rather than guessed at; a CRLF line still parses.
 func TestParseGoListReach_SkipsWhatItCannotRead(t *testing.T) {
