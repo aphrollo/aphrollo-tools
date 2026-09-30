@@ -43,9 +43,7 @@ func Probe(t *testing.T) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
 		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Logf("git %v in %s: %v: %s", args, dir, err, strings.TrimSpace(string(out)))
-		}
+		t.Logf("git %v in %s: err %v: %s", args, dir, err, strings.TrimSpace(string(out)))
 		return err
 	}
 	for _, dir := range []string{cwd, base} {
