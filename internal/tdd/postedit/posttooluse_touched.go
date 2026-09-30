@@ -1,6 +1,9 @@
 package postedit
 
-import "strings"
+import (
+	"slices"
+	"strings"
+)
 
 // Issue #922: one edit can change a crate's source and one of its
 // integration test files together. The run narrows from the first file, so a
@@ -42,6 +45,53 @@ func withTouchedTestTargets(r, base Runner, root string, touched []string) Runne
 	for _, name := range add {
 		wide.Args = append(wide.Args, "--test", name[len("--test "):])
 	}
+	return wide
+}
+
+// fileArgPos is where the one file or package a narrowed run names sits in
+// r's argv, -1 when r is not one of the narrowed shapes that name exactly one:
+// `go test <pkg>`, `pytest -q <file>`, `npx vitest related <file> --run` and
+// `npx jest --findRelatedTests <file>`.
+func fileArgPos(r Runner) int {
+	a := r.Args
+	switch {
+	case r.Cmd == "go" && len(a) == 2 && a[0] == "test":
+		return 1
+	case r.Cmd == "pytest" && len(a) == 2 && a[0] == "-q":
+		return 1
+	case r.Cmd == "npx" && len(a) == 4 && a[0] == "vitest" && a[1] == "related" && a[3] == "--run":
+		return 2
+	case r.Cmd == "npx" && len(a) == 3 && a[0] == "jest" && a[1] == "--findRelatedTests":
+		return 2
+	}
+	return -1
+}
+
+// withTouchedFiles widens a run r narrowed to one file or package to name
+// what every other file of the same edit (touched, absolute paths) narrows
+// to, as an edit to each alone would run it: a Bash command that rewrites
+// files in several packages owes each package's tests, not the first one's.
+// A touched file that narrows to anything but the same shape of run means the
+// run that covers it is the root's broad one, base.
+func withTouchedFiles(r, base Runner, root string, touched []string) Runner {
+	pos := fileArgPos(r)
+	if pos < 0 {
+		return r
+	}
+	args := slices.Clone(r.Args)
+	added := 0
+	for _, f := range touched {
+		n := NarrowToRelatedTests(base, f, root)
+		if n.Cmd != r.Cmd || fileArgPos(n) != pos || !slices.Equal(n.Args[:pos], r.Args[:pos]) || !slices.Equal(n.Args[pos+1:], r.Args[pos+1:]) {
+			return base
+		}
+		if !slices.Contains(args, n.Args[pos]) {
+			added++
+			args = slices.Insert(args, pos+added, n.Args[pos])
+		}
+	}
+	wide := r
+	wide.Args = args
 	return wide
 }
 

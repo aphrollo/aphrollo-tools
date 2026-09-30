@@ -30,13 +30,17 @@ import (
 // one slot per session, B's Pre overwrote A's, A's Post consumed it, and B's
 // shell edit reached nothing.
 //
-// Two things it deliberately does NOT do. It cannot deny a smell before the
-// write: the content does not exist until the command has run, so the
-// pre-edit half is a snapshot and nothing else — the commit gate is where a
-// smell introduced through the shell is caught. And it runs a project's
-// suite ONCE however many files the command rewrote: the suite answers for
-// all of them at once, so a per-file loop would charge the same build twenty
-// times and leave twenty detached ones behind it.
+// Two things it deliberately does differently from an Edit. It cannot deny a
+// smell or a law hit before the write: the content does not exist until the
+// command has run, so the pre-edit half is a snapshot and nothing else. What
+// an Edit would have been denied for is named on the gate line right after
+// the write (bashedit_files.go), and the commit gate refuses it. And it runs
+// a project's suite ONCE however many files the command rewrote: the suite
+// answers for all of them at once, covering the package of each, so a
+// per-file loop would charge the same build twenty times and leave twenty
+// detached ones behind it. Everything else an Edit gets, each changed file
+// gets: gofmt, the laws, the smell checks, an edit-ledger record, the linter
+// and the mutation run.
 
 // maxBashSnapshots bounds what one session holds. A Pre whose Post never
 // arrives (a cancelled call, a crashed hook) would otherwise accumulate in
@@ -261,20 +265,28 @@ func PostBash(raw []byte, run SuiteRunner) string {
 	if err := json.Unmarshal(raw, &in); err != nil || in.ToolName != "Bash" {
 		return ""
 	}
-	return withSessionHarvest(postBashChanges(in, run), in.SessionID)
+	text, after := postBashChanges(in, run)
+	// The harvest first, then the detached runs, as the Edit hook orders them:
+	// a finished run is reported before the next one starts over its tree.
+	out := withSessionHarvest(text, in.SessionID)
+	if after != nil {
+		after()
+	}
+	return out
 }
 
 // postBashChanges is PostBash's own work: the post-edit path for each
-// source file the command changed.
-func postBashChanges(in bashInput, run SuiteRunner) string {
+// source file the command changed. It answers the gate text and the detached
+// runs to start once the session's finished ones have been read.
+func postBashChanges(in bashInput, run SuiteRunner) (string, func()) {
 	s, path := loadSession(in.SessionID)
 	if s == nil {
-		return ""
+		return "", nil
 	}
 	key := bashKey(in)
 	before := s.Bash[key]
 	if before == nil {
-		return ""
+		return "", nil
 	}
 	// This call's snapshot is consumed, and only this call's: a batched
 	// sibling still has its own, and a stale one must not outlive the command
@@ -289,32 +301,30 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 	if len(changed) == 0 {
 		if ended > 0 {
 			AppendGateLog("postedit", before.Root, "-", fmt.Sprintf("merge-%s-standdown:%d", how, ended), 0)
-			return mergeEndedLine(before.Root, how, ended)
+			return mergeEndedLine(before.Root, how, ended), nil
 		}
-		return ""
+		return "", nil
 	}
 	changed, fromTrunk := trunkSyncOwnPaths(before.Root, changed)
 	if len(changed) == 0 {
 		AppendGateLog("postedit", before.Root, "-", fmt.Sprintf("trunk-sync-standdown:%d", fromTrunk), 0)
-		return trunkSyncStandDownLine(before.Root, fromTrunk)
+		return trunkSyncStandDownLine(before.Root, fromTrunk), nil
 	}
 	if line := foreignStagedLine(before.Root, changed); line != "" {
-		return line
+		return line, nil
 	}
 	if line := unattributedPrimaryLine(in.SessionID, before.Root, changed); line != "" {
-		return line
+		return line, nil
 	}
 
-	var notes []string
-	// The laws judge every file the command changed, in one pass: a shell
-	// write fires no pre-edit hook, so this is the first judge that sees it.
-	var written []string
-	for _, rel := range changed {
-		written = append(written, filepath.Join(before.Root, filepath.FromSlash(rel)))
-	}
-	if note := lawRefusalNote(written); note != "" {
-		notes = append(notes, "gate: "+note)
-	}
+	// Every file the command changed gets what an Edit of it gets. Formatted
+	// first, so the ledger, the run and the laws judge the bytes the commit
+	// will carry; one edit-ledger record per file, which the run of its root
+	// settles.
+	live := liveSourceFiles(before.Root, changed)
+	formatted := gofmtEditedAll(live)
+	editIDs := recordBashEdits(live)
+	var notes, greenFiles []string
 	seenRoot := map[string]bool{}
 	byRoot := changedByRoot(before.Root, changed)
 	for i, rel := range changed {
@@ -325,11 +335,15 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 			continue
 		}
 		seenRoot[root] = true
-		// The one run this root gets also selects the test target of every
-		// other file the command changed here (#922).
-		text, deferred := postEditFile(in.SessionID, target, run, byRoot[root]...)
+		// The one run this root gets also selects the tests of every other
+		// file the command changed here (#922), and settles their ledger
+		// records.
+		text, deferred := postEditFileAs(in.SessionID, target, run, editIDs[root], byRoot[root])
 		if text != "" {
 			notes = append(notes, text)
+		}
+		if strings.Contains(text, "→ green") {
+			greenFiles = append(greenFiles, byRoot[root]...)
 		}
 		if deferred {
 			// One detached build per Bash call: a second project's cold build
@@ -350,7 +364,7 @@ func postBashChanges(in bashInput, run SuiteRunner) string {
 			break
 		}
 	}
-	return strings.Join(notes, "\n")
+	return bashGateFinish(in.SessionID, before.Root, changed, live, formatted, notes, greenFiles)
 }
 
 // changedByRoot groups the command's changed paths (relative to base) by

@@ -108,16 +108,38 @@ func recordEdit(root, file string) string {
 	return e.ID
 }
 
-// recordEditVerdict attaches a settled run's verdict to edit id.
+// editIDSep joins the ids of the edits one run judged: a Bash call that
+// changed several files records one edit per file, and its one run settles
+// every one of them.
+const editIDSep = ","
+
+// recordEdits appends an edit record for each of files (absolute) under root
+// and returns their ids joined, in order, for one verdict to name them all;
+// "" when none could be recorded.
+func recordEdits(root string, files []string) string {
+	var ids []string
+	for _, file := range files {
+		if id := recordEdit(root, file); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return strings.Join(ids, editIDSep)
+}
+
+// recordEditVerdict attaches a settled run's verdict to edit id, or to every
+// edit id names when recordEdits joined several.
 func recordEditVerdict(root, id, cmd string, outcome Outcome, output string) {
 	path := editLedgerPath(root)
 	if path == "" || id == "" {
 		return
 	}
-	appendLedgerLine(path, ledgerLine{EditID: id, Verdict: &ledgerVerdict{
+	verdict := &ledgerVerdict{
 		Cmd: cmd, Outcome: string(outcome),
 		Failing: ExtractFailingTests(output), Passed: ExtractPassingTests(output),
-	}})
+	}
+	for _, one := range strings.Split(id, editIDSep) {
+		appendLedgerLine(path, ledgerLine{EditID: one, Verdict: verdict})
+	}
 }
 
 // loadEditLedger returns root's edits in the order they were made, each with

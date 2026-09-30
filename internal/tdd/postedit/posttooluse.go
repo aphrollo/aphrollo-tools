@@ -77,6 +77,18 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 // is every other file the same edit changed under target's root: a test
 // target one of them belongs to joins the run (withTouchedTestTargets).
 func postEditFile(session, target string, run SuiteRunner, touched ...string) (string, bool) {
+	root := FindProjectRoot(target)
+	if ClassifyFile(target) == Ignore || root == "" {
+		return "", false
+	}
+	// Before the enforcement check: an edit with the gate off still changed the file.
+	return postEditFileAs(session, target, run, recordEdit(root, target), touched)
+}
+
+// postEditFileAs is postEditFile for an edit whose ledger records are already
+// written: editID names them (joined, when one run judges several files), and
+// "" is no record at all, as for a file the edit deleted.
+func postEditFileAs(session, target string, run SuiteRunner, editID string, touched []string) (string, bool) {
 	kind := ClassifyFile(target)
 	if kind == Ignore {
 		return "", false
@@ -86,8 +98,6 @@ func postEditFile(session, target string, run SuiteRunner, touched ...string) (s
 		return "", false
 	}
 
-	// Before the enforcement check: an edit with the gate off still changed the file.
-	editID := recordEdit(root, target)
 	snap, ok := captureStateSnapshot(session, target, root, touched)
 	if !ok {
 		return "", false
@@ -268,7 +278,7 @@ func captureStateSnapshot(session, target, root string, touched []string) (state
 	if !ok {
 		return stateSnapshot{}, false
 	}
-	runner := withTouchedTestTargets(NarrowToRelatedTests(base, target, root), base, root, touched)
+	runner := withTouchedFiles(withTouchedTestTargets(NarrowToRelatedTests(base, target, root), base, root, touched), base, root, touched)
 	runner, toolMissing := nodeToolRunner(root, runner)
 
 	fp := computeFingerprint(root)

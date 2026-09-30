@@ -15,3 +15,5 @@ func recordEdit(p0 string, p1 string) string { return failfirst.RecordEdit(p0, p
 func recordEditVerdict(p0 string, p1 string, p2 string, p3 Outcome, p4 string) {
 	failfirst.RecordEditVerdict(p0, p1, p2, p3, p4)
 }
+
+func recordEdits(p0 string, p1 []string) string { return failfirst.RecordEdits(p0, p1) }
