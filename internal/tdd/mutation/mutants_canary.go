@@ -36,10 +36,11 @@ type gitWorld []gitWorldPart
 // checked-out branch of every worktree that existed at both ends, the
 // registrations that are neither a lane nor a gate path (a lane is made and
 // pruned, and the gate registers checkouts of its own, all through the run),
-// the checked-out commit of the checkout at root, the tip of main, the set of
-// branch names (not their tips: a sibling lane's commit moves its own branch),
-// and the operator's global git config. Outside a repository only the global
-// config is read.
+// the checked-out commit of the checkout at root, the tip of main with the
+// reflog subjects behind it, the set of branch names other than lane/* (not
+// their tips: a sibling lane's commit moves its own branch), and the
+// operator's global git config. Outside a repository only the global config is
+// read.
 func snapshotGitWorld(root string) gitWorld {
 	var w gitWorld
 	if lane := RepoRoot(root); lane != "" {
@@ -55,9 +56,11 @@ func snapshotGitWorld(root string) gitWorld {
 		heads = keepWorktrees(heads, func(path string) bool { return !isGateWorktree(path) })
 		w = append(w, gitWorldPart{"the worktree registrations", true, registrations})
 		w = append(w, gitWorldPart{worktreeHeadsLabel, true, heads})
-		w = append(w, gitWorldPart{"the branches", true, gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads")})
+		w = append(w, gitWorldPart{"the branches", true, withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads"))})
 		w = append(w, gitWorldPart{"the checked-out commit", true, strings.TrimSpace(gitOut(lane, "rev-parse", "HEAD"))})
-		w = append(w, gitWorldPart{"the tip of main", true, strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/heads/main"))})
+		tip := strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/heads/main"))
+		log := strings.TrimSuffix(gitOut(lane, "log", "-g", "-n", "100", "--format=%gs", "refs/heads/main"), "\n")
+		w = append(w, gitWorldPart{tipOfMainLabel, true, tip + "\n" + log})
 	}
 	for _, path := range globalGitConfigs() {
 		w = append(w, filePart("the global git config "+path, path))
@@ -106,8 +109,50 @@ func worktreeFacts(porcelain string) (registrations, heads string) {
 	return strings.Join(paths, "\n"), strings.Join(checkouts, "\n")
 }
 
-// worktreeHeadsLabel names the part holding what each worktree has checked out.
-const worktreeHeadsLabel = "the worktree HEADs"
+// worktreeHeadsLabel names the part holding what each worktree has checked out,
+// and tipOfMainLabel the one holding main's tip and the subjects of its reflog.
+const (
+	worktreeHeadsLabel = "the worktree HEADs"
+	tipOfMainLabel     = "the tip of main"
+)
+
+// withoutLaneBranches is a list of branch refs, one per line, without the
+// lane/* ones: a lane is made and pruned with its branch through any run.
+func withoutLaneBranches(refs string) string {
+	var kept []string
+	for ref := range strings.SplitSeq(refs, "\n") {
+		if !strings.HasPrefix(ref, "refs/heads/lane/") {
+			kept = append(kept, ref)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+// onlyMergesAdvancedMain reports whether main's part after differs from before
+// only by merges landing on it: the reflog subjects it gained on top are all
+// merges or pulls (`git merge` and `git pull` write "merge <ref>: …" and
+// "pull: …"), there is at least one, and the log below them is the one before
+// had. A commit, a reset or a move with no log entry is not one.
+func onlyMergesAdvancedMain(before, after string) bool {
+	entries := func(text string) []string {
+		_, log, _ := strings.Cut(text, "\n")
+		if log == "" {
+			return nil
+		}
+		return strings.Split(log, "\n")
+	}
+	was, now := entries(before), entries(after)
+	added := len(now) - len(was)
+	if added < 1 || !slices.Equal(now[added:], was) {
+		return false
+	}
+	for _, subject := range now[:added] {
+		if !strings.HasPrefix(subject, "merge ") && !strings.HasPrefix(subject, "pull") {
+			return false
+		}
+	}
+	return true
+}
 
 // worktreeLaneDir is the directory the lanes of lane's repository live in:
 // <parent of the primary>/.worktrees/<repo>. The gate's shared go scratch dir
@@ -211,6 +256,9 @@ func (w gitWorld) changesTo(after gitWorld) []string {
 		now := after[i]
 		if was.Label == worktreeHeadsLabel {
 			was.Text, now.Text = sharedWorktreeHeads(was.Text, now.Text)
+		}
+		if was.Label == tipOfMainLabel && onlyMergesAdvancedMain(was.Text, now.Text) {
+			continue
 		}
 		if was.Label != now.Label || (was.Present == now.Present && was.Text == now.Text) {
 			continue

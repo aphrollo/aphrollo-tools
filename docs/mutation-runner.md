@@ -761,16 +761,19 @@ and counted in the gate log as `mutants-unmeasured:commit-<kind>`.
 measurement, `gate mutants prove`, the test-map build) fingerprints the git
 state a leaking test would touch before it starts and again when it ends
 (`internal/tdd/mutation/mutants_canary.go`): the repository's config without
-its `[branch]` stanzas, the branch names, the tip of `main`, the checked-out
-commit, the operator's global git config, the registered worktrees that are
-neither a lane nor a gate checkout, and what each worktree present at both ends
-has checked out. A difference refuses the run's result with the change named
-and records an escape. Ordinary work on a busy box is not a difference: a lane
-made or pruned (a direct child of `<parent of the primary>/.worktrees/<repo>`)
-and the gate's own `gate-trunkpreview-*`, `gate-prmerge-*`, `gate-failfirst-*`
-and `failfirst-wt/` checkouts come and go through a run. A registration
+its `[branch]` stanzas, the branch names, the tip of `main` with the reflog
+subjects behind it, the checked-out commit, the operator's global git config,
+the registered worktrees that are neither a lane nor a gate checkout, and what
+each worktree present at both ends has checked out. A difference refuses the
+run's result with the change named and records an escape. Ordinary work on a
+busy box is not a difference: a lane made or pruned (a direct child of
+`<parent of the primary>/.worktrees/<repo>`, with its `lane/<name>` branch), the
+gate's own `gate-trunkpreview-*`, `gate-prmerge-*`, `gate-failfirst-*` and
+`failfirst-wt/` checkouts, and a merge landing on `main` (the new reflog entries
+on top are all `merge …` or `pull…`) come and go through a run. A registration
 anywhere else, the run's temp areas under `.worktrees/<repo>/gotmp` and
-`.mutants` included, is a leak.
+`.mutants` included, a branch that is not `lane/*`, and a commit or a bare move
+of `main` are leaks.
 
 **The verdict.** A survivor no `mutation-accept` entry admits refuses the
 commit, named as the pre-merge report names it, with the counts and the
@@ -807,6 +810,7 @@ stage refused and for what without re-running anything.
 | `mutants-refused:disk` | the build drive cannot carry even one shard's copy and build dir |
 | `mutants-refused:tree-changed` | the run left the working tree different from how it found it |
 | `mutants-refused:git-failed` | git could not read the tree, so the tree that was measured cannot be compared with the one the run started from — the refusal carries git's own stderr |
+| `mutants-refused:git-world-changed` | the canary found the repository's config, branches, main, a non-lane worktree registration or the global git config different after a commit-time run, so the run's result is not trusted |
 | `mutants-refused:no-verdict` | an exit status cargo-mutants does not use for a verdict; the message names disk exhaustion as the probable cause when the drive is, at that moment, below what one measurement process needs |
 | `mutants-refused:coverage-run-failed` | the Go runner's coverage gather failed on the lane's own tree — a build error or a failing test, with no box-side cause in go test's output; the refusal names each package go test failed and each test it named |
 | `mutants-refused:config` | a retired key, or a `mutants-after` naming a file that is not there |
