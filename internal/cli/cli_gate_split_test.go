@@ -158,3 +158,53 @@ func TestPrintSplitPlan_OmitsTheTestsLineWhenNoNameIsKnown(t *testing.T) {
 		t.Fatalf("output = %q, want %q", out.String(), want)
 	}
 }
+
+// The plumbing commit must not become a way onto main in the primary
+// checkout: the shim's own wall answers for it.
+func TestGateSplitCommit_ApplyIsRefusedInThePrimaryCheckout(t *testing.T) {
+	primary, _, _ := primaryShimRepo(t)
+	gateConfigDir(t)
+	stubSplitSuite(t, splitGreen())
+	writeFile(t, primary+"/go.mod", "module example.com/m\n\ngo 1.26\n")
+	gitCommitAll(t, primary, "go mod")
+	writeFile(t, primary+"/widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	writeFile(t, primary+"/widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 {\n\t\tt.Fatal(\"no\")\n\t}\n}\n")
+	gitRun(t, primary, "add", "-A")
+	head := gitLine(t, primary, "rev-parse", "HEAD")
+
+	code, _, errb := runSplit("--apply")
+
+	if code != 1 || !strings.Contains(errb, "refused") || !strings.Contains(errb, "merge-only") {
+		t.Fatalf("exit %d, stderr %q; want the primary-checkout refusal", code, errb)
+	}
+	if got := gitLine(t, primary, "rev-parse", "HEAD"); got != head {
+		t.Errorf("HEAD moved to %s in the primary checkout", got)
+	}
+}
+
+// A -m message is judged like the commit-msg hook judges one: the
+// attribution rule and the subject rule both refuse.
+func TestGateSplitCommit_ApplyRefusesAMessageTheCommitMsgGateRefuses(t *testing.T) {
+	cases := []struct{ name, msg, want string }{
+		{"attribution trailer", "Pin the widget behavior with a test\n\nCo-Authored-By: Claude <noreply@anthropic.com>", "Co-Authored-By"},
+		{"short subject", "Pin Widget", "under four words"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := stagedMixedRepo(t)
+			stubSplitSuite(t, splitGreen())
+			head := gitLine(t, root, "rev-parse", "HEAD")
+			writeFile(t, root+"/aphrollo.toml", "[aphrollo]\nundercover = true\n")
+			gitRun(t, root, "add", "aphrollo.toml")
+
+			code, _, errb := runSplit("--apply", "-m", tc.msg)
+
+			if code != 1 || !strings.Contains(errb, "refused") || !strings.Contains(errb, tc.want) {
+				t.Fatalf("exit %d, stderr %q; want a commit-msg refusal naming %q", code, errb, tc.want)
+			}
+			if got := gitLine(t, root, "rev-parse", "HEAD"); got != head {
+				t.Errorf("HEAD moved to %s", got)
+			}
+		})
+	}
+}

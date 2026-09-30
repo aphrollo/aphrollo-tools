@@ -197,3 +197,35 @@ func TestAppendNew_SkipsWhatTheListAlreadyHolds(t *testing.T) {
 		t.Fatalf("appendNew = %v, want [a b c]", got)
 	}
 }
+
+// The test-only commit is written without a hook, so ApplySplit judges its
+// tree itself: a staged test that breaks a ratchet law is refused and HEAD
+// stays put.
+// Serial: captures the process-wide os.Stderr.
+func TestApplySplit_RefusesATestTreeThatBreaksARatchetLaw(t *testing.T) {
+	tddtest.VerdictWordTmp(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	write(t, root, ".ratchet/laws/no-forbidden.toml", "name = \"no-forbidden\"\ndescription = \"no FORBIDDEN in tests\"\nseverity = \"deny\"\n\n[scope]\ninclude = [\"**/*_test.go\"]\n\n[matcher]\nkind = \"regex-absent\"\npattern = \"FORBIDDEN\"\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "law")
+	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
+	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\n// FORBIDDEN\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 {\n\t\tt.Fatal(\"no\")\n\t}\n}\n")
+	gitDo(t, root, "add", ".")
+	head := gitOutT(t, root, "rev-parse", "HEAD")
+	var plan SplitPlan
+	captureStderr(t, func() { plan, _ = PlanSplit(root, splitGreenRun) })
+	if len(plan.Tests) == 0 {
+		t.Fatal("setup: the plan should offer the test")
+	}
+
+	var err error
+	captureStderr(t, func() { _, err = ApplySplit(root, plan, "Pin Widget") })
+
+	if err == nil || !strings.Contains(err.Error(), "no-forbidden") {
+		t.Fatalf("ApplySplit err = %v, want a ratchet refusal naming no-forbidden", err)
+	}
+	if got := gitOutT(t, root, "rev-parse", "HEAD"); got != head {
+		t.Errorf("HEAD moved to %s despite the refusal", got)
+	}
+}

@@ -69,7 +69,42 @@ func ApplySplit(repoRoot string, plan SplitPlan, msg string) (string, error) {
 	if strings.TrimSpace(msg) == "" {
 		msg = plan.Message
 	}
+	if res := judgeSplitTree(repoRoot, plan.Tests); res.Blocked {
+		return "", errors.New(res.Message)
+	}
 	return CommitStagedSubset(repoRoot, plan.Tests, msg)
+}
+
+// judgeSplitTree runs the commit gate's cheap tree guards — the staged
+// baseline guard, the ratchet laws and the docs check — over the tree the
+// test-only commit would have. The commit is written with plumbing, which
+// runs no hook, so nothing else would judge it. The stages read what is
+// STAGED, so they run in a throwaway worktree at HEAD with the subset's
+// staged diff applied to its index; the real index and working tree are not
+// touched. A worktree that cannot be built refuses: an unjudged commit is the
+// one outcome this exists to prevent.
+func judgeSplitTree(repoRoot string, paths []string) GateResult {
+	refuse := func(why string) GateResult {
+		return GateResult{Blocked: true, Message: "gate split-commit: the test-only commit could not be judged: " + why}
+	}
+	wt, err := addGateWorktree(repoRoot)
+	if err != nil {
+		return refuse(err.Error())
+	}
+	defer removeGateWorktree(repoRoot, wt)
+	diff, err := gitStaged(repoRoot, paths)
+	if err != nil || strings.TrimSpace(diff) == "" {
+		return refuse("the staged diff of the tests could not be read")
+	}
+	if err := gitApplyIndex(wt, diff); err != nil {
+		return refuse(err.Error())
+	}
+	for _, stage := range []func(string, string) GateResult{baselineStage, docsCheckStage} {
+		if res := stage("precommit", wt); res.Blocked {
+			return res
+		}
+	}
+	return commitRatchetStage(wt)
 }
 
 // splitMessage is the first commit's default message: what the commit is,

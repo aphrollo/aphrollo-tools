@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -127,6 +128,11 @@ func TestMain(m *testing.M) {
 // default under the home dir, and moving them would make every `go` a test
 // spawns rebuild the world into an empty cache.
 func redirectHome(dir string) {
+	gitenv.DisableMaintenance(func(k, v string) {
+		if err := os.Setenv(k, v); err != nil {
+			panic(err)
+		}
+	})
 	if home, err := os.UserHomeDir(); err == nil {
 		realHomeAtStart = home
 	}

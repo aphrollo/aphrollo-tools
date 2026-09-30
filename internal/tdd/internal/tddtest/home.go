@@ -6,7 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
+
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 )
 
 // homeVars is every variable a Go program, git, or a tool the tests spawn
@@ -72,22 +73,11 @@ func isolateHome(dir string) string {
 // the test whose t.TempDir it writes into (#1004). Set through
 // GIT_CONFIG_COUNT so a fixture repo's own config cannot switch it back on.
 func disableGitMaintenance() {
-	settings := [][2]string{
-		{"maintenance.auto", "false"},
-		{"gc.auto", "0"},
-		{"gc.autoDetach", "false"},
-	}
-	if err := os.Setenv("GIT_CONFIG_COUNT", strconv.Itoa(len(settings))); err != nil {
-		panic(err)
-	}
-	for i, kv := range settings {
-		if err := os.Setenv("GIT_CONFIG_KEY_"+strconv.Itoa(i), kv[0]); err != nil {
+	gitenv.DisableMaintenance(func(k, v string) {
+		if err := os.Setenv(k, v); err != nil {
 			panic(err)
 		}
-		if err := os.Setenv("GIT_CONFIG_VALUE_"+strconv.Itoa(i), kv[1]); err != nil {
-			panic(err)
-		}
-	}
+	})
 }
 
 // pinToolchainHomes writes the Go toolchain's resolved cache and env-file

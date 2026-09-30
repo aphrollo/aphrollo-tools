@@ -162,6 +162,15 @@ func gitApply(wt, diff string) error {
 	return nil
 }
 
+// gitApplyIndex is gitApply into the worktree's index as well as its files,
+// so a stage that reads what is staged sees the patch.
+func gitApplyIndex(wt, diff string) error {
+	if out, err := gitStdin(wt, strings.NewReader(diff), "apply", "--index", "--whitespace=nowarn"); err != nil {
+		return fmt.Errorf("git apply --index: %s", strings.TrimSpace(out))
+	}
+	return nil
+}
+
 // RepoRoot returns the git top-level for dir, or "" if dir is not in a repo —
 // the working directory a git pre-commit hook should evaluate.
 func RepoRoot(dir string) string {

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -66,6 +67,10 @@ func runGateSplitCommit(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "\ndry run: nothing changed. Run again with --apply to write the first commit.")
 		return 0
 	}
+	if why := splitCommitRefusal(root, plan, *msg); why != "" {
+		fmt.Fprintf(stderr, "gate split-commit: refused: %s\n", why)
+		return 1
+	}
 	commit, err := tdd.ApplySplit(root, plan, *msg)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate split-commit: %v\n", err)
@@ -92,4 +97,38 @@ func printSplitPlan(w io.Writer, plan tdd.SplitPlan, msg string) {
 	for _, f := range plan.Rest {
 		fmt.Fprintf(w, "    %s\n", f)
 	}
+}
+
+// splitCommitRefusal is the guardrails the plumbing commit would otherwise
+// skip, judged the way the git hooks and the git shim judge them: the
+// primary-checkout wall (the shim's own decision, for a `commit`), then the
+// commit-msg gate over the message the commit will carry. "" means clear.
+// The tree guards run inside tdd.ApplySplit.
+func splitCommitRefusal(root string, plan tdd.SplitPlan, msg string) string {
+	realGit, err := resolveRealGit()
+	if err != nil {
+		return "cannot resolve git to judge the primary-checkout wall: " + err.Error()
+	}
+	if line := primaryRefusalLine(realGit, []string{"commit"}, root, false); line != "" {
+		return line
+	}
+	if strings.TrimSpace(msg) == "" {
+		msg = plan.Message
+	}
+	f, err := os.CreateTemp("", "aphrollo-split-msg-*")
+	if err != nil {
+		return "cannot write the message to judge it: " + err.Error()
+	}
+	defer os.Remove(f.Name())
+	if _, err := f.WriteString(msg + "\n"); err != nil {
+		f.Close()
+		return "cannot write the message to judge it: " + err.Error()
+	}
+	if err := f.Close(); err != nil {
+		return "cannot write the message to judge it: " + err.Error()
+	}
+	if res := tdd.CommitMsg(root, f.Name()); res.Blocked {
+		return res.Message
+	}
+	return ""
 }

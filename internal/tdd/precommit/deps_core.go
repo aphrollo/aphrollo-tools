@@ -37,6 +37,8 @@ func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }
 
 func StateDir() string { return core.StateDir() }
 
+func addGateWorktree(p0 string) (string, error) { return core.AddGateWorktree(p0) }
+
 func dedupeSorted(p0 []string) []string { return core.DedupeSorted(p0) }
 
 func maskTokens(p0 string, p1 bool, p2 bool, p3 bool) string { return core.MaskTokens(p0, p1, p2, p3) }
@@ -44,6 +46,8 @@ func maskTokens(p0 string, p1 bool, p2 bool, p3 bool) string { return core.MaskT
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
 
 func quotedWords(p0 string) []string { return core.QuotedWords(p0) }
+
+func removeGateWorktree(p0 string, p1 string) { core.RemoveGateWorktree(p0, p1) }
 
 func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }
 

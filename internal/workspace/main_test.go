@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 )
 
 // stubDirs holds every temp dir a package-lifetime fixture built (a compiled
@@ -83,6 +85,11 @@ var realHomeAtStart string
 // throwaway directory, after pinning the Go caches so moving HOME cannot move
 // them too.
 func redirectHome(dir string) {
+	gitenv.DisableMaintenance(func(k, v string) {
+		if err := os.Setenv(k, v); err != nil {
+			panic(err)
+		}
+	})
 	if home, err := os.UserHomeDir(); err == nil {
 		realHomeAtStart = home
 	}

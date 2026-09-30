@@ -22,6 +22,8 @@ func Git(p0 string, p1 ...string) (string, error) { return git(p0, p1...) }
 
 func GitApply(p0 string, p1 string) error { return gitApply(p0, p1) }
 
+func GitApplyIndex(p0 string, p1 string) error { return gitApplyIndex(p0, p1) }
+
 func GitBinary() string { return gitBinary() }
 
 func GitOut(p0 string, p1 ...string) string { return gitOut(p0, p1...) }
