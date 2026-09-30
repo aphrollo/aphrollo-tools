@@ -234,8 +234,13 @@ func foreignLoadReport(selfPID int) string {
 	// takes.
 	sampleFn := machineLoadSampleFn
 	go func() {
-		defer machineLoadMu.Unlock()
 		cores, loadPct, procs, ok := sampleFn(stop)
+		// Release BEFORE handing the result over: a caller that has its
+		// report in hand must find the guard free, or its next call (the
+		// next test, the next rejection) declines on a sample that is
+		// already finished. An abandoned sample still holds the guard
+		// until the probe returns, because the release follows the probe.
+		machineLoadMu.Unlock()
 		ch <- sample{cores, loadPct, procs, ok}
 	}()
 	select {

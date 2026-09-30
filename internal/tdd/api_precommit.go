@@ -19,6 +19,12 @@ type DiffClass = precommit.DiffClass
 
 type NpmVerifyStep = precommit.NpmVerifyStep
 
+type SplitPlan = precommit.SplitPlan
+
+func ApplySplit(p0 string, p1 SplitPlan, p2 string) (string, error) {
+	return precommit.ApplySplit(p0, p1, p2)
+}
+
 func ClassifyDiff(p0 string, p1 string, p2 string) (DiffClass, error) {
 	return precommit.ClassifyDiff(p0, p1, p2)
 }
@@ -28,6 +34,8 @@ func Mechanical(p0 string, p1 SuiteRunner) GateResult { return precommit.Mechani
 func NpmVerifySteps(p0 string, p1 string) ([]NpmVerifyStep, error) {
 	return precommit.NpmVerifySteps(p0, p1)
 }
+
+func PlanSplit(p0 string, p1 SuiteRunner) (SplitPlan, error) { return precommit.PlanSplit(p0, p1) }
 
 func Precommit(p0 string, p1 SuiteRunner) GateResult { return precommit.Precommit(p0, p1) }
 

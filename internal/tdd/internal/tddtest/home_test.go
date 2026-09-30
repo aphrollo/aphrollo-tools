@@ -166,3 +166,41 @@ func runBounded(t *testing.T, exe string, args, env []string) (string, int) {
 	t.Fatalf("running %s %v: %v", exe, args, err)
 	return "", -1
 }
+
+// A commit in a fixture repo must never leave git working behind it. After
+// every commit git runs `git maintenance run --auto --detach`, and when a
+// task is due that forks a background process which repacks and prunes the
+// repo after `git commit` has already returned. The test's t.TempDir cleanup
+// then removes the repo while that process still writes into it, and fails
+// with "directory not empty" (#1004). The run's own environment therefore
+// switches auto maintenance off, above any config a fixture repo carries.
+func TestMain_GitNeverRunsMaintenanceInTheBackground(t *testing.T) {
+	repo := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"config", "maintenance.auto", "true"},
+		{"config", "gc.auto", "1"},
+		{"config", "gc.autoDetach", "true"},
+	} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	for key, want := range map[string]string{
+		"maintenance.auto": "false",
+		"gc.auto":          "0",
+		"gc.autoDetach":    "false",
+	} {
+		cmd := exec.Command("git", "config", "--get", key)
+		cmd.Dir = repo
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("git config --get %s: %v", key, err)
+		}
+		if got := strings.TrimSpace(string(out)); got != want {
+			t.Errorf("git config %s = %q, want %q", key, got, want)
+		}
+	}
+}

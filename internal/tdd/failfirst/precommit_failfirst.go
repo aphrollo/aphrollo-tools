@@ -464,7 +464,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 			return GateResult{Blocked: true, Message: allTestsSkippedMessage(out.skippedPkgs, out.runner)}
 		}
 		if out.Conclusive && out.violated {
-			return GateResult{Blocked: true, Message: failFirstViolationMessage(out.runner)}
+			return GateResult{Blocked: true, Message: failFirstViolationMessage(out.runner) + splitAdvice(tests, goRunNames(out.runner.Args))}
 		}
 		if out.Conclusive {
 			if o, refused := greenRefusal(root, ffCmd, out.green); refused {

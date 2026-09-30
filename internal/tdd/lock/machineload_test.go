@@ -425,3 +425,19 @@ func TestLockSeamSetters_InstallAndRestore(t *testing.T) {
 		t.Error("restore left the shared lock dir stub in place")
 	}
 }
+
+// TestForeignLoadReport_BackToBackCallsNeverDecline pins the ordering the
+// single-flight guard needs: a call that has returned its report has already
+// released the guard, so the next call from the same goroutine samples
+// instead of declining as "already in progress". The guard must stay held
+// only for a sample nobody is waiting for any more.
+func TestForeignLoadReport_BackToBackCallsNeverDecline(t *testing.T) {
+	t.Cleanup(SetMachineLoadSampleForTest(func(<-chan struct{}) (int, float64, []procSample, bool) {
+		return 4, 10, nil, true
+	}))
+	for i := 0; i < 300000; i++ {
+		if got := foreignLoadReport(1); got != "box: 4 cores, load 10%" {
+			t.Fatalf("call %d: foreignLoadReport(...) = %q, want the sampled box line; a returned report must have released the guard", i, got)
+		}
+	}
+}
