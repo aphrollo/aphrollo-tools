@@ -62,6 +62,19 @@ func TestSnapshotGitWorld_ALaneBranchAndAMergeLandingOnMainAreNotAChange(t *test
 	}
 }
 
+// A run in a lane judges registrations against the lanes of the PRIMARY
+// checkout, which is where every sibling lane is made.
+func TestSnapshotGitWorld_ALaneMadeBesideARunInALaneIsNotAChange(t *testing.T) {
+	repo, sibling, _ := canaryLanes(t)
+	before := snapshotGitWorld(sibling)
+
+	gitDo(t, repo, "worktree", "add", "-q", "--detach", filepath.Join(laneDirOf(repo), "another"))
+
+	if changes := before.changesTo(snapshotGitWorld(sibling)); len(changes) != 0 {
+		t.Errorf("a new sibling lane looked like a leak to a run in a lane: %v", changes)
+	}
+}
+
 // What a leak does to main, or to the branch names, is still named.
 func TestSnapshotGitWorld_ACommitOrAMoveOfMainAndANonLaneBranchAreStillAChange(t *testing.T) {
 	cases := []struct {
