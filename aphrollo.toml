@@ -92,11 +92,10 @@ mutants-before-pr = "ci"
 # repository, a neutral global git config) in a disposable copy of the lane,
 # and a canary refuses the run's result when the repository's config, branches,
 # tip of main, non-lane worktree registrations or the global git config differ
-# when it ends. The budget is 300 s: the tests of internal/cli alone take about
-# a minute, so the default 60 s leaves most mutants of a change there NOT
-# MEASURED.
+# when it ends. The budget is the default 60 s: a commit never waits longer, and
+# the mutants it does not reach (internal/cli's tests alone take about a minute)
+# are NOT MEASURED and left to CI's mutants-verdict.
 mutants-at-commit = true
-mutants-commit-budget = 300
 
 # How many runners the CI measurement divides across: the width of the
 # mutants-shard matrix. Shards split the lane's changed source files by added
