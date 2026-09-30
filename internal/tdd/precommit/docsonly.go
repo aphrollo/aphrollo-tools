@@ -2,7 +2,6 @@ package precommit
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -82,7 +81,7 @@ func commentOnlyFastPath(gateName, repoRoot string) GateResult {
 // suppression scan) and stop. It never takes the build lock, because none of
 // what it runs compiles anything.
 func buildFreeFastPath(gateName, repoRoot, kind, reason string, runSuppression bool) GateResult {
-	fmt.Fprintf(os.Stderr, "gate %s: %s → %s fast path (baseline, laws, doc citations; no suite, no build lock)\n", gateName, reason, kind)
+	fmt.Fprintf(stderrFor(repoRoot), "gate %s: %s → %s fast path (baseline, laws, doc citations; no suite, no build lock)\n", gateName, reason, kind)
 	AppendGateLog(gateName, repoRoot, kind, kind+"-fastpath", 0)
 
 	var notes []string
@@ -103,7 +102,7 @@ func buildFreeFastPath(gateName, repoRoot, kind, reason string, runSuppression b
 	// A verdict that says nothing is indistinguishable from a gate that never
 	// ran, so the fast path states what it decided not to do.
 	line := nothingToTestLine(gateName)
-	fmt.Fprintln(os.Stderr, line)
+	fmt.Fprintln(stderrFor(repoRoot), line)
 	notes = append(notes, line)
 	return GateResult{Message: strings.Join(notes, "\n")}
 }

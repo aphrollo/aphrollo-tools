@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
 // WHAT A RUN PROVED, AND WHAT IT MAY THEREFORE CLAIM.
@@ -177,7 +179,7 @@ func provenCovers(have []runScope, want runScope) bool {
 // crate, and the wording must say so.
 func reportSuitesNotRun(gateName, root, noun string, runner Runner, touched []string) {
 	cmd := cmdString(runner)
-	fmt.Fprintf(os.Stderr, "[mechanical] gate %s: %s in %s → %s\n", gateName, cmd, root, notRunClause(touched, noun))
+	fmt.Fprintf(rootseam.Stderr(root), "[mechanical] gate %s: %s in %s → %s\n", gateName, cmd, root, notRunClause(touched, noun))
 	AppendGateLog(gateName, root, cmd, "suites-not-run", 0)
 }
 

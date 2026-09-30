@@ -3,6 +3,8 @@ package suite
 import (
 	"fmt"
 	"os"
+
+	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
 // stageOutcomeKind is the closed set of ways any precommit/prepush check can
@@ -83,12 +85,12 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		return GateResult{}
 	case outcomeSkipped:
 		line := fmt.Sprintf("[%s] gate %s: in %s → skipped (%s)", stage, gateName, root, o.Reason)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(rootseam.Stderr(root), line)
 		AppendGateLog(gateName, root, cmd, "skipped", o.Result.Duration)
 		return GateResult{Message: line}
 	case outcomeRunnerMissing:
 		line := fmt.Sprintf("[%s] gate %s: in %s → skipped (%s)", stage, gateName, root, o.Reason)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(rootseam.Stderr(root), line)
 		AppendGateLog(gateName, root, cmd, "runner-missing", 0)
 		return GateResult{Message: line}
 	case outcomeTimeout:
@@ -105,33 +107,33 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 			// timeout, and logged under its own verdict.
 			line := fmt.Sprintf("[%s] gate %s: %s in %s %s REJECTED (nothing was tested)\n%s",
 				stage, gateName, cmd, root, o.Result.Inconclusive, load)
-			fmt.Fprintln(os.Stderr, line)
+			fmt.Fprintln(rootseam.Stderr(root), line)
 			AppendGateLog(gateName, root, cmd, "inconclusive-rejected", o.Result.Duration)
 			return GateResult{Blocked: true, Message: o.Message + "\n" + load}
 		}
 		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)\n%s",
 			stage, gateName, cmd, root, o.Result.Duration.Seconds(), load)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(rootseam.Stderr(root), line)
 		AppendGateLog(gateName, root, cmd, "timeout-rejected", o.Result.Duration)
 		return GateResult{Blocked: true, Message: o.Message + "\n" + load}
 	case outcomeCheckError:
 		line := fmt.Sprintf("[%s] gate %s: in %s → REJECTED (%v)", stage, gateName, root, o.Err)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(rootseam.Stderr(root), line)
 		AppendGateLog(gateName, root, cmd, "check-error-rejected", 0)
 		return GateResult{Blocked: true, Message: o.Message}
 	case outcomeFail:
-		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmd, root)
+		fmt.Fprintf(rootseam.Stderr(root), "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmd, root)
 		logSuiteVerdict(gateName, root, cmd, stage+"-blocked", o.Result)
 		return GateResult{Blocked: true, Message: o.Message}
 	case outcomeVacuous:
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (0 tests executed; nothing was tested)",
 			stage, gateName, cmd, root)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(rootseam.Stderr(root), line)
 		AppendGateLog(gateName, root, cmd, "vacuous-rejected", o.Result.Duration)
 		return GateResult{Blocked: true, Message: o.Message}
 	case outcomeContention:
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (box contention: %s)", stage, gateName, cmd, root, o.Reason)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(rootseam.Stderr(root), line)
 		AppendGateLog(gateName, root, cmd, "contention-rejected", o.Result.Duration)
 		return GateResult{Blocked: true, Message: o.Message}
 	default:
@@ -143,7 +145,7 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		// continuing is unsafe.
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (unclassified stage outcome kind %d)",
 			stage, gateName, cmd, root, o.Kind)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(rootseam.Stderr(root), line)
 		AppendGateLog(gateName, root, cmd, "unclassified-outcome-rejected", 0)
 		return GateResult{Blocked: true, Message: line}
 	}

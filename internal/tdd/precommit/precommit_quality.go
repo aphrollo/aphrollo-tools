@@ -2,7 +2,6 @@ package precommit
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -91,7 +90,7 @@ func qualityVerdict(gateName, root, pkg, stage string, r Runner, res SuiteResult
 	case !acquired:
 		// A check that never ran has proven nothing, and the suite stage
 		// rejects for exactly this reason: the two must agree.
-		fmt.Fprintf(os.Stderr, "gate %s: %s -p %s in %s QUEUED-REJECTED (no build slot came free)\n", gateName, stage, pkg, root)
+		fmt.Fprintf(stderrFor(root), "gate %s: %s -p %s in %s QUEUED-REJECTED (no build slot came free)\n", gateName, stage, pkg, root)
 		AppendGateLog(gateName, root, cmdString(r), stage+"-queued-rejected", 0)
 		return &GateResult{Blocked: true, Message: fmt.Sprintf(
 			"gate %s: could not run %s -p %s in %s: every build slot stayed busy for the whole wait, so nothing was checked and the commit is refused. Retry when the build finishes.",
@@ -104,11 +103,11 @@ func qualityVerdict(gateName, root, pkg, stage string, r Runner, res SuiteResult
 		})
 		return &got
 	case !res.Passed:
-		fmt.Fprintf(os.Stderr, "gate %s: %s -p %s in %s → blocked\n", gateName, stage, pkg, root)
+		fmt.Fprintf(stderrFor(root), "gate %s: %s -p %s in %s → blocked\n", gateName, stage, pkg, root)
 		AppendGateLog(gateName, root, cmdString(r), stage+"-blocked", res.Duration)
 		return &GateResult{Blocked: true, Message: qualityRejectMessage(pkg, stage, r, res)}
 	default:
-		fmt.Fprintf(os.Stderr, "gate %s: %s -p %s in %s → clean\n", gateName, stage, pkg, root)
+		fmt.Fprintf(stderrFor(root), "gate %s: %s -p %s in %s → clean\n", gateName, stage, pkg, root)
 		return nil
 	}
 }

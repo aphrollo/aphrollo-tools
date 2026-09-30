@@ -2,7 +2,6 @@ package precommit
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -37,22 +36,22 @@ func lockfileScope(gateName, repoRoot, ws string, wsManifestHit []string) []stri
 	// tip during a trunk sync into a lane.
 	before, ok := gitBlob(repoRoot, stagedBaseRev(repoRoot)+":"+rel)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "gate %s: %s has no HEAD revision to diff against → workspace-wide check\n", gateName, rel)
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: %s has no HEAD revision to diff against → workspace-wide check\n", gateName, rel)
 		return nil
 	}
 	after, ok := gitBlob(repoRoot, ":"+rel)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "gate %s: %s has no staged content to diff → workspace-wide check\n", gateName, rel)
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: %s has no staged content to diff → workspace-wide check\n", gateName, rel)
 		return nil
 	}
 	beforePkgs, err := parseCargoLock(before)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gate %s: HEAD's %s did not parse (%v) → workspace-wide check\n", gateName, rel, err)
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: HEAD's %s did not parse (%v) → workspace-wide check\n", gateName, rel, err)
 		return nil
 	}
 	afterPkgs, err := parseCargoLock(after)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gate %s: staged %s did not parse (%v) → workspace-wide check\n", gateName, rel, err)
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: staged %s did not parse (%v) → workspace-wide check\n", gateName, rel, err)
 		return nil
 	}
 	moved := movedLockPackages(beforePkgs, afterPkgs)
@@ -72,7 +71,7 @@ func lockfileScope(gateName, repoRoot, ws string, wsManifestHit []string) []stri
 	affected = append(affected, moved...)
 	members, err := cargoWorkspaceDepsFn(ws)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "gate %s: workspace package graph unreadable (%v) → workspace-wide check\n", gateName, err)
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: workspace package graph unreadable (%v) → workspace-wide check\n", gateName, err)
 		return nil
 	}
 	var scope []string

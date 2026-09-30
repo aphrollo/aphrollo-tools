@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/aphrollo/aphrollo-tools/internal/docs"
+	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
 // CI parity. A gate that runs a different set of checks from the job which
@@ -50,10 +51,40 @@ var linterVersion = func(dir string) string {
 	return semverRe.FindString(string(out))
 }
 
+// The probes a test states for its own root: linterFor and linterVersionFor
+// answer from them before they ask the box, so the test reaches no other
+// root and runs beside the rest.
+var (
+	lookLinterAt    rootseam.Table[func() bool]
+	linterVersionAt rootseam.Table[func(dir string) string]
+)
+
+func setLookLinterAt(root string, fn func() bool) (restore func()) {
+	return lookLinterAt.Set(root, fn)
+}
+
+func setLinterVersionAt(root string, fn func(dir string) string) (restore func()) {
+	return linterVersionAt.Set(root, fn)
+}
+
+func linterPresentFor(root string) bool {
+	if fn, ok := lookLinterAt.Get(root); ok {
+		return fn()
+	}
+	return lookLinter()
+}
+
+func linterVersionFor(dir string) string {
+	if fn, ok := linterVersionAt.Get(dir); ok {
+		return fn(dir)
+	}
+	return linterVersion(dir)
+}
+
 // SetLookLinterForTest and SetLinterVersionForTest replace the linter
 // probes for a test and return the restore: setters rather than
 // assignments, so a test in a package above precommit (the doctor's) still
-// reaches them.
+// reaches them. They are process-wide: a test that calls one runs alone.
 func SetLookLinterForTest(fn func() bool) (restore func()) {
 	prev := lookLinter
 	lookLinter = fn
@@ -137,8 +168,8 @@ func goQualityStage(gateName, repoRoot, root string, touched []string, run Suite
 	if res := goCheckStage(gateName, "vet", root, vet, run); res.Blocked {
 		return res
 	}
-	if !lookLinter() {
-		fmt.Fprintf(os.Stderr, "gate %s: %s is not installed — lint skipped in %s\n", gateName, golangciLint, root)
+	if !linterPresentFor(root) {
+		fmt.Fprintf(stderrFor(root), "gate %s: %s is not installed — lint skipped in %s\n", gateName, golangciLint, root)
 		AppendGateLog(gateName, root, golangciLint+" run ./...", "lint-skipped", 0)
 		return GateResult{}
 	}
@@ -275,7 +306,7 @@ func goFmtStage(gateName, repoRoot, root string, touched []string) GateResult {
 		}
 	}
 	if unreadable > 0 {
-		fmt.Fprintf(os.Stderr, "gate %s: gofmt could not read %d staged file(s) at their index path in %s\n", gateName, unreadable, root)
+		fmt.Fprintf(stderrFor(root), "gate %s: gofmt could not read %d staged file(s) at their index path in %s\n", gateName, unreadable, root)
 		AppendGateLog(gateName, root, "gofmt", "gofmt-index-unreadable", 0)
 	}
 	if len(dirty) == 0 {
@@ -335,7 +366,7 @@ func noteLintVersionDrift(gateName, repoRoot, root string) {
 	if pinned == "" {
 		return
 	}
-	local := linterVersion(root)
+	local := linterVersionFor(root)
 	if local == "" || local == pinned {
 		return
 	}
@@ -343,7 +374,7 @@ func noteLintVersionDrift(gateName, repoRoot, root string) {
 	if _, seen := driftNoted.LoadOrStore(key, true); seen {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "gate %s: %s is %s locally, CI pins %s — running anyway; the two can disagree\n",
+	fmt.Fprintf(stderrFor(root), "gate %s: %s is %s locally, CI pins %s — running anyway; the two can disagree\n",
 		gateName, golangciLint, local, pinned)
 	AppendGateLog(gateName, root, golangciLint+" "+local+" vs "+pinned, "lint-version-drift", 0)
 }
@@ -390,7 +421,7 @@ func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateR
 			Message: unfinishedMessage(gateName, r, res, "retry once it finishes"),
 		})
 	case !res.Passed:
-		fmt.Fprintf(os.Stderr, "gate %s: %s in %s → blocked\n", gateName, stage, root)
+		fmt.Fprintf(stderrFor(root), "gate %s: %s in %s → blocked\n", gateName, stage, root)
 		AppendGateLog(gateName, root, cmdString(r), stage+"-blocked", res.Duration)
 		var b strings.Builder
 		fmt.Fprintf(&b, "TDD quality: %s failed in %s — fix before committing.\n", stage, root)
@@ -403,7 +434,7 @@ func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateR
 		b.WriteString(tailSnippet(res.Output))
 		return GateResult{Blocked: true, Message: b.String()}
 	default:
-		fmt.Fprintf(os.Stderr, "gate %s: %s in %s → clean\n", gateName, stage, root)
+		fmt.Fprintf(stderrFor(root), "gate %s: %s in %s → clean\n", gateName, stage, root)
 		return GateResult{}
 	}
 }
@@ -469,7 +500,7 @@ func docsCheckStage(gateName, repoRoot string) GateResult {
 		})
 	}
 	if len(findings) == 0 {
-		fmt.Fprintf(os.Stderr, "gate %s: docs → clean (%d file(s))\n", gateName, len(md))
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: docs → clean (%d file(s))\n", gateName, len(md))
 		AppendGateLog(gateName, repoRoot, "docs check", "docs-clean", 0)
 		return GateResult{}
 	}

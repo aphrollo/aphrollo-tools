@@ -25,7 +25,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	}
 	if mechCacheHit(key) {
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → cache-hit", stage, gateName, cmdString(runner), root)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(stderrFor(root), line)
 		AppendGateLog(gateName, root, cmdString(runner), "cache-hit", 0)
 		return GateResult{}
 	}
@@ -51,7 +51,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		// deliberately); failing open is silent and is not.
 		line := fmt.Sprintf("[%s] gate %s: %s in %s → REJECTED (waited %.0fs, every build slot for %s is busy%s) — nothing was tested",
 			stage, gateName, cmdString(runner), root, waited.Seconds(), target, buildLockHolderNote(target))
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(stderrFor(root), line)
 		AppendGateLog(gateName, root, cmdString(runner), "queued-rejected", waited)
 		return GateResult{Blocked: true, Message: queuedRejectMessage(runner, target, waited)}
 	}
@@ -115,20 +115,20 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 			// not a slow suite, so no budget floor to quote and no timeout
 			// word, but the commit is just as untested.
 			line := fmt.Sprintf("[%s] gate %s: %s in %s %s REJECTED (nothing was tested)", stage, gateName, cmdString(runner), root, res.Inconclusive)
-			fmt.Fprintln(os.Stderr, line)
+			fmt.Fprintln(stderrFor(root), line)
 			AppendGateLog(gateName, root, cmdString(runner), "inconclusive-rejected", res.Duration)
 			return GateResult{Blocked: true, Message: fmt.Sprintf(
 				"gate %s: %s ended as %s, so nothing was tested and the commit is refused. Raise `memory-cap` in aphrollo.toml if the suite honestly needs more.",
 				gateName, cmdString(runner), res.Inconclusive)}
 		}
 		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)\n%s", stage, gateName, cmdString(runner), root, res.Duration.Seconds(), load)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(stderrFor(root), line)
 		AppendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
 			"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused.\n%s\n%s",
 			gateName, cmdString(runner), res.Duration.Seconds(), floor.RefusalNote(DefaultPrecommitTimeout), load)}
 	case !res.Passed:
-		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmdString(runner), root)
+		fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmdString(runner), root)
 		logSuiteVerdict(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}
 	default:
@@ -143,7 +143,7 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		noteSuiteGreen()
 		gateSuiteProof().Note(runner, res)
 		line := mechResultLine(gateName, stage, runner, root, res)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(stderrFor(root), line)
 		logSuiteVerdict(gateName, root, cmdString(runner), stageSuiteVerdict(runner, res), res)
 	}
 	return GateResult{}

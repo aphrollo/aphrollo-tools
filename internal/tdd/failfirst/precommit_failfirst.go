@@ -2,12 +2,12 @@ package failfirst
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
+	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
 // The fail-first stage shares the repo's CARGO_TARGET_DIR with the mechanical
@@ -447,15 +447,15 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 			verdict = "red-proven"
 		}
 		line := fmt.Sprintf("[fail-first] gate precommit: %s in %s → %s (%.1fs)", ffCmd, root, verdict, out.dur.Seconds())
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(rootseam.Stderr(root), line)
 		// The gate.log line and the run's own bytes together, so
 		// `aphrollo gate output` can show what the proof actually printed.
 		logSuiteVerdict("precommit", root, ffCmd, verdict, out.res)
 		if out.notReached {
-			fmt.Fprintln(os.Stderr, notReachedNote(out.res.Output))
+			fmt.Fprintln(rootseam.Stderr(root), notReachedNote(out.res.Output))
 		}
 		if out.notRunnable != "" {
-			fmt.Fprintf(os.Stderr, "gate precommit: fail-first in %s → NOT RUN — %s\n", root, out.notRunnable)
+			fmt.Fprintf(rootseam.Stderr(root), "gate precommit: fail-first in %s → NOT RUN — %s\n", root, out.notRunnable)
 		}
 		if out.vacuous {
 			return GateResult{Blocked: true, Message: vacuousFailFirstMessage(out.vacuousPkgs)}

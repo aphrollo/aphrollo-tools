@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
 // npmBinEntry is the script package pkgDir declares as its bin named name,
@@ -40,11 +42,31 @@ func npmBinEntry(pkgDir, name string) string {
 // depending on the box's PATH.
 var lookNodeFn = func() (string, error) { return exec.LookPath("node") }
 
+// suiteNodeAt holds the node a test named for its own root; suiteNode consults
+// it before lookNodeFn.
+var suiteNodeAt rootseam.Table[func() (string, error)]
+
 // SetLookNodeForTest replaces lookNodeFn for a test and returns the restore.
+// It is process-wide: a test that calls it runs alone.
 func SetLookNodeForTest(fn func() (string, error)) (restore func()) {
 	prev := lookNodeFn
 	lookNodeFn = fn
 	return func() { lookNodeFn = prev }
+}
+
+// SetLookNodeAtForTest names the node binary for root (and anything under it)
+// for a test and returns the restore. It reaches no other root, so the test
+// runs beside the rest.
+func SetLookNodeAtForTest(root string, fn func() (string, error)) (restore func()) {
+	return suiteNodeAt.Set(root, fn)
+}
+
+// suiteNode finds the node binary for work at root.
+func suiteNode(root string) (string, error) {
+	if fn, ok := suiteNodeAt.Get(root); ok {
+		return fn()
+	}
+	return lookNodeFn()
 }
 
 // nodeTestTools are the npm test tools DetectRunner runs through npx, in the
@@ -87,7 +109,7 @@ func nodeToolRunner(root string, r Runner) (_ Runner, missing string) {
 	if entry == "" {
 		return r, fmt.Sprintf("%s is not installed in %s; run `npm ci` there", tool, filepath.Join(root, "node_modules"))
 	}
-	node, err := lookNodeFn()
+	node, err := suiteNode(root)
 	if err != nil {
 		return r, "node is not on PATH; install Node.js to run " + tool
 	}

@@ -3,7 +3,6 @@ package precommit
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -35,7 +34,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	}
 	runner, ok := DetectRunner(g.Root)
 	if !ok {
-		fmt.Fprintln(os.Stderr, noRunnerNotRun(gateName, g.Root, append(append([]string{}, g.tests...), g.srcs...)))
+		fmt.Fprintln(stderrFor(g.Root), noRunnerNotRun(gateName, g.Root, append(append([]string{}, g.tests...), g.srcs...)))
 		AppendGateLog(gateName, g.Root, "", "no-runner-skipped", 0)
 		return GateResult{}
 	}
@@ -316,11 +315,11 @@ func workspaceCheckStage(gateName, repoRoot, root string, plan cargoStagePlan, r
 	// be told from one that silently stopped covering something.
 	scope := plan.downstream
 	if len(scope) == 0 {
-		fmt.Fprintf(os.Stderr, "gate %s: check → skipped (no cargo package owns anything staged)\n", gateName)
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: check → skipped (no cargo package owns anything staged)\n", gateName)
 		AppendGateLog(gateName, ws, "", "clippy-scope-empty-skipped", 0)
 		return GateResult{}
 	}
-	fmt.Fprintf(os.Stderr, "gate %s: check scope → %s (touched crates + everything downstream of a change a dependent compiles)\n",
+	fmt.Fprintf(stderrFor(repoRoot), "gate %s: check scope → %s (touched crates + everything downstream of a change a dependent compiles)\n",
 		gateName, strings.Join(scope, " "))
 	args := []string{"clippy"}
 	for _, pkg := range scope {

@@ -2,10 +2,11 @@ package failfirst
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
 // An inline Rust test shares its file with the code it tests, so fail-first
@@ -200,6 +201,6 @@ func reportLedgerProofs(root string, proofs []ledgerProof) {
 	for _, p := range proofs {
 		parts = append(parts, fmt.Sprintf("%s %s: red at edit %s, green at edit %s", p.file, p.test, p.red, p.green))
 	}
-	fmt.Fprintf(os.Stderr, "[fail-first] gate precommit: postedit ledger in %s → red-proven (%s)\n", root, strings.Join(parts, "; "))
+	fmt.Fprintf(rootseam.Stderr(root), "[fail-first] gate precommit: postedit ledger in %s → red-proven (%s)\n", root, strings.Join(parts, "; "))
 	AppendGateLog("precommit", root, "postedit-ledger", "red-proven", 0)
 }

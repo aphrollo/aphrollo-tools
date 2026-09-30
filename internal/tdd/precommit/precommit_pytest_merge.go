@@ -2,7 +2,6 @@ package precommit
 
 import (
 	"fmt"
-	"os"
 )
 
 // pytestResolveFn resolves a pytest runner to an interpreter that imports
@@ -23,7 +22,7 @@ func pytestSuiteRunner(gateName, root string, r Runner) (Runner, GateResult) {
 	if why == "" {
 		return py, GateResult{}
 	}
-	fmt.Fprintf(os.Stderr, "gate %s: %s in %s → NOT RUN — %s\n", gateName, r.Cmd, root, why)
+	fmt.Fprintf(stderrFor(root), "gate %s: %s in %s → NOT RUN — %s\n", gateName, r.Cmd, root, why)
 	return r, verdictFor(gateName, "mechanical", root, cmdString(r), stageOutcome{
 		Kind: outcomeCheckError, Err: fmt.Errorf("%s", why),
 		Message: fmt.Sprintf("gate %s: %s in %s → NOT RUN — %s; the suite cannot run, so the merge cannot be judged", gateName, r.Cmd, root, why),

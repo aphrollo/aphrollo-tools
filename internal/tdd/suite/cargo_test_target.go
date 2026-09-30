@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
 // A folded test binary broke the path-derived --test guess: cargoTestTarget's
@@ -21,13 +23,24 @@ import (
 // a test can state a workspace's targets without a cargo run.
 var cargoTestTargetsFn = loadCargoTestTargets
 
+// cargoTestTargetsAt holds the targets a test stated for its own root;
+// loadCargoTestTargets answers from it before it asks cargo.
+var cargoTestTargetsAt rootseam.Table[func(root string) map[string]map[string]bool]
+
 // SetCargoTestTargetsForTest replaces cargoTestTargetsFn for a test and returns the restore. A setter
 // rather than an assignment, so a test in a package above suite still
-// reaches the probe.
+// reaches the probe. It is process-wide: a test that calls it runs alone.
 func SetCargoTestTargetsForTest(fn func(root string) map[string]map[string]bool) (restore func()) {
 	prev := cargoTestTargetsFn
 	cargoTestTargetsFn = fn
 	return func() { cargoTestTargetsFn = prev }
+}
+
+// SetCargoTestTargetsAtForTest states the targets of the workspace at root
+// (and of anything under it) for a test and returns the restore. It reaches no
+// other root, so the test runs beside the rest.
+func SetCargoTestTargetsAtForTest(root string, fn func(root string) map[string]map[string]bool) (restore func()) {
+	return cargoTestTargetsAt.Set(root, fn)
 }
 
 // cargoTestTargetCache memoizes cargoTestTargetsFn per workspace root for
@@ -57,6 +70,9 @@ func cargoTestTargetsFor(ws string) map[string]map[string]bool {
 func loadCargoTestTargets(ws string) map[string]map[string]bool {
 	if ws == "" {
 		return nil
+	}
+	if fn, ok := cargoTestTargetsAt.Get(ws); ok {
+		return fn(ws)
 	}
 	out, ok := cargoMetadataNoDeps(ws)
 	if !ok {

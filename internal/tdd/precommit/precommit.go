@@ -2,7 +2,6 @@ package precommit
 
 import (
 	"fmt"
-	"os"
 	"path"
 	"slices"
 	"strings"
@@ -135,7 +134,7 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 	// worktree builds for nothing. Run EXACTLY the pre-merge routine
 	// instead: Mechanical only, no fail-first, no anti-cheat.
 	if ref := mergeInProgressRef(repoRoot); ref != "" {
-		fmt.Fprintf(os.Stderr, "gate precommit: merge in progress (%s) — running the pre-merge routine (mechanical only)\n", ref)
+		fmt.Fprintf(stderrFor(repoRoot), "gate precommit: merge in progress (%s) — running the pre-merge routine (mechanical only)\n", ref)
 		return Mechanical(repoRoot, run)
 	}
 
