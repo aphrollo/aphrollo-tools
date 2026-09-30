@@ -70,13 +70,52 @@ func TestGateMutantsTestmap_RefusesAFlagItDoesNotHave(t *testing.T) {
 	}
 }
 
+// `edit` is what the edit hook starts detached: it needs the file and where to
+// record the result, and records "ok" where there is nothing to measure.
+func TestGateMutantsEdit_NeedsItsFlagsAndRecordsWhereItIsPointed(t *testing.T) {
+	gateConfigDir(t)
+	root := gitLaneNoKey(t)
+	inDir(t, root)
+	var out, errb bytes.Buffer
+	if code := Run([]string{"gate", "mutants", "edit"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Errorf("no flags: exit %d, want 2", code)
+	}
+	done := filepath.Join(t.TempDir(), "done")
+	if code := Run([]string{"gate", "mutants", "edit", "--file", "x.go"}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Errorf("no --done: exit %d, want 2", code)
+	}
+	if code := Run([]string{"gate", "mutants", "edit", "--done", done}, strings.NewReader(""), &out, &errb); code != 2 {
+		t.Errorf("no --file: exit %d, want 2", code)
+	}
+	errb.Reset()
+	if code := Run([]string{"gate", "mutants", "edit", "--file", "x.go", "--done", done}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("in a repo declaring nothing: exit %d, want 0: %s", code, errb.String())
+	}
+	if data, err := os.ReadFile(done); err != nil || strings.TrimSpace(string(data)) != "ok" {
+		t.Errorf("result = %q (%v), want ok", data, err)
+	}
+}
+
+func TestGateMutantsEdit_OutsideARepositoryRecordsOK(t *testing.T) {
+	gateConfigDir(t)
+	inDir(t, t.TempDir())
+	done := filepath.Join(t.TempDir(), "done")
+	var out, errb bytes.Buffer
+	if code := Run([]string{"gate", "mutants", "edit", "--file", "x.go", "--done", done}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit %d, want 0: %s", code, errb.String())
+	}
+	if data, err := os.ReadFile(done); err != nil || strings.TrimSpace(string(data)) != "ok" {
+		t.Errorf("result = %q (%v), want ok so the hook that started it is not left waiting", data, err)
+	}
+}
+
 func TestGateMutants_HelpListsTheCommitTimeVerbs(t *testing.T) {
 	gateConfigDir(t)
 	var out, errb bytes.Buffer
 	if code := Run([]string{"gate", "mutants", "--help"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, want := range []string{"commit ", "testmap "} {
+	for _, want := range []string{"commit ", "testmap ", "edit --file"} {
 		if !strings.Contains(errb.String(), want) {
 			t.Errorf("help never lists %q:\n%s", want, errb.String())
 		}

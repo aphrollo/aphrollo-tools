@@ -526,6 +526,8 @@ mutants_cibusy_test.go                             mutation
 mutants_commit.go                                  mutation
 mutants_commit_cli.go                              mutation
 mutants_commit_cli_test.go                         mutation
+mutants_commit_edit.go                             mutation
+mutants_commit_edit_test.go                        mutation
 mutants_commit_enum.go                             mutation
 mutants_commit_enum_test.go                        mutation
 mutants_commit_funcs.go                            mutation
@@ -662,6 +664,8 @@ mutants_verdict.go                                 mutation
 mutants_windows.go                                 lock
 mutants_windows_core.go                            core      # created by P2
 mutants_zerotested_test.go                         tdd
+mutantsedit.go                                     postedit
+mutantsedit_test.go                                postedit
 mutationhold.go                                    mutation
 mutationhold_test.go                               mutation
 nightlyflakehunt_workflow_pin_test.go              tdd

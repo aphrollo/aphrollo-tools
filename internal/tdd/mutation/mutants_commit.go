@@ -41,6 +41,15 @@ func mutantsAtCommitStage(displayName, repoRoot string) GateResult {
 	if err != nil {
 		return commitUnmeasured(displayName, repoRoot, "diff", err.Error())
 	}
+	return measureAddedLines(displayName, repoRoot, cfg, added, unstaged, start)
+}
+
+// measureAddedLines is the stage past the reading of git: mutate the added
+// lines of the sources in added, run them, and judge. start is when the
+// stage began, since the budget counts from there. The staged change and an
+// edit's own diff both come through here.
+func measureAddedLines(displayName, repoRoot string, cfg MutantsConfig, added map[string]map[int]bool,
+	unstaged map[string]bool, start time.Time) GateResult {
 	mutants, notes := commitMutantsOf(repoRoot, added, unstaged)
 	for _, note := range notes {
 		fmt.Fprintf(os.Stderr, "gate %s: mutants → %s\n", displayName, note)

@@ -20,4 +20,6 @@ func goRanNoTests(p0 Runner, p1 SuiteResult) bool { return mutation.GoRanNoTests
 
 func goSelectedDirs(p0 Runner) ([]string, bool) { return mutation.GoSelectedDirs(p0) }
 
+func isCommitSource(p0 string) bool { return mutation.IsCommitSource(p0) }
+
 func widenCargoRunner(p0 Runner) (Runner, bool) { return mutation.WidenCargoRunner(p0) }
