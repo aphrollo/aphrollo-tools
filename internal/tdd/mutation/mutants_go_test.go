@@ -228,6 +228,20 @@ func TestGremlinsArgv_PassesTheModuleRootNotAPackagePattern(t *testing.T) {
 	}
 }
 
+// Test data and a ratchet law's fixtures are never walked for mutants, in any
+// run: gremlins is told to leave them out with its own --exclude-files.
+func TestGremlinsArgv_NeverWalksTestDataOrRatchetFixtures(t *testing.T) {
+	got := strings.Join(gremlinsArgv("abc123", "out.json", 1, nil), " ")
+	for _, want := range []string{
+		`--exclude-files (^|/)testdata/`,
+		`--exclude-files (^|/)\.ratchet/fixtures/`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("gremlinsArgv = %q, want it to carry %q", got, want)
+		}
+	}
+}
+
 // gremlins takes exactly one positional path (cobra.MaximumNArgs(1)), so a
 // file this run already has a valid measurement for is narrowed out through
 // its OWN `--exclude-files <regexp>` flag instead — anchored and escaped, so

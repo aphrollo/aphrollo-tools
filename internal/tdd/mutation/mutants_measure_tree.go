@@ -284,7 +284,7 @@ func measureGoDiff(root, base string) ([]string, error) {
 	var files []string
 	for _, p := range changed {
 		p = filepath.ToSlash(p)
-		if strings.HasSuffix(p, ".go") && !strings.HasSuffix(p, "_test.go") {
+		if strings.HasSuffix(p, ".go") && !strings.HasSuffix(p, "_test.go") && !isMutationData(p) {
 			files = append(files, p)
 		}
 	}

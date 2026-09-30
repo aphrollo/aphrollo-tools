@@ -51,8 +51,16 @@ func isCommitSource(file string) bool {
 	if !strings.HasSuffix(file, ".go") || strings.HasSuffix(file, "_test.go") {
 		return false
 	}
-	slashed := "/" + file
-	return !strings.Contains(slashed, "/testdata/") && !strings.Contains(slashed, "/vendor/")
+	return !isMutationData(file) && !strings.Contains("/"+file, "/vendor/")
+}
+
+// isMutationData reports whether a repo-relative path lies in a tree that is
+// data for a test and never code of the repo: a testdata directory, or the
+// fixtures of a ratchet law. Every mutation path leaves these out, whatever
+// their extension says.
+func isMutationData(file string) bool {
+	slashed := "/" + filepath.ToSlash(file)
+	return strings.Contains(slashed, "/testdata/") || strings.Contains(slashed, "/.ratchet/fixtures/")
 }
 
 // commitMutantsOf lists the mutants of every staged source on the lines the

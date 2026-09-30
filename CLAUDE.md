@@ -226,7 +226,8 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
   A lane refreshes this committed block with `aphrollo install --managed-block-only --repo <lane>`, never a full install: that writes git hooks into the git dir every worktree shares.
 - **A merge is measured in CI:** this repo declares `mutants-at-merge = "ci"`, so the merge gate measures nothing locally and refuses to merge unless CI's `mutants-verdict` check passed on the PR head; `aphrollo gate mutants run` measures THIS checkout by hand.
-- **Mutation rules** (CI's `mutants-verdict` measures this repo's mutants, and the local box does not): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`
+- **A commit is measured:** this repo declares `mutants-at-commit = true`, so the commit gate mutates the lines the commit adds, runs each mutant against the tests of its own function and refuses a survivor by name; a box with no memory headroom, or a run past its wall-clock budget, prints `NOT MEASURED` for what it did not reach and CI decides; `aphrollo gate mutants commit` runs it by hand.
+- **Mutation rules** (CI's `mutants-verdict` measures this repo's mutants, and the commit gate measures the lines a commit adds): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`
   KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.
   A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already
   steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.

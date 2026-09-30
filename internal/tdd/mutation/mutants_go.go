@@ -71,6 +71,9 @@ func gremlinsArgv(baseSHA, outPath string, workers int, excludeFiles []string) [
 		"--workers", strconv.Itoa(workers),
 		"--coverpkg", "./...",
 	}
+	// Test data and a ratchet law's fixtures are never mutated (isMutationData);
+	// the pattern is unanchored, gremlins matching it anywhere in the walked path.
+	argv = append(argv, "--exclude-files", `(^|/)testdata/`, "--exclude-files", `(^|/)\.ratchet/fixtures/`)
 	for _, f := range excludeFiles {
 		argv = append(argv, "--exclude-files", "^"+regexp.QuoteMeta(filepath.ToSlash(f))+"$")
 	}
