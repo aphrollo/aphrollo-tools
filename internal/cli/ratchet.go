@@ -228,7 +228,7 @@ func runRatchetTest(args []string, stdout, stderr io.Writer) int {
 	if r := tdd.RepoRoot(root); r != "" {
 		root = r
 	}
-	if !ratchet.HasLaws(root) {
+	if !ratchet.HasLaws(root) && !ratchet.HasLanguages(root) {
 		if *format == "json" {
 			fmt.Fprintln(stdout, "[]")
 			return 0
@@ -248,6 +248,10 @@ func runRatchetTest(args []string, stdout, stderr io.Writer) int {
 	for _, r := range results {
 		if r.Skipped {
 			fmt.Fprintf(stdout, "ratchet: %s SKIPPED — unknown matcher kind, rebuild aphrollo\n", r.Law)
+			continue
+		}
+		if len(r.Failures) == 0 && strings.HasPrefix(r.Law, "language/") {
+			fmt.Fprintf(stdout, "ratchet: %s ok (%d fixture file(s))\n", r.Law, r.HitFiles)
 			continue
 		}
 		if len(r.Failures) == 0 {

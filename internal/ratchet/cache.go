@@ -190,16 +190,15 @@ func lawsFingerprint(laws []Law) string {
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-// languagesFingerprint hashes the repository's own language rows: a row that
-// changed moves what a lexer blanks, so no verdict reached under the old one
-// may answer. A repository with no rows of its own adds nothing to the key.
+// languagesFingerprint hashes the embedded language rows and the repository's
+// own: a row that changed moves what a lexer blanks, so no verdict reached under
+// the old one may answer, and adding a default row needs no version to move.
 func languagesFingerprint(root string) string {
-	dir := filepath.Join(root, filepath.FromSlash(lang.Dir))
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
 	h := sha256.New()
+	h.Write([]byte(lang.EmbeddedDigest()))
+	h.Write([]byte{0})
+	dir := filepath.Join(root, filepath.FromSlash(lang.Dir))
+	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".toml") {
 			continue

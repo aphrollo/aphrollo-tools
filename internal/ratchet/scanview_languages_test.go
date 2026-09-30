@@ -280,13 +280,17 @@ func TestBaselineStampAt_RaisesAStampInPlaceAndNeverLowersOne(t *testing.T) {
 
 func TestLanguagesFingerprint_FollowsTheRepositoryRows(t *testing.T) {
 	root := t.TempDir()
-	if got := languagesFingerprint(root); got != "" {
-		t.Errorf("a repository with no rows adds %q to the cache key", got)
+	bare := languagesFingerprint(root)
+	if !strings.HasPrefix(bare, "+") || len(bare) != 17 {
+		t.Fatalf("fingerprint = %q, want a + and 16 hex digits", bare)
+	}
+	if other := languagesFingerprint(t.TempDir()); other != bare {
+		t.Errorf("two repositories with no rows of their own differ: %q and %q — the key is the embedded table's", bare, other)
 	}
 	write(t, filepath.Join(root, lang.Dir, "lua.toml"), "name = \"lua\"\nextensions = [\".lua\"]\n")
 	a := languagesFingerprint(root)
-	if a == "" || !strings.HasPrefix(a, "+") {
-		t.Fatalf("fingerprint = %q, want a + and a hash", a)
+	if a == bare {
+		t.Fatal("a repository row left the fingerprint at the embedded table's")
 	}
 	write(t, filepath.Join(root, lang.Dir, "lua.toml"), "name = \"lua\"\nextensions = [\".lua\", \".luau\"]\n")
 	b := languagesFingerprint(root)

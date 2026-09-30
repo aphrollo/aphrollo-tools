@@ -1,0 +1,10 @@
+                                              
+val raw = """         """
+val ch = ' '
+                 
+@Test
+fun adds() {}
+@Test
+fun `adds two numbers`() {}
+@Suppress("              ")
+fun f() {}

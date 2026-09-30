@@ -1,7 +1,9 @@
 package lang
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path"
@@ -71,6 +73,28 @@ func Defaults() (*Table, error) {
 		defaults, defaultsErr = build(rows)
 	})
 	return defaults, defaultsErr
+}
+
+// EmbeddedDigest hashes the text of the embedded rows: a cache keyed by it
+// drops what was read under a table that has since changed, so adding or
+// editing a default row needs no version to move.
+func EmbeddedDigest() string {
+	entries, err := embedded.ReadDir("languages")
+	if err != nil {
+		return ""
+	}
+	h := sha256.New()
+	for _, e := range entries {
+		data, err := embedded.ReadFile("languages/" + e.Name())
+		if err != nil {
+			continue
+		}
+		h.Write([]byte(e.Name()))
+		h.Write([]byte{0})
+		h.Write(data)
+		h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // build indexes rows, refusing two rows that claim one extension or file name.

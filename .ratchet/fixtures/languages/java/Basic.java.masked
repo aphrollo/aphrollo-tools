@@ -1,0 +1,12 @@
+class Basic {
+                     
+    String s = """
+                                   
+        """;
+    char c = ' ';
+    @Test
+    public void adds() {}
+    @SuppressWarnings("         ")
+    void f() {}         
+                       
+}
