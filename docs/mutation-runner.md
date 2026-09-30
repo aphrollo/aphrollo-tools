@@ -757,6 +757,21 @@ gate precommit: mutants → NOT MEASURED (<why>) — this commit carries no comm
 
 and counted in the gate log as `mutants-unmeasured:commit-<kind>`.
 
+**The canary.** Every runner that starts test processes (this run, the merge
+measurement, `gate mutants prove`, the test-map build) fingerprints the git
+state a leaking test would touch before it starts and again when it ends
+(`internal/tdd/mutation/mutants_canary.go`): the repository's config without
+its `[branch]` stanzas, the branch names, the tip of `main`, the checked-out
+commit, the operator's global git config, the registered worktrees that are
+neither a lane nor a gate checkout, and what each worktree present at both ends
+has checked out. A difference refuses the run's result with the change named
+and records an escape. Ordinary work on a busy box is not a difference: a lane
+made or pruned (a direct child of `<parent of the primary>/.worktrees/<repo>`)
+and the gate's own `gate-trunkpreview-*`, `gate-prmerge-*`, `gate-failfirst-*`
+and `failfirst-wt/` checkouts come and go through a run. A registration
+anywhere else, the run's temp areas under `.worktrees/<repo>/gotmp` and
+`.mutants` included, is a leak.
+
 **The verdict.** A survivor no `mutation-accept` entry admits refuses the
 commit, named as the pre-merge report names it, with the counts and the
 remedy:
