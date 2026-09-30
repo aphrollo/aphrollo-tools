@@ -579,3 +579,13 @@ func mustReadFile(t *testing.T, path string) []byte {
 	}
 	return data
 }
+
+// TestRatchetSummary_CountsTheLinesTheFindingsStandFor: the summary names the
+// work a run asks for, so a finding that holds four excess occurrences and one
+// that holds none add up to five.
+func TestRatchetSummary_CountsTheLinesTheFindingsStandFor(t *testing.T) {
+	res := ratchet.Result{Laws: 2, FilesScanned: 9, Findings: []ratchet.Finding{{Excess: 4}, {}}}
+	if got, want := ratchetSummary(res), "ratchet: 2 law(s), 9 file(s), 5 regression(s)"; got != want {
+		t.Fatalf("summary = %q, want %q", got, want)
+	}
+}

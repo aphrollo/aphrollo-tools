@@ -67,6 +67,12 @@ type Finding struct {
 	// write, or the fact that there is none. A denial that names the offence
 	// and stops sends the reader to open the law file.
 	Remedy string `json:"remedy,omitempty"`
+	// Excess is how many occurrences this finding stands for above its
+	// baseline, and Files the files holding those the baseline has no row for,
+	// most first. Both are set only where one key counts occurrences across
+	// files (see excessOf).
+	Excess int         `json:"excess,omitempty"`
+	Files  []FileCount `json:"files,omitempty"`
 }
 
 // Result is one run's verdict.
@@ -320,7 +326,9 @@ func Check(opts Options) (Result, error) {
 		findingsBefore := len(res.Findings)
 		for _, r := range regressions(baseline, measured, law.Matcher.TolerancePct) {
 			h := representativeHit(r.Key, sites[r.Key], hitsByKey, baselineKeys, located)
-			res.Findings = append(res.Findings, lawFinding(law, h, r))
+			f := lawFinding(law, h, r)
+			f.Excess, f.Files = excessOf(baseline.form, r, sites[r.Key], hitsByKey, baselineKeys)
+			res.Findings = append(res.Findings, f)
 		}
 		// The per-SITE half of the same comparison (#675). Deciding that a
 		// site is NEW rather than relocated needs every other site of that

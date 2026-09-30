@@ -193,7 +193,7 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 // is indistinguishable from a gate that never ran.
 func ratchetSummary(res ratchet.Result) string {
 	summary := fmt.Sprintf("ratchet: %d law(s), %d file(s), %d regression(s)",
-		res.Laws, res.FilesScanned, len(res.Findings))
+		res.Laws, res.FilesScanned, res.RegressionCount())
 	if len(res.Tightened) > 0 {
 		summary += fmt.Sprintf(" — tightened %s", strings.Join(res.Tightened, ", "))
 	}

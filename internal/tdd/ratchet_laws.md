@@ -534,6 +534,14 @@ paid down rather than waived. The line is bounded at 160 characters and it is
 the OFFENDING TEXT that gets truncated — a remedy that scrolled off the end is
 a remedy nobody read.
 
+A law whose baseline is keyed on the offending TEXT counts one workspace-wide
+total per text, so one finding can stand for many lines in many files. It says
+so: `— 61 over its baseline in 12 files: a.py 9, b.py 7, …` names how many
+occurrences sit above the ceiling and the files that hold the ones no baseline
+row accounts for, most first, five to a line with the rest counted (the JSON
+form lists all of them). The `check` summary and the `miss(es)` line count
+those lines, not the findings.
+
 A `deny` law with a new hit exits 2 and the write never happens; a `warn` law
 prints the line once and allows. Everything here fails **open** — a malformed
 payload, an unreadable file or a broken law file must never wedge a session
