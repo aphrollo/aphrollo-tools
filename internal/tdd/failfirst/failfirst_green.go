@@ -2,9 +2,10 @@ package failfirst
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
 // Issue #922: the proof ran the staged tests at HEAD, saw them RED, and
@@ -84,7 +85,7 @@ func greenRefusal(root, cmd string, g greenProof) (stageOutcome, bool) {
 	if g.res.Passed {
 		verdict = "green-proven"
 	}
-	fmt.Fprintf(os.Stderr, "[fail-first] gate precommit: %s in %s → %s (%.1fs)\n", cmd, root, verdict, g.res.Duration.Seconds())
+	fmt.Fprintf(rootseam.Stderr(root), "[fail-first] gate precommit: %s in %s → %s (%.1fs)\n", cmd, root, verdict, g.res.Duration.Seconds())
 	logSuiteVerdict("precommit", root, cmd, verdict, g.res)
 	if verdict == "green-proven" {
 		return stageOutcome{}, false

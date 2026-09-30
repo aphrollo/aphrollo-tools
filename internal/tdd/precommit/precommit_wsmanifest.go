@@ -2,7 +2,6 @@ package precommit
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 )
 
@@ -18,7 +17,7 @@ func classifyUnownedCargoFiles(gateName, repoRoot, ws string, unowned []string) 
 			hit = append(hit, f)
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "gate %s: %s has no owning cargo package — not tested\n", gateName, f)
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: %s has no owning cargo package — not tested\n", gateName, f)
 		gateSuiteProof().OweUnowned()
 	}
 	return hit
@@ -145,11 +144,11 @@ func workspaceManifestCheckStage(gateName, repoRoot string, plan cargoStagePlan,
 	}
 	var args []string
 	if scope == nil {
-		fmt.Fprintf(os.Stderr, "gate %s: workspace manifest changed (%v) → cargo check --workspace --tests\n",
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: workspace manifest changed (%v) → cargo check --workspace --tests\n",
 			gateName, plan.wsManifestHit)
 		args = []string{"check", "--workspace", "--tests"}
 	} else {
-		fmt.Fprintf(os.Stderr, "gate %s: %v moved → cargo check --tests scoped to %v\n",
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: %v moved → cargo check --tests scoped to %v\n",
 			gateName, plan.wsManifestHit, scope)
 		args = []string{"check", "--tests"}
 		for _, p := range scope {

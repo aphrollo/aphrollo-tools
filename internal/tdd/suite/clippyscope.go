@@ -8,6 +8,8 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+
+	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
 // The workspace check stage compiles what a change can break. It used to do
@@ -30,13 +32,24 @@ import (
 // clippyScope must not pass through in silence.
 var cargoWorkspaceDepsFn = cargoPackageDeps
 
+// cargoWorkspaceDepsAt holds the graphs a test stated for its own root;
+// cargoPackageDeps answers from it before it asks cargo.
+var cargoWorkspaceDepsAt rootseam.Table[func(root string) (map[string][]string, error)]
+
 // SetCargoWorkspaceDepsForTest replaces cargoWorkspaceDepsFn for a test and returns the restore. A setter
 // rather than an assignment, so a test in a package above suite still
-// reaches the probe.
+// reaches the probe. It is process-wide: a test that calls it runs alone.
 func SetCargoWorkspaceDepsForTest(fn func(root string) (map[string][]string, error)) (restore func()) {
 	prev := cargoWorkspaceDepsFn
 	cargoWorkspaceDepsFn = fn
 	return func() { cargoWorkspaceDepsFn = prev }
+}
+
+// SetCargoWorkspaceDepsAtForTest states the graph of the workspace at root
+// (and of anything under it) for a test and returns the restore. It reaches
+// no other root, so the test runs beside the rest.
+func SetCargoWorkspaceDepsAtForTest(root string, fn func(root string) (map[string][]string, error)) (restore func()) {
+	return cargoWorkspaceDepsAt.Set(root, fn)
 }
 
 // clippyScope is the crate list the check stage selects with -p: the touched
@@ -57,7 +70,7 @@ func clippyScope(gateName, repoRoot, ws string, touched []string) []string {
 	}
 	deps, err := cargoWorkspaceDepsFn(ws)
 	if err != nil {
-		fmt.Fprintf(os.Stderr,
+		fmt.Fprintf(rootseam.Stderr(repoRoot),
 			"gate %s: check scope → dependency graph unreadable (%v); scoping to the touched crates only, not everything downstream of them\n",
 			gateName, err)
 		AppendGateLog(gateName, repoRoot, "clippy-scope", "clippy-scope-degraded:"+LogToken(err.Error()), 0)
@@ -155,6 +168,9 @@ func dependentsOf(deps map[string][]string, seeds []string) []string {
 func cargoPackageDeps(ws string) (map[string][]string, error) {
 	if ws == "" {
 		return nil, nil
+	}
+	if fn, ok := cargoWorkspaceDepsAt.Get(ws); ok {
+		return fn(ws)
 	}
 	cargo := os.Getenv("CARGO")
 	if cargo == "" {

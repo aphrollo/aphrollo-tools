@@ -1,7 +1,6 @@
 package precommit
 
 import (
-	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -31,13 +30,6 @@ func makeTSRepo(t *testing.T, files map[string]string) string {
 
 // fakeNode is the node binary the argv tests see: no process runs there.
 const fakeNode = "/fake/node"
-
-func withFakeNode(t *testing.T) {
-	t.Helper()
-	prev := lookNode
-	lookNode = func() (string, error) { return fakeNode, nil }
-	t.Cleanup(func() { lookNode = prev })
-}
 
 // requireNode skips a test whose fake tool is a node script when the box has
 // no node. The gate's own node lookup is the real one unless a test swaps it
@@ -78,8 +70,8 @@ const plainTsconfig = `{"compilerOptions": {"strict": true, "noEmit": true}, "in
 // lint the staged file with the root's own eslint, each run by node, in that
 // order and nothing else in their place: a missing entry is the TS2322 that
 // committed cleanly.
-// Serial: swaps the package-level node lookup.
 func TestNpmChecks_CleanRootRunsLocalTscThenEslintOverTheStagedFiles(t *testing.T) {
+	t.Parallel()
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json":     `{"name": "app"}`,
@@ -107,8 +99,8 @@ func TestNpmChecks_CleanRootRunsLocalTscThenEslintOverTheStagedFiles(t *testing.
 // A staged path carrying every character cmd.exe rewrites reaches eslint as
 // one untouched argument: the reason the tool runs under node and not
 // through its .cmd shim.
-// Serial: swaps the package-level node lookup.
 func TestNpmChecks_AStagedPathWithShellMetacharactersReachesEslintVerbatim(t *testing.T) {
+	t.Parallel()
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json":     `{"name": "app"}`,
@@ -158,8 +150,8 @@ func TestNpmChecks_TypeErrorBlocksTheCommitAndShowsTscsError(t *testing.T) {
 // Vite's root tsconfig.json lists no files and only references the real
 // projects, so `tsc -p tsconfig.json --noEmit` checks nothing and exits 0.
 // Each referenced project has to be checked in its own right.
-// Serial: swaps the package-level node lookup.
 func TestNpmChecks_SolutionStyleTsconfigChecksEachReferencedProject(t *testing.T) {
+	t.Parallel()
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json": `{"name": "app"}`,
@@ -191,8 +183,8 @@ func TestNpmChecks_SolutionStyleTsconfigChecksEachReferencedProject(t *testing.T
 // tsconfig is JSONC: comments and trailing commas are legal there, and a
 // reader that gives up on them falls back to the root config, which in the
 // solution-style shape checks nothing.
-// Serial: swaps the package-level node lookup.
 func TestNpmChecks_TsconfigCommentsAndTrailingCommasStillYieldItsReferences(t *testing.T) {
+	t.Parallel()
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json": `{"name": "app"}`,
@@ -222,8 +214,8 @@ func TestNpmChecks_TsconfigCommentsAndTrailingCommasStillYieldItsReferences(t *t
 
 // A root whose tools are not installed cannot be checked, and must say so
 // loudly with the fix: silence would read as a pass it never earned.
-// Serial: captures the process-wide os.Stderr.
 func TestNpmChecks_NoNodeModulesPrintsNotRunNamingNpmCi(t *testing.T) {
+	t.Parallel()
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json":     `{"name": "app"}`,
@@ -235,7 +227,7 @@ func TestNpmChecks_NoNodeModulesPrintsNotRunNamingNpmCi(t *testing.T) {
 
 	var seen []Runner
 	var res GateResult
-	stderr := captureStderr(t, func() { res = Precommit(root, runsAt(&seen, root)) })
+	stderr := captureGate(t, func() { res = Precommit(root, runsAt(&seen, root)) })
 	if res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
@@ -257,11 +249,9 @@ func TestNpmChecks_NoNodeModulesPrintsNotRunNamingNpmCi(t *testing.T) {
 
 // Installed tools with no node to run them are just as unchecked, and the
 // line has to say what is missing.
-// Serial: captures the process-wide os.Stderr.
 func TestNpmChecks_NoNodeOnPathPrintsNotRun(t *testing.T) {
-	prev := lookNode
-	lookNode = func() (string, error) { return "", errors.New("not found") }
-	t.Cleanup(func() { lookNode = prev })
+	t.Parallel()
+	withNodeMissing(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json":  `{"name": "app"}`,
 		"tsconfig.json": plainTsconfig,
@@ -272,7 +262,7 @@ func TestNpmChecks_NoNodeOnPathPrintsNotRun(t *testing.T) {
 
 	var seen []Runner
 	var res GateResult
-	stderr := captureStderr(t, func() { res = Precommit(root, runsAt(&seen, root)) })
+	stderr := captureGate(t, func() { res = Precommit(root, runsAt(&seen, root)) })
 	if res.Blocked || len(seen) != 0 {
 		t.Fatalf("want no block and no run, got %+v and %v", res, runLines(seen))
 	}
@@ -283,8 +273,8 @@ func TestNpmChecks_NoNodeOnPathPrintsNotRun(t *testing.T) {
 
 // Two branches that each typecheck can merge into a tree that does not, so
 // the merge gate typechecks too, and before the suite, which costs more.
-// Serial: swaps the package-level node lookup.
 func TestNpmChecks_MergeGateTypechecksBeforeTheSuite(t *testing.T) {
+	t.Parallel()
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json":  `{"name": "app", "scripts": {"test": "echo ok"}}`,
@@ -308,8 +298,8 @@ func TestNpmChecks_MergeGateTypechecksBeforeTheSuite(t *testing.T) {
 
 // A JavaScript root with an eslint config and no tsconfig has nothing to
 // typecheck: running tsc there would fail on a missing config.
-// Serial: swaps the package-level node lookup.
 func TestNpmChecks_NoTsconfigLintsOnly(t *testing.T) {
+	t.Parallel()
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json":     `{"name": "app"}`,
@@ -333,8 +323,8 @@ func TestNpmChecks_NoTsconfigLintsOnly(t *testing.T) {
 // eslint is handed the staged files it lints and that still exist: a
 // deleted file fails the whole run on its path, and a Python helper is not
 // eslint's to judge.
-// Serial: swaps the package-level node lookup.
 func TestNpmChecks_EslintGetsOnlyStagedLintableFilesThatExist(t *testing.T) {
+	t.Parallel()
 	withFakeNode(t)
 	root := makeTSRepo(t, map[string]string{
 		"package.json":     `{"name": "app"}`,
@@ -359,8 +349,8 @@ func TestNpmChecks_EslintGetsOnlyStagedLintableFilesThatExist(t *testing.T) {
 
 // The npm checks belong to an npm root: a Go module that happens to carry a
 // tsconfig.json is judged by vet and lint, not by a tsc it never declared.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestNpmChecks_ARootWithoutPackageJSONIsNotTypechecked(t *testing.T) {
+	t.Parallel()
 	linterAbsent(t)
 	withFakeNode(t)
 	root := makeGoRepo(t)

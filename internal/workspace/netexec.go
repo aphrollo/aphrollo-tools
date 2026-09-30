@@ -82,8 +82,7 @@ func ghOutput(dir string, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ghTimeout)
 	defer cancel()
 	cmd := networkCmd(ctx, dir, "gh", args...)
-	// stderr-ok: the sole caller (ghCIStatus) classifies gh's stdout and reads
-	// any failure as "none" — this error text reaches no reader
+	// stderr-ok: callers classify gh's stdout; this error text reaches no reader
 	out, err := cmd.Output()
 	return out, networkTimeoutErr(ctx.Err() == context.DeadlineExceeded, ghTimeout, "gh", args, err)
 }

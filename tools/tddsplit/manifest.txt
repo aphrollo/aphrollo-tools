@@ -874,6 +874,8 @@ retro_hooks_test.go                                tdd
 retro_store.go                                     merge
 retro_test.go                                      merge
 review_yellows_test.go                             precommit
+rootseams_test.go                                  precommit
+rootseams_test.go                                  suite
 runcheckout.go                                     suite
 runcheckout_cdtilde_test.go                        suite
 runcheckout_groups_test.go                       suite
@@ -909,6 +911,7 @@ runsuite_waitdelay_test.go                         suite
 rustmask_test.go                                   smell
 rusttestspans.go                                   suite
 rusttestspans_test.go                              suite
+sandbox_test.go                                    precommit
 sddskill.go                                        install
 sddskill.md                                        install
 sddskill_test.go                                   install
@@ -983,6 +986,7 @@ statusline_core.go                                 core      # created by P2
 statusline_suite.go                                suite     # created by P2
 statusline_test.go                                 tdd
 statusline_unproven_test.go                        tdd
+stderrsink.go                                      precommit
 style.go                                           install
 style.md                                           install
 style_test.go                                      install

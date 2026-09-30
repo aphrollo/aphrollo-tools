@@ -1,8 +1,6 @@
 package precommit
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -24,10 +22,8 @@ func docsRepo(t *testing.T, staged map[string]string) string {
 	return root
 }
 
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_DocsOnlyCommitRunsNoStageThatCouldQueue(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := docsRepo(t, map[string]string{"README.md": "# notes\n", "docs/guide.md": "prose\n"})
 
 	// Every stage that can take a build slot runs its command through the
@@ -36,29 +32,21 @@ func TestPrecommit_DocsOnlyCommitRunsNoStageThatCouldQueue(t *testing.T) {
 		t.Fatalf("a Markdown-only commit must not be blocked: %s", res.Message)
 	}
 
-	log, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("no gate.log written: %v", err)
-	}
-	if !strings.Contains(string(log), "docs-only-fastpath") {
+	log := gateLogHere(t)
+	if !strings.Contains(log, "docs-only-fastpath") {
 		t.Fatalf("the fast path must name itself in the log, got:\n%s", log)
 	}
 }
 
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_DocsOnlyMergeTakesTheFastPath(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := docsRepo(t, map[string]string{"CHANGELOG.md": "notes\n"})
 
 	if res := Mechanical(root, refuseToRun(t)); res.Blocked {
 		t.Fatalf("a docs-only merge must not be blocked: %s", res.Message)
 	}
-	log, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("no gate.log written: %v", err)
-	}
-	if !strings.Contains(string(log), "docs-only-fastpath") {
+	log := gateLogHere(t)
+	if !strings.Contains(log, "docs-only-fastpath") {
 		t.Fatalf("the fast path must name itself in the log, got:\n%s", log)
 	}
 }

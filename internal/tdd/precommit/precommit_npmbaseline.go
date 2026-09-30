@@ -53,14 +53,14 @@ func npmCheckStage(gateName, repoRoot, root string, c npmCheck, r Runner, run Su
 	head, err := headDiagnostics(repoRoot, root, c, r, run)
 	if err != nil {
 		note := fmt.Sprintf("no baseline at HEAD (%v), so every diagnostic is held against this commit", err)
-		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → %s\n", c.stage, gateName, c.bin, root, note)
+		fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → %s\n", c.stage, gateName, c.bin, root, note)
 		AppendGateLog(gateName, root, cmdString(r), c.stage+"-no-head-baseline", 0)
 		return diagnosticsBlock(gateName, c, root, r, res, now, 0, note)
 	}
 	fresh := newDiagnostics(now, head)
 	held := len(now) - len(fresh)
 	if len(fresh) == 0 {
-		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → no new diagnostics; %d already at HEAD, not held against this commit\n",
+		fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → no new diagnostics; %d already at HEAD, not held against this commit\n",
 			c.stage, gateName, c.bin, root, held)
 		AppendGateLog(gateName, root, cmdString(r), c.stage+"-head-only", res.Duration)
 		return verdictFor(gateName, c.stage, root, cmdString(r), stageOutcome{Kind: outcomePass})

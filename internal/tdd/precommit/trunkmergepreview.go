@@ -115,7 +115,7 @@ func trunkMergePreviewStage(gateName, repoRoot string, run SuiteRunner) GateResu
 	// off the merged tree without building anything.
 	started := time.Now()
 	if breaks := trunkPreviewLawBreaks(repoRoot, wt, trunkTip); len(breaks) > 0 {
-		fmt.Fprintf(os.Stderr, "gate %s: trunk-preview ratchet in %s → blocked\n", gateName, wt)
+		fmt.Fprintf(stderrFor(repoRoot), "gate %s: trunk-preview ratchet in %s → blocked\n", gateName, wt)
 		AppendGateLog(gateName, repoRoot, "ratchet check (trunk merge preview)", "trunk-preview-law-blocked", time.Since(started))
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
 			"gate %s: merging %s into this lane would break a law neither tree breaks alone — %s has moved past this lane's merge-base.\n"+
@@ -129,7 +129,7 @@ func trunkMergePreviewStage(gateName, repoRoot string, run SuiteRunner) GateResu
 	if res.TimedOut || res.Passed {
 		return GateResult{}
 	}
-	fmt.Fprintf(os.Stderr, "gate %s: trunk-preview go vet ./... in %s → blocked\n", gateName, wt)
+	fmt.Fprintf(stderrFor(repoRoot), "gate %s: trunk-preview go vet ./... in %s → blocked\n", gateName, wt)
 	AppendGateLog(gateName, repoRoot, cmdString(vet), "trunk-preview-blocked", res.Duration)
 	return GateResult{Blocked: true, Message: fmt.Sprintf(
 		"gate %s: merging %s into this lane would not vet clean — %s has moved past this lane's merge-base.\n"+

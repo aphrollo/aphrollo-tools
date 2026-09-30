@@ -112,9 +112,8 @@ func TestPostEdit_TimeoutStaysAdvisory(t *testing.T) {
 // TestMechCache_NeverCachesATimedOutRun pins the cache's half of it: a run
 // that was killed proved nothing, so it must not stand in for a green next
 // time.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestMechCache_NeverCachesATimedOutRun(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", ".")

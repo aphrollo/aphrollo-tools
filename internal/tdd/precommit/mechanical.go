@@ -2,7 +2,6 @@ package precommit
 
 import (
 	"fmt"
-	"os"
 	"strings"
 )
 
@@ -65,7 +64,7 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	}
 	if len(groups) == 0 {
 		line := nothingToTestLine(premergeDisplayName)
-		fmt.Fprintln(os.Stderr, line)
+		fmt.Fprintln(stderrFor(repoRoot), line)
 		notes = append(notes, line)
 		return GateResult{Message: strings.Join(notes, "\n")}
 	}

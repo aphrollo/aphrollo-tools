@@ -1,8 +1,6 @@
 package precommit
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -102,16 +100,6 @@ func isCheckStage(args string) bool {
 	return strings.HasPrefix(args, "clippy") && strings.Contains(args, "clippy::disallowed_methods")
 }
 
-// gateLogOf reads the gate.log written under the test's state dir.
-func gateLogOf(t *testing.T, cfg string) string {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("gate.log not written: %v", err)
-	}
-	return string(data)
-}
-
 // TestWorkspaceStage_IsClippyWithTheTwoDeniedLints pins the amended stage:
 // clippy subsumes check (a compile error still fails it), and denying exactly
 // clippy::disallowed_methods and clippy::disallowed_types across the scope is
@@ -150,8 +138,8 @@ func TestWorkspaceStage_IsClippyWithTheTwoDeniedLints(t *testing.T) {
 // reader scanning gate.log must be able to tell "the tree does not compile"
 // from "someone used a banned API", because they are different problems with
 // different fixes.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestWorkspaceStage_NamesWhichKindOfFailure(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, output, want string
 	}{
@@ -162,8 +150,6 @@ func TestWorkspaceStage_NamesWhichKindOfFailure(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cfg := t.TempDir()
-			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 			root := makeCargoRepo(t)
 			write(t, root, "src/lib.rs", "pub fn one() -> i32 { 2 }\n")
 			gitDo(t, root, "add", ".")
@@ -177,7 +163,7 @@ func TestWorkspaceStage_NamesWhichKindOfFailure(t *testing.T) {
 			if !res.Blocked {
 				t.Fatal("the commit must be refused")
 			}
-			if log := gateLogOf(t, cfg); !strings.Contains(log, c.want) {
+			if log := gateLogHere(t); !strings.Contains(log, c.want) {
 				t.Fatalf("gate.log has no %s entry:\n%s", c.want, log)
 			}
 		})

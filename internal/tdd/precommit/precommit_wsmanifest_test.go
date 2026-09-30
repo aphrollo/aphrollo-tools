@@ -91,9 +91,8 @@ func TestPrecommit_WorkspaceManifestChangeAlongsideTouchedCrate_RunsBoth(t *test
 // moved package's workspace dependent instead of falling back to
 // --workspace — issue #423's whole point, proved end to end through
 // Precommit rather than lockfileScope alone.
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestPrecommit_LockfileOnlyChange_NarrowsCargoCheckToMovedPackageDependent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoWorkspaceRepo(t)
 	write(t, root, "Cargo.lock", lockBeforeLeftpadBump)
 	gitDo(t, root, "add", ".")
@@ -136,9 +135,8 @@ func TestPrecommit_LockfileOnlyChange_NarrowsCargoCheckToMovedPackageDependent(t
 // A Cargo.lock change whose moved package has no workspace dependent skips
 // the workspace-manifest check outright — a real narrowing to zero, not a
 // silent fallback to a wide or empty-selector run.
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestPrecommit_LockfileOnlyChange_SkipsCheckWhenNoWorkspaceCrateDepends(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeCargoWorkspaceRepo(t)
 	write(t, root, "Cargo.lock", lockBeforeLeftpadBump)
 	gitDo(t, root, "add", ".")

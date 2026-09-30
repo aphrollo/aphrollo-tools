@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
+	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
 // The npm root's counterpart to clippy and go vet: a TypeScript root is
@@ -75,8 +76,28 @@ func npmQualityStage(gateName, repoRoot, root string, touched []string, run Suit
 }
 
 // lookNode finds the node binary. A variable, so a test can name one
-// without depending on the box's PATH.
+// without depending on the box's PATH. A test that names one by assigning it
+// runs alone; npmNodeAt names one for a single root instead.
 var lookNode = func() (string, error) { return exec.LookPath("node") }
+
+// npmNodeAt holds the node a test named for its own root; npmNodeFor consults
+// it before lookNode.
+var npmNodeAt rootseam.Table[func() (string, error)]
+
+// setNpmNodeAt names the node binary for root (and anything under it) and
+// returns the restore. It reaches no other root, so the test runs beside the
+// rest.
+func setNpmNodeAt(root string, fn func() (string, error)) (restore func()) {
+	return npmNodeAt.Set(root, fn)
+}
+
+// npmNodeFor finds the node binary for work at root.
+func npmNodeFor(root string) (string, error) {
+	if fn, ok := npmNodeAt.Get(root); ok {
+		return fn()
+	}
+	return lookNode()
+}
 
 // tool is `node <entry>` for c's installed copy in root, or why it cannot
 // run.
@@ -93,7 +114,7 @@ func (c npmCheck) tool(root string) (r Runner, missing string) {
 	if entry == "" {
 		return r, missing
 	}
-	node, err := lookNode()
+	node, err := npmNodeFor(root)
 	if err != nil {
 		return r, "node is not on PATH; install Node.js so the gate can run " + c.bin
 	}
@@ -104,7 +125,7 @@ func (c npmCheck) tool(root string) (r Runner, missing string) {
 // run here. It does not refuse the commit — a box that has not run `npm ci`
 // is not a defect in the code — but it is never a silent pass.
 func reportNpmCheckNotRun(gateName, root, stage, bin, why string) {
-	fmt.Fprintf(os.Stderr,
+	fmt.Fprintf(stderrFor(root),
 		"[%s] gate %s: %s in %s → NOT RUN — %s; nothing was checked and this pass is not a green for it\n",
 		stage, gateName, bin, root, why)
 	AppendGateLog(gateName, root, bin, stage+"-not-run", 0)

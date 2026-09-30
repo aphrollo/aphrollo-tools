@@ -48,9 +48,8 @@ func headAndStaged(frontend string, headDirs *[]string, staged, head func(checko
 // declared npx finds the root's packages, and the tree leaves nothing
 // behind. The path each checkout prints and the trailing whitespace differ
 // between the two runs, and neither makes the line new.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestDeclaredBaseline_AFailureAlreadyAtHeadPassesWithLines(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	repo, frontend := makeFrontendRepo(t, declaredTscLines)
 	nodeModules := filepath.Join(frontend, "node_modules")
 	before := listTree(t, nodeModules)

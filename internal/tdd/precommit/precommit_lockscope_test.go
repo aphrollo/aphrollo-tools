@@ -52,8 +52,8 @@ checksum = "bbbb"
 // A dependency bump moves one package's locked version; lockfileScope must
 // narrow to that package plus the workspace crate depending on it, and leave
 // out the workspace crate that does not.
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestLockfileScope_NarrowsToMovedPackageAndItsWorkspaceDependent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "Cargo.lock", lockBeforeLeftpadBump)
@@ -107,8 +107,8 @@ func TestLockfileScope_NilWhenNoHeadRevisionToDiff(t *testing.T) {
 // to an empty, non-nil scope: a real narrowing to zero, which
 // workspaceManifestCheckStage reads as "skip the check", never as the
 // wide-scope failure signal (nil).
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestLockfileScope_EmptyNotNilWhenMovedPackageHasNoWorkspaceDependent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "Cargo.lock", lockBeforeLeftpadBump)

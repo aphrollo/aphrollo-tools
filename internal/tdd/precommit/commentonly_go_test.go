@@ -1,8 +1,6 @@
 package precommit
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -151,10 +149,8 @@ func TestCommentOnlyChange_OtherLanguagesNeverQualify(t *testing.T) {
 
 // End to end: a comment-only Go commit takes the same build-free fast path a
 // comment-only Rust commit does, so no suite is ever reached.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_CommentOnlyGoCommitTakesTheFastPath(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "doc.go", "// Package m is documented now.\npackage m\n")
 	gitDo(t, root, "add", ".")
@@ -162,20 +158,15 @@ func TestPrecommit_CommentOnlyGoCommitTakesTheFastPath(t *testing.T) {
 	if res := Precommit(root, refuseToRun(t)); res.Blocked {
 		t.Fatalf("a comment-only Go commit must not be blocked: %s", res.Message)
 	}
-	log, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("no gate.log written: %v", err)
-	}
-	if !strings.Contains(string(log), "comment-only-fastpath") {
+	log := gateLogHere(t)
+	if !strings.Contains(log, "comment-only-fastpath") {
 		t.Fatalf("a comment-only Go commit must take the comment-only fast path, got:\n%s", log)
 	}
 }
 
 // Same wiring at the merge gate.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_CommentOnlyGoMergeTakesTheFastPath(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "doc.go", "// Package m is documented now.\npackage m\n")
 	gitDo(t, root, "add", ".")
@@ -183,11 +174,8 @@ func TestMechanical_CommentOnlyGoMergeTakesTheFastPath(t *testing.T) {
 	if res := Mechanical(root, refuseToRun(t)); res.Blocked {
 		t.Fatalf("a comment-only Go merge must not be blocked: %s", res.Message)
 	}
-	log, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("no gate.log written: %v", err)
-	}
-	if !strings.Contains(string(log), "comment-only-fastpath") {
+	log := gateLogHere(t)
+	if !strings.Contains(log, "comment-only-fastpath") {
 		t.Fatalf("a comment-only Go merge must take the comment-only fast path, got:\n%s", log)
 	}
 }

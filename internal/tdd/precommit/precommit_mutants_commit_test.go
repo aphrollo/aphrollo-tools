@@ -29,6 +29,7 @@ func commitMutationRepo(t *testing.T, declare bool) (cfgDir, root string) {
 	return cfgDir, root
 }
 
+// Serial: installs a process-wide test override (SetCommitExecForTest).
 func TestPrecommit_ASurvivingMutantOfAnAddedLineRefusesTheCommit(t *testing.T) {
 	_, root := commitMutationRepo(t, true)
 	t.Cleanup(SetCommitExecForTest(func(context.Context, string, []string, []string, io.Writer) (int, error) {
@@ -48,6 +49,7 @@ func TestPrecommit_ASurvivingMutantOfAnAddedLineRefusesTheCommit(t *testing.T) {
 	}
 }
 
+// Serial: installs a process-wide test override (SetCommitExecForTest).
 func TestPrecommit_MutantsTheTestsKillPassTheCommit(t *testing.T) {
 	cfgDir, root := commitMutationRepo(t, true)
 	t.Cleanup(SetCommitExecForTest(func(_ context.Context, _ string, _ []string, argv []string, log io.Writer) (int, error) {
@@ -72,6 +74,7 @@ func TestPrecommit_MutantsTheTestsKillPassTheCommit(t *testing.T) {
 }
 
 // A repo that never declared the key is not measured and not told anything.
+// Serial: installs a process-wide test override (SetCommitExecForTest).
 func TestPrecommit_TheCommitMutationStageIsInertWhenUndeclared(t *testing.T) {
 	cfgDir, root := commitMutationRepo(t, false)
 	t.Cleanup(SetCommitExecForTest(func(context.Context, string, []string, []string, io.Writer) (int, error) {
@@ -92,6 +95,7 @@ func TestPrecommit_TheCommitMutationStageIsInertWhenUndeclared(t *testing.T) {
 
 // The stage runs after the root's own checks: a commit those refuse never
 // pays for a mutation run.
+// Serial: installs a process-wide test override (SetCommitExecForTest).
 func TestPrecommit_ARefusedRootNeverReachesTheMutationStage(t *testing.T) {
 	_, root := commitMutationRepo(t, true)
 	t.Cleanup(SetCommitExecForTest(func(context.Context, string, []string, []string, io.Writer) (int, error) {

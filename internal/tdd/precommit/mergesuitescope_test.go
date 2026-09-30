@@ -50,9 +50,8 @@ func suiteRuns(ran *[]string) SuiteRunner {
 	}
 }
 
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_RunsTheSuiteOfACrateDownstreamOfATouchedOne(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := downstreamWorkspace(t)
 	stubWorkspaceGraph(t, map[string][]string{"core_sim": nil, "lab": {"core_sim"}, "aside": nil})
 
@@ -76,9 +75,8 @@ func TestMechanical_RunsTheSuiteOfACrateDownstreamOfATouchedOne(t *testing.T) {
 // Nextest never runs a doctest, so a crate's doctests are a suite of their
 // own at the merge — and a downstream crate's doctest calls the moved code
 // exactly as its tests do.
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_RunsTheDoctestsOfACrateDownstreamOfATouchedOne(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := downstreamWorkspace(t)
 	stubWorkspaceGraph(t, map[string][]string{"core_sim": nil, "lab": {"core_sim"}, "aside": nil})
 	write(t, root, "crates/lab/src/lib.rs", "/// ```\n/// assert_eq!(lab::pin(), 1.0f64.to_bits());\n/// ```\n"+
@@ -103,14 +101,13 @@ func TestMechanical_RunsTheDoctestsOfACrateDownstreamOfATouchedOne(t *testing.T)
 // The commit gate runs no suite, and names what the merge will run instead.
 // That list is the merge's own scope, downstream crates included, or the
 // commit's output understates what is still owed.
-// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_NamesADownstreamCrateAmongTheSuitesItDidNotRun(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := downstreamWorkspace(t)
 	stubWorkspaceGraph(t, map[string][]string{"core_sim": nil, "lab": {"core_sim"}, "aside": nil})
 
 	var ran []string
-	out := captureStderr(t, func() {
+	out := captureGate(t, func() {
 		if res := Precommit(root, suiteRuns(&ran)); res.Blocked {
 			t.Fatalf("unexpected block: %s", res.Message)
 		}
@@ -167,14 +164,13 @@ func TestMechanical_RunsTheSuiteOfAPackageWhoseOnlyChangeIsANonGoFile(t *testing
 	}
 }
 
-// Serial: captures the process-wide os.Stderr.
 func TestPrecommit_NamesThePackageOfAStagedNonGoFileAsNotRun(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	linterAbsent(t)
 	root := nonGoFileRepo(t, "p/testdata/golden.json")
 
 	var seen []Runner
-	out := captureStderr(t, func() {
+	out := captureGate(t, func() {
 		if res := Precommit(root, recordRunner(&seen, root)); res.Blocked {
 			t.Fatalf("unexpected block: %s", res.Message)
 		}

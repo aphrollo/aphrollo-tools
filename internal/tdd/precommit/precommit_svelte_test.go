@@ -50,7 +50,7 @@ func makeSvelteKitRepo(t *testing.T) (repo, app, runLog string) {
 
 // The merge gate owes the component's related tests: a merge that staged
 // only a .svelte file runs vitest related over it, in the app, under node.
-// Serial: installs a process-wide test override (SetLookNodeForTest).
+// Serial: sets the process-wide env var FAKE_VITEST_LOG (makeSvelteKitRepo) and installs a process-wide test override (SetLookNodeForTest).
 func TestMechanical_AStagedSvelteComponentRunsItsRelatedVitestTests(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Cleanup(SetLookNodeForTest(func() (string, error) { return "/opt/node/bin/node", nil }))
@@ -71,7 +71,7 @@ func TestMechanical_AStagedSvelteComponentRunsItsRelatedVitestTests(t *testing.T
 // Fail-first withholds a staged component like any other source: a new
 // test of it is red at HEAD, where the component did not double, and green
 // with the staged one.
-// Serial: captures the process-wide os.Stderr.
+// Serial: sets the process-wide env var FAKE_VITEST_LOG (makeSvelteKitRepo).
 func TestFailFirst_AStagedSvelteComponentIsWithheldAtHead(t *testing.T) {
 	requireNode(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

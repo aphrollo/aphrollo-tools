@@ -39,10 +39,8 @@ func syncRepo(t *testing.T, laneFiles, trunkFiles map[string]string) (root, trun
 	return root, trunk
 }
 
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestMechanical_TrunkSyncIntoDocsOnlyLaneTakesTheDocsFastPath(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root, trunk := syncRepo(t,
 		map[string]string{"docs/decisions.md": "# decisions\n"},
 		map[string]string{"internal/b/b.go": "package b\n\nfunc B() int { return 1 }\n"})
@@ -51,11 +49,8 @@ func TestMechanical_TrunkSyncIntoDocsOnlyLaneTakesTheDocsFastPath(t *testing.T) 
 	if res := Mechanical(root, refuseToRun(t)); res.Blocked {
 		t.Fatalf("a trunk sync into a docs-only lane must not be blocked: %s", res.Message)
 	}
-	log, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("no gate.log written: %v", err)
-	}
-	if !strings.Contains(string(log), "docs-only-fastpath") {
+	log := gateLogHere(t)
+	if !strings.Contains(log, "docs-only-fastpath") {
 		t.Fatalf("a trunk sync into a docs-only lane must take the docs fast path, got:\n%s", log)
 	}
 }
@@ -197,7 +192,7 @@ func TestMechanical_SyncFromLocalTrunkAheadOfOriginIsScopedToTheLane(t *testing.
 
 // A clean automerge fires pre-merge-commit before MERGE_HEAD exists; only
 // GIT_REFLOG_ACTION names the incoming branch.
-// Serial: sets a process-wide env var.
+// Serial: sets the process-wide env var GIT_REFLOG_ACTION.
 func TestMechanical_AutomergeTrunkSyncNamedByReflogIsScopedToTheLane(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root, trunk := syncRepo(t,
@@ -217,9 +212,8 @@ func TestMechanical_AutomergeTrunkSyncNamedByReflogIsScopedToTheLane(t *testing.
 // The lockfile scope reads the lane's bump against the same base as the
 // staged set. Against HEAD the lane's own bump is invisible during a trunk
 // sync, so no package read as moved and the check narrowed to nothing.
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestLockfileScope_TrunkSyncReadsTheLanesBump(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "Cargo.lock", lockBeforeLeftpadBump)

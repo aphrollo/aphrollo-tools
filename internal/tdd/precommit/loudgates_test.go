@@ -1,8 +1,6 @@
 package precommit
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -126,10 +124,8 @@ func TestPrecommit_MechanicalTimeout_IsLoudAndRefuses(t *testing.T) {
 // threaded SuiteResult.Duration out of failFirstViolatedAt into the log.
 // A stub SuiteRunner reporting an 11s Duration must show up as 11.0s in
 // BOTH the stderr stage line and the gate.log line, not a hardcoded 0.
-// Serial: captures the process-wide os.Stderr.
 func TestFailFirstStage_ThreadsRealDurationIntoLogAndLine(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 { t.Fatal(\"no\") }\n}\n")
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
@@ -142,7 +138,7 @@ func TestFailFirstStage_ThreadsRealDurationIntoLogAndLine(t *testing.T) {
 	run := redAtHeadThenGreen(SuiteResult{Passed: false, Output: "./widget_test.go:6:5: undefined: Widget", Duration: stubDuration}, nil)
 
 	var res GateResult
-	stderr := captureStderr(t, func() {
+	stderr := captureGate(t, func() {
 		res = failFirstStage(root, root, []string{"widget_test.go"}, []string{"widget.go"}, run)
 	})
 	if res.Blocked {
@@ -152,11 +148,8 @@ func TestFailFirstStage_ThreadsRealDurationIntoLogAndLine(t *testing.T) {
 		t.Fatalf("expected the fail-first stderr line to report the stub's real Duration (11.0s), got: %s", stderr)
 	}
 
-	logData, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("gate.log not written: %v", err)
-	}
-	if !strings.Contains(string(logData), " 11.0s") {
+	logData := gateLogHere(t)
+	if !strings.Contains(logData, " 11.0s") {
 		t.Fatalf("expected the fail-first gate.log entry to record the stub's real Duration (11.0s), got:\n%s", logData)
 	}
 }
@@ -168,10 +161,8 @@ func TestFailFirstStage_ThreadsRealDurationIntoLogAndLine(t *testing.T) {
 // Source, never Test, and the len(tests) > 0 gate above never opens for it.
 // Before this fix a commit shaped exactly like this ran fail-first NOT AT
 // ALL, with nothing in stderr or gate.log to say so. Now it is named.
-// Serial: captures the process-wide os.Stderr.
 func TestFailFirstStage_LogsInconclusiveForInlineRustCfgTest(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeCargoRepo(t)
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n\n"+
 		"#[cfg(test)]\nmod tests {\n    use super::*;\n\n"+
@@ -184,7 +175,7 @@ func TestFailFirstStage_LogsInconclusiveForInlineRustCfgTest(t *testing.T) {
 	}
 
 	var res GateResult
-	stderr := captureStderr(t, func() {
+	stderr := captureGate(t, func() {
 		res = failFirstStageWithRustNotice(root, root, nil, []string{"src/widget.rs"}, run)
 	})
 	if res.Blocked {
@@ -194,11 +185,8 @@ func TestFailFirstStage_LogsInconclusiveForInlineRustCfgTest(t *testing.T) {
 		t.Fatalf("expected a named, inconclusive fail-first line on stderr, got: %s", stderr)
 	}
 
-	logData, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("gate.log not written: %v", err)
-	}
-	if !strings.Contains(string(logData), "inconclusive") {
+	logData := gateLogHere(t)
+	if !strings.Contains(logData, "inconclusive") {
 		t.Fatalf("expected gate.log to record that fail-first looked at this commit, got:\n%s", logData)
 	}
 }

@@ -151,7 +151,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
-	ci, ciErr := ghCIStatus(m.Target.Worktree, m.Target.Branch)
+	ci, ciErr := ghCIStatus(m.Target.Worktree, pr.HeadSHA)
 	if ciErr != nil {
 		return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
 	}
@@ -170,7 +170,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 				Evidence: fmt.Sprintf("gh pr checks reported %d failing check(s) for %s", ci.Failing, m.Target.Branch),
 			}, stderr)
 		}
-		detail := ci.State
+		detail := ci.Word()
 		if ci.State == "red" && ci.Failing > 0 {
 			detail = fmt.Sprintf("red (%d failing)", ci.Failing)
 		}

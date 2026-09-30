@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 )
@@ -15,7 +14,7 @@ import (
 // must name the SAME target the mechanical stage uses — the environment's
 // CARGO_TARGET_DIR when set, else the repo's own target/ (one target per
 // repo, 2026-09-02). The operator's value is restored once the gate is done.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
+// Serial: sets the process-wide env var CARGO_TARGET_DIR.
 func TestPrecommit_FailFirst_ExportsTheResolvedTargetDir(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -56,10 +55,8 @@ func TestPrecommit_FailFirst_ExportsTheResolvedTargetDir(t *testing.T) {
 // OS temp dir, and at the SAME per-repo path on every invocation — a stable
 // worktree keeps build fingerprints warm across commits instead of
 // cold-compiling into a fresh MkdirTemp each time.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_FailFirst_StableWorktreeUnderStateDir(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 { t.Fatal(\"no\") }\n}\n")
 	gitDo(t, root, "add", ".")
@@ -79,8 +76,8 @@ func TestPrecommit_FailFirst_StableWorktreeUnderStateDir(t *testing.T) {
 	if len(dirs) != 4 {
 		t.Fatalf("expected four worktree runs, got %d: %v", len(dirs), dirs)
 	}
-	if !strings.HasPrefix(dirs[0], cfg) {
-		t.Fatalf("fail-first worktree must live under the state dir %s, got %s", cfg, dirs[0])
+	if want := failFirstWorktreeFor(root); dirs[0] != want {
+		t.Fatalf("fail-first worktree must be the repo's stable path under the state dir %s, got %s", want, dirs[0])
 	}
 	if dirs[0] != dirs[2] {
 		t.Fatalf("fail-first worktree must be a stable per-repo path across invocations: %s vs %s", dirs[0], dirs[2])

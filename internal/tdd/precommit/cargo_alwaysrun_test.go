@@ -147,8 +147,8 @@ func TestNarrowFailFirstTests_CargoIgnoresAlwaysRun(t *testing.T) {
 // `error: no test target named 'vertical_ladder'` -- a red on green code.
 // The file must run on the lib target filtered by its module path, and a
 // mod.rs there filters to the directory's own module.
-// Serial: installs a process-wide test override (SetCargoTestTargetsForTest).
 func TestNarrowToRelatedTests_CargoTestsDirUnderSrcIsAModuleNotATarget(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write(t, root, "Cargo.toml", "[package]\nname = \"forge\"\nversion = \"0.1.0\"\n")
 	write(t, root, "src/tire_rig/tests/vertical_ladder.rs", "#[test]\nfn climbs() {}\n")

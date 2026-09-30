@@ -31,6 +31,7 @@ func spanRepo(t *testing.T) string {
 // function, so a change that moves the call into another function moves its
 // row, and the diff shows only the lines around it.
 func TestCallsiteGuardNeeded_JudgesTheFunctionARangeEditsByItsExactBounds(t *testing.T) {
+	t.Parallel()
 	edit := func(old, repl string) string { return strings.Replace(funcSpanSource, old, repl, 1) }
 	for _, tc := range []struct {
 		name string
@@ -58,6 +59,7 @@ func TestCallsiteGuardNeeded_JudgesTheFunctionARangeEditsByItsExactBounds(t *tes
 // function's lines and leaves the exec line itself as context, so the
 // changed-lines match alone sees nothing.
 func TestCallsiteGuardNeeded_SeesAnExecCallMovedIntoANewFunction(t *testing.T) {
+	t.Parallel()
 	root := callsiteRepo(t)
 	write(t, root, "internal/cli/move.go", "package cli\n\nfunc a(p []string) {\n\tx := 1\n\t_ = x\n\texec.CommandContext(nil, \"git\", p...)\n}\n")
 	gitDo(t, root, "add", ".")
@@ -79,6 +81,7 @@ func TestCallsiteGuardNeeded_SeesAnExecCallMovedIntoANewFunction(t *testing.T) {
 // Deleting a line inside a function that makes a call adds nothing, so only
 // the committed version of the function shows the call.
 func TestCallsiteGuardNeeded_SeesADeletionInsideAFunctionThatMakesACall(t *testing.T) {
+	t.Parallel()
 	root := callsiteRepo(t)
 	write(t, root, "internal/cli/del.go", "package cli\n\nfunc a(p []string) {\n\tx := 1\n\t_ = x\n\texec.Command(\"git\", p...)\n}\n")
 	gitDo(t, root, "add", ".")
@@ -93,6 +96,7 @@ func TestCallsiteGuardNeeded_SeesADeletionInsideAFunctionThatMakesACall(t *testi
 // A staged file the guard's table already names has a row that a change to it
 // can invalidate, whatever the changed lines say.
 func TestCallsiteGuardNeeded_SeesAStagedFileTheTableNames(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		table string
@@ -120,6 +124,7 @@ func TestCallsiteGuardNeeded_SeesAStagedFileTheTableNames(t *testing.T) {
 
 // A staged file that does not parse cannot be shown to be clear of a call.
 func TestCallsiteGuardNeeded_RunsForAStagedFileItCannotParse(t *testing.T) {
+	t.Parallel()
 	root := callsiteRepo(t)
 	write(t, root, "internal/cli/plain.go", "package cli\n\nvar X = = 2\n")
 	gitDo(t, root, "add", "-A")
@@ -129,6 +134,7 @@ func TestCallsiteGuardNeeded_RunsForAStagedFileItCannotParse(t *testing.T) {
 }
 
 func TestFuncHunks_ReadsRangesFromTheHunkHeaders(t *testing.T) {
+	t.Parallel()
 	diff := "diff --git a/a.go b/a.go\n--- a/a.go\n+++ b/a.go\n@@ -3,2 +3 @@\n-x\n-y\n+z\n@@ -9 +8,0 @@\n-w\n@@ -12,0 +11,3 @@\n+p\n+q\n+r\n"
 	got := stagedHunks(diff)["a.go"]
 	wantOld := []lineSpan{{3, 4}, {9, 9}}

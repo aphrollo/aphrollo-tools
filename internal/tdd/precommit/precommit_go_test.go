@@ -39,16 +39,15 @@ func withLinter(t *testing.T, present bool) {
 	t.Cleanup(SetLookLinterForTest(func() bool { return present }))
 }
 
-// withLinterPresent installs a present linter for one test: a process-wide
-// override, so the test runs serially.
-func withLinterPresent(t *testing.T) {
-	t.Helper()
-	withLinter(t, true)
-}
-
 func withLinterVersion(t *testing.T, version string) {
 	t.Helper()
 	t.Cleanup(SetLinterVersionForTest(func(string) string { return version }))
+}
+
+// withLinterPresent states a linter on the box for this test's roots alone.
+func withLinterPresent(t *testing.T) {
+	t.Helper()
+	linterAt(t, true)
 }
 
 func runsAt(seen *[]Runner, root string) SuiteRunner {
@@ -64,8 +63,8 @@ func cmdLine(r Runner) string { return strings.TrimSpace(r.Cmd + " " + strings.J
 // order: vet compiles nothing extra, lint is a full analysis pass. Nothing
 // follows them at commit time: a suite reappearing here is the break this
 // test catches, and it is the merge gate's job now.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitGo_RootRunsVetThenLintAndStopsThere(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	withLinterPresent(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
@@ -91,8 +90,8 @@ func TestPrecommitGo_RootRunsVetThenLintAndStopsThere(t *testing.T) {
 // extra), so it is the one CI-parity check worth SCOPING: two staged files in
 // two different packages must lint only those two packages, never fall back
 // to ./... and re-analyze the whole module for a two-file commit.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitLint_scopesToTheTouchedPackagesNotTheWholeModule(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	withLinterPresent(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
@@ -121,8 +120,8 @@ func TestPrecommitLint_scopesToTheTouchedPackagesNotTheWholeModule(t *testing.T)
 // golangci-lint is running" — a rejection that says nothing about the code.
 // CI passes --allow-serial-runners for exactly this reason; the gate, which
 // runs while other sessions build, needs it more.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitPassesAllowSerialRunnersToTheLinter(t *testing.T) {
+	t.Parallel()
 	withLinterPresent(t)
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
@@ -149,13 +148,11 @@ func TestPrecommitPassesAllowSerialRunnersToTheLinter(t *testing.T) {
 // a green commit is the whole failure this gate is for — so it is said out
 // loud. It is NOT a rejection: a version mismatch is not a defect in the
 // code, and refusing the commit would wedge every box that has not upgraded.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommitLogsLintVersionDriftAndStillRuns(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	withLinterPresent(t)
 	pinned, local := newDriftVersionPair()
-	withLinterVersion(t, local)
+	linterVersionIs(t, local)
 	root := makeGoRepo(t)
 	write(t, root, ".github/workflows/pipeline.yml",
 		fmt.Sprintf("jobs:\n  lint:\n    steps:\n      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v%s\n", pinned))
@@ -173,15 +170,13 @@ func TestPrecommitLogsLintVersionDriftAndStillRuns(t *testing.T) {
 	if !ran {
 		t.Fatalf("the linter must still run on drift: %+v", seen)
 	}
-	requireLoggedVerdict(t, cfg, "lint-version-drift")
+	requireVerdictHere(t, "lint-version-drift")
 }
 
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommitIsQuietWhenTheLinterMatchesTheWorkflowPin(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	withLinterPresent(t)
-	withLinterVersion(t, "2.12.2")
+	linterVersionIs(t, "2.12.2")
 	root := makeGoRepo(t)
 	write(t, root, ".github/workflows/pipeline.yml",
 		"jobs:\n  lint:\n    steps:\n      - run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2\n")
@@ -190,17 +185,15 @@ func TestPrecommitIsQuietWhenTheLinterMatchesTheWorkflowPin(t *testing.T) {
 
 	var seen []Runner
 	Precommit(root, runsAt(&seen, root))
-	if strings.Contains(gateLogText(t, cfg), "lint-version-drift") {
+	if strings.Contains(gateLogHere(t), "lint-version-drift") {
 		t.Fatal("a matching version is not drift")
 	}
 }
 
 // A linter nobody installed is not a failing commit. It is one log line, so
 // the difference between "clean" and "never ran" stays visible.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommitSkipsTheLinterWhenItIsNotOnPath(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	linterAbsent(t)
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
@@ -216,13 +209,13 @@ func TestPrecommitSkipsTheLinterWhenItIsNotOnPath(t *testing.T) {
 			t.Fatalf("the linter is not installed, so it must not be run: %v", seen)
 		}
 	}
-	requireLoggedVerdict(t, cfg, "lint-skipped")
+	requireVerdictHere(t, "lint-skipped")
 }
 
 // The linter that IS installed and finds something rejects, and the rejection
 // names the command so it can be reproduced.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommitRejectsWhenTheLinterFails(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	withLinterPresent(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
@@ -255,8 +248,8 @@ func TestPrecommitRejectsWhenTheLinterFails(t *testing.T) {
 // 2026-09-23 across two lanes' commit gates. Contention must be its own
 // outcome: still refuses the commit (lint never actually judged the code),
 // but says so as a retry, never a lint verdict.
-// Serial: installs a process-wide test override (SetLookLinterForTest).
 func TestPrecommit_ClassifiesLintContentionAsNotALintFailure(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	withLinterPresent(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
@@ -439,5 +432,31 @@ func TestLinterSetters_InstallAndRestore(t *testing.T) {
 	restore()
 	if got := linterVersion(t.TempDir()); got != realVersion {
 		t.Errorf("restore left the version stub in place: %q, want %q", got, realVersion)
+	}
+}
+
+// The doctor's tests in install state the linter through withLinter and
+// withLinterVersion (carried there as generated helpers): each holds for one
+// test and is gone when it ends.
+// Serial: installs a process-wide test override (SetLookLinterForTest).
+func TestLinterProbeHelpers_HoldForOneTestThenRestore(t *testing.T) {
+	realPresent, realVersion := lookLinter(), linterVersion(t.TempDir())
+
+	t.Run("stated", func(t *testing.T) {
+		withLinter(t, !realPresent)
+		withLinterVersion(t, "9.9.9-helper")
+		if lookLinter() == realPresent {
+			t.Error("withLinter stated nothing")
+		}
+		if got := linterVersion(t.TempDir()); got != "9.9.9-helper" {
+			t.Errorf("withLinterVersion stated %q", got)
+		}
+	})
+
+	if lookLinter() != realPresent {
+		t.Error("withLinter outlived its test")
+	}
+	if got := linterVersion(t.TempDir()); got != realVersion {
+		t.Errorf("withLinterVersion outlived its test: %q, want %q", got, realVersion)
 	}
 }

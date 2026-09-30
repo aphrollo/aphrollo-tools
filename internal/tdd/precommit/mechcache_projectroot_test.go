@@ -51,9 +51,8 @@ func TestMechanical_AGreenInOneProjectRootIsNoCacheHitForAnother(t *testing.T) {
 
 // The key-level statement of the same fact, and its other half: two
 // worktrees of one repo still share a key for the same project root.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestMechKey_DistinctPerProjectRootSharedAcrossWorktrees(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := twoModuleMerge(t)
 	lane := filepath.Join(t.TempDir(), "lane")
 	gitDo(t, root, "worktree", "add", "-q", "-b", "lane/x", lane)

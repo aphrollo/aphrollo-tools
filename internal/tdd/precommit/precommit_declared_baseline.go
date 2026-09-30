@@ -2,7 +2,6 @@ package precommit
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -43,7 +42,7 @@ func linesStage(gateName, stage, repoRoot, root string, prelude []Runner, r Runn
 		return blocked
 	}
 	if len(fresh) == 0 {
-		fmt.Fprintf(os.Stderr, "[%s] gate %s: %s in %s → failed, but printed no line HEAD's run did not; not held against this commit\n",
+		fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → failed, but printed no line HEAD's run did not; not held against this commit\n",
 			stage, gateName, cmdString(r), root)
 		AppendGateLog(gateName, root, cmdString(r), stage+"-head-only", res.Duration)
 		return verdictFor(gateName, stage, root, cmdString(r), stageOutcome{Kind: outcomePass})

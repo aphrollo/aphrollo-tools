@@ -32,6 +32,7 @@ func (r *recordedRun) run(runner Runner, _ string) SuiteResult {
 // internal/tdd runs the manifest drift test, so a file with no manifest row
 // is refused here instead of by CI.
 func TestTddsplitManifestStage_RunsTheDriftTestWhenTheFileSetChanges(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		stage func(t *testing.T, root string)
@@ -75,6 +76,7 @@ func TestTddsplitManifestStage_RunsTheDriftTestWhenTheFileSetChanges(t *testing.
 }
 
 func TestTddsplitManifestStage_BlocksOnAFailingDriftTest(t *testing.T) {
+	t.Parallel()
 	root := manifestRepo(t)
 	write(t, root, "internal/tdd/suite/new.go", "package suite\n")
 	gitDo(t, root, "add", "-A")
@@ -88,6 +90,7 @@ func TestTddsplitManifestStage_BlocksOnAFailingDriftTest(t *testing.T) {
 // go test exits 0 when -run matches nothing: a renamed drift test must not
 // turn the stage into a pass.
 func TestTddsplitManifestStage_BlocksWhenTheDriftTestNoLongerExists(t *testing.T) {
+	t.Parallel()
 	root := manifestRepo(t)
 	write(t, root, "internal/tdd/suite/new.go", "package suite\n")
 	gitDo(t, root, "add", "-A")
@@ -99,6 +102,7 @@ func TestTddsplitManifestStage_BlocksWhenTheDriftTestNoLongerExists(t *testing.T
 }
 
 func TestTddsplitManifestStage_SkipsWhatCannotMoveTheFileSet(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name  string
 		stage func(t *testing.T, root string)
@@ -124,6 +128,7 @@ func TestTddsplitManifestStage_SkipsWhatCannotMoveTheFileSet(t *testing.T) {
 }
 
 func TestTddsplitManifestStage_SkipsARepoWithoutTheManifest(t *testing.T) {
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "internal/tdd/new.go", "package tdd\n")
 	gitDo(t, root, "add", "-A")
@@ -139,7 +144,7 @@ func TestTddsplitManifestStage_SkipsARepoWithoutTheManifest(t *testing.T) {
 // The stage is wired into the commit gate: a commit staging only a deleted
 // file (no source, no test) still reaches it.
 func TestPrecommitDecide_RefusesADeletionThatLeavesAManifestRow(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := manifestRepo(t)
 	gitDo(t, root, "rm", "-q", "internal/tdd/old.go")
 	rec := &recordedRun{result: SuiteResult{Output: "manifest row maps no file: old.go\n"}}

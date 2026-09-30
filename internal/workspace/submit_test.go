@@ -173,7 +173,8 @@ func TestSubmit_ActsOnExactlyOneWorktree(t *testing.T) {
 		},
 		func(wt string, req PRCreate) (*PRInfo, error) { t.Fatal("submit must not open a PR"); return nil, nil },
 	)
-	stubCI(t, func(wt, branch string) (CIStatus, error) { record(wt, branch); return CIStatus{State: "green"}, nil })
+	// The CI read is keyed by commit, not branch: it carries the worktree only.
+	stubCI(t, func(wt, sha string) (CIStatus, error) { record(wt, tgt.Branch); return CIStatus{State: "green"}, nil })
 	stubReady(t, func(wt, branch string) error { record(wt, branch); return nil })
 	stubBody(t, func(wt, branch, body string) error { record(wt, branch); return nil })
 

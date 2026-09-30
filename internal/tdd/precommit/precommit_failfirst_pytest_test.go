@@ -57,7 +57,7 @@ func makeBackendPytestRepo(t *testing.T, python string) string {
 // backend/tests is found under the backend root, is red against HEAD's calc.py
 // and green with the change, and the gate names no missing runner.
 func TestGateRoot_ABackendPytestRootIsProvenRedAtHead(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeBackendPytestRepo(t, fakePython)
 
 	groups := stagedRootGroups(root)
@@ -65,7 +65,7 @@ func TestGateRoot_ABackendPytestRootIsProvenRedAtHead(t *testing.T) {
 		t.Fatalf("groups = %+v, want the one backend root", groups)
 	}
 	var res GateResult
-	stderr := captureStderr(t, func() {
+	stderr := captureGate(t, func() {
 		res = gateRoot("precommit", root, groups[0], RunSuite(precommitTestTimeout), true)
 	})
 	if res.Blocked {
@@ -86,8 +86,8 @@ func TestGateRoot_ABackendPytestRootIsProvenRedAtHead(t *testing.T) {
 // interpreter the proof can find, the root's virtualenv and both on PATH,
 // lacks pytest, the proof ends with a NOT RUN line naming the root and the
 // reason, and the commit is not refused.
+// Serial: sets the process-wide env var PATH, which puts a fake python first.
 func TestGateRoot_ABackendPytestRootWithoutPytestSaysNotRun(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeBackendPytestRepo(t, "#!/bin/sh\nexit 1\n")
 	groups := stagedRootGroups(root)
 	bin := t.TempDir()

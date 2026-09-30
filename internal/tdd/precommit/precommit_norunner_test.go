@@ -13,7 +13,7 @@ import (
 // runner)". It now says NOT RUN, why, and each top-level directory with the
 // staged files nothing was tested in.
 func TestGateRoot_NoRunnerNamesEachUntestedRootAndItsFiles(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "backend/app/vault.py", "x = 1\n")
@@ -26,7 +26,7 @@ func TestGateRoot_NoRunnerNamesEachUntestedRootAndItsFiles(t *testing.T) {
 	}
 
 	var res GateResult
-	stderr := captureStderr(t, func() {
+	stderr := captureGate(t, func() {
 		res = gateRoot("precommit", root, groups[0], RunSuite(precommitTestTimeout), true)
 	})
 	if res.Blocked {
@@ -50,6 +50,7 @@ func TestGateRoot_NoRunnerNamesEachUntestedRootAndItsFiles(t *testing.T) {
 // TestUntestedRootLines_ListsAtMostFiveFilesPerRoot pins the cap: five files
 // are named, a sixth is counted.
 func TestUntestedRootLines_ListsAtMostFiveFilesPerRoot(t *testing.T) {
+	t.Parallel()
 	var five, six []string
 	for i := range 6 {
 		f := fmt.Sprintf("svc/f%d.py", i)
@@ -71,6 +72,7 @@ func TestUntestedRootLines_ListsAtMostFiveFilesPerRoot(t *testing.T) {
 // TestUntestedRootLines_AFileAtTheRepoTopIsItsOwnRoot: a file with no
 // directory belongs to the top, named "./", and roots come out sorted.
 func TestUntestedRootLines_AFileAtTheRepoTopIsItsOwnRoot(t *testing.T) {
+	t.Parallel()
 	got := untestedRootLines([]string{"z/a.py", "main.py", filepath.ToSlash("a/b/c.py")})
 	want := []string{"  ./: main.py", "  a/: a/b/c.py", "  z/: z/a.py"}
 	if strings.Join(got, "|") != strings.Join(want, "|") {

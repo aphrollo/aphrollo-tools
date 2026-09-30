@@ -62,17 +62,15 @@ func TestVerdictFor_PassNeverBlocks(t *testing.T) {
 // stage that genuinely passed) used to fall through outcomePass's zero value
 // and return an empty, unblocked, unlogged GateResult — a pass nobody
 // classified. The zero value must not be a valid pass at all.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestVerdictFor_TreatsAnOmittedKindAsBlockedNotPass(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := t.TempDir()
 
 	got := verdictFor("precommit", "vet", root, "some-cmd", stageOutcome{})
 	if !got.Blocked {
 		t.Fatal("a stageOutcome with no kind set must block, not silently pass")
 	}
-	requireLoggedVerdict(t, cfg, "unclassified-outcome-rejected")
+	requireVerdictHere(t, "unclassified-outcome-rejected")
 }
 
 // TestVerdictFor_BlocksAndLogsAnUnrecognizedOutcomeKind is the default
@@ -80,17 +78,15 @@ func TestVerdictFor_TreatsAnOmittedKindAsBlockedNotPass(t *testing.T) {
 // outcome added to the enum without a case here, e.g. #317's vacuous before
 // this change) fell through to the same silent empty pass. The default
 // branch must be as loud and blocking as every named case.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestVerdictFor_BlocksAndLogsAnUnrecognizedOutcomeKind(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := t.TempDir()
 
 	got := verdictFor("precommit", "vet", root, "some-cmd", stageOutcome{Kind: stageOutcomeKind(999)})
 	if !got.Blocked {
 		t.Fatal("an outcome kind verdictFor cannot classify must block, not silently pass")
 	}
-	requireLoggedVerdict(t, cfg, "unclassified-outcome-rejected")
+	requireVerdictHere(t, "unclassified-outcome-rejected")
 }
 
 // TestVerdictFor_BlocksOnVacuousForEveryRegisteredStage is #317's outcome
@@ -98,10 +94,8 @@ func TestVerdictFor_BlocksAndLogsAnUnrecognizedOutcomeKind(t *testing.T) {
 // blocks for every registered stage, with its own log token distinct from
 // "blocked" (a real failure) and "timeout-rejected" (never finished) — `gate
 // stats` needs to count these separately.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestVerdictFor_BlocksOnVacuousForEveryRegisteredStage(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := t.TempDir()
 
 	for _, stage := range registeredStages {
@@ -113,7 +107,7 @@ func TestVerdictFor_BlocksOnVacuousForEveryRegisteredStage(t *testing.T) {
 			t.Fatalf("stage %q: a vacuous run must block, got unblocked GateResult %+v", stage, got)
 		}
 	}
-	requireLoggedVerdict(t, cfg, "vacuous-rejected")
+	requireVerdictHere(t, "vacuous-rejected")
 }
 
 // TestVerdictFor_BlocksOnContentionForEveryRegisteredStage pins a stage that
@@ -122,10 +116,8 @@ func TestVerdictFor_BlocksOnVacuousForEveryRegisteredStage(t *testing.T) {
 // the code. It blocks (nothing was proven clean either way), logs its own
 // token distinct from "blocked" (a real failure), and carries the caller's
 // message verbatim so a retry remedy survives the shared mapping.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestVerdictFor_BlocksOnContentionForEveryRegisteredStage(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := t.TempDir()
 
 	for _, stage := range registeredStages {
@@ -141,17 +133,15 @@ func TestVerdictFor_BlocksOnContentionForEveryRegisteredStage(t *testing.T) {
 			t.Fatalf("stage %q: contention message = %q, want the caller's message verbatim", stage, got.Message)
 		}
 	}
-	requireLoggedVerdict(t, cfg, "contention-rejected")
+	requireVerdictHere(t, "contention-rejected")
 }
 
 // TestGoCheckStage_BlocksOnTimeoutInsteadOfFailingOpen: goCheckStage backs
 // `go vet` and golangci-lint. Before this change a TimedOut SuiteResult
 // returned an empty, non-blocking GateResult and printed only to stderr — a
 // commit whose vet run never finished landed as if vet had never been asked.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestGoCheckStage_BlocksOnTimeoutInsteadOfFailingOpen(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := t.TempDir()
 	run := func(Runner, string) SuiteResult { return SuiteResult{TimedOut: true} }
 
@@ -159,7 +149,7 @@ func TestGoCheckStage_BlocksOnTimeoutInsteadOfFailingOpen(t *testing.T) {
 	if !got.Blocked {
 		t.Fatal("go vet timing out must block the commit, not fail open")
 	}
-	requireLoggedVerdict(t, cfg, "timeout-rejected")
+	requireVerdictHere(t, "timeout-rejected")
 }
 
 // TestQualityVerdict_BlocksOnTimeoutInsteadOfFailingOpen: qualityVerdict
@@ -167,10 +157,8 @@ func TestGoCheckStage_BlocksOnTimeoutInsteadOfFailingOpen(t *testing.T) {
 // TimedOut result returned nil (meaning "continue, nothing to report") and
 // the commit proceeded with the crate's formatting or lint never actually
 // checked.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestQualityVerdict_BlocksOnTimeoutInsteadOfFailingOpen(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := t.TempDir()
 	r := Runner{Cmd: "cargo", Args: []string{"clippy", "-p", "a"}}
 
@@ -178,17 +166,15 @@ func TestQualityVerdict_BlocksOnTimeoutInsteadOfFailingOpen(t *testing.T) {
 	if got == nil || !got.Blocked {
 		t.Fatalf("clippy timing out must block the commit, got %+v", got)
 	}
-	requireLoggedVerdict(t, cfg, "timeout-rejected")
+	requireVerdictHere(t, "timeout-rejected")
 }
 
 // TestRatchetFixtureStage_BlocksWhenRunFixturesErrors: a law file this
 // binary's schema cannot even parse used to print "ratchet fixtures →
 // skipped" and let the commit through — the same shape #158 fixed for
 // ratchet check, never applied to the fixture stage.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestRatchetFixtureStage_BlocksWhenRunFixturesErrors(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := t.TempDir()
 	lawsDir := root + "/.ratchet/laws"
 	if err := os.MkdirAll(lawsDir, 0o755); err != nil {
@@ -202,17 +188,15 @@ func TestRatchetFixtureStage_BlocksWhenRunFixturesErrors(t *testing.T) {
 	if !got.Blocked {
 		t.Fatal("a law RunFixtures cannot even parse must block the commit, not skip it")
 	}
-	requireLoggedVerdict(t, cfg, "check-error-rejected")
+	requireVerdictHere(t, "check-error-rejected")
 }
 
 // TestDocsCheckStage_BlocksWhenCheckFilesErrors: docsCheckStage's own doc
 // comment describes a zero-bar check, but a markdown file staged in the
 // index and then removed from disk used to print "docs → skipped" and let
 // the commit through — a suppression built from making the file unreadable.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestDocsCheckStage_BlocksWhenCheckFilesErrors(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "note.md", "# note\n")
 	gitDo(t, root, "add", "note.md")
@@ -224,5 +208,5 @@ func TestDocsCheckStage_BlocksWhenCheckFilesErrors(t *testing.T) {
 	if !got.Blocked {
 		t.Fatal("docs.CheckFiles erroring on an unreadable staged file must block, not skip")
 	}
-	requireLoggedVerdict(t, cfg, "check-error-rejected")
+	requireVerdictHere(t, "check-error-rejected")
 }

@@ -85,9 +85,8 @@ func TestMechanical_AllowsAnIgnoredFileInsideABuiltGoPackage(t *testing.T) {
 
 // downstreamWorkspace stages a change to core_sim; lab depends on it and is
 // built with it, aside is not.
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_RefusesAnUntrackedTestFileInsideABuiltCrate(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := downstreamWorkspace(t)
 	stubWorkspaceGraph(t, map[string][]string{"core_sim": nil, "lab": {"core_sim"}, "aside": nil})
 	write(t, root, "crates/lab/tests/wip.rs", "#[test]\nfn wip() { lab::pin( }\n")
@@ -101,9 +100,8 @@ func TestMechanical_RefusesAnUntrackedTestFileInsideABuiltCrate(t *testing.T) {
 	}
 }
 
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_AllowsAModifiedFileInACrateTheMergeDoesNotBuild(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := downstreamWorkspace(t)
 	stubWorkspaceGraph(t, map[string][]string{"core_sim": nil, "lab": {"core_sim"}, "aside": nil})
 	write(t, root, "crates/aside/src/lib.rs", "pub fn other() -> i32 { 1 }\n")
@@ -117,9 +115,8 @@ func TestMechanical_AllowsAModifiedFileInACrateTheMergeDoesNotBuild(t *testing.T
 	}
 }
 
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_AllowsAnIgnoredFileInsideABuiltCrate(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := downstreamWorkspace(t)
 	stubWorkspaceGraph(t, map[string][]string{"core_sim": nil, "lab": {"core_sim"}, "aside": nil})
 	excludeLocally(t, root, "crates/core/src/scratch.rs")
@@ -136,9 +133,8 @@ func TestMechanical_AllowsAnIgnoredFileInsideABuiltCrate(t *testing.T) {
 
 // A workspace manifest in the merge checks the workspace beyond the touched
 // crates, so a crate nothing else would build is built this time.
-// Serial: installs a process-wide test override (SetCargoWorkspaceDepsForTest).
 func TestMechanical_RefusesADirtyFileInAnyCrateWhenTheWorkspaceManifestMoved(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := downstreamWorkspace(t)
 	stubWorkspaceGraph(t, map[string][]string{"core_sim": nil, "lab": {"core_sim"}, "aside": nil})
 	write(t, root, "Cargo.toml", "[workspace]\nmembers = [\"crates/core\", \"crates/lab\", \"crates/aside\"]\nresolver = \"2\"\n\n[workspace.package]\nedition = \"2021\"\n")
@@ -217,16 +213,15 @@ func TestRootPlanBuilds_NothingOutsideItsCargoWorkspace(t *testing.T) {
 // The dirty-tree check resolves each cargo root's plan before anything is
 // built, and the stages reuse it: resolving it again would report every
 // unowned staged file twice.
-// Serial: captures the process-wide os.Stderr.
 func TestMechanical_ReportsAnUnownedCargoFileOnceWhenThePlanIsResolvedUpFront(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := downstreamWorkspace(t)
 	stubWorkspaceGraph(t, map[string][]string{"core_sim": nil, "lab": {"core_sim"}, "aside": nil})
 	write(t, root, "scripts/tool.rs", "fn main() {}\n")
 	gitDo(t, root, "add", "scripts/tool.rs")
 
 	var ran []string
-	out := captureStderr(t, func() {
+	out := captureGate(t, func() {
 		if res := Mechanical(root, suiteRuns(&ran)); res.Blocked {
 			t.Fatalf("unexpected block: %s", res.Message)
 		}

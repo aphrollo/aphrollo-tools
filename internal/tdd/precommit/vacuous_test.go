@@ -6,8 +6,6 @@ package precommit
 // vacuousGoPackages classifier underneath both.
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -26,9 +24,8 @@ import (
 // #194 shape) from "ran and passed normally" — plain (non -json) `go test`
 // output carries no such signal at all, so without this the suite/fail-first
 // stages would have nothing to count.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestRunSuite_GoTestJSONCanBeJudgedByVacuousGoPackages(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, dir, "go.mod", "module example.com/vacuous\n\ngo 1.21\n")
 	write(t, dir, "widget.go", "package m\n")
@@ -80,9 +77,8 @@ func TestRunSuite_GoTestWithRealPassingTestsIsNeverVacuous(t *testing.T) {
 // (DetectRunner's Go default) covers both packages in ONE invocation, and
 // pkgok's real "--- PASS" must not hide pkgvacuous going quietly vacuous
 // beside it.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestRunSuite_MultiPackageRunAttributesVacuousToTheRightPackage(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	dir := t.TempDir()
 	write(t, dir, "go.mod", "module multipkg\n\ngo 1.21\n")
 	write(t, dir, "pkgok/ok.go", "package pkgok\n\nfunc OK() int { return 1 }\n")
@@ -113,10 +109,8 @@ const vacuousPkgJSONLine = tddtest.VacuousPkgJSONLine
 // is nothing was tested, not a pass — and its gate.log entry must carry its
 // own token, distinct from a real failure or a timeout, so `gate stats` can
 // count it separately.
-// Serial: sets the process-wide env var CLAUDE_CONFIG_DIR.
 func TestPrecommit_RejectsAGoSuiteThatExecutedZeroTests(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget_test.go", "package m\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\n"+
 		"func TestMain(m *testing.M) {\n\tos.Exit(0)\n}\n")
@@ -131,11 +125,8 @@ func TestPrecommit_RejectsAGoSuiteThatExecutedZeroTests(t *testing.T) {
 		t.Fatal("a suite that executed zero tests despite exiting 0 must block the commit, not pass")
 	}
 
-	logData, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("gate.log not written: %v", err)
-	}
-	if !strings.Contains(string(logData), "vacuous-rejected") {
+	logData := gateLogHere(t)
+	if !strings.Contains(logData, "vacuous-rejected") {
 		t.Fatalf("expected gate.log to carry the vacuous-rejected token, got:\n%s", logData)
 	}
 }
@@ -144,9 +135,8 @@ func TestPrecommit_RejectsAGoSuiteThatExecutedZeroTests(t *testing.T) {
 // per-package attribution at the actual blocking stage (not just the unit
 // classify_test.go coverage): a multi-package GoTestJSON stream must name
 // only the package that went vacuous, never the one that genuinely ran.
-// Serial: reads or writes gate state (gate.log, the green cache) under CLAUDE_CONFIG_DIR, a process-wide env var, so it needs a dir of its own.
 func TestPrecommit_NamesTheVacuousPackageAmongInnocentSiblings(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget_test.go", "package m\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\n"+
 		"func TestMain(m *testing.M) {\n\tos.Exit(0)\n}\n")
@@ -181,10 +171,8 @@ func TestPrecommit_NamesTheVacuousPackageAmongInnocentSiblings(t *testing.T) {
 // -run filter matching nothing, say) — that is not a red proof and not a
 // conclusive violation either, so it needs its own name rather than being
 // misreported as "your test passed without the implementation".
-// Serial: captures the process-wide os.Stderr.
 func TestFailFirstStage_RejectsAGoProofThatExecutedZeroTests(t *testing.T) {
-	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Parallel()
 	root := makeGoRepo(t)
 	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget(t *testing.T) {\n\tif Widget() != 1 {\n\t\tt.Fatal(\"no\")\n\t}\n}\n")
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
@@ -195,7 +183,7 @@ func TestFailFirstStage_RejectsAGoProofThatExecutedZeroTests(t *testing.T) {
 	}
 
 	var res GateResult
-	stderr := captureStderr(t, func() {
+	stderr := captureGate(t, func() {
 		res = failFirstStage(root, root, []string{"widget_test.go"}, []string{"widget.go"}, run)
 	})
 	if !res.Blocked {
@@ -205,11 +193,8 @@ func TestFailFirstStage_RejectsAGoProofThatExecutedZeroTests(t *testing.T) {
 		t.Fatalf("expected the fail-first stderr line to name the vacuous outcome, got: %s", stderr)
 	}
 
-	logData, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("gate.log not written: %v", err)
-	}
-	if !strings.Contains(string(logData), "vacuous-rejected") {
+	logData := gateLogHere(t)
+	if !strings.Contains(logData, "vacuous-rejected") {
 		t.Fatalf("expected gate.log to carry the vacuous-rejected token, got:\n%s", logData)
 	}
 }
