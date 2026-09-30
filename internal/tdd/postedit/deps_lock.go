@@ -26,6 +26,8 @@ func ReadBuildSlotOwner(p0 string) (BuildLockOwner, bool) { return lock.ReadBuil
 
 func RunSlotChild(p0 *exec.Cmd, p1 string) (CapResult, error) { return lock.RunSlotChild(p0, p1) }
 
+func TryAcquireLintLock(p0 string, p1 string) (func(), bool) { return lock.TryAcquireLintLock(p0, p1) }
+
 func WaitForHeadroom(p0 string, p1 time.Duration) string { return lock.WaitForHeadroom(p0, p1) }
 
 func acquireGlobalSlot(p0 time.Duration, p1 string, p2 string) (BuildSlot, func(), bool) {

@@ -22,7 +22,7 @@ import (
 var pytestRequirementRe = regexp.MustCompile(`(?mi)^\s*pytest\b`)
 
 // pytestDeclared reports whether dir declares pytest: a setup.cfg naming it,
-// or a requirements*.txt file that lists it.
+// a requirements*.txt file that lists it, or the layout of one (pytestLayout).
 func pytestDeclared(dir string) bool {
 	if data, err := os.ReadFile(filepath.Join(dir, "setup.cfg")); err == nil && strings.Contains(string(data), "pytest") {
 		return true
@@ -31,6 +31,23 @@ func pytestDeclared(dir string) bool {
 	for _, f := range files {
 		if data, err := os.ReadFile(f); err == nil && pytestRequirementRe.Match(data) {
 			return true
+		}
+	}
+	return len(files) > 0 && hasTestsDir(dir)
+}
+
+// hasTestsDir reports whether dir holds a tests/ or test/ directory with a
+// test file pytest collects directly in it. A backend/ that installs pytest
+// by hand or in a CI step names it in no file, and this layout beside its
+// requirements file is what marks it as the root `python -m pytest
+// tests/<file>` runs from (issue #992).
+func hasTestsDir(dir string) bool {
+	for _, name := range []string{"tests", "test"} {
+		entries, _ := os.ReadDir(filepath.Join(dir, name))
+		for _, e := range entries {
+			if !e.IsDir() && pytestTestFile(e.Name()) {
+				return true
+			}
 		}
 	}
 	return false

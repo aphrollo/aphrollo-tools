@@ -22,6 +22,10 @@ func failFirstStageWithRustNotice(p0 string, p1 string, p2 []string, p3 []string
 	return failfirst.FailFirstStageWithRustNotice(p0, p1, p2, p3, p4)
 }
 
+func pytestExecRunner(p0 string, p1 Runner) (Runner, string) {
+	return failfirst.PytestExecRunner(p0, p1)
+}
+
 func resolvedDevTarget(p0 string) string { return failfirst.ResolvedDevTarget(p0) }
 
 func splitKinds(p0 []string) ([]string, []string) { return failfirst.SplitKinds(p0) }
