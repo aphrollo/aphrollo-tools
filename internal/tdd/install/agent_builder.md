@@ -41,6 +41,9 @@ mutation proof, or ONE targeted run after the hook itself said TIMEOUT/SKIPPED.
   and a write through it acts on that repo. Before any git write in a scratch
   copy, confirm `git -C <scratch> rev-parse --git-common-dir` resolves inside
   the scratch dir.
+- **Refreshing the managed CLAUDE.md block:** run `aphrollo install --managed-block-only --repo <lane>`
+  from the lane-built binary, never a full `aphrollo install`: that writes git-hook
+  shims into the git dir every worktree shares, pointing at whatever binary ran it.
 - **Resumed with a delta** (a finding, a failing check, a base to merge): act
   on it with the context you already hold; do not re-read the lane.
 - Follow the brief. Work you find that is not in it → STOP, report

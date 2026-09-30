@@ -251,7 +251,7 @@ func refreshTestMaps(ctx context.Context, root string, cfg MutantsConfig, dirs [
 		if changes := canary.verify(log); len(changes) > 0 {
 			// A build that reached the real git state is not trusted for the
 			// map it made, or for any build after it.
-			errs = append(errs, fmt.Errorf("the test map of %s is refused: its build changed the git state of %s (%d change(s), listed above)", dir, root, len(changes)))
+			errs = append(errs, errors.New(gitWorldRefusal("test-map build", root, changes)))
 			break
 		}
 		if berr != nil {

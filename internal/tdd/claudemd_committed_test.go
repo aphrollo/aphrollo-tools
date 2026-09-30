@@ -22,7 +22,7 @@ func TestOwnClaudeMD_CarriesTheBlockThisBuildRenders(t *testing.T) {
 		t.Fatal("CLAUDE.md has no managed block between the aphrollo markers")
 	}
 	if have, want := text[i:j+len(end)], managedBlockFor(root); have != want {
-		t.Errorf("CLAUDE.md's managed block differs from the one this build renders; run `aphrollo install --repo <lane>` "+
+		t.Errorf("CLAUDE.md's managed block differs from the one this build renders; run `aphrollo install --managed-block-only --repo <lane>` "+
 			"and commit the result, never hand-edit the block:\n--- committed\n%s\n--- rendered\n%s", have, want)
 	}
 }

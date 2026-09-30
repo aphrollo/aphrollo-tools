@@ -48,6 +48,9 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	// needs, and a guard standing in front of that would be the one thing
 	// worse than not having it.
 	if !*uninstall {
+		if refuseUnstableDefaultBin(*binPath, binName, "gate init", stderr) {
+			return 1
+		}
 		resolved, berr := resolveHookBin(binName, stdout)
 		if berr != nil {
 			fmt.Fprintf(stderr, "aphrollo gate init: %v\n", berr)
@@ -293,6 +296,27 @@ func installMachineGate(gitHooksDir, cargoShimDir, dir, binName string, uninstal
 // the law spec beside the laws. Both depend only on the repo, so every
 // install mode writes the same bytes.
 func writeRepoDocs(repo string, claudeMD, ratchetDoc bool, stdout, stderr io.Writer) int {
+	if code := writeManagedBlock(repo, claudeMD, stdout, stderr); code != 0 {
+		return code
+	}
+	if root := tdd.RepoRoot(repo); root != "" {
+		// The law schema belongs beside the laws, so a repo's own docs can
+		// cite it instead of a path on the machine that installed this.
+		wrote, err := tdd.WriteRatchetReadme(root, ratchetDoc)
+		switch {
+		case err != nil:
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		case wrote:
+			fmt.Fprintf(stdout, "aphrollo gate: wrote the law spec in %s\n", filepath.Join(root, ".ratchet", "README.md"))
+		}
+	}
+	return 0
+}
+
+// writeManagedBlock renders the repo's CLAUDE.md managed block and writes
+// nothing else: it is all `install --managed-block-only` does.
+func writeManagedBlock(repo string, claudeMD bool, stdout, stderr io.Writer) int {
 	// The operating instructions belong in the one file a session always
 	// reads. A repo that keeps a CLAUDE.md gets the block automatically;
 	// one that does not is left alone unless asked with --claude-md. The
@@ -303,7 +327,7 @@ func writeRepoDocs(repo string, claudeMD, ratchetDoc bool, stdout, stderr io.Wri
 		changed, err := tdd.WriteClaudeMD(root, claudeMD)
 		switch {
 		case errors.Is(err, tdd.ErrManagedBlockInPrimary):
-			fmt.Fprintf(stdout, "gate init: CLAUDE.md managed block is behind the template in the merge-only primary; land it through a lane (aphrollo install --repo <lane>)\n")
+			fmt.Fprintf(stdout, "gate init: CLAUDE.md managed block is behind the template in the merge-only primary; land it through a lane (aphrollo install --managed-block-only --repo <lane>)\n")
 		case err != nil:
 			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 			return 1
@@ -311,16 +335,6 @@ func writeRepoDocs(repo string, claudeMD, ratchetDoc bool, stdout, stderr io.Wri
 			fmt.Fprintf(stdout, "aphrollo gate: wrote the managed block in %s\n", filepath.Join(root, "CLAUDE.md"))
 		default:
 			fmt.Fprintf(stdout, "aphrollo gate: managed block already up to date in %s\n", filepath.Join(root, "CLAUDE.md"))
-		}
-		// The law schema belongs beside the laws, so a repo's own docs can
-		// cite it instead of a path on the machine that installed this.
-		wrote, err := tdd.WriteRatchetReadme(root, ratchetDoc)
-		switch {
-		case err != nil:
-			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-			return 1
-		case wrote:
-			fmt.Fprintf(stdout, "aphrollo gate: wrote the law spec in %s\n", filepath.Join(root, ".ratchet", "README.md"))
 		}
 	}
 	return 0

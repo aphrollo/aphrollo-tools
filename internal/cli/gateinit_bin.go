@@ -5,6 +5,7 @@ import (
 	"io"
 	"path/filepath"
 
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -82,3 +83,18 @@ func runnableBinPath(bin string) (string, error) {
 // about the path the INSTALLED hooks carry. A box that installs on one
 // notion of runnable and is judged on another can be told its hooks are fine
 // while they are not, which is the whole of issue #681.
+
+// refuseUnstableDefaultBin extends the test-binary refusal (#997) to a binary
+// that is real but will not last: the installer's own path, taken as the
+// default, sits in a temp dir, a go-build dir or a worktree. Every hook and
+// shim written names that path forever, and it is gone by the next cleanup. A
+// --bin the operator typed (explicit != "") is theirs to mean, wherever it is.
+// It prints the refusal under verb and reports whether it refused.
+func refuseUnstableDefaultBin(explicit, bin, verb string, stderr io.Writer) bool {
+	if explicit != "" || !proc.IsUnstableBinary(bin) {
+		return false
+	}
+	fmt.Fprintf(stderr, "aphrollo %s: refusing to wire the gate to %s: %v; pass --bin <path> to name a binary in a stable location, or to mean this one\n",
+		verb, bin, proc.ErrUnstableBinary)
+	return true
+}

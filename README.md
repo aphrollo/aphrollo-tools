@@ -17,6 +17,7 @@ maps the verbs.
 ```sh
 go build -o aphrollo ./cmd/aphrollo   # then put it on PATH
 aphrollo install                      # session hooks, git gate, skills, agents, queue shims
+aphrollo install --managed-block-only --repo <lane>   # re-render only the CLAUDE.md block (no hooks, no shims)
 aphrollo version                      # stamped commit and build time
 aphrollo update                       # rebuild from origin/main and swap it in
 ```
