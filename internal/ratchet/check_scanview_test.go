@@ -111,22 +111,7 @@ func TestCheck_AStampedBaselineIsJudgedByTheCurrentLexers(t *testing.T) {
 	}
 }
 
-// TestCheck_ALegacyBaselineTightensWithoutGainingAStamp: tightening a
-// legacy baseline writes it lower and leaves it on the lexers it was written
-// under; only Adopt moves it.
-func TestCheck_ALegacyBaselineTightensWithoutGainingAStamp(t *testing.T) {
-	root := scanViewRepo(t, oldBuildDatedRows+"app/gone.py | # 2020-01-01 x\n")
-	if _, err := Check(Options{Root: root, Tighten: true}); err != nil {
-		t.Fatalf("Check: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(root, ".ratchet", "baselines", "dated_comment_py.txt"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := string(data); got != oldBuildDatedRows {
-		t.Fatalf("baseline = %q, want %q — the stale row dropped, no stamp added", got, oldBuildDatedRows)
-	}
-}
+// ratchet: test_removed TestCheck_ALegacyBaselineTightensWithoutGainingAStamp: a tightening check migrates a legacy baseline now; check_scanview_migrate_test.go covers it
 
 // TestAdopt_MovesALegacyBaselineOntoTheCurrentLexersWithoutAChangedLaw:
 // the tree is at its baseline under the old lexers, so nothing is being
@@ -187,12 +172,12 @@ func TestCheck_NotesALawStillOnTheLegacyLexers(t *testing.T) {
 	}
 	var notes []string
 	for _, n := range res.Notes {
-		if strings.Contains(n, "--adopt") {
+		if strings.Contains(n, ScanViewStamp) {
 			notes = append(notes, n)
 		}
 	}
 	if len(notes) != 2 {
-		t.Fatalf("notes naming --adopt = %v, want one per legacy law (dated_comment_py, except_pass_api)", notes)
+		t.Fatalf("notes naming the stamp = %v, want one per legacy law (dated_comment_py, except_pass_api)", notes)
 	}
 	if !strings.HasPrefix(notes[0], "dated_comment_py:") || !strings.HasPrefix(notes[1], "except_pass_api:") {
 		t.Errorf("notes = %v, want them in law order, each opening with its law's name", notes)
@@ -218,7 +203,7 @@ func TestCheck_OnlyALawThatReadsMaskedStringsOverAChangedLexerIsLegacy(t *testin
 			t.Fatalf("%s: Check: %v", name, err)
 		}
 		for _, n := range res.Notes {
-			if strings.Contains(n, "--adopt") {
+			if strings.Contains(n, ScanViewStamp) {
 				t.Errorf("%s: note %q, want none — nothing to migrate", name, n)
 			}
 		}

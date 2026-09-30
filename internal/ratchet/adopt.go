@@ -83,6 +83,25 @@ func Adopt(opts AdoptOptions) (AdoptResult, error) {
 			return AdoptResult{}, err
 		}
 	}
+	rows := adoptOnto(baseline, *law, hits)
+	if _, err := baseline.WriteIfChanged(path); err != nil {
+		return AdoptResult{}, err
+	}
+	return AdoptResult{Law: law.Name, Path: path, Rows: rows}, nil
+}
+
+// adoptHits measures one law over the whole tracked... here, the whole real
+// tree — adoption always reads disk, never a proposed or narrowed set, since
+// its entire point is to record what is actually there.
+func adoptHits(root string, law Law) ([]Hit, error) {
+	return adoptHitsIn(Options{Root: root}, law)
+}
+
+// adoptOnto sets baseline to exactly what hits measure for law, stamping it
+// when the law is one a lexer change can move, and returns the row count. It is
+// the one place a baseline is written from a measurement, whether --adopt or
+// the automatic migration asks.
+func adoptOnto(baseline *Baseline, law Law, hits []Hit) int {
 	measured := map[string]int{}
 	sites := map[string][]string{}
 	for _, h := range hits {
@@ -97,32 +116,29 @@ func Adopt(opts AdoptOptions) (AdoptResult, error) {
 	if law.viewSensitive() {
 		baseline.Stamp()
 	}
-	if _, err := baseline.WriteIfChanged(path); err != nil {
-		return AdoptResult{}, err
-	}
-	return AdoptResult{Law: law.Name, Path: path, Rows: len(measured)}, nil
+	return len(measured)
 }
 
-// adoptHits measures one law over the whole tracked... here, the whole real
-// tree — adoption always reads disk, never a proposed or narrowed set, since
-// its entire point is to record what is actually there.
-func adoptHits(root string, law Law) ([]Hit, error) {
-	scan, err := scanTree(Options{Root: root}, []Law{law})
+// adoptHitsIn measures law over the view opts describes: the disk for
+// adoption, the staged tree for the commit guard's recomputation.
+func adoptHitsIn(opts Options, law Law) ([]Hit, error) {
+	root := opts.Root
+	scan, err := scanTree(opts, []Law{law})
 	if err != nil {
 		return nil, err
 	}
 	hits := scan.byLaw[law.Name]
 	switch law.Matcher.Kind {
 	case KindRegistryBothWays:
-		return registryHits(diskView(root), law, scan.files, scan.content, true, true)
+		return registryHits(viewOf(opts), law, scan.files, scan.content, true, true)
 	case KindDepGraphForbids:
 		return depGraphHits(root, law)
 	case KindDepGraphCeiling:
 		return depGraphCeilingHits(root, law)
 	case KindFileSetContainment:
-		return containmentHits(diskView(root), law)
+		return containmentHits(viewOf(opts), law)
 	case KindJSONNumberCeiling, KindGoBenchCeiling:
-		return ceilingHits(diskView(root), law, true, cargoTargetDir())
+		return ceilingHits(viewOf(opts), law, true, cargoTargetDir())
 	}
 	return hits, nil
 }

@@ -18,8 +18,9 @@ import (
 // same tree with the new lexers finds those hits and every one is a
 // regression against a ceiling of zero, on a tree nobody touched. So a
 // baseline without the stamp is judged by the lexers it was written under
-// (Law.LegacyView) until `ratchet check --adopt` records what the new ones
-// read and stamps it.
+// (Law.LegacyView) until a tightening `ratchet check` finds the tree at or
+// below that baseline and migrates it: it records what the new lexers read
+// and stamps it.
 const ScanViewStamp = "# scan-view: 2"
 
 // scanViewExts are the file kinds whose lexer changed: a law over none of
@@ -75,8 +76,76 @@ func legacyBaseline(root string, proposed map[string]string, l Law) bool {
 // lexers, so the view never lingers unnoticed.
 func legacyNote(l Law) string {
 	return fmt.Sprintf("%s: its baseline carries no `%s` and is judged by the lexers it was written under, "+
-		"which read a quote inside a `#` comment as opening a string; `aphrollo ratchet check --adopt %s` "+
-		"records what the current lexers read and stamps it", l.Name, ScanViewStamp, l.Name)
+		"which read a quote inside a `#` comment as opening a string; a tightening `aphrollo ratchet check` "+
+		"migrates it to the current lexers once the tree is at or below that baseline", l.Name, ScanViewStamp)
+}
+
+// migratedNote is the one line a migration reports.
+func migratedNote(l Law, rows int) string {
+	return fmt.Sprintf("migrated %s to the current lexers (%d rows)", l.Name, rows)
+}
+
+// pendingMigration is a legacy law whose tree is at or below its baseline as
+// the old lexers read it, so the baseline may move onto the current ones.
+type pendingMigration struct {
+	law      Law
+	baseline *Baseline
+	path     string
+}
+
+// commitMigrations rewrites each pending baseline under the current lexers
+// with the stamp, and returns the baseline files written and one note per law.
+// Called only once the whole run is regression-free, like commitTightened.
+func commitMigrations(opts Options, pending []pendingMigration) (written, notes []string, err error) {
+	for _, m := range pending {
+		law := m.law
+		law.LegacyView = false
+		hits, err := adoptHitsIn(Options{Root: opts.Root, Tracked: opts.Tracked, TrackedIgnored: opts.TrackedIgnored}, law)
+		if err != nil {
+			return nil, nil, err
+		}
+		rows := adoptOnto(m.baseline, law, hits)
+		wrote, err := m.baseline.WriteIfChanged(m.path)
+		if err != nil {
+			return nil, nil, err
+		}
+		if wrote {
+			written = append(written, m.law.Baseline)
+		}
+		notes = append(notes, migratedNote(m.law, rows))
+	}
+	return written, notes, nil
+}
+
+// MigratedBaselineText is the baseline a legacy one becomes under the current
+// lexers, recomputed from the tree opts describes (the staged tree, for the
+// commit guard): exactly what a tightening check writes. ok is false when
+// baselineRel is stamped already, declared by no law, or belongs to a law a
+// lexer change cannot move: there is no migration to recompute.
+func MigratedBaselineText(opts Options, baselineRel, legacyText string) (text string, ok bool, err error) {
+	if HasScanViewStamp(legacyText) {
+		return "", false, nil
+	}
+	laws, err := LoadLaws(opts.Root)
+	if err != nil {
+		return "", false, err
+	}
+	for _, law := range laws {
+		if law.Baseline != baselineRel || law.UnknownKind != "" || !law.viewSensitive() {
+			continue
+		}
+		baseline, err := ParseBaseline(legacyText, baselineForm(law))
+		if err != nil {
+			return "", false, err
+		}
+		hits, err := adoptHitsIn(opts, law)
+		if err != nil {
+			return "", false, err
+		}
+		adoptOnto(baseline, law, hits)
+		return baseline.Render(), true, nil
+	}
+	return "", false, nil
 }
 
 // Stamp puts the scan-view stamp at the head of the baseline when it has none.
