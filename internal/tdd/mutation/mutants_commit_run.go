@@ -231,11 +231,9 @@ func runOneCommitMutant(ctx context.Context, root string, env []string, plan *co
 // judged. A failure is credited as a kill only when the same run without the
 // mutant is green (issue #957).
 func settleRun(ctx context.Context, root string, env []string, overlay string, args, extra []string, deadline time.Time) (status string, gap commitGap) {
-	budget := time.Until(deadline)
-	if budget <= 0 {
-		return "", commitGap{gapBudget, "the run's wall-clock budget was spent before this mutant could be judged"}
-	}
-	verdict, detail, output := runResolveTestsOut(ctx, root, env, overlay, args, extra, budget)
+	// A budget already spent is a run that is cut off at once, which is what
+	// runResolveTestsOut answers for a timeout of nothing.
+	verdict, detail, output := runResolveTestsOut(ctx, root, env, overlay, args, extra, time.Until(deadline))
 	switch verdict {
 	case resolveUnviable:
 		return "unviable", commitGap{}
@@ -245,18 +243,13 @@ func settleRun(ctx context.Context, root string, env []string, overlay string, a
 		return "missed", commitGap{}
 	}
 	killers := killerArgs(detail, args)
-	budget = time.Until(deadline)
-	if budget <= 0 {
-		return "", commitGap{gapBudget, "the tests of " + packageNames(killers) +
-			" failed under the mutant and the wall-clock budget was spent before they could be run without it"}
-	}
 	// Only the tests that failed are run again: whether they fail without the
 	// mutant is the whole question, and the rest of a selection can be most of
 	// a package.
 	if failing := failingTestNames(output); len(failing) > 0 {
 		extra = []string{"-run", runPattern(failing)}
 	}
-	verdict, detail = runResolveTestsWith(ctx, root, env, "", killers, extra, budget)
+	verdict, detail = runResolveTestsWith(ctx, root, env, "", killers, extra, time.Until(deadline))
 	switch verdict {
 	case resolveSurvived:
 		return "caught", commitGap{}

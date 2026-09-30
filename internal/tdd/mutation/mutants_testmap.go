@@ -52,8 +52,10 @@ func (m testMap) testsFor(fn string) []string {
 func coveredFuncs(profile string, spans map[string][]funcSpan) map[string]bool {
 	covered := map[string]bool{}
 	for line := range strings.SplitSeq(profile, "\n") {
+		// A block line is exactly `file:l.c,l.c statements count`; the
+		// `mode: set` header has two fields and is skipped with the rest.
 		fields := strings.Fields(line)
-		if len(fields) != 3 || strings.HasPrefix(line, "mode:") {
+		if len(fields) != 3 {
 			continue
 		}
 		count, err := strconv.Atoi(fields[2])
