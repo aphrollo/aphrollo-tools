@@ -90,7 +90,7 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		noTighten = fs.Bool("no-tighten", false, "never write a baseline down (report only)")
 		noCache   = fs.Bool("no-cache", false, "ignore the per-file scan cache")
 		adopt     = fs.String("adopt", "", "write <law>'s baseline from the current tree (new law, or one whose .toml differs from HEAD)")
-		base      = fs.String("base", "", "git ref a diff-scoped law (symbol-removed) compares the tree against")
+		base      = fs.String("base", "", "git ref the tree is judged against: a diff-scoped law (symbol-removed) compares with it, and a hit it already carries is not a regression")
 		proposed  = proposedFlag{}
 	)
 	fs.Var(proposed, "proposed", "judge <path>=<contentfile> instead of what is on disk (repeatable)")
@@ -124,6 +124,9 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		Proposed: proposed,
 		Tighten:  !*noTighten,
 		Base:     *base,
+		// A ref given is the tree the run is judged against: only what the
+		// tree added since it counts.
+		BaseRelative: *base != "",
 	}
 	if !*noCache {
 		opts.CacheDir = tdd.StateDir()
@@ -193,7 +196,7 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 // is indistinguishable from a gate that never ran.
 func ratchetSummary(res ratchet.Result) string {
 	summary := fmt.Sprintf("ratchet: %d law(s), %d file(s), %d regression(s)",
-		res.Laws, res.FilesScanned, len(res.Findings))
+		res.Laws, res.FilesScanned, res.RegressionCount())
 	if len(res.Tightened) > 0 {
 		summary += fmt.Sprintf(" — tightened %s", strings.Join(res.Tightened, ", "))
 	}

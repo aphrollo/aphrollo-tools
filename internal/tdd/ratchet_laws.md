@@ -427,6 +427,10 @@ and a merge refused over one cannot be cleared by changing anything in the
 merge. Staging the file is what makes it answer. Pre-edit denial is the other
 side and judges the file being written whether git has seen it or not.
 
+The baselines are read from the index too. A baseline tightened in the working
+tree and left unstaged, as a partial split of a large change leaves it, decides
+nothing: the commit is judged against the rows the index holds.
+
 A file a law's `scope.include` names outright is there when the index has it:
 a file the commit deletes is missing even while a copy stays on disk. The
 dep-graph laws (`dep-graph-forbids`, `dep-graph-ceiling`,
@@ -534,6 +538,14 @@ paid down rather than waived. The line is bounded at 160 characters and it is
 the OFFENDING TEXT that gets truncated — a remedy that scrolled off the end is
 a remedy nobody read.
 
+A law whose baseline is keyed on the offending TEXT counts one workspace-wide
+total per text, so one finding can stand for many lines in many files. It says
+so: `— 61 over its baseline in 12 files: a.py 9, b.py 7, …` names how many
+occurrences sit above the ceiling and the files that hold the ones no baseline
+row accounts for, most first, five to a line with the rest counted (the JSON
+form lists all of them). The `check` summary and the `miss(es)` line count
+those lines, not the findings.
+
 A `deny` law with a new hit exits 2 and the write never happens; a `warn` law
 prints the line once and allows. Everything here fails **open** — a malformed
 payload, an unreadable file or a broken law file must never wedge a session
@@ -594,6 +606,19 @@ baseline is ITSELF staged with a `[matcher]` or `[scope]` change in the same
 commit, logged `baseline-adopted:<law>:<rows>`, and refused exactly as before
 otherwise.
 
+A `mask_strings` law over Python, shell, TOML, Ruby or YAML files has one more
+door. A baseline that carries no `# scan-view: 2` line was written by lexers
+that read a quote inside a `#` comment as opening a string, so an apostrophe
+there blanked every line down to the next one and its ceilings never counted
+a hit on them. Such a law is judged by those lexers, so a tree that has not
+changed stays clean and `check` prints one note per law; `--adopt <law>` then
+reads the tree with the current lexers, records what they reveal, writes the
+stamp, and needs no changed `.toml` — but refuses while the tree is above its
+baseline as the old lexers read it. The staged-baseline guard admits the raise
+in the commit that adds the stamp to a baseline that lacked it, logged
+`baseline-scan-view-migrated:<file>:<rows>`, and refuses any raise on a
+baseline that already carries it.
+
 #### The law library (`ratchet init` / `ratchet presets`)
 
 A known-good law does not have to be typed from scratch in every repo: this
@@ -627,7 +652,7 @@ aphrollo ratchet check --format json         # what the hooks read
 aphrollo ratchet check --no-tighten          # report only
 aphrollo ratchet check --proposed crates/a.rs=/tmp/new.rs   # judge content not on disk
 aphrollo ratchet check --adopt nan-guard     # write nan-guard's baseline from the tree (new or widened law only)
-aphrollo ratchet check --base HEAD~1         # judge a diff-scoped law (symbol-removed) against that ref
+aphrollo ratchet check --base HEAD~1         # judge against that ref: symbol-removed reads it, and a hit it already carries is no regression
 aphrollo ratchet test                        # prove every law against its fixtures
 aphrollo ratchet test --only nan-guard       # prove exactly these laws (comma-separated)
 aphrollo ratchet test --format json          # each law's verdict as data, for the gate's split run

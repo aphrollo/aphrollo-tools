@@ -59,10 +59,15 @@ func (r Result) Lines() []string {
 		}
 		head := fmt.Sprintf("%s: %s ", f.Law, where)
 		tail := fmt.Sprintf(" (baseline %d, now %d)", f.Baseline, f.Measured)
+		remedy := ""
 		if f.Remedy != "" {
-			tail += " — " + f.Remedy
+			remedy = " — " + f.Remedy
 		}
-		out = append(out, head+fitWhat(f.What, maxFindingLine-len([]rune(head))-len([]rune(tail)))+tail)
+		// The excess clause sits outside the width budget: it is only there
+		// when it says something the location does not, and it must not cost
+		// the offending text or the remedy their room.
+		budget := maxFindingLine - len([]rune(head)) - len([]rune(tail)) - len([]rune(remedy))
+		out = append(out, head+fitWhat(f.What, budget)+tail+excessText(f)+remedy)
 	}
 	return out
 }

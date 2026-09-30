@@ -80,7 +80,7 @@ func checkRatchet(root string, stdout, stderr io.Writer) bool {
 	for _, line := range res.Lines() {
 		fmt.Fprintln(stdout, line)
 	}
-	fmt.Fprintf(stdout, "check: ratchet → %d miss(es)\n", len(res.Findings))
+	fmt.Fprintf(stdout, "check: ratchet → %d miss(es)\n", res.RegressionCount())
 	return false
 }
 

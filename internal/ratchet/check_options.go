@@ -38,6 +38,10 @@ type Options struct {
 	// from (HEAD at commit time — the same ref, because "staged" means
 	// exactly what symbol-removed already compares HEAD to).
 	Base string
+	// BaseRelative judges the run against Base: a hit the base tree already
+	// carries is not counted, whatever the baseline says, so a tree compared
+	// against itself has no regressions. Needs Base or BaseTree.
+	BaseRelative bool
 	// BaseTree overrides Base's git read; nil derives it, a fixture supplies one.
 	BaseTree BaseReader
 	// StagedFiles is the input set a `[scope] changed = "staged"` law judges:

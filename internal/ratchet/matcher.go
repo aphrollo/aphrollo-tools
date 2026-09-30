@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-
-	"github.com/aphrollo/aphrollo-tools/internal/mask"
 )
 
 // Hit is one offence: where it is, what it is, and the identity the baseline
@@ -34,6 +32,9 @@ type FileLines struct {
 	// mask blanks the strings of the whole file the way its language spells
 	// them (see maskerFor).
 	mask func(src string) string
+	// legacy is mask as it read the file before the `#`-comment lexers, for a
+	// law still judged by them (see Law.LegacyView).
+	legacy func(src string) string
 	// blank is mask's twin that also blanks the comments, strings only when
 	// asked (see commentBlankerFor).
 	blank func(src string, strings bool) string
@@ -43,27 +44,7 @@ type FileLines struct {
 // HitsIn as well as a scanner's per-file loop. The path decides the
 // language the string masker reads the content as.
 func newFileLines(file, content string) *FileLines {
-	return &FileLines{raw: splitLines(content), mask: maskerFor(file), blank: commentBlankerFor(file)}
-}
-
-// maskerFor picks the string masker a file's extension calls for. Rust reads
-// a lifetime's `'` as code, not as a quote that blanks every line up to the
-// next apostrophe. Python, shell and TOML read `#` as a comment, so an
-// apostrophe or a quote inside one opens no string; read as code, it blanks
-// the lines below it just the same, and a law reports nothing over code it
-// never saw. Every other file keeps the language-neutral lexer.
-func maskerFor(file string) func(string) string {
-	switch strings.ToLower(filepath.Ext(file)) {
-	case ".rs":
-		return func(src string) string { return mask.RustTokens(src, true, false) }
-	case ".py":
-		return func(src string) string { return mask.PythonTokens(src, true, false) }
-	case ".sh":
-		return func(src string) string { return mask.ShellTokens(src, true, false) }
-	case ".toml":
-		return func(src string) string { return mask.TOMLTokens(src, true, false) }
-	}
-	return func(src string) string { return mask.Tokens(src, true, false, false) }
+	return &FileLines{raw: splitLines(content), mask: maskerFor(file), legacy: legacyMaskerFor(file), blank: commentBlankerFor(file)}
 }
 
 // codeFor returns l's view of the file — comment-stripped for a CodeOnly law,
@@ -77,6 +58,9 @@ func (fl *FileLines) codeFor(l Law) []string {
 	view := prefix
 	if l.MaskStrings {
 		view += "\x00mask"
+		if l.LegacyView {
+			view += "\x00legacy"
+		}
 	}
 	if !l.CodeOnly {
 		view += "\x00keep-comments"
@@ -86,7 +70,11 @@ func (fl *FileLines) codeFor(l Law) []string {
 	}
 	lines := fl.raw
 	if l.MaskStrings {
-		lines = maskStringLines(lines, fl.mask)
+		lex := fl.mask
+		if l.LegacyView {
+			lex = fl.legacy
+		}
+		lines = maskStringLines(lines, lex)
 	}
 	code := lines
 	if l.CodeOnly {

@@ -22,12 +22,21 @@ type hashDialect struct {
 	// wordHash: `#` opens a comment only where a word starts, so `$#`,
 	// `${#a}` and `a#b` are code.
 	wordHash bool
+	// quoteDoubling: inside a `'…'` string, two quotes in a row are one
+	// literal quote and end nothing.
+	quoteDoubling bool
+	// scalarStart: a quote opens a string only where a scalar starts, at the
+	// input's or a line's start or after one of `:-[{,?`; anywhere else it is
+	// the apostrophe of a plain scalar.
+	scalarStart bool
 }
 
 var (
 	python = hashDialect{triple: true, lineStrings: true}
 	shell  = hashDialect{rawSingle: true, wordHash: true}
 	toml   = hashDialect{triple: true, lineStrings: true, rawSingle: true}
+	ruby   = hashDialect{lineStrings: true}
+	yaml   = hashDialect{lineStrings: true, rawSingle: true, wordHash: true, quoteDoubling: true, scalarStart: true}
 )
 
 // PythonTokens is Tokens for Python source. Strings are `'…'` and `"…"`, which
@@ -55,6 +64,22 @@ func ShellTokens(src string, blankStrings, blankComments bool) string {
 // form that spans lines.
 func TOMLTokens(src string, blankStrings, blankComments bool) string {
 	return hashTokens(src, blankStrings, blankComments, toml)
+}
+
+// RubyTokens is Tokens for Ruby source. Strings are `'…'` and `"…"`, each with
+// backslash escapes, and a `#` outside one opens a comment to the end of the
+// line. A string ends at its line: a heredoc or a multi-line literal is not
+// followed across lines, so a stray quote cannot blank the rest of the file.
+func RubyTokens(src string, blankStrings, blankComments bool) string {
+	return hashTokens(src, blankStrings, blankComments, ruby)
+}
+
+// YAMLTokens is Tokens for YAML. A `#` opens a comment only at the start of a
+// word, so `a#b` in a URL is text. A `'…'` string is raw and holds `”` as one
+// quote, a `"…"` string escapes, and either opens only where a scalar starts:
+// the apostrophe in `msg: don't` is part of a plain scalar and opens nothing.
+func YAMLTokens(src string, blankStrings, blankComments bool) string {
+	return hashTokens(src, blankStrings, blankComments, yaml)
 }
 
 // hashTokens walks the source once with a range loop, carrying the lexer's
@@ -87,6 +112,9 @@ func hashTokens(src string, blankStrings, blankComments bool, d hashDialect) str
 			blank(blankComments, i)
 		case in != 0:
 			switch {
+			case d.quoteDoubling && c == '\'' && in == '\'' && i+1 < len(b) && b[i+1] == '\'':
+				escaped = true
+				blank(blankStrings, i)
 			case c == in && (!triple || bytes.HasPrefix(b[i:], []byte{c, c, c})):
 				in = 0
 				if triple {
@@ -105,7 +133,7 @@ func hashTokens(src string, blankStrings, blankComments bool, d hashDialect) str
 		case c == '#' && (!d.wordHash || wordStart(b, i)):
 			in = '#'
 			blank(blankComments, i)
-		case c == '\'' || c == '"':
+		case (c == '\'' || c == '"') && (!d.scalarStart || scalarStart(b, i)):
 			in = c
 			triple = d.triple && bytes.HasPrefix(b[i:], []byte{c, c, c})
 			if triple {
@@ -120,4 +148,20 @@ func hashTokens(src string, blankStrings, blankComments bool, d hashDialect) str
 // follows a blank, a newline or an operator character.
 func wordStart(b []byte, i int) bool {
 	return i == 0 || bytes.IndexByte([]byte(" \t\n;&|()<>"), b[i-1]) >= 0
+}
+
+// scalarStart reports whether b[i] stands where a YAML scalar can start: the
+// nearest byte before it on its line that is not a blank is absent, or is one
+// of the indicators `:-[{,?`.
+func scalarStart(b []byte, i int) bool {
+	for j := i - 1; j >= 0; j-- {
+		switch b[j] {
+		case ' ', '\t':
+			continue
+		case '\n':
+			return true
+		}
+		return bytes.IndexByte([]byte(":-[{,?"), b[j]) >= 0
+	}
+	return true
 }

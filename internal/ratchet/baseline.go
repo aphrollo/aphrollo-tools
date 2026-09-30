@@ -240,6 +240,13 @@ func (b *Baseline) Regressions(measured map[string]int) []Regression {
 // can never reach this report — its aggregate ceiling is already per-site
 // (a second site anywhere makes the total 2 against 1).
 func (b *Baseline) NewSiteRegressions(sites map[string][]string) []Regression {
+	return b.NewSiteRegressionsBeyond(sites, nil)
+}
+
+// NewSiteRegressionsBeyond is NewSiteRegressions with a bag of literal sites
+// (`<path> | <text>` to occurrences) that count as recorded besides the rows:
+// a run judged against its base passes the sites the base holds.
+func (b *Baseline) NewSiteRegressionsBeyond(sites map[string][]string, known map[string]int) []Regression {
 	if b.form != MultisetByText {
 		return nil
 	}
@@ -253,6 +260,13 @@ func (b *Baseline) NewSiteRegressions(sites map[string][]string) []Regression {
 			recorded[id] = map[string]int{}
 		}
 		recorded[id][l.key]++
+	}
+	for k, n := range known {
+		id := rowText(k)
+		if recorded[id] == nil {
+			recorded[id] = map[string]int{}
+		}
+		recorded[id][k] = max(recorded[id][k], n)
 	}
 
 	var out []Regression
