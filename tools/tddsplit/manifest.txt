@@ -523,7 +523,11 @@ mutants_ci.go                                      mutation
 mutants_ci_test.go                                 mutation
 mutants_cibusy.go                                  mutation
 mutants_cibusy_test.go                             mutation
+mutants_commit_enum.go                             mutation
+mutants_commit_enum_test.go                        mutation
+mutants_commit_funcs.go                            mutation
 mutants_config.go                                  mutation
+mutants_config_commit_test.go                      mutation
 mutants_config_mode_test.go                        mutation
 mutants_config_suite.go                            suite     # created by P2
 mutants_config_test.go                             mutation
@@ -632,6 +636,14 @@ mutants_stage_test.go                              precommit # prefix says mutat
 mutants_stale.go                                   mutation
 mutants_stale_test.go                              mutation
 mutants_stub_test.go                               mutation
+mutants_testmap.go                                 mutation
+mutants_testmap_build.go                           mutation
+mutants_testmap_build_test.go                      mutation
+mutants_testmap_decls.go                           mutation
+mutants_testmap_decls_test.go                      mutation
+mutants_testmap_store.go                           mutation
+mutants_testmap_store_test.go                      mutation
+mutants_testmap_test.go                            mutation
 mutants_tombstones_test.go                         tdd
 mutants_tool_batched_test.go                       mutation
 mutants_unix.go                                    lock

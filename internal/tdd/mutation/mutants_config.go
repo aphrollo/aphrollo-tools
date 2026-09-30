@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The mutation stage is configured the way ratchet is: keys in the repo's own
@@ -51,6 +52,26 @@ type MutantsConfig struct {
 	// refused at once everywhere else; these keep being settled against the
 	// tests of the packages that import them (mutants_resolve.go).
 	IntegrationPackages []string
+	// AtCommit is mutants-at-commit: the commit gate mutates the lines the
+	// commit adds and runs each mutant against the tests selected for its
+	// function (mutants_commit.go). CommitBudgetSeconds is
+	// mutants-commit-budget, the wall-clock the run may spend; zero means the
+	// default, which CommitBudget answers.
+	AtCommit            bool
+	CommitBudgetSeconds int
+}
+
+// defaultCommitBudget is how long the commit-time mutation run may take when
+// the repo declares no budget: the design's own figure for a run that must
+// never make a slow box hold up a commit.
+const defaultCommitBudget = 60 * time.Second
+
+// CommitBudget is the wall-clock the commit-time run may spend.
+func (c MutantsConfig) CommitBudget() time.Duration {
+	if c.CommitBudgetSeconds < 1 {
+		return defaultCommitBudget
+	}
+	return time.Duration(c.CommitBudgetSeconds) * time.Second
 }
 
 // The keys a repo declares. mutants-at-merge is the only switch: the trio it
@@ -64,6 +85,10 @@ const (
 	mutantsAfterKey    = "mutants-after"
 	// mutantsIntegrationKey names the packages that keep the settle fan-out.
 	mutantsIntegrationKey = "mutants-integration-packages"
+	// mutantsAtCommitKey switches the commit-time run on, and
+	// mutantsCommitBudgetKey sets the seconds it may spend.
+	mutantsAtCommitKey     = "mutants-at-commit"
+	mutantsCommitBudgetKey = "mutants-commit-budget"
 	// mutantsCIMode is the value of mutants-at-merge and mutants-before-pr
 	// that hands the measurement to CI's mutants-verdict check.
 	mutantsCIMode = "ci"
@@ -119,6 +144,12 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 			break
 		}
 	}
+	if cfg.AtCommit, err = firstDeclaredFlag(tables, mutantsAtCommitKey); err != nil {
+		return MutantsConfig{}, err
+	}
+	if cfg.CommitBudgetSeconds, err = firstDeclaredCount(tables, mutantsCommitBudgetKey, "seconds"); err != nil {
+		return MutantsConfig{}, err
+	}
 	if cfg.BuildJobs, err = firstDeclaredCount(tables, mutantsBuildJobsKey, "cargo jobs"); err != nil {
 		return MutantsConfig{}, err
 	}
@@ -135,6 +166,28 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// firstDeclaredFlag reads a plain on/off key from the first table that
+// declares it. Anything but true or false is refused: a repo that wrote it
+// believes it is measured.
+func firstDeclaredFlag(tables []mutantsConfigTable, key string) (bool, error) {
+	for _, t := range tables {
+		v, set := tomlStringIn(t.Path, t.Table, key)
+		if !set {
+			continue
+		}
+		v, _, _ = strings.Cut(v, "#")
+		switch flag := strings.Trim(strings.TrimSpace(v), `"`); flag {
+		case "true":
+			return true, nil
+		case "false":
+			return false, nil
+		default:
+			return false, fmt.Errorf("%s must be true or false, got %q", key, flag)
+		}
+	}
+	return false, nil
 }
 
 // firstDeclaredMode reads a key that is on, off, or "ci" from the first table
@@ -176,6 +229,7 @@ func firstDeclaredCount(tables []mutantsConfigTable, key, unit string) (int, err
 		if !set {
 			continue
 		}
+		v, _, _ = strings.Cut(v, "#")
 		n, err := strconv.Atoi(strings.TrimSpace(v))
 		if err != nil || n < 1 {
 			return 0, fmt.Errorf("%s must be a positive whole number of %s, got %q", key, unit, strings.TrimSpace(v))
