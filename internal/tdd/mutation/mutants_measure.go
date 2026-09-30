@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
@@ -530,6 +531,11 @@ func measureEnv(root string, cfg MutantsConfig) []string {
 		}
 	}
 	out = append(out, "TMPDIR="+tmp, "TMP="+tmp, "TEMP="+tmp)
+	// The tests this run starts must not reach the box's git: a hook's GIT_DIR
+	// is dropped, the temp dirs above are walled off from every repository
+	// around them, and the global git config is an empty file in the same
+	// area (#1043).
+	out = gitenv.Sealed(out, tmp)
 	// No CARGO_TARGET_DIR here, and never the LANE's: an editor's slotted
 	// build owns that directory behind cargo's own blocking lock, and a
 	// measurement that took it would hold it for hours. measureShardEnv

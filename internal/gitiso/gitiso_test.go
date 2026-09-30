@@ -17,36 +17,6 @@ func TestMain_KeepsBareGitCallsOffTheRepositoriesAndConfigAroundTheRun(t *testin
 	VerifyNoLeak(t, "TestGitIsolation_Probe")
 }
 
-func TestCeilingList_NamesEachDirOnceAndSkipsEmpty(t *testing.T) {
-	a := t.TempDir()
-	b := t.TempDir()
-	sep := string(os.PathListSeparator)
-
-	if got, want := ceilingList(a, "", b), a+sep+b; got != want {
-		t.Errorf("ceilingList = %q, want %q", got, want)
-	}
-	if got := ceilingList(""); got != "" {
-		t.Errorf("ceilingList of nothing = %q, want empty", got)
-	}
-}
-
-func TestCeilingList_AddsTheResolvedSpellingOfASymlinkedDir(t *testing.T) {
-	real := t.TempDir()
-	link := filepath.Join(t.TempDir(), "link")
-	if err := os.Symlink(real, link); err != nil {
-		t.Skipf("no symlinks here: %v", err) // skip-ok: an environment probe, symlinks need privilege on some platforms.
-	}
-	resolved, err := filepath.EvalSymlinks(link)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := link + string(os.PathListSeparator) + resolved
-	if got := ceilingList(link); got != want {
-		t.Errorf("ceilingList = %q, want %q", got, want)
-	}
-}
-
 func TestEnclosingRepo_FindsTheNearestDirHoldingDotGit(t *testing.T) {
 	outer := t.TempDir()
 	inner := filepath.Join(outer, "inner")
@@ -112,7 +82,7 @@ func inside(dir, path string) bool {
 // off, and the ceiling naming the root.
 func TestIsolate_PutsTheGitConfigTempDirAndHomeUnderTheRunsRoot(t *testing.T) {
 	root := filepath.Dir(os.Getenv("HOME"))
-	for _, name := range append([]string{"GIT_CONFIG_GLOBAL", "TMPDIR", "TMP", "TEMP"}, homeVars...) {
+	for _, name := range append([]string{"GIT_CONFIG_GLOBAL", "TMPDIR", "TMP", "TEMP", "GOTMPDIR"}, homeVars...) {
 		if v := os.Getenv(name); v == "" || !inside(root, v) {
 			t.Errorf("%s = %q, want a path under the run's root %q", name, v, root)
 		}
@@ -232,3 +202,6 @@ func TestMustIsolate_PanicsWhereIsolateFails(t *testing.T) {
 	}()
 	MustIsolate(root)
 }
+
+// ratchet: test_removed TestCeilingList_NamesEachDirOnceAndSkipsEmpty: moved to internal/gitenv, which owns CeilingList
+// ratchet: test_removed TestCeilingList_AddsTheResolvedSpellingOfASymlinkedDir: moved to internal/gitenv, which owns CeilingList

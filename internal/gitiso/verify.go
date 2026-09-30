@@ -180,7 +180,7 @@ func hostileEnv(home, victim string, hook bool) []string {
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
 		switch {
-		case strings.HasPrefix(name, "GIT_"), name == "HOME", name == "USERPROFILE", name == "TMPDIR", name == "TMP", name == "TEMP",
+		case strings.HasPrefix(name, "GIT_"), name == "HOME", name == "USERPROFILE", name == "TMPDIR", name == "TMP", name == "TEMP", name == "GOTMPDIR",
 			strings.HasPrefix(name, "XDG_"), name == "APPDATA", name == "LOCALAPPDATA":
 		default:
 			env = append(env, kv)

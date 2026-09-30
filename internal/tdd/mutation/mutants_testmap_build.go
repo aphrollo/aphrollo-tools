@@ -96,7 +96,25 @@ func buildTestMap(ctx context.Context, root string, cfg MutantsConfig, dir strin
 	defer func() { _ = os.RemoveAll(work) }()
 	env := measureEnv(root, cfg)
 	ctx = withCapShare(ctx, workers)
-	absDir := filepath.Join(root, filepath.FromSlash(dir))
+	// The tests run in a copy of the checkout that has a git dir of its own,
+	// never in the checkout: a test binary started in the real tree finds the
+	// real repository from its working directory, and a fixture's bare git
+	// call then writes to it (#1043).
+	lane := RepoRoot(root)
+	if lane == "" {
+		return testMap{}, false, fmt.Errorf("%s is not inside a git repository to copy", root)
+	}
+	box, err := newProveSandbox(lane, root)
+	if err != nil {
+		return testMap{}, false, fmt.Errorf("a disposable copy of %s to build the test map of %s in could not be made: %v", lane, dir, err)
+	}
+	defer box.remove()
+	defer watchProveSignals(box.remove, log)()
+	boxRoot, err := box.path(lane, root)
+	if err != nil {
+		return testMap{}, false, err
+	}
+	absDir := filepath.Join(boxRoot, filepath.FromSlash(dir))
 
 	binary := filepath.Join(work, "pkg.test")
 	if mutantsGOOSFn() == "windows" {
@@ -104,7 +122,7 @@ func buildTestMap(ctx context.Context, root string, cfg MutantsConfig, dir strin
 	}
 	pattern := packagePattern(dir)
 	var out bytes.Buffer
-	code, err := testMapExecFn(ctx, root, env,
+	code, err := testMapExecFn(ctx, boxRoot, env,
 		[]string{"go", "test", "-c", "-covermode=set", "-coverpkg=" + pattern, "-o", binary, pattern}, &out)
 	if err != nil || code != 0 {
 		return testMap{}, false, fmt.Errorf("compiling the test binary of %s exited %d (%v): %s", dir, code, err, tail(out.String()))

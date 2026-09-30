@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,6 +23,8 @@ type fakeToolchain struct {
 	mu       sync.Mutex
 	calls    [][]string
 	dirs     map[string]bool
+	gitDirs  map[string]string
+	envs     [][]string
 	list     string
 	profiles map[string]string
 	compile  func(argv []string) (int, error)
@@ -31,13 +34,19 @@ type fakeToolchain struct {
 	perRun   time.Duration
 }
 
-func (f *fakeToolchain) exec(ctx context.Context, dir string, _ []string, argv []string, log io.Writer) (int, error) {
+func (f *fakeToolchain) exec(ctx context.Context, dir string, env []string, argv []string, log io.Writer) (int, error) {
+	// What git answers in dir while the command would run there: the copy is
+	// removed when the build ends, so this is the only time to ask.
+	gitDir, _ := exec.Command("git", "-C", dir, "rev-parse", "--absolute-git-dir").Output() // stderr-ok: a dir with no repository answers nothing, which the test reads as its answer
 	f.mu.Lock()
 	f.calls = append(f.calls, slices.Clone(argv))
+	f.envs = append(f.envs, slices.Clone(env))
 	if f.dirs == nil {
 		f.dirs = map[string]bool{}
+		f.gitDirs = map[string]string{}
 	}
 	f.dirs[dir] = true
+	f.gitDirs[dir] = strings.TrimSpace(string(gitDir))
 	f.mu.Unlock()
 	if argv[0] == "go" {
 		if f.compile != nil {
@@ -90,10 +99,12 @@ func prefixValue(argv []string, prefix string) string {
 
 func buildFixture(t *testing.T, tc *fakeToolchain) (root string) {
 	t.Helper()
-	root = t.TempDir()
+	root = makeGoRepo(t)
 	mustWrite(t, filepath.Join(root, "internal", "p", "p.go"),
 		"package p\n\nfunc f() int {\n\treturn 1\n}\n\nfunc g() int {\n\treturn 2\n}\n")
 	mustWrite(t, filepath.Join(root, "internal", "p", "p_test.go"), "package p\n")
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "the package under test")
 	t.Cleanup(func() { testMapExecFn = runMutantsTool })
 	testMapExecFn = tc.exec
 	restoreList := setGoListForTest(func(context.Context, string, string) (string, error) {
@@ -146,9 +157,12 @@ func TestBuildTestMap_CommandsRunWhereTheTestsExpectToRun(t *testing.T) {
 			t.Errorf("compile argv %v lacks %q", compile, want)
 		}
 	}
-	pkgDir := filepath.Join(root, "internal", "p")
-	if !tc.dirs[pkgDir] {
-		t.Errorf("no command ran in %s; ran in %v", pkgDir, tc.dirs)
+	ranInPackageDir := false
+	for dir := range tc.dirs {
+		ranInPackageDir = ranInPackageDir || filepath.Base(dir) == "p" && filepath.Base(filepath.Dir(dir)) == "internal"
+	}
+	if !ranInPackageDir {
+		t.Errorf("no command ran in the package's directory; ran in %v", tc.dirs)
 	}
 	last := tc.calls[len(tc.calls)-1]
 	if !slices.Contains(last, "-test.run=^Test_A$") || !slices.Contains(last, "-test.count=1") {

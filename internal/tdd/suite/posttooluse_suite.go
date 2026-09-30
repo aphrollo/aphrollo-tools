@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
@@ -199,13 +200,23 @@ func headroomWait(budget time.Duration) time.Duration {
 // one.
 func suiteEnv(r Runner, dir string) []string {
 	env := append(cleanGitEnv(), "CI=1", "NO_COLOR=1")
+	var scratch []string
 	switch r.Cmd {
 	case "go", "golangci-lint":
 		// golangci-lint drives the go tool for its package loading, so its
 		// go-build scratch follows the same variable.
-		env = append(env, goTmpEnv(dir)...)
+		scratch = goTmpEnv(dir)
 	case "cargo":
-		env = append(env, cargoTmpEnv(dir)...)
+		scratch = cargoTmpEnv(dir)
+	}
+	env = append(env, scratch...)
+	// A run with a scratch dir of its own has its git sealed to it: no test
+	// there can find a repository by walking up from its temp dirs, and the
+	// global git config it writes is an empty file, never the operator's.
+	for _, kv := range scratch {
+		if area, ok := strings.CutPrefix(kv, "TMPDIR="); ok {
+			env = gitenv.Sealed(env, area)
+		}
 	}
 	return append(env, r.Env...)
 }

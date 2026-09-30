@@ -57,7 +57,7 @@ func homeLayout(fake string) map[string]string {
 //   - drops every GIT_* variable the process inherited, so a hook's GIT_DIR,
 //     GIT_INDEX_FILE or GIT_WORK_TREE can not redirect a fixture's git at the
 //     repository the hook runs for;
-//   - moves TMPDIR, TMP and TEMP under root, and sets GIT_CEILING_DIRECTORIES
+//   - moves TMPDIR, TMP, TEMP and GOTMPDIR (which t.TempDir reads first) under root, and sets GIT_CEILING_DIRECTORIES
 //     to root and to the root of the repository the process was started in,
 //     so no directory a test makes, and no package directory it runs from, can
 //     discover a real repository by walking up;
@@ -80,7 +80,7 @@ func Isolate(root string) (home string, err error) {
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		return "", err
 	}
-	env := map[string]string{"TMPDIR": tmp, "TMP": tmp, "TEMP": tmp}
+	env := map[string]string{"TMPDIR": tmp, "TMP": tmp, "TEMP": tmp, "GOTMPDIR": tmp}
 	for name, path := range homeLayout(home) {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			return "", err
@@ -92,7 +92,7 @@ func Isolate(root string) (home string, err error) {
 		return "", err
 	}
 	cwd, _ := os.Getwd()
-	env["GIT_CEILING_DIRECTORIES"] = ceilingList(root, enclosingRepo(cwd))
+	env["GIT_CEILING_DIRECTORIES"] = gitenv.CeilingList(root, enclosingRepo(cwd))
 	env["GIT_CONFIG_GLOBAL"] = gitconfig
 	env["GIT_CONFIG_NOSYSTEM"] = "1"
 	for name, value := range env {
@@ -110,24 +110,6 @@ func MustIsolate(root string) (home string) {
 		panic(err)
 	}
 	return home
-}
-
-// ceilingList is the GIT_CEILING_DIRECTORIES value naming each of dirs, in the
-// spelling given and, where a symlink makes it differ, the resolved one: git
-// compares the ceiling against the path it walks, which may be either. An
-// empty dir names nothing.
-func ceilingList(dirs ...string) string {
-	var list []string
-	for _, d := range dirs {
-		if d == "" {
-			continue
-		}
-		list = append(list, d)
-		if real, err := filepath.EvalSymlinks(d); err == nil && real != d {
-			list = append(list, real)
-		}
-	}
-	return strings.Join(list, string(os.PathListSeparator))
 }
 
 // enclosingRepo is the nearest directory at or above dir holding a `.git`,
