@@ -530,18 +530,7 @@ func TestLastSHALine_RejectsANonHexByteEvenAtLength40(t *testing.T) {
 	}
 }
 
-// A baseline moved onto the current lexers gains the scan-view stamp and the
-// rows those lexers reveal in one commit: the one raise the law itself does
-// not need to change for, because the stamp says what read the rows.
-func TestBaselineGuard_AllowsARaiseThatAddsTheScanViewStamp(t *testing.T) {
-	root := baselineRepo(t, ".ratchet/baselines/dated_comment_py.txt",
-		"app/a.py | x = 1  # 2026-01-01\n",
-		ratchet.ScanViewStamp+"\napp/a.py | x = 1  # 2026-01-01\napp/b.py | y = 2  # 2026-01-02\n")
-
-	if res := baselineStage("precommit", root); res.Blocked {
-		t.Fatalf("a stamped migration must pass: %s", res.Message)
-	}
-}
+// ratchet: test_removed TestBaselineGuard_AllowsARaiseThatAddsTheScanViewStamp: a stamp is admitted only when it equals its recomputation; baselineguard_scanview_test.go covers both sides
 
 // Once stamped, a baseline is an ordinary one: a raise on top of the stamp is
 // the hand-raise the guard exists to refuse.

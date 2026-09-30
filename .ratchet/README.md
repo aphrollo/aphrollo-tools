@@ -609,18 +609,26 @@ baseline is ITSELF staged with a `[matcher]` or `[scope]` change in the same
 commit, logged `baseline-adopted:<law>:<rows>`, and refused exactly as before
 otherwise.
 
-A `mask_strings` law over Python, shell, TOML, Ruby or YAML files has one more
-door. A baseline that carries no `# scan-view: 2` line was written by lexers
-that read a quote inside a `#` comment as opening a string, so an apostrophe
-there blanked every line down to the next one and its ceilings never counted
-a hit on them. Such a law is judged by those lexers, so a tree that has not
-changed stays clean and `check` prints one note per law; `--adopt <law>` then
-reads the tree with the current lexers, records what they reveal, writes the
-stamp, and needs no changed `.toml` — but refuses while the tree is above its
-baseline as the old lexers read it. The staged-baseline guard admits the raise
-in the commit that adds the stamp to a baseline that lacked it, logged
-`baseline-scan-view-migrated:<file>:<rows>`, and refuses any raise on a
-baseline that already carries it.
+A `mask_strings` law over Python, shell, TOML, Ruby or YAML files moves onto the
+current lexers by itself. A baseline that carries no `# scan-view: 2` line was
+written by lexers that read a quote inside a `#` comment as opening a string, so
+an apostrophe there blanked every line down to the next one and its ceilings
+never counted a hit on them. Such a law is judged by those lexers, so a tree
+that has not changed stays clean. The first `ratchet check` that tightens, over
+a tree at or below that baseline as the old lexers read it, rewrites the
+baseline under the current lexers with the stamp, in the same pass, and prints
+one line: `ratchet: migrated <law> to the current lexers (<n> rows)`. The next
+commit carries it. A tree above its baseline as the old lexers read it is not
+migrated: the law stays legacy, `check` reports its real regressions and prints
+one note naming it, and a run that reports any regression writes no baseline.
+The staged-baseline guard admits the raise in that commit only when the staged
+baseline equals its own recomputation (the legacy baseline's rows and the
+staged tree, read by the current lexers), logged
+`baseline-scan-view-migrated:<file>:<rows>`. A hand-made stamp, an extra row or
+a row left out is refused with one line saying which, and any raise on a
+baseline that already carries the stamp is refused. `--adopt <law>` stays a
+manual override for the same move, with the same refusal over a tree above its
+baseline; no flow needs it.
 
 #### The law library (`ratchet init` / `ratchet presets`)
 

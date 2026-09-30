@@ -50,6 +50,8 @@ func InstallShimExes(p0 string, p1 string) (ShimExeResult, error) {
 
 func ManagedAgent(p0 string) (string, bool) { return install.ManagedAgent(p0) }
 
+func ManagedBlockRefusal(p0 string) string { return install.ManagedBlockRefusal(p0) }
+
 func PruneRetiredHooks(p0 string) ([]string, error) { return install.PruneRetiredHooks(p0) }
 
 func RemoveAgents(p0 string) ([]string, error) { return install.RemoveAgents(p0) }

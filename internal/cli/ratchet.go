@@ -89,7 +89,7 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		format    = fs.String("format", "text", "text or json")
 		noTighten = fs.Bool("no-tighten", false, "never write a baseline down (report only)")
 		noCache   = fs.Bool("no-cache", false, "ignore the per-file scan cache")
-		adopt     = fs.String("adopt", "", "write <law>'s baseline from the current tree (new law, or one whose .toml differs from HEAD)")
+		adopt     = fs.String("adopt", "", "manual override: write <law>'s baseline from the current tree (new law, or one whose .toml differs from HEAD); a pre-stamp baseline migrates on its own when check tightens")
 		base      = fs.String("base", "", "git ref the tree is judged against: a diff-scoped law (symbol-removed) compares with it, and a hit it already carries is not a regression")
 		proposed  = proposedFlag{}
 	)

@@ -41,10 +41,7 @@ type pendingTighten struct {
 // none of the write-gating conditions above hold, so the caller never adds
 // a law to the pending set it does not mean to write.
 func tightenBaseline(opts Options, law Law, baseline *Baseline, path string, measured map[string]int, sites map[string][]string) (eligible bool) {
-	if !opts.Tighten || path == "" || len(opts.Proposed) > 0 || len(opts.Files) > 0 {
-		return false
-	}
-	if mergeHeadPresent(opts.Root) {
+	if !writesBaselines(opts, path) {
 		return false
 	}
 	// Tighten unconditionally and let WriteIfChanged decide: a count that
@@ -53,6 +50,16 @@ func tightenBaseline(opts Options, law Law, baseline *Baseline, path string, mea
 	// byte-stable, so a tree with nothing to fix still writes nothing.
 	baseline.TightenWithSites(measured, sites)
 	return true
+}
+
+// writesBaselines reports whether this run may write the baseline at path: an
+// actual tightening run, a real baseline path, a whole, non-hypothetical scan,
+// and no merge in progress. Tightening and the scan-view migration share it.
+func writesBaselines(opts Options, path string) bool {
+	if !opts.Tighten || path == "" || len(opts.Proposed) > 0 || len(opts.Files) > 0 {
+		return false
+	}
+	return !mergeHeadPresent(opts.Root)
 }
 
 // commitTightened writes every eligible law's baseline -- called only once
