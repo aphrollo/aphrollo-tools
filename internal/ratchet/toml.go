@@ -260,6 +260,7 @@ func parseArray(text string, lineNo int) (tomlValue, error) {
 	}
 	body := strings.TrimSpace(text[1 : len(text)-1])
 	out := tomlValue{kind: tomlArray, list: []string{}, line: lineNo}
+	// walk-terminates: scanString consumes at least the opening quote each turn, so body shrinks
 	for body != "" {
 		if body[0] != '"' && body[0] != '\'' {
 			return tomlValue{}, fmt.Errorf("line %d: array elements are quoted strings, got %q", lineNo, body)

@@ -124,6 +124,7 @@ func segmentFile(src string) (header string, segs []segment) {
 		}
 		s := i
 		// Pull up immediately-preceding comment lines (no blank gap).
+		// walk-terminates: s decreases each turn and the condition stops at index 0
 		for s-1 >= 0 {
 			prev := strings.TrimSpace(strings.TrimRight(lines[s-1], "\n"))
 			if strings.HasPrefix(prev, "//") {

@@ -58,6 +58,7 @@ func reportShardBuildDirs(root string, shards int, log io.Writer) {
 // build dir that has not been created yet is still measured on the right
 // drive.
 func nearestExistingDir(dir string) string {
+	// walk-terminates: dir becomes its parent each turn and the walk returns at the root, where Dir(dir) == dir
 	for dir != "" {
 		if _, err := os.Stat(dir); err == nil {
 			return dir
