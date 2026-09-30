@@ -61,20 +61,55 @@ func TestFindProjectRoot_PytestSignalsMakeASubdirectoryARoot(t *testing.T) {
 
 // TestFindProjectRoot_APythonDirectoryNamingNoPytestStaysUnrun: a requirements
 // file that only mentions pytest in a comment, or another package, declares
-// nothing, so the walk reaches the repo top and no runner is detected there.
+// nothing, so with no tests directory either the walk reaches the repo top
+// and no runner is detected there.
 func TestFindProjectRoot_APythonDirectoryNamingNoPytestStaysUnrun(t *testing.T) {
 	t.Parallel()
 	repo := pyRepo(t, map[string]string{
 		"backend/requirements.txt": "# run pytest to test\nflask\nnot-pytest-plugin\n",
-		"backend/tests/test_a.py":  "def test_a():\n    pass\n",
+		"backend/app/service.py":   "def serve():\n    pass\n",
 		"backend/setup.cfg":        "[flake8]\nmax-line-length = 100\n",
 	})
-	root := FindProjectRoot(filepath.Join(repo, "backend", "tests", "test_a.py"))
+	root := FindProjectRoot(filepath.Join(repo, "backend", "app", "service.py"))
 	if root != repo {
 		t.Fatalf("root = %q, want the repo top %q", root, repo)
 	}
 	if runner, ok := DetectRunner(root); ok {
 		t.Fatalf("a repo top with no build file detected %+v", runner)
+	}
+}
+
+// TestFindProjectRoot_ATestsDirWithRequirementsIsAPytestRoot is issue #992: a
+// backend/ with a requirements file that does not name pytest (it is
+// installed by hand, or by a CI step) and a tests/ directory of test_*.py is
+// where `python -m pytest tests/<file>` runs from, so it is the root of the
+// staged test and its runner is pytest.
+func TestFindProjectRoot_ATestsDirWithRequirementsIsAPytestRoot(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		files map[string]string
+		want  string
+	}{
+		{"test_ prefix", map[string]string{"backend/requirements.txt": "fastapi\n", "backend/tests/test_vault.py": ""}, "backend"},
+		{"_test suffix", map[string]string{"backend/requirements-dev.txt": "fastapi\n", "backend/tests/vault_test.py": ""}, "backend"},
+		{"the singular test dir", map[string]string{"backend/requirements.txt": "fastapi\n", "backend/test/test_vault.py": ""}, "backend"},
+		{"no requirements file", map[string]string{"backend/tests/test_vault.py": ""}, "."},
+		{"a tests dir holding no test file", map[string]string{"backend/requirements.txt": "fastapi\n", "backend/tests/helpers.py": "", "backend/tests/notes_test.txt": ""}, "."},
+		{"a test file only below the tests dir", map[string]string{"backend/requirements.txt": "fastapi\n", "backend/tests/unit/test_vault.py": ""}, "."},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			c.files["backend/app/vault.py"] = "def vault():\n    pass\n"
+			repo := pyRepo(t, c.files)
+			root := FindProjectRoot(filepath.Join(repo, "backend", "app", "vault.py"))
+			if want := filepath.Join(repo, c.want); root != want {
+				t.Fatalf("root = %q, want %q", root, want)
+			}
+			if _, ok := DetectRunner(root); ok != (c.want == "backend") {
+				t.Fatalf("DetectRunner(%q) ok = %v, want %v", root, ok, c.want == "backend")
+			}
+		})
 	}
 }
 

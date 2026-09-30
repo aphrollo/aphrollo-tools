@@ -35,7 +35,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	}
 	runner, ok := DetectRunner(g.Root)
 	if !ok {
-		fmt.Fprintf(os.Stderr, "gate %s: %s → skipped (no detected runner)\n", gateName, g.Root)
+		fmt.Fprintln(os.Stderr, noRunnerNotRun(gateName, g.Root, append(append([]string{}, g.tests...), g.srcs...)))
 		AppendGateLog(gateName, g.Root, "", "no-runner-skipped", 0)
 		return GateResult{}
 	}
@@ -93,6 +93,10 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 			Kind: outcomeCheckError, Err: errors.New(missing),
 			Message: fmt.Sprintf("the suite of %s cannot run: %s", g.Root, missing),
 		})
+	}
+	runner, refused := pytestSuiteRunner(gateName, g.Root, runner)
+	if refused.Blocked {
+		return refused
 	}
 	return suiteStage(gateName, repoRoot, g.Root, runner, run)
 }

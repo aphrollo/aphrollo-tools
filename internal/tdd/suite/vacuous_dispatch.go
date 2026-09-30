@@ -14,7 +14,7 @@ func vacuousNames(runner Runner, res SuiteResult) ([]string, error) {
 		return vacuousGoPackages(res.GoTestJSON)
 	case runner.Cmd == "cargo":
 		return cargoVacuousTargets(res.Output), nil
-	case runner.Cmd == "pytest":
+	case runner.Cmd == "pytest", len(runner.Args) >= 2 && runner.Args[0] == "-m" && runner.Args[1] == "pytest":
 		if pytestVacuous(res.Output) {
 			return []string{"pytest"}, nil
 		}

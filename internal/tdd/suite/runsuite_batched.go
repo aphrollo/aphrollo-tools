@@ -21,6 +21,7 @@ var argvBudgetFn = argvbatch.BudgetFor
 // verdict: the outputs before it and its own come back joined, durations
 // summed.
 func runBatched(r Runner, root string, limit time.Duration, budget int, one SuiteRunner) SuiteResult {
+	r = relatedWithinBudget(r, budget)
 	batches := argvbatch.SplitCommand(r.Cmd, r.Args, budget)
 	if len(batches) < 2 {
 		return one(r, root)
