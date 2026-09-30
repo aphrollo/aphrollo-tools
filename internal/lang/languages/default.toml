@@ -1,0 +1,29 @@
+# The lexer a file with no row of its own is read by, and the lexing every row
+# that declares none of its own (go, javascript, typescript) shares: `//` and
+# `/* */` comments, `'`, `"` and backtick strings, and a Zig `\\` line string.
+name = "default"
+
+[comments]
+line = ["//"]
+block = ["/* */"]
+
+[string.single]
+open = "'"
+escape = "backslash"
+multiline = true
+
+[string.double]
+open = '"'
+escape = "backslash"
+multiline = true
+
+[string.backtick]
+open = "`"
+multiline = true
+
+[string.zig_line]
+open = '\\'
+close = "\n"
+multiline = true
+line_start = true
+blank_open = true
