@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -25,6 +26,10 @@ type gitWorldPart struct {
 	Label   string
 	Present bool
 	Text    string
+	// Origin is, for the tip of main, how that tip stands to origin/main as
+	// fetched when it was read (originBehind, originAhead, originApart), and ""
+	// for every other part and when there is no origin/main.
+	Origin string
 }
 
 // gitWorld is everything the canary watches, in a fixed order.
@@ -54,13 +59,13 @@ func snapshotGitWorld(root string) gitWorld {
 		laneDir := worktreeLaneDir(lane)
 		registrations = keepWorktrees(registrations, func(path string) bool { return isWatchedWorktree(path, laneDir) })
 		heads = keepWorktrees(heads, func(path string) bool { return !isGateWorktree(path) })
-		w = append(w, gitWorldPart{"the worktree registrations", true, registrations})
-		w = append(w, gitWorldPart{worktreeHeadsLabel, true, heads})
-		w = append(w, gitWorldPart{"the branches", true, withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads"))})
-		w = append(w, gitWorldPart{"the checked-out commit", true, strings.TrimSpace(gitOut(lane, "rev-parse", "HEAD"))})
+		w = append(w, gitWorldPart{Label: "the worktree registrations", Present: true, Text: registrations})
+		w = append(w, gitWorldPart{Label: worktreeHeadsLabel, Present: true, Text: heads})
+		w = append(w, gitWorldPart{Label: "the branches", Present: true, Text: withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads"))})
+		w = append(w, gitWorldPart{Label: "the checked-out commit", Present: true, Text: strings.TrimSpace(gitOut(lane, "rev-parse", "HEAD"))})
 		tip := strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/heads/main"))
-		log := strings.TrimSuffix(gitOut(lane, "log", "-g", "-n", "100", "--format=%gs", "refs/heads/main"), "\n")
-		w = append(w, gitWorldPart{tipOfMainLabel, true, tip + "\n" + log})
+		log := strings.TrimSuffix(gitOut(lane, "log", "-g", "-n", strconv.Itoa(reflogWindow), "--format=%gs", "refs/heads/main"), "\n")
+		w = append(w, gitWorldPart{Label: tipOfMainLabel, Present: true, Text: tip + "\n" + log, Origin: mainOriginRelation(lane, tip)})
 	}
 	for _, path := range globalGitConfigs() {
 		w = append(w, filePart("the global git config "+path, path))
@@ -128,12 +133,43 @@ func withoutLaneBranches(refs string) string {
 	return strings.Join(kept, "\n")
 }
 
-// onlyMergesAdvancedMain reports whether main's part after differs from before
-// only by merges landing on it: the reflog subjects it gained on top are all
-// merges or pulls (`git merge` and `git pull` write "merge <ref>: …" and
-// "pull: …"), there is at least one, and the log below them is the one before
-// had. A commit, a reset or a move with no log entry is not one.
-func onlyMergesAdvancedMain(before, after string) bool {
+// reflogWindow is how many of main's newest reflog entries the canary reads.
+const reflogWindow = 100
+
+// How the tip of main stands to origin/main as fetched.
+const (
+	// originBehind: the tip is origin/main or an ancestor of it.
+	originBehind = "behind"
+	// originAhead: origin/main is an ancestor of the tip, which holds more.
+	originAhead = "ahead"
+	// originApart: neither holds the other, or they share no history.
+	originApart = "apart"
+)
+
+// mainOriginRelation is how tip stands to origin/main in lane's repository,
+// "" when there is no origin/main to compare with.
+func mainOriginRelation(lane, tip string) string {
+	origin := strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/remotes/origin/main"))
+	if origin == "" || tip == "" {
+		return ""
+	}
+	switch base := strings.TrimSpace(gitOut(lane, "merge-base", tip, origin)); base {
+	case tip:
+		return originBehind
+	case origin:
+		return originAhead
+	default:
+		return originApart
+	}
+}
+
+// gainedReflog is the entries main's reflog gained between two readings of its
+// newest reflogWindow entries: what sits on top of the part of the earlier
+// reading the later one still ends with. A full window loses its oldest
+// entries as new ones come in, so the later reading is matched against the
+// front of the earlier one. known is false when the two share no entry to
+// match on.
+func gainedReflog(before, after string) (added []string, known bool) {
 	entries := func(text string) []string {
 		_, log, _ := strings.Cut(text, "\n")
 		if log == "" {
@@ -142,16 +178,62 @@ func onlyMergesAdvancedMain(before, after string) bool {
 		return strings.Split(log, "\n")
 	}
 	was, now := entries(before), entries(after)
-	added := len(now) - len(was)
-	if added < 1 || !slices.Equal(now[added:], was) {
-		return false
+	if len(was) == 0 {
+		return now, true
 	}
-	for _, subject := range now[:added] {
-		if !strings.HasPrefix(subject, "merge ") && !strings.HasPrefix(subject, "pull") {
-			return false
+	for k := range now {
+		rest := now[k:]
+		if len(rest) <= len(was) && slices.Equal(rest, was[:len(rest)]) {
+			return now[:k], true
 		}
 	}
-	return true
+	return nil, false
+}
+
+// isMergeEntry reports whether a reflog subject is a merge or a pull (`git
+// merge` and `git pull` write "merge <ref>: …" and "pull: …").
+func isMergeEntry(subject string) bool {
+	return strings.HasPrefix(subject, "merge ") || strings.HasPrefix(subject, "pull")
+}
+
+// anyNonMerge reports whether any of the reflog subjects is no merge.
+func anyNonMerge(subjects []string) bool {
+	return slices.ContainsFunc(subjects, func(subject string) bool { return !isMergeEntry(subject) })
+}
+
+// onlyMergesAdvancedMain reports whether main's part after differs from before
+// only by merges landing on it: the reflog subjects it gained on top are all
+// merges or pulls, there is at least one, and the log below them is the one
+// before had. A commit, a reset or a move with no log entry is not one.
+func onlyMergesAdvancedMain(before, after string) bool {
+	added, known := gainedReflog(before, after)
+	return known && len(added) > 0 && !anyNonMerge(added)
+}
+
+// mainMoveCounts reports whether main's part moving from was to now is a
+// change a leak could have made. A reflog entry that is no merge is one,
+// wherever the tip is. Otherwise, with an origin/main to compare with, the tip
+// moving counts only when it neither is on origin/main nor holds it: a
+// fast-forward to origin/main, and a merge of it, are another lane's normal
+// work, and a fixture commit never is. With no origin/main, only merges
+// landing on main are ordinary.
+func mainMoveCounts(was, now gitWorldPart) bool {
+	if was.Text == now.Text {
+		return false
+	}
+	added, known := gainedReflog(was.Text, now.Text)
+	if anyNonMerge(added) {
+		return true
+	}
+	if now.Origin == "" {
+		return !onlyMergesAdvancedMain(was.Text, now.Text)
+	}
+	wasTip, _, _ := strings.Cut(was.Text, "\n")
+	nowTip, _, _ := strings.Cut(now.Text, "\n")
+	if wasTip == nowTip {
+		return !known
+	}
+	return now.Origin == originApart
 }
 
 // worktreeLaneDir is the directory the lanes of lane's repository live in:
@@ -257,7 +339,7 @@ func (w gitWorld) changesTo(after gitWorld) []string {
 		if was.Label == worktreeHeadsLabel {
 			was.Text, now.Text = sharedWorktreeHeads(was.Text, now.Text)
 		}
-		if was.Label == tipOfMainLabel && onlyMergesAdvancedMain(was.Text, now.Text) {
+		if was.Label == tipOfMainLabel && !mainMoveCounts(was, now) {
 			continue
 		}
 		if was.Label != now.Label || (was.Present == now.Present && was.Text == now.Text) {
