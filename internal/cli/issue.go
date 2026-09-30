@@ -48,6 +48,7 @@ func runGateIssue(args []string, stdout, stderr io.Writer) int {
 	// back as fs.Args(). Both spellings are how a hand actually types this,
 	// and discarding either one refuses a title that is right there.
 	var leading []string
+	// walk-terminates: args loses its first element every turn
 	for len(args) > 0 && args[0] != "" && args[0][0] != '-' {
 		leading = append(leading, args[0])
 		args = args[1:]
