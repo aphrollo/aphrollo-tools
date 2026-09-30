@@ -299,7 +299,6 @@ func lintEditLine(job lintEditJob) (line string, finished bool) {
 		return fmt.Sprintf("gate: deferred golangci-lint in %s (%s) → NOT LINTED (the run did not finish within %s, so its result is lost)",
 			job.Root, job.Rel, lintDeferredMax), true
 	}
-	took := time.Duration(out.Seconds * float64(time.Second))
 	log := ""
 	if data, err := os.ReadFile(job.Log); err == nil {
 		log = string(data)
@@ -308,7 +307,7 @@ func lintEditLine(job lintEditJob) (line string, finished bool) {
 	// with another lint, and a package the linter could not load (a mid-edit
 	// compile error is the suite's finding) are nothing to report.
 	if out.SetupFailed || out.Inconclusive != "" || strings.Contains(log, lintEditContention) || out.ExitCode != 1 {
-		AppendGateLog("postedit", job.Root, LogToken(job.Rel), fmt.Sprintf("lint-deferred-exit:%d", out.ExitCode), took)
+		AppendGateLog("postedit", job.Root, LogToken(job.Rel), fmt.Sprintf("lint-deferred-exit:%d", out.ExitCode), 0)
 		return "", true
 	}
 	var findings []string
@@ -320,7 +319,7 @@ func lintEditLine(job lintEditJob) (line string, finished bool) {
 	if len(findings) == 0 {
 		return "", true
 	}
-	AppendGateLog("postedit", job.Root, LogToken(job.Rel), fmt.Sprintf("lint-deferred-findings:%d", len(findings)), took)
+	AppendGateLog("postedit", job.Root, LogToken(job.Rel), fmt.Sprintf("lint-deferred-findings:%d", len(findings)), 0)
 	noun := "findings"
 	if len(findings) == 1 {
 		noun = "finding"

@@ -394,6 +394,35 @@ func TestHarvestLintEdit_ARunStillGoingIsLeftAloneUntilExactlyItsLimit(t *testin
 	}
 }
 
+// A run whose spawn reported no pid has no process to kill; the abandonment is
+// still reported.
+func TestHarvestLintEdit_AnAbandonedRunWithNoPidKillsNothing(t *testing.T) {
+	_, src := editedWidget(t)
+	lintSeams(t, "", false)
+	prevSpawn := lintEditSpawnFn
+	lintEditSpawnFn = func(lintEditJob) (int, bool) { return 0, true }
+	prevKill := killDeferredFn
+	killed := 0
+	killDeferredFn = func(DeferredJob) { killed++ }
+	t.Cleanup(func() { lintEditSpawnFn, killDeferredFn = prevSpawn, prevKill })
+	startLintEdit("sess", src, nil)
+	record, err := os.ReadFile(lintDeferredStem(lintDeferredDir(), "sess", repoRootNear(filepath.Dir(src))) + ".json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var saved lintEditJob
+	if err := json.Unmarshal(record, &saved); err != nil {
+		t.Fatal(err)
+	}
+	defer setLintDeferredNowForTest(func() time.Time { return saved.Started.Add(lintDeferredMax + time.Nanosecond) })()
+
+	got := harvestLintEdit("sess")
+
+	if len(got) != 1 || !strings.Contains(got[0], "NOT LINTED") || killed != 0 {
+		t.Fatalf("harvest %q, %d kills; want one NOT LINTED line and no kill", got, killed)
+	}
+}
+
 func TestHarvestLintEdit_OtherSessionsAndNoStateReportNothing(t *testing.T) {
 	startedLint(t, nil, lintOutcome(t, "widget.go:3:1: a (b)\n", PhaseOutcome{ExitCode: 1}))
 	if got := harvestLintEdit("someone-else"); len(got) != 0 {

@@ -115,12 +115,16 @@ func regenerate(o Options) error {
 	return nil
 }
 
+// strictAnalyze is the analysis settleStrict settles against, a seam so a test
+// can state a strict pass that disagrees with the tolerant one.
+var strictAnalyze = Analyze
+
 // settleStrict re-analyses the tree strictly after a tolerant pass wrote its
 // forwarders, now that every package compiles, and brings any generated file
 // the fuller type information changes in line. It returns how many files it
 // wrote or removed; a tree that still does not type-check is an error.
 func settleStrict(o Options, m *Manifest, levels map[int]bool) (int, error) {
-	final, err := Analyze(o.Repo, m, levels)
+	final, err := strictAnalyze(o.Repo, m, levels)
 	if err != nil {
 		return 0, fmt.Errorf("the regenerated tree still does not type-check: %w", err)
 	}
