@@ -203,6 +203,9 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		if ci.State == "red" && ci.Failing > 0 {
 			detail = fmt.Sprintf("red (%d failing)", ci.Failing)
 		}
+		if ci.State == "unavailable" {
+			detail = "ci " + detail
+		}
 		return fmt.Errorf("refusing to merge %s: required checks are not green (%s)", m.Target.Branch, detail)
 	}
 	// The escape-closure and pr-closes-check judgment `workspace pr`/`submit`/
