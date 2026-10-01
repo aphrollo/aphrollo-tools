@@ -41,7 +41,16 @@ type PRHead struct {
 // CheckRun is one check (or legacy commit status) on one commit. SHA is the
 // commit it ran on: a check whose SHA is not the PR's current head is a
 // leftover from an older push and counts as not started.
+//
+// ID and App identify a check run GitHub Actions made (App "github-actions";
+// its ID is the Actions job's ID); a commit status carries neither.
+// NotStarted marks a failed Actions job that ran no step at all: hosted CI
+// never started it (a billing lock, a spending limit), so it is an outage
+// and not a red (#1064).
 type CheckRun struct {
+	ID         int64  `json:"id"`
+	App        string `json:"app"`
+	NotStarted bool   `json:"-"`
 	Name       string `json:"name"`
 	SHA        string `json:"head_sha"`
 	Status     string `json:"status"`     // queued | in_progress | completed
@@ -67,10 +76,11 @@ var ghPRHead = func(dir, ref string) (*PRHead, error) {
 // Each record is one JSON object per line, so a name with spaces stays whole.
 var ghChecksAt = func(dir, sha string) ([]CheckRun, error) {
 	runs, err := ghJSONLines(dir, "api", "--paginate", "repos/{owner}/{repo}/commits/"+sha+"/check-runs",
-		"--jq", `.check_runs[] | {name, head_sha, status, conclusion, html_url}`)
+		"--jq", `.check_runs[] | {id, name, head_sha, status, conclusion, html_url, app: .app.slug}`)
 	if err != nil {
 		return nil, err
 	}
+	runs = markNotStarted(dir, runs, ghJobStepCount)
 	statuses, err := ghJSONLines(dir, "api", "repos/{owner}/{repo}/commits/"+sha+"/status",
 		"--jq", `.sha as $s | .statuses[] | {name: .context, head_sha: $s, `+
 			`status: (if .state == "pending" then "in_progress" else "completed" end), `+
@@ -79,6 +89,31 @@ var ghChecksAt = func(dir, sha string) ([]CheckRun, error) {
 		return nil, err
 	}
 	return append(runs, statuses...), nil
+}
+
+// ghJobStepCount reads how many steps an Actions job has. A package var so
+// tests state what Actions answered without a network.
+var ghJobStepCount = func(dir string, id int64) (int, error) {
+	out, err := ghCombinedOutput(dir, "api", "repos/{owner}/{repo}/actions/jobs/"+strconv.FormatInt(id, 10), "--jq", ".steps | length")
+	if err != nil {
+		return 0, fmt.Errorf("gh api actions/jobs/%d: %v: %s", id, err, strings.TrimSpace(string(out)))
+	}
+	return strconv.Atoi(strings.TrimSpace(string(out)))
+}
+
+// markNotStarted flags each failed Actions check run whose job ran no step.
+// Only those are asked about; a job whose steps cannot be read stays the
+// failure GitHub reported, so an unreadable answer never softens a red.
+func markNotStarted(dir string, runs []CheckRun, steps func(dir string, id int64) (int, error)) []CheckRun {
+	for i, r := range runs {
+		if r.App != "github-actions" || r.ID == 0 || classifyCheckRun(r) != "fail" {
+			continue
+		}
+		if n, err := steps(dir, r.ID); err == nil && n == 0 {
+			runs[i].NotStarted = true
+		}
+	}
+	return runs
 }
 
 func ghJSONLines(dir string, args ...string) ([]CheckRun, error) {
@@ -149,9 +184,13 @@ func checkPassed(c CheckRun) bool {
 
 // pollState judges one poll: done is true when every check on the head passed;
 // failed lists the failures; line is the state the operator sees.
-func pollState(head *PRHead, laneSHA string, checks []CheckRun) (line string, done bool, failed []CheckRun) {
+//
+// notStarted lists the jobs hosted CI never started; it is set only when no
+// check really failed and none is still running, so a real red is always
+// reported as one and the outage report is complete.
+func pollState(head *PRHead, laneSHA string, checks []CheckRun) (line string, done bool, failed, notStarted []CheckRun) {
 	if laneSHA != "" && head.HeadSHA != laneSHA {
-		return fmt.Sprintf("PR head %s is not the lane's HEAD %s yet", short(head.HeadSHA), short(laneSHA)), false, nil
+		return fmt.Sprintf("PR head %s is not the lane's HEAD %s yet", short(head.HeadSHA), short(laneSHA)), false, nil, nil
 	}
 	var current []CheckRun
 	for _, c := range checks {
@@ -160,24 +199,30 @@ func pollState(head *PRHead, laneSHA string, checks []CheckRun) (line string, do
 		}
 	}
 	if len(current) == 0 {
-		return "no check has started on this head yet", false, nil
+		return "no check has started on this head yet", false, nil, nil
 	}
 	running := 0
+	var idle []CheckRun
 	for _, c := range current {
 		switch {
 		case !strings.EqualFold(c.Status, "completed"):
 			running++
-		case !checkPassed(c):
+		case checkPassed(c):
+		case c.NotStarted:
+			idle = append(idle, c)
+		default:
 			failed = append(failed, c)
 		}
 	}
 	switch {
 	case len(failed) > 0:
-		return fmt.Sprintf("%d of %d checks failed", len(failed), len(current)), false, failed
+		return fmt.Sprintf("%d of %d checks failed", len(failed), len(current)), false, failed, nil
 	case running > 0:
-		return fmt.Sprintf("%d of %d checks still running", running, len(current)), false, nil
+		return fmt.Sprintf("%d of %d checks still running", running, len(current)), false, nil, nil
+	case len(idle) > 0:
+		return fmt.Sprintf("ci unavailable: %d of %d checks never started", len(idle), len(current)), false, nil, idle
 	}
-	return fmt.Sprintf("all %d checks passed", len(current)), true, nil
+	return fmt.Sprintf("all %d checks passed", len(current)), true, nil, nil
 }
 
 // waitForGreen polls the lane's PR until every check on its current head has
@@ -203,7 +248,7 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		line, done, failed := pollState(head, laneSHA, checks)
+		line, done, failed, notStarted := pollState(head, laneSHA, checks)
 		state := fmt.Sprintf("  [wait] PR #%d %s: %s", head.Number, short(head.HeadSHA), line)
 		if state != last {
 			fmt.Fprintln(stdout, state)
@@ -211,6 +256,9 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 		}
 		if len(failed) > 0 {
 			return failedChecksError(t.Branch, head, failed)
+		}
+		if len(notStarted) > 0 {
+			return notStartedError(t.Branch, head, notStarted)
 		}
 		if done {
 			return nil
@@ -226,6 +274,19 @@ func failedChecksError(branch string, head *PRHead, failed []CheckRun) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "refusing to merge %s: %d check(s) failed on %s:", branch, len(failed), short(head.HeadSHA))
 	for _, c := range failed {
+		fmt.Fprintf(&b, "\n  %s  %s", c.Name, c.URL)
+	}
+	return fmt.Errorf("%s", b.String())
+}
+
+// notStartedError refuses the merge on an outage, naming it as one: the jobs
+// listed never ran a step, so the code on this head was never judged.
+func notStartedError(branch string, head *PRHead, idle []CheckRun) error {
+	var b strings.Builder
+	fmt.Fprintf(&b, "refusing to merge %s: ci unavailable: jobs not started — %d check(s) on %s concluded without running a step "+
+		"(hosted CI never ran them: a billing lock, a spending limit or no runner), so this head is untested, not red:",
+		branch, len(idle), short(head.HeadSHA))
+	for _, c := range idle {
 		fmt.Fprintf(&b, "\n  %s  %s", c.Name, c.URL)
 	}
 	return fmt.Errorf("%s", b.String())
