@@ -60,6 +60,8 @@ jobs:
             './internal/lsp'        = '^TestURIToPath_'
             './internal/ratchet'    = '^TestScopeMatchesNormalizesWindowsSeparators$'
             './internal/tdd/gc'     = '^TestGC_RegisteredWorktreeMatchIsCaseInsensitiveOnWindows$'
+            # env.PATH carrying real drive-letter paths (a ":" is inside one)
+            './internal/tdd/install' = '^(TestInitSettingsEnvPath_|TestBuildEnvPath_|TestToolchainDirCandidates_|TestDirsWithExecutable_)'
           }
           $failed = $false
           foreach ($pkg in $suites.Keys) {
