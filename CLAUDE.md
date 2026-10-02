@@ -77,7 +77,13 @@ like `systemctl` (no dry-run, no `--dry`).
 - `ci run` — the one CI entry point: runs the repo's own `pull_request` GitHub
   workflow(s) on this HEAD merged into trunk, in a throwaway worktree (`run:` steps
   under bash, `uses:` steps listed and skipped, first matrix combination only, no
-  mutation). `workspace merge` runs it when `ci = local` (or `auto` and GitHub's
+  mutation). A run installs only into a scratch directory of its own (a python venv
+  first on PATH, per-run npm, go and cargo prefixes and caches, printed at the start of
+  the run), never into the host's global toolchains, and refuses by name a step that
+  would (`sudo`, a system package manager, `pip install --user`). Jobs run one at a time in needs
+  order, every step below normal priority (nice and ionice, BELOW_NORMAL_PRIORITY_CLASS on
+  Windows); `--ci-jobs N` or `ci-jobs` in `aphrollo.toml` runs N at once, `--ci-timeout` or
+  `ci-timeout` sets the per-step limit, and a step that reaches it is named. `workspace merge` runs it when `ci = local` (or `auto` and GitHub's
   jobs never started); the verdict is a gate.log line keyed by the merge result's
   tree, and a stored green for the same tree is reused.
 - `install` / `config` / `check` / `issue` / `update` / `version` — box setup

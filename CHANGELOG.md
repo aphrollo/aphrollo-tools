@@ -19,6 +19,34 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.1.0 - 2026-10-02
+
+Local CI (`aphrollo ci run`, and `workspace merge` when `ci = local`) is safer and
+easier on a shared box.
+
+### What you will notice
+
+- A run no longer changes the box's global toolchains. Installs land in a scratch
+  directory of the run's own, removed when it ends: a python venv first on PATH
+  (made when a step mentions python or pip; `PIP_REQUIRE_VIRTUALENV=true` always),
+  and per-run npm, go and cargo prefixes and caches. Everything applied is printed
+  at the start of the run. Per-run caches mean modules download again each run.
+- A step that would change the box outside that (`sudo`, a system package manager,
+  `pip install --user`, `yarn global`, `gem install` and the like) is refused before
+  it runs, naming the step.
+- Jobs run one at a time in needs order (as before), every step below normal
+  priority (nice and ionice; BELOW_NORMAL_PRIORITY_CLASS on Windows).
+  `--ci-jobs N` or `ci-jobs` in `aphrollo.toml` runs N at once, with each job's
+  output prefixed by its name.
+- `--ci-timeout 45m` or `ci-timeout` sets the per-step limit (30m by default); a
+  step that reaches it is named in the result with its limit.
+- A step's last line with no trailing newline no longer runs into the next line.
+
+### Known, not fixed
+
+- On Windows a timed-out step's child processes started through Git Bash can outlive
+  the kill.
+
 ## 1.0.0 - 2026-10-02
 
 The first numbered release. Everything before it is described only by the
