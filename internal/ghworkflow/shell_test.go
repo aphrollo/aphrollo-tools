@@ -20,11 +20,11 @@ func fakeBash(t *testing.T, path string, err error) {
 func TestShellArgv_BashAndShRunWithTheFlagsGitHubUses(t *testing.T) {
 	fakeBash(t, "/fake/bash", nil)
 	for shell, want := range map[string]string{
-		"":     "/fake/bash --noprofile --norc -eo pipefail C:/s/step.sh",
-		"bash": "/fake/bash --noprofile --norc -eo pipefail C:/s/step.sh",
-		"sh":   "/fake/bash -e C:/s/step.sh",
+		"":     "/fake/bash --noprofile --norc -eo pipefail s/step.sh",
+		"bash": "/fake/bash --noprofile --norc -eo pipefail s/step.sh",
+		"sh":   "/fake/bash -e s/step.sh",
 	} {
-		argv, err := shellArgv(shell, `C:\s\step.sh`)
+		argv, err := shellArgv(shell, filepath.Join("s", "step.sh"))
 		if err != nil || strings.Join(argv, " ") != want {
 			t.Errorf("shell %q: argv = %v, %v; want %s", shell, argv, err, want)
 		}
