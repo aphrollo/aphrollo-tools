@@ -172,28 +172,23 @@ func outsideMergesIn(repo, rng string) ([]OutsideMerge, error) {
 }
 
 // recordOutsideMerges writes the merge event and the escape event of each merge,
-// once per sha, and returns the merges it wrote something for. Each event is
-// written on its own once-per-sha check, so a run that died between the two
-// finishes the pair on the next.
-func recordOutsideMerges(repo string, merges []OutsideMerge) []OutsideMerge {
-	var wrote []OutsideMerge
+// each on its own once-per-sha check: a sha already in the log is not written
+// again, and a run that died between the two writes finishes the pair on the
+// next.
+func recordOutsideMerges(repo string, merges []OutsideMerge) {
 	for _, m := range merges {
 		detail := map[string]string{"sha": m.SHA, "by": mergeByOutside}
 		if m.PR > 0 {
 			detail["pr"] = strconv.Itoa(m.PR)
 		}
 		at := m.At.Format(time.RFC3339)
-		merged := tdd.AppendEventOnce(tdd.Event{Kind: "merge", Root: repo, Verdict: "ok", At: at, Detail: detail}, "sha")
-		escaped := tdd.AppendEventOnce(tdd.Event{Kind: "escape", Root: repo, Verdict: outsideMergeVerdict, At: at, Detail: detail}, "sha")
-		if merged || escaped {
-			wrote = append(wrote, m)
-		}
+		tdd.AppendEventOnce(tdd.Event{Kind: "merge", Root: repo, Verdict: "ok", At: at, Detail: detail}, "sha")
+		tdd.AppendEventOnce(tdd.Event{Kind: "escape", Root: repo, Verdict: outsideMergeVerdict, At: at, Detail: detail}, "sha")
 	}
-	return wrote
 }
 
-func recordedLine(wrote []OutsideMerge) string {
-	return fmt.Sprintf("recorded %d merge(s) made outside `workspace merge`: %s", len(wrote), labels(wrote))
+func recordedLine(merges []OutsideMerge) string {
+	return fmt.Sprintf("recorded %d merge(s) made outside `workspace merge`: %s", len(merges), labels(merges))
 }
 
 // noteTrunkMove records the outside merges a fast-forward of repo's trunk just
@@ -207,9 +202,8 @@ func noteTrunkMove(repo, before, def string, stdout io.Writer) {
 	if err != nil || len(merges) == 0 {
 		return
 	}
-	if wrote := recordOutsideMerges(repo, merges); len(wrote) > 0 {
-		fmt.Fprintln(stdout, recordedLine(wrote))
-	}
+	recordOutsideMerges(repo, merges)
+	fmt.Fprintln(stdout, recordedLine(merges))
 }
 
 // refTip is the sha ref resolves to in repo, "" when it does not.
@@ -257,9 +251,8 @@ func PostMergeRecord(dir string, stderr io.Writer) {
 	if err != nil || len(merges) == 0 {
 		return
 	}
-	if wrote := recordOutsideMerges(root, merges); len(wrote) > 0 {
-		fmt.Fprintln(stderr, "aphrollo: "+recordedLine(wrote))
-	}
+	recordOutsideMerges(root, merges)
+	fmt.Fprintln(stderr, "aphrollo: "+recordedLine(merges))
 }
 
 // SyncSince is `workspace sync --since <ref>`: the sync, then a one-time
@@ -294,7 +287,7 @@ func SyncSince(repoArg, since string, dry bool, stdout, stderr io.Writer) error 
 		fmt.Fprintf(stdout, "would record %d merge(s) made outside `workspace merge` since %s: %s\n", len(merges), since, labels(merges))
 		return nil
 	}
-	wrote := recordOutsideMerges(top, merges)
-	fmt.Fprintf(stdout, "recorded %d merge(s) made outside `workspace merge` since %s: %s\n", len(wrote), since, labels(wrote))
+	recordOutsideMerges(top, merges)
+	fmt.Fprintf(stdout, "recorded %d merge(s) made outside `workspace merge` since %s: %s\n", len(merges), since, labels(merges))
 	return nil
 }
