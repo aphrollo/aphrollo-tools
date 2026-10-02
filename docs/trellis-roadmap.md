@@ -309,7 +309,4 @@ The open work fits the phases; nothing in it has to wait for a decision except t
 
 One diagram holds a whole session: Claude Code's hook lifecycle with each trellis flow at the hook that runs it, so the whole process can be checked in one place and a step with no hook under it shows as a gap. There is no after the session: the push, CI, the escape and the retro all run at a hook inside it, and a defect found later is recorded in a later session through the same loop. The diagram is generated from `docs/trellis-flow/session_flow.py` in the repo, which is its source; zoom in, or open `docs/trellis-flow/workbench.html` to run its layout check.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="trellis-flow/session-dark.svg">
-  <img alt="A session with trellis on Claude Code's hook lifecycle" src="trellis-flow/session-light.svg">
-</picture>
+<img alt="A session with trellis on Claude Code's hook lifecycle" src="trellis-flow/session-dark.svg">
