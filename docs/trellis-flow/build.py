@@ -5,7 +5,7 @@
 writes, next to this file:
   session.svg         colours as CSS variables (the workbench themes it)
   session-light.svg   colours resolved for a light page (README, GitHub light)
-  session-dark.svg    colours resolved for a dark page (GitHub dark)
+  session-dark.svg    colours resolved for dark, on its own dark ground (used in the docs)
   workbench.html      the diagram with zoom, the layout check and export
 """
 import json
@@ -29,6 +29,7 @@ LIGHT = {'--cds-chart-axis': '#6b7383', '--cds-chart-reference-tint': '#eef1f6',
 DARK = {'--cds-chart-axis': '#8d96a7', '--cds-chart-reference-tint': '#232933', '--cds-text-primary': '#e5e8ee',
         '--cds-text-secondary': '#a0a9b8', '--cds-chart-categorical-1': '#7ea6f5', '--cds-chart-categorical-2': '#f0a04b',
         '--cds-chart-status-good': '#5cc48a', '--cds-chart-status-critical': '#f0786d', '--cds-chart-status-warning': '#e6c34a'}
+DARK_GROUND = '#161a21'
 FONT = '-apple-system, BlinkMacSystemFont, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif'
 CAMEL = re.compile(r'\b(fontSize|fontWeight|textAnchor|strokeWidth|strokeDasharray|strokeLinecap|fillOpacity|markerEnd)=')
 
@@ -40,6 +41,10 @@ def to_svg(jsx, colours=None):
     body = re.sub(r" data-claude-text-id='[^']*'", '', body)
     w, h = re.search(r"viewBox='0 0 (\d+) (\d+)'", body).groups()
     body = body.replace('<svg ', f"<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}' font-family='{FONT}' ", 1)
+    if colours is DARK:
+        # the dark copy carries its own ground, so it reads on a light page too
+        i = body.index('>') + 1
+        body = body[:i] + f"<rect width='{w}' height='{h}' fill='{DARK_GROUND}'/>" + body[i:]
     return body + '\n'
 
 

@@ -4,10 +4,7 @@ One diagram of a whole Claude Code session with trellis on top: Claude Code's
 hook lifecycle, with every trellis flow drawn at the hook that runs it. trellis
 is the plugin that carries this repo's gates (and its `trellis` command).
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="session-dark.svg">
-  <img alt="Claude Code's hook lifecycle with trellis on top: one session" src="session-light.svg">
-</picture>
+<img alt="Claude Code's hook lifecycle with trellis on top: one session" src="session-dark.svg">
 
 ## How to read it
 
@@ -27,8 +24,8 @@ The diagram is generated; never edit an SVG by hand.
   and where each branch goes.
 - `engine.py` lays it out: it places every item, wraps the labels and routes
   every line.
-- `build.py` writes `session.svg`, `session-light.svg`, `session-dark.svg` and
-  `workbench.html`:
+- `build.py` writes `session.svg`, `session-light.svg`, `session-dark.svg` (on
+  its own dark ground, the one the docs show) and `workbench.html`:
 
 ```
 python3 docs/trellis-flow/build.py
