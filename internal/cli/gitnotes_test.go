@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -76,11 +77,13 @@ func TestAFailingNotesPushDoesNotFailTheBranchPush(t *testing.T) {
 	repo, remote := notesRepo(t)
 	t.Chdir(repo)
 	gitDoT(t, repo, "push", "-q", "origin", "main")
-	// The remote's notes ref now points somewhere the local one does not
-	// descend from, so the notes push is rejected as a non-fast-forward
-	// while the branch push has nothing left to do and succeeds.
-	head := gitOutLine(t, repo, "rev-parse", "HEAD")
-	gitDoT(t, repo, "--git-dir", remote, "update-ref", "refs/notes/gate", head)
+	// The remote now refuses every ref it is sent, as a protected one does,
+	// so the notes push is rejected while the branch push has nothing left to
+	// do and succeeds.
+	hook := filepath.Join(remote, "hooks", "pre-receive")
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 
 	var out, errb bytes.Buffer
 	cfg := gitShimConfig{waitBudget: 5 * time.Second, pollInterval: 10 * time.Millisecond, realGit: "git"}
@@ -90,6 +93,45 @@ func TestAFailingNotesPushDoesNotFailTheBranchPush(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "refs/notes/gate") {
 		t.Errorf("a note that did not reach the remote must say so once: %q", errb.String())
+	}
+}
+
+// A remote whose notes ref another box moved first rejects the push with
+// "fetch first". The note is the channel to CI, so the shim merges the remote's
+// notes into the local ref, losing none, and pushes again instead of leaving
+// the tip ungated.
+func TestGitShimPushesNotes_MergesARemoteRefThatIsAhead(t *testing.T) {
+	withDirectGitShim(t)
+	repo, remote := notesRepo(t)
+	t.Chdir(repo)
+	gitDoT(t, repo, "push", "-q", "origin", "main")
+
+	other := filepath.Join(t.TempDir(), "other")
+	gitDoT(t, t.TempDir(), "clone", "-q", remote, other)
+	gitDoT(t, other, "config", "user.email", "o@o")
+	gitDoT(t, other, "config", "user.name", "o")
+	gitDoT(t, other, "commit", "-q", "--allow-empty", "-m", "two")
+	gitDoT(t, other, "notes", "--ref=gate", "add", "-m", "green two", "HEAD")
+	gitDoT(t, other, "push", "-q", "origin", "refs/notes/gate")
+
+	var out, errb bytes.Buffer
+	cfg := gitShimConfig{waitBudget: 5 * time.Second, pollInterval: 10 * time.Millisecond, realGit: "git"}
+	if code := runGitShim([]string{"push", "origin", "main"}, strings.NewReader(""), &out, &errb, cfg); code != 0 {
+		t.Fatalf("push exit = %d\nstderr: %s", code, errb.String())
+	}
+	if strings.Contains(errb.String(), "refs/notes/gate") {
+		t.Errorf("the notes push was reported failed after a merge could settle it: %q", errb.String())
+	}
+	cmd := fixtureGit("--git-dir", remote, "notes", "--ref=gate", "list")
+	listed, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(strings.Fields(string(listed))) / 2; n != 2 {
+		t.Errorf("the remote holds %d notes after the push, want both (the local one and the other box's):\n%s", n, listed)
+	}
+	if left := gitOutLine(t, repo, "for-each-ref", "refs/notes/"); strings.Count(left, "\n") != 0 {
+		t.Errorf("a scratch notes ref was left behind:\n%s", left)
 	}
 }
 
@@ -293,5 +335,35 @@ func TestGateNotesPushCmd_CanNeverPrompt(t *testing.T) {
 		if !strings.Contains(env, want) {
 			t.Errorf("env lacks %q — every path git can take to a prompt has to be closed, not most of them", want)
 		}
+	}
+}
+
+func TestPushNotesMerging_StopsAfterThreeMergesOfARepeatedRejection(t *testing.T) {
+	rejected := []byte("! [rejected] refs/notes/gate -> refs/notes/gate (fetch first)")
+	merges, pushes := 0, 0
+	push := func() ([]byte, error) { pushes++; return rejected, errors.New("exit status 1") }
+
+	_, err := pushNotesMerging(push, push, func() error { merges++; return nil })
+
+	if err == nil || merges != 3 || pushes != 4 {
+		t.Errorf("err=%v merges=%d pushes=%d, want the rejection after 3 merges and 4 pushes", err, merges, pushes)
+	}
+}
+
+func TestPushNotesMerging_ARefusalThatIsNoRejectionIsNotMerged(t *testing.T) {
+	merged := false
+	push := func() ([]byte, error) { return []byte("remote: denied"), errors.New("exit status 1") }
+
+	_, err := pushNotesMerging(push, push, func() error { merged = true; return nil })
+
+	if err == nil || merged {
+		t.Errorf("err=%v merged=%v, want the refusal returned with no merge", err, merged)
+	}
+}
+
+func TestScratchNotesRef_DiffersPerCallAndLivesUnderNotes(t *testing.T) {
+	a, b := scratchNotesRef(), scratchNotesRef()
+	if a == b || !strings.HasPrefix(a, "refs/notes/") {
+		t.Errorf("scratch refs %q and %q, want two distinct refs under refs/notes/", a, b)
 	}
 }

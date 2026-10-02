@@ -256,7 +256,7 @@ func TestSnapshotGitWorld_AWorktreeInTheRunsTempAreaOrOutsideAnyLaneIsAChange(t 
 
 // The exact edges of "a lane of this repository" and of a gate path.
 func TestIsWatchedWorktree_TheEdgesOfALaneDirAndOfAGatePath(t *testing.T) {
-	laneDir := "/w/.worktrees/repo"
+	laneDir := filepath.FromSlash("/w/.worktrees/repo")
 	cases := []struct {
 		path string
 		want bool
@@ -278,7 +278,7 @@ func TestIsWatchedWorktree_TheEdgesOfALaneDirAndOfAGatePath(t *testing.T) {
 		{"/tmp/gate-failfirst", true},
 	}
 	for _, c := range cases {
-		if got := isWatchedWorktree(c.path, laneDir); got != c.want {
+		if got := isWatchedWorktree(filepath.FromSlash(c.path), laneDir); got != c.want {
 			t.Errorf("isWatchedWorktree(%q) = %v, want %v", c.path, got, c.want)
 		}
 	}
