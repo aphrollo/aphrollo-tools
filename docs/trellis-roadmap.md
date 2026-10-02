@@ -1,6 +1,6 @@
 # aphrollo-tools roadmap
 
-**Proposed 2026-10-02, pending the owner's approval.** Until it is approved in review, the revision on `main` is the plan in force. This file is the source of the roadmap. The tool is named trellis from the move to its own repo onward (Decided, below); until then the code is aphrollo-tools.
+**Approved 2026-10-03.** This file is the source of the roadmap; the design it executes is `docs/trellis-architecture.md`, which holds the detail for every item below. The tool is named trellis from the move to its own repo onward; until then the code is aphrollo-tools.
 
 ## Goal
 
@@ -8,7 +8,7 @@ The owner, 2026-10-02:
 
 > trellis helps the agent write better code faster, like a trellis for a plant: it supports and guides, it does not cage. You let the agent work on your repo (fanvue, etc.) and what it merges does not break, without the gate slowing it down or blocking it wrongly.
 
-Three measures say whether it does. Each is recorded per consuming repo, and the targets are proposed until a month of data confirms them.
+Three measures say whether it does. Each is recorded per consuming repo, and the targets stand until a month of data confirms them.
 
 | Measure | What is counted | Where the data comes from | Target |
 | --- | --- | --- | --- |
@@ -22,7 +22,7 @@ The rule: every phase and every feature is judged by whether it moves these numb
 
 ## Principle: guide, not cage
 
-The default is fast feedback and a named next step: what to do, why, and the override. A hard block is only for real damage (a write to the primary checkout or to main, a test touching the real repo or the global git config, a secret) or where measured data shows the block saves more time than it costs. Every deny carries a rule id, its cause and the override command. A stage that blocks and does not pay for itself is demoted to a warning (F.b).
+The default is fast feedback and a named next step: what to do, why, and the override. A hard block is only for real damage (a write to the primary checkout or to main, a test touching the real repo or the global git config, a secret) or where measured data shows the block saves more time than it costs. Every deny carries a rule id, its cause and the override command. A stage that blocks and does not pay for itself is demoted to a warning (measurement, F4).
 
 The git-shim walls stay until per-repo git hooks replace them: refusing `--no-verify` and `-c core.hooksPath` on the primary checkout, and a move off main. They are real-damage walls that nothing else holds.
 
@@ -45,132 +45,66 @@ Only the CI, git and issue rows cover several days and both boxes. The hook-leve
 
 What the numbers say: 23 of the 26 escapes are the gate disagreeing with itself, and only 3 are product defects a test should have caught, so a target on all escapes rewards the wrong work. The gate is slow and often untested. Growth outran structure: a fix lands in one call site and misses its sibling. State and processes are scattered across packages, which is where the Windows fork bomb (#997), the 26 GB mutant (#1005) and the writes into the real repository (#1043) came from.
 
-## Compatibility policy
+## Decisions of 2026-10-03
 
-A `trellis update` never turns a green consuming repo red on its own. Every change that could is versioned, migrated automatically and announced.
+The owner approved the architecture and decided:
 
-1. **Versions.** Done in #1106 (1.0.0). Each release has a semantic version next to the build stamp; a change to any verdict a consumer sees (laws, masks, gates, mutation) is at least a minor bump. Every persisted format carries its own format number, and append-only logs one per record; readers skip record versions they do not know. A repo declares the oldest trellis it accepts (`requires`); an older binary refuses and names `trellis update`.
-2. **Consumer changelog.** Done in #1106 (`CHANGELOG.md`, checked on every bump): what a consumer will notice and what migrates by itself.
-3. **Migration.** Derived data (caches, the managed CLAUDE.md block, shims) is recomputed by whichever binary runs. Committed data (baselines, `trellis.toml`) migrates on first run, lands as its own commit, and a format change ships in two releases: first read-new/write-old, then write-new. Local state migrates in one release after a `.bak.<version>` copy; an older binary meeting a newer format refuses by name. Never a required manual step.
-4. **Release replay.** Moved into F (below): each release is replayed against this repo and a synthetic tree of fanvue's size, on Linux and Windows, and ships only with zero new hits on unchanged trees. It also runs the previous binary on the data the new one migrated. Pinned public repos per language come later, in 1a. Nothing leaves the box.
-5. **Safety invariants.** A test never touches a real repo or the global config (#1043). No child runs without a memory cap (#1005). No hook writes a shim pointing at a temporary binary (#1033). Local CI never installs globally and refuses a host marked production (#1102). From F these hold because every exec goes through `internal/run`.
-6. **Rollback.** `trellis update --to <version>` reinstalls an earlier release and pins it; the last 3 binaries stay on the box; local state restores from the `.bak.<version>` copy. Committed data stays readable one release back by item 3.
+- **Approach:** a hybrid strangler. Refactor inside aphrollo-tools; write the spine and kernel fresh beside the old code; move unchanged the parts that encode past incidents.
+- **F timebox:** about 6 weeks. If the exit gate is unmet at the end, ship what landed and re-plan.
+- **Lane caps:** at most 600 production lines in one domain (tests not counted, pure moves exempt), 4 lanes open, 2 of them on the spine.
+- **Red to green:** the default is warn, until the A/B (at least 30 lanes per arm) shows enforce winning on escaped defects at no more than +10% friction.
+- **Repo move:** to harryberg1n/trellis at the start of 1b, because the release workflow, plugin manifest and pin URLs all name the repo.
+- **Release cadence:** a tag per merged PR that bumps the version. Replay gates the tags from F5.
+
+Kept from before: the name trellis; Go; a Claude Code plugin pinning one binary version, built on hosted runners; no telemetry leaves the box; escapes split into product escapes and gate disagreements; lanes are Claude Code's native worktrees keyed by branch. The compatibility policy (versions, consumer changelog, migration, release replay, safety invariants, rollback) is in the architecture, with items 1 and 2 done in #1106.
 
 ## Roadmap
 
-Phases run in order; each starts when the previous gate is met, and nothing new enters a running phase. All are built in aphrollo/aphrollo-tools; the move to a new repo is last. No dates, except F's proposed timebox.
+Lanes run in order inside a phase; nothing new enters a running phase. Phase 0 (#1102 and #1103, the fanvue unblock) finishes beside F0 on disjoint files. Effort: 66 lanes, about 12 weeks at the caps; F is 41 lanes, about 6 weeks. Consumers keep running aphrollo at a release tag until B9; each cutover is per repo, pinned, replayed first and reversible with `trellis eject`.
 
-| Phase | What | Moves | Gate |
-| --- | --- | --- | --- |
-| 0 | Unblock fanvue: finish #1102 and #1103 | Friction, safety | fanvue merges through local CI |
-| F | Foundation: spikes, one mutation authority, measurement, fast tests, lane state machine, the spine | all three | below |
-| 1a | Core on the spine: red to green, guardrails, escapes, edit results | quality, friction | a release replays with 0 new hits |
-| 1b | Plugin: launcher, config, session and repo start, lanes, explainability | friction, speed | setup on a new box is one step |
-| 3 | Integration: `trellis ci` under the merge verb, merges without GitHub | speed | a merge completes without GitHub |
-| Move | To harryberg1n/trellis, last, after the plugin work is proven | none | one migration |
+| Step | What | Measured |
+| --- | --- | --- |
+| F0a | Release channel: `update` and the Linux deploy follow the newest release tag, not `main`; doctor checks for two live gates | consumer-visible changes per tag, not per merge |
+| F0b | Hot path: slot wait out of the foreground budget, fewer detached jobs per edit, cheaper fingerprint and ratchet walk | infra-failed 46 per 3 days to 0 |
+| F1 | Mutation at the level its data earns: commit report-only, CI report outside the required checks, rules out of the brief | first-run green 46% to about 83% |
+| F0c | Sharded `test-windows` CI job; the merge gate accepts green per-OS verdicts when the trees match | merge gate p50 261 s to about 1 s on a match |
+| F3 | Spikes, committed as fixtures: launcher latency, `CLAUDE_ENV_FILE`, context delivery, follow rate after a deny, the Linux recordings | each item recorded |
+| F4 | Events v1 at the final path; `trellis stats`; the brief-length check | one baseline week on both boxes |
+| F5-F6 | Release replay per tag; fast test tiers | 0 new hits; own CI `test` p50 4.0 min |
+| run | `internal/run`: every exec, memory cap, tree kill; call sites move package by package | exec sites outside `run` 170 to 0; not tested under 10% |
+| kernel | The lane machine, the TDD machine and the rule table; `engine`; `trellis why` | table and property tests first |
+| git | One git client, one status call per batch | git spawns per edit 10+ to at most 1 |
+| render | The line grammar, caps as golden tests, the `seen` rule | tokens-per-task baseline |
+| store | Checkpoints, lock and fold versions, retention; gate.log retires | lost updates 0 |
+| shadow | Red to green and run decisions recorded beside the live hooks for a week | agreement; would-be wrong blocks |
+| config | One schema, three layers; 44 to 3 environment variables | misread keys 0 |
+| laws | `laws.Plan`; smells as matcher kinds | commit refusals the edit check missed 0 |
+| A | Red to green at PreToolUse in warn, plus the A/B; rule table live; escape split; holds as guidance; delta closure, pending merges, `ci wait` | escapes and friction per arm; merge p95 at most 5 min |
+| B | Plugin and launcher, release workflow, `trellis init`, repo start, deny then EnterWorktree, `why`, `eject`; cut over this repo, go-telegram, fanvue, then borld through the borld session | off-here p95 at most 50 ms; a new box in one step |
+| C | `trellis ci` per tree and OS under the merge verb; local merges; divergent trunk | a merge completes with GitHub off |
+| M1 | The last aphrollo release switches boxes over; an `aphrollo` alias for one release | none |
 
-### Phase 0
+**F exits:** the three measures recorded for a week on both boxes; first-run CI green at 85% or more with mutation counted separately; not tested under 10%; 0 exec sites outside `run`; `forwarder_count` falling; every hook adapter tested on recorded payloads.
 
-Landed: the event log (#1091, #1095), local CI from the repo's own workflow (#1092), lane-owner commit records (#1094), the Windows fixes (#1097, #1099, #1110, #1112), the Windows smoke job (#987), install PATH (#1100), the related-runner guard at commit (#1105), merges made outside `workspace merge` recorded (#1107), the Stop and TaskCompleted checks (#1111), go test lists cut to the budget (#1113), versions and the changelog (#1106), and smaller fixes (#1089, #1090, #1093, #1096). Open: #1102 (local CI ran `pip install` into a production host's global Python) and #1103 (parallel jobs at normal priority hit the deadline). The gate is narrowed to those two: fanvue merges through local CI that is serial, low priority, never a global install, and refused on a production host.
+## How work is done
 
-### Phase F: Foundation
-
-F comes before the rest of 1a because every 1a workstream adds state, processes and hook logic, and each is built a different way in each package. F builds the one way, measures what the gate costs, and moves the existing code onto it. It adds no new feature; any change to a verdict a consumer sees is listed in the changelog and versioned. **Timebox: about 3 weeks (proposed, the owner confirms).** If the exit gate is unmet at the end, ship what landed and re-plan. Consumer verdicts are frozen during F except F.e, which ships as a versioned minor change. Parts run in this order.
-
-**a. Spikes (about 1 day).** Record real hook payloads for every event trellis uses, on Linux and Windows, for the main session, a subagent, an isolated subagent and after EnterWorktree; commit them as fixtures, never hand-written. Time a no-op hook through the launcher on Windows (p50, p95). Measure how often the agent enters a lane after a deny that names its path. Check whether `CLAUDE_ENV_FILE` reaches the PowerShell tool.
-
-Recorded 2026-10-02 from a real `claude -p` session on Windows: SubagentStop's cwd is the isolated subagent's own worktree and it carries `agent_transcript_path` and `last_assistant_message`; `stop_hook_active` exists on Stop and SubagentStop and is false on the first stop; PreToolUse in a subagent carries `agent_id`, `agent_type` and the subagent's worktree as cwd; after EnterWorktree the cwd follows into the worktree and moves back on ExitWorktree; PostToolBatch fires (8 times for 10 tool calls). So #1111 stands as built; its tests swap their hand-written payloads for these recordings. Still to do: TaskCompleted in an interactive session (TaskCreate is not available in `-p`), launcher latency, follow rate after a deny, `CLAUDE_ENV_FILE` for PowerShell, the Linux recordings.
-
-**e. One mutation authority.** CI's mutation verdict is the one that blocks; commit-time mutation prints its survivors and never refuses. This ends the local-against-CI disagreements (12 of 26 escapes in a week) and closes #1078. The mutation rules leave the agent brief. Shipped as a versioned minor change.
-
-**b. Measurement.** The three goal measures, recorded per repo from `events.jsonl`, git and CI. Escapes split into product escapes (a test red in CI or a defect after the merge, on a head the local gates passed) and gate disagreements (local against CI mutation, the gate's canary, a timeout read as a verdict). Per-stage cost and catch counts, where a catch is a block whose lane later changed code before passing and was not marked wrong. Wrong-deny recording (above) lands here. A demotion policy: a stage with no catch in 4 weeks, or more disagreements than catches, moves to warn or to CI only, as an event and a changelog line. A length cap on the agent brief, enforced as a CI check. Budgets are set from the Windows and Linux baselines.
-
-**f. Fast test tiers.** Pure unit tests with `-race` on pure functions; integration tests on a prebuilt template repo each test copies; real process and memory-cap tests behind a build tag, nightly.
-
-**d. The lane state machine.** Explicit states (no lane, lane open for tests, red seen, code open, green, closed by an escape, merged) and pure transitions with table tests for every state and event, written first. The edit, commit, Stop and merge hooks become thin adapters from payload to event to hook response. Workstreams 1, 2, 3 and 5 of 1a build on it.
-
-**c. The spine, as an ordered strangler.** Run from `internal/proc` into `internal/run`, then git, then the store, then config. Each is a new package beside the old; call sites move in separate PRs; the old code is deleted once a law shows 0 uses. Partial spines already exist and are absorbed, not duplicated: `internal/proc`, `internal/argvbatch`, `internal/gitenv`, `internal/gitiso`, `internal/rootseam`, `internal/tdd/core/stateschema.go` and `internal/tdd/escape/demote.go`.
-
-- `internal/run`: every exec, with a memory cap, kill-on-close job object (Windows) or rlimits (Linux), tree kill, timeout and the environment rules.
-- `internal/git`: one git client; writes and reads through `internal/run`.
-- `internal/store`: state keyed by repo and lane, a format number on every file and record, every read-modify-write under one lock, retention per collection; `events.jsonl` becomes the only log and gate.log retires. Compatibility: read-new/write-old for one release, because two binaries can run on one box at once.
-- `internal/config`: one schema, three layers (built-in, user, repo), `trellis config show` and `set`.
-- `tools/tddsplit` and its forwarders are deleted; the git shim shrinks to the queue lock once per-repo hooks hold the walls.
-
-**Release replay (compatibility item 4)** is built before F.c starts, narrowed to this repo and a fanvue-sized tree, on Linux and Windows, so the spine moves are replayed before they ship.
-
-**Exit gate for F**, each item checkable:
-
-- The three goal measures recorded for a week on both boxes.
-- First-run CI green at or above 85% over that week, reported with mutation reds counted separately.
-- Inconclusive edit runs under 10%.
-- 0 exec call sites outside `internal/run`, enforced by a law.
-- `tools/tddsplit` deleted.
-- Every hook adapter runs on recorded payload fixtures, committed.
-
-### How work is done
-
-These numbers are proposed; the owner confirms them.
-
-- A lane changes at most about 600 non-generated lines in one domain; a pure move is exempt.
-- At most 4 lanes are open, at most 2 of them on the spine.
-- A green PR merges within 2 hours.
-- The line stops when the 7-day fix-on-fix rate is above 20%: no new work until fixes are the only commits.
 - A fix names the sibling paths it checked.
+- A green PR merges within 2 hours; a green open PR takes no further pushes.
+- The line stops when the fix-on-fix rate passes the trailing 2-week median plus 5 points (baseline taken the week after F1); work restarts after 3 days below it.
 - A dead builder's lane is resumed before new work starts.
 - No builder claim counts without an artifact: a CI run id, an event line or a committed fixture.
 
-### Later phases
+Risks and the full cut list are in the architecture (sections 10 and 12). Stays in aphrollo-tools: `refactor` and the LSP client, `sqlc`, `dev`.
 
-**1a, core.** Workstreams on the store and the state machine: red to green as transitions (tdd = off, warn or enforce, a four-way run result where "not tested" keeps the last real verdict); guardrails (secrets, attribution, destructive calls) with long waits and noisy output as guidance; escapes closing code edits until a test reproduces them; edit results with tests run once per batch. Plus compatibility items 3 and 6 and the per-language replay. Moves first-try quality and friction.
+## Open
 
-**1b, setup and worktrees.** The plugin and its launcher, which fetches, verifies and keeps the last 3 binaries; config verbs; session start (Check the box) and repo start with defaults and no questions; a write on main gets a worktree and the agent is told to enter it. Also: explainability (`trellis why` for a deny), an off switch (an environment kill switch every hook honours) and eject (restore the earlier hooks and config), a new repo starting in guide/warn mode, and consumer docs. The session flow `docs/trellis-flow/session_flow.py` is left unchanged now and is redrawn here. Moves friction and speed.
-
-**3, integration.** `trellis ci` under the merge verb, hermetic and serial, the verdict stored per tree hash, local merges, `ci = auto | local | github`. Moves speed where GitHub CI is down.
-
-**Move.** To harryberg1n/trellis, last: history pushed, protection and hosted-runner CI re-created, issues moved, a last aphrollo-tools release that switches boxes over and keeps an `aphrollo` alias for one release.
-
-**Cut or deferred.** Each can return as a proposal with a measured question behind it.
-
-- OpenTelemetry and the transcript join, except a local per-task token count, which the Friction measure needs.
-- The lead dashboard, the cloud notes ref, per-owner stores, 90-day raw retention.
-- The general merge queue, a full local CI, the background verdict comparison on each box.
-- The setup conversation, the fourth config layer and `--session`.
-- The in-process `.git` reader, and the package-by-domain split: only if F.b data justifies them.
-- Linux cgroups: rlimits instead.
-- Turning the YAML test pins into laws.
-- Stays in aphrollo-tools: `refactor` and the LSP client, `sqlc`, `dev`. trellis is the gate alone.
-
-The design detail for 1b and 3 (requirements R1 to R14, setup, configuration, repo start, the command surface, the migration steps) is the previous revision of this file, commit d3c296c0; each part is rewritten when its phase starts.
-
-### Build against adopt
-
-Claude Code's native LSP tool, EnterWorktree, Monitor and `/code-review` overlap parts of trellis. At each phase gate each overlap is compared on correctness, speed, token cost and upkeep, and trellis adopts the native feature and deletes its own where it covers the need. A Claude Code change to a hook payload is handled first, since it can break us; the F.a fixtures are re-recorded on it.
-
-## Decided
-
-- Name **trellis**, a new repo under harryberg1n, moved last. The language stays Go: a hook process starts on every edit and the Go binary starts in 8 to 9 ms, against 28 ms for Node and 17 ms for Python.
-- Distribution: a Claude Code plugin pinning one binary version, built on GitHub-hosted runners; no deploy runner.
-- Telemetry: none leaves the box; secrets are redacted before anything is stored.
-- Escapes split into product escapes and gate disagreements; targets count product escapes.
-- Lanes are Claude Code's native worktrees; a lane's state is keyed by its branch.
-
-Risks: F is a rewrite under load, so it moves one domain per PR behind the existing tests. F swells, so it takes no new feature. The gate taxes the agent loop, so the friction measure and the demotion policy bound it.
-
-## Open questions
-
-Each says what it blocks.
-
-- [ ] **F timebox: 3 weeks?** Blocks F's start date and the re-plan trigger. Proposed: 3 weeks.
-- [ ] **Lane caps** (600 lines, 4 open, 2 on the spine, 2 hours to merge). Blocks the operating rules. Proposed: as written.
-- [ ] **Enforce against guide.** Blocks the default of `tdd` in 1a. Proposed: alternate lanes between the two for 2 weeks, at least 30 per arm; guide stays the default unless enforce wins on escaped defects at no more than +10% friction.
-- [ ] **One mutation authority** (CI blocks, commit-time mutation only reports). Blocks F.e. Proposed: yes.
+- [ ] **This repo's CI mutation level.** Keep `mutants-verdict` as a required check or move it to report-only. Taking it out of the required checks is the owner's action. Blocks F1's CI half.
 - [ ] **How a host is marked production.** Blocks #1102's fix. Proposed: a user-layer key `host.production = true`.
-- [ ] **When the repo moves.** The release workflow, plugin manifest and pin URLs all name the repo, so moving at the start of 1b avoids building them twice. Blocks 1b's release workflow. The owner chooses.
 - [ ] **#999 (first-run setup).** Blocks 1b. Proposed: rescope it to defaults plus `trellis config set`.
+- [ ] **Doc-only writes under `isolation = true`.** Blocks B6.
 
 ## The whole flow
 
-The session flow, with each trellis step drawn at the Claude Code hook that runs it, is generated from `docs/trellis-flow/session_flow.py`, its source. It still draws the previous revision and is redrawn in 1b.
+The session flow, with each trellis step drawn at the Claude Code hook that runs it, is generated from `docs/trellis-flow/session_flow.py`, its source. Where it differs from the architecture, the architecture wins; it is redrawn in 1b.
 
 <img alt="A session with trellis on Claude Code's hook lifecycle" src="trellis-flow/session-dark.svg">
