@@ -136,36 +136,7 @@ func TestEnvIn_TheLastValueWinsAndTheNameIgnoresCase(t *testing.T) {
 	}
 }
 
-func TestMentionsPython_AnyPlaceAStepCouldNameItAndNoWordThatOnlyLooksLikeIt(t *testing.T) {
-	step := func(s Step) []*Workflow { return []*Workflow{{Jobs: []*Job{{Steps: []*Step{&s}}}}} }
-	for name, flows := range map[string][]*Workflow{
-		"a run script":      step(Step{Run: "pip install -r requirements.txt"}),
-		"an action":         step(Step{Uses: "actions/setup-python@v5"}),
-		"a step shell":      step(Step{Shell: "python"}),
-		"a step env":        step(Step{Env: []KV{{"X", "python3.12"}}}),
-		"a job shell":       {{Jobs: []*Job{{Shell: "python"}}}},
-		"a job env":         {{Jobs: []*Job{{Env: []KV{{"X", "poetry"}}}}}},
-		"a workflow shell":  {{Shell: "python"}},
-		"a workflow env":    {{Env: []KV{{"X", "uv"}}}},
-		"a second workflow": {{}, {Jobs: []*Job{{Steps: []*Step{{Run: "tox"}}}}}},
-		"requirements":      step(Step{Run: "cat requirements-dev.txt"}),
-	} {
-		if !mentionsPython(flows) {
-			t.Errorf("%s: not seen as mentioning python", name)
-		}
-	}
-	for name, flows := range map[string][]*Workflow{
-		"nothing":      nil,
-		"empty":        {{Jobs: []*Job{{Steps: []*Step{{}}}}}},
-		"look-alikes":  step(Step{Run: "echo pipeline pythonic pipe uvicorn convenient"}),
-		"another tool": step(Step{Run: "go test ./... && npm ci"}),
-	} {
-		if mentionsPython(flows) {
-			t.Errorf("%s: seen as mentioning python", name)
-		}
-	}
-}
-
+// ratchet: test_removed TestMentionsPython_AnyPlaceAStepCouldNameItAndNoWordThatOnlyLooksLikeIt: the venv is made whenever python is on PATH, so there is no scan of the steps to test; TestRun_AScriptThatPipInstallsGetsAVenvEvenWhenNoStepNamesPython covers it
 func TestSetupPython_TheVenvIsMadeFromTheFoundPythonAndPutFirst(t *testing.T) {
 	var gotPython, gotDir string
 	var gotEnv []string
@@ -176,9 +147,8 @@ func TestSetupPython_TheVenvIsMadeFromTheFoundPythonAndPutFirst(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { findPython, makeVenv = prevFind, prevMake })
-	flows := []*Workflow{{Jobs: []*Job{{Steps: []*Step{{Run: "pip install x"}}}}}}
 	s := &isolation{root: "ROOT", path: []string{"later"}}
-	s.setupPython(context.Background(), flows, []string{"BASE=1"})
+	s.setupPython(context.Background(), []string{"BASE=1"})
 	venv := filepath.Join("ROOT", "venv")
 	if gotPython != "/box/python3" || gotDir != venv || !reflect.DeepEqual(gotEnv, []string{"BASE=1"}) {
 		t.Errorf("makeVenv(%q, %q, %q), want the found python, %s and the base environment", gotPython, gotDir, gotEnv, venv)
@@ -195,13 +165,12 @@ func TestSetupPython_TheVenvIsMadeFromTheFoundPythonAndPutFirst(t *testing.T) {
 }
 
 func TestSetupPython_NoPythonOrABrokenVenvLeavesNoVenvAndSaysWhy(t *testing.T) {
-	flows := []*Workflow{{Jobs: []*Job{{Steps: []*Step{{Run: "pip install x"}}}}}}
 	prevFind, prevMake := findPython, makeVenv
 	t.Cleanup(func() { findPython, makeVenv = prevFind, prevMake })
 
 	findPython = func() (string, bool) { return "", false }
 	none := &isolation{}
-	none.setupPython(context.Background(), flows, nil)
+	none.setupPython(context.Background(), nil)
 	if len(none.vars) != 0 || none.python != "" || len(none.notes) != 1 || !strings.Contains(none.notes[0], "no python3 or python") {
 		t.Errorf("no python: vars %v, python %q, notes %q", none.vars, none.python, none.notes)
 	}
@@ -209,7 +178,7 @@ func TestSetupPython_NoPythonOrABrokenVenvLeavesNoVenvAndSaysWhy(t *testing.T) {
 	findPython = func() (string, bool) { return "/box/python3", true }
 	makeVenv = func(context.Context, string, string, []string) error { return errors.New("ensurepip exploded") }
 	broken := &isolation{}
-	broken.setupPython(context.Background(), flows, nil)
+	broken.setupPython(context.Background(), nil)
 	if len(broken.vars) != 0 || broken.python != "" || len(broken.path) != 0 {
 		t.Errorf("a broken venv left vars %v, python %q, path %q", broken.vars, broken.python, broken.path)
 	}

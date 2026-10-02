@@ -106,7 +106,7 @@ func Run(ctx context.Context, flows []*Workflow, opt Options) (*Summary, error) 
 		}
 	}()
 	opt.Out = &lineEnder{w: opt.Out}
-	opt.iso = newIsolation(ctx, tmp, flows, opt.Env)
+	opt.iso = newIsolation(ctx, tmp, opt.Env)
 	opt.iso.describe(opt.Out)
 	opt.describe(opt.Out)
 	sum := &Summary{}

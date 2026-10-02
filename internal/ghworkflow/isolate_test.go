@@ -100,27 +100,29 @@ jobs:
 	}
 }
 
-func TestRun_NoVenvIsMadeWhenNoStepMentionsPython(t *testing.T) {
-	boxBin, log := fakeToolsOnPath(t)
+// ratchet: test_removed TestRun_NoVenvIsMadeWhenNoStepMentionsPython: a script such as ./ci.sh can pip install without any step naming python, so the venv is made whenever python is on PATH; TestRun_AScriptThatPipInstallsGetsAVenvEvenWhenNoStepNamesPython covers it
+func TestRun_AScriptThatPipInstallsGetsAVenvEvenWhenNoStepNamesPython(t *testing.T) {
+	boxBin, _ := fakeToolsOnPath(t)
 	useFakePython(t, boxBin)
 	sum, out, _ := runFlow(t, `
 on: pull_request
 jobs:
   build:
     steps:
-      - run: echo building
+      - run: echo the repo script installs its own tools, this step does not say how
 `)
 	if sum.Failed() {
 		t.Fatalf("run failed:\n%s", out)
 	}
-	if v, ok := isolateValue(out, "VIRTUAL_ENV"); ok {
-		t.Errorf("a venv %s was made for a run that never mentions python", v)
+	venv, ok := isolateValue(out, "VIRTUAL_ENV")
+	if !ok {
+		t.Fatalf("no venv was made for a script that may pip install:\n%s", out)
 	}
-	if got, ok := isolateValue(out, "PIP_REQUIRE_VIRTUALENV"); !ok || got != "true" {
-		t.Errorf("without a venv pip must still refuse a global install: PIP_REQUIRE_VIRTUALENV=%q (printed %v)", got, ok)
+	if got, _ := isolateValue(out, "PIP_REQUIRE_VIRTUALENV"); got != "true" {
+		t.Errorf("PIP_REQUIRE_VIRTUALENV = %q, want true", got)
 	}
-	if _, err := os.Stat(log); err == nil {
-		t.Errorf("the box's python ran for a run that never mentions it:\n%s", readFile(t, log))
+	if _, err := os.Stat(venv); !os.IsNotExist(err) {
+		t.Errorf("the venv %s outlived the run (stat err %v)", venv, err)
 	}
 }
 

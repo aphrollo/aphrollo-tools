@@ -8,7 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -51,10 +50,6 @@ var makeVenv = func(ctx context.Context, python, dir string, env []string) error
 // venvTimeout bounds making the venv: a stuck interpreter must not hold the run.
 const venvTimeout = 2 * time.Minute
 
-// pythonMention is what makes a run need a venv: a step that names python or
-// one of the tools that install into it.
-var pythonMention = regexp.MustCompile(`(?i)\b(python[0-9.]*|pip[0-9.]*|pipx|pytest|poetry|uv|tox|virtualenv|venv|conda|requirements[-\w]*\.txt|pyproject\.toml)\b`)
-
 // isolation is what keeps one run's installs inside its own scratch.
 type isolation struct {
 	root   string
@@ -67,9 +62,9 @@ type isolation struct {
 // newIsolation builds the run's isolation under scratch. base is the
 // environment steps start from, so the venv is made the way a step would see
 // it.
-func newIsolation(ctx context.Context, scratch string, flows []*Workflow, base []string) *isolation {
+func newIsolation(ctx context.Context, scratch string, base []string) *isolation {
 	s := &isolation{root: filepath.Join(scratch, "isolation")}
-	s.setupPython(ctx, flows, base)
+	s.setupPython(ctx, base)
 	s.set("PIP_REQUIRE_VIRTUALENV", "true")
 	s.dir("PIP_CACHE_DIR", "pip-cache")
 	s.path = append(s.path, npmBinDir(s.dir("npm_config_prefix", "npm-prefix")))
@@ -98,13 +93,11 @@ func (s *isolation) note(format string, args ...any) {
 	s.notes = append(s.notes, fmt.Sprintf(format, args...))
 }
 
-// setupPython makes the run's venv when a step could use one. Without one pip
-// still cannot reach the box's python: PIP_REQUIRE_VIRTUALENV makes it refuse.
-func (s *isolation) setupPython(ctx context.Context, flows []*Workflow, base []string) {
-	if !mentionsPython(flows) {
-		s.note("python: no step of this run mentions python or pip, so no venv was made")
-		return
-	}
+// setupPython makes the run's venv whenever python is on PATH: a script a step
+// runs (./ci.sh) can pip install without any step naming python, so no scan of
+// the steps decides it. Without a venv pip still cannot reach the box's python:
+// PIP_REQUIRE_VIRTUALENV makes it refuse.
+func (s *isolation) setupPython(ctx context.Context, base []string) {
 	py, ok := findPython()
 	if !ok {
 		s.note("python: no python3 or python on PATH, so no venv was made")
@@ -119,36 +112,6 @@ func (s *isolation) setupPython(ctx context.Context, flows []*Workflow, base []s
 	s.path = append([]string{venvBinDir(venv)}, s.path...)
 	s.python = venvPythonPath(venv)
 	s.note("python: venv made with %s", py)
-}
-
-// mentionsPython reports whether any step of any workflow names python or one
-// of its installers, in its script, its action, its shell or its env.
-func mentionsPython(flows []*Workflow) bool {
-	hit := func(text string) bool { return pythonMention.MatchString(text) }
-	hitEnv := func(env []KV) bool {
-		for _, kv := range env {
-			if hit(kv.Val) {
-				return true
-			}
-		}
-		return false
-	}
-	for _, wf := range flows {
-		if hit(wf.Shell) || hitEnv(wf.Env) {
-			return true
-		}
-		for _, j := range wf.Jobs {
-			if hit(j.Shell) || hitEnv(j.Env) {
-				return true
-			}
-			for _, st := range j.Steps {
-				if hit(st.Run) || hit(st.Uses) || hit(st.Shell) || hitEnv(st.Env) {
-					return true
-				}
-			}
-		}
-	}
-	return false
 }
 
 // copyCargoConfig gives the run's cargo home the box's cargo config, so a
