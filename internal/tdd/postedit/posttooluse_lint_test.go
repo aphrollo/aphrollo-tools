@@ -219,6 +219,10 @@ func TestLintEdited_RealGolangciLintFlagsOnlyTheTouchedLines(t *testing.T) {
 	root := t.TempDir()
 	gitInit(t, root)
 	mustWrite(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.22\n")
+	// golangci-lint's shared cache hands back an earlier run's findings for an
+	// identical package, and those name that run's long-deleted temp dir, so
+	// they never match this file. A cache of its own makes every run a miss.
+	t.Setenv("GOLANGCI_LINT_CACHE", t.TempDir())
 	old := "package m\n\nfunc Old() int {\n\tx := 1\n\tx = 2\n\tx = 3\n\treturn x\n}\n"
 	mustWrite(t, filepath.Join(root, "widget.go"), old)
 	gitDo(t, root, "add", "-A")
@@ -228,7 +232,15 @@ func TestLintEdited_RealGolangciLintFlagsOnlyTheTouchedLines(t *testing.T) {
 	t.Cleanup(func() { lintEditLook, lintEditLoad, lintEditRun = prevLook, prevLoad, prevRun })
 	lintEditLook = func() bool { return true }
 	lintEditLoad = func() (float64, int, bool) { return 0, 0, false }
-	lintEditRun = runLintEdit
+	// golangci-lint holds a machine-wide lock, and other packages' tests run the
+	// real linter at the same time: without this the loser prints "parallel
+	// golangci-lint is running", which lintEdited rightly reads as contention
+	// and answers with nothing. The test is about the patch scoping, not the
+	// lock, and not the edit budget either: a cold cache on a busy box can pass
+	// it, so the run gets a generous bound of its own.
+	lintEditRun = func(root string, args []string) (string, bool) {
+		return runLintWithin(root, append([]string{args[0], "--allow-parallel-runners"}, args[1:]...), time.Minute)
+	}
 
 	started := time.Now()
 	got := lintEdited(filepath.Join(root, "widget.go"))
