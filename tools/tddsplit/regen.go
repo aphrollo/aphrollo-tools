@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -30,8 +31,8 @@ import (
 // generator produces from the committed tree (HEAD): between commits
 // nothing but this generator ever touches a generated file, so any other
 // difference is a hand edit. The committed-tree output comes from a
-// throwaway `git worktree add --detach` at HEAD -- read-only, removed
-// before this returns, no clone and no commit of its own -- built only the
+// throwaway export of HEAD's tree -- read-only, registers no worktree in the
+// repository, removed before this returns, no clone and no commit of its own -- built only the
 // first time a file actually needs the comparison, so a tree with nothing
 // to regenerate never pays for it.
 func regenerate(o Options) error {
@@ -185,8 +186,8 @@ func allLevels(m *Manifest) map[int]bool {
 }
 
 // analyzeAtHEAD runs Analyze against the repository exactly as HEAD commits
-// it: a throwaway `git worktree add --detach` checkout, read-only and
-// removed before this returns. manifestPath must live inside repo.
+// it: a throwaway export of HEAD's tree, removed before this returns, that
+// registers nothing in the repository. manifestPath must live inside repo.
 func analyzeAtHEAD(repo, manifestPath string, levels map[int]bool) (*Analysis, error) {
 	relManifest, err := filepath.Rel(repo, manifestPath)
 	if err != nil {
@@ -197,13 +198,37 @@ func analyzeAtHEAD(repo, manifestPath string, levels map[int]bool) (*Analysis, e
 		return nil, err
 	}
 	defer os.RemoveAll(wt)
-	if _, err := gitOut(repo, "worktree", "add", "--detach", "-q", wt, "HEAD"); err != nil {
+	if err := checkoutHEAD(repo, wt); err != nil {
 		return nil, err
 	}
-	defer func() { _, _ = gitOut(repo, "worktree", "remove", "--force", wt) }()
 	m, err := readManifest(filepath.Join(wt, filepath.FromSlash(relManifest)))
 	if err != nil {
 		return nil, err
 	}
 	return Analyze(wt, m, levels)
+}
+
+// checkoutHEAD writes HEAD's tree into dir through a private index file, never
+// through `git worktree add`: a registered worktree is state of the real
+// repository, visible to anything watching it while the comparison runs, and
+// left behind if this process is killed before it can remove it. The
+// repository's own index and working tree are not touched.
+func checkoutHEAD(repo, dir string) error {
+	idx, err := os.MkdirTemp("", "tddsplit-regen-index-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(idx)
+	env := append(os.Environ(), "GIT_INDEX_FILE="+filepath.Join(idx, "index"))
+	for _, args := range [][]string{
+		{"read-tree", "HEAD"},
+		{"checkout-index", "-a", "-f", "--prefix=" + filepath.ToSlash(dir) + "/"},
+	} {
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	return nil
 }

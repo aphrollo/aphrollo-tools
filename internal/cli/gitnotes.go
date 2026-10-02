@@ -38,10 +38,47 @@ func pushGateNotes(rest []string, cwd, realGit string, code int, stderr io.Write
 		return
 	}
 	cmd := gateNotesPushCmd(realGit, cwd, remote)
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := cmd.CombinedOutput()
+	if err != nil && notesPushRejected(string(out)) && mergeRemoteGateNotes(realGit, cwd, remote) == nil {
+		out, err = gateNotesPushCmd(realGit, cwd, remote).CombinedOutput()
+	}
+	if err != nil {
 		fmt.Fprintf(stderr, "gate: pushed the branch but not %s (%v: %s) — CI will read this tip as ungated\n",
 			tdd.GateNotesRefFull, err, strings.Join(strings.Fields(string(out)), " "))
 	}
+}
+
+// notesPushRejected reports whether a notes push failed because the remote's
+// ref holds notes the local one lacks ("fetch first", or a plain
+// non-fast-forward), which a merge of the two settles.
+func notesPushRejected(output string) bool {
+	return strings.Contains(output, "fetch first") || strings.Contains(output, "non-fast-forward")
+}
+
+// scratchNotesRef is where the remote's notes are fetched to before they are
+// merged: a notes merge reads its other side from a ref under refs/notes/.
+const scratchNotesRef = "refs/notes/gate-remote-scratch"
+
+// mergeRemoteGateNotes brings the remote's refs/notes/gate into the local one
+// so a push of it fast-forwards. cat_sort_uniq keeps every line of both
+// sides of a note both boxes wrote, so no note is lost to either. The scratch
+// ref is removed whatever happens. Any failure leaves the local notes as they
+// were, and the caller reports the rejection.
+func mergeRemoteGateNotes(realGit, dir, remote string) error {
+	git := func(args ...string) error {
+		cmd := exec.Command(realGit, append([]string{"-c", "credential.interactive=false", "-c", "core.askPass="}, args...)...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1", "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("git %s: %v: %s", args[0], err, strings.Join(strings.Fields(string(out)), " "))
+		}
+		return nil
+	}
+	defer func() { _ = git("update-ref", "-d", scratchNotesRef) }()
+	if err := git("fetch", "--no-tags", remote, "+"+tdd.GateNotesRefFull+":"+scratchNotesRef); err != nil {
+		return err
+	}
+	return git("notes", "--ref="+tdd.GateNotesRefFull, "merge", "-s", "cat_sort_uniq", scratchNotesRef)
 }
 
 // pushValueFlags are `git push` flags whose value is a SEPARATE argv token

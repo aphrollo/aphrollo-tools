@@ -70,12 +70,13 @@ func TestSnapshotGitWorld_NamesEachThingALeakChanges(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if c.name == "a moved checkout" {
-				// The checkout's own commit moves when its own branch does.
+				// The checkout's own commit moves when its own branch does; a commit of
+				// the owner's is ordinary work, one under another identity is not.
 				repo, _, _ := canaryLanes(t)
 				lane := filepath.Join(t.TempDir(), "mine")
 				gitDo(t, repo, "worktree", "add", "-q", "-b", "mine", lane)
 				before := snapshotGitWorld(lane)
-				gitDo(t, lane, "commit", "-q", "--allow-empty", "-m", "mine")
+				gitDo(t, lane, "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-q", "--allow-empty", "-m", "mine")
 				requireChange(t, before.changesTo(snapshotGitWorld(lane)), c.label)
 				return
 			}
@@ -256,7 +257,7 @@ func TestSnapshotGitWorld_AWorktreeInTheRunsTempAreaOrOutsideAnyLaneIsAChange(t 
 
 // The exact edges of "a lane of this repository" and of a gate path.
 func TestIsWatchedWorktree_TheEdgesOfALaneDirAndOfAGatePath(t *testing.T) {
-	laneDir := "/w/.worktrees/repo"
+	laneDir := filepath.FromSlash("/w/.worktrees/repo")
 	cases := []struct {
 		path string
 		want bool
@@ -278,7 +279,7 @@ func TestIsWatchedWorktree_TheEdgesOfALaneDirAndOfAGatePath(t *testing.T) {
 		{"/tmp/gate-failfirst", true},
 	}
 	for _, c := range cases {
-		if got := isWatchedWorktree(c.path, laneDir); got != c.want {
+		if got := isWatchedWorktree(filepath.FromSlash(c.path), laneDir); got != c.want {
 			t.Errorf("isWatchedWorktree(%q) = %v, want %v", c.path, got, c.want)
 		}
 	}

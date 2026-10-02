@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
 
 // The gate's own checkout of a repo: one stable worktree per repo under the
@@ -65,8 +67,7 @@ func addGateWorktree(repoRoot string) (string, error) {
 			return "", err
 		}
 	} else {
-		_, _ = git(repoRoot, "worktree", "remove", "--force", wt)
-		_ = os.RemoveAll(wt)
+		clearGateWorktree(repoRoot, wt)
 	}
 	if _, err := git(repoRoot, "worktree", "add", "--detach", wt, "HEAD"); err != nil {
 		_ = os.RemoveAll(wt)
@@ -79,6 +80,18 @@ func addGateWorktree(repoRoot string) (string, error) {
 // of it. Best-effort: a registration that outlives it is cleared by the next
 // addGateWorktree.
 func removeGateWorktree(repoRoot, wt string) {
+	clearGateWorktree(repoRoot, wt)
+}
+
+// clearGateWorktree unregisters wt and deletes it, after unlinking every link
+// in it: a proof that was killed leaves its node_modules links behind, and git
+// deletes an untracked tree through a junction into the install it points at
+// (#1083). A link that cannot be unlinked leaves the checkout in place for the
+// next run.
+func clearGateWorktree(repoRoot, wt string) {
+	if depinstall.RemoveLinks(wt) != nil {
+		return
+	}
 	_, _ = git(repoRoot, "worktree", "remove", "--force", wt)
 	_ = os.RemoveAll(wt)
 }
