@@ -215,12 +215,12 @@ jobs:
   vars:
     steps:
       - run: |
-          for v in GOPATH GOMODCACHE GOBIN CARGO_HOME npm_config_prefix npm_config_cache PIP_CACHE_DIR; do
+          for v in GOPATH GOMODCACHE GOBIN CARGO_HOME npm_config_prefix npm_config_cache PIP_CACHE_DIR PIPX_HOME PIPX_BIN_DIR UV_TOOL_DIR UV_TOOL_BIN_DIR UV_PYTHON_INSTALL_DIR UV_CACHE_DIR RUSTUP_HOME; do
             eval "echo $v=\$$v" >> seen.txt
           done
           echo "PATH=$PATH" >> seen.txt
 `, func(o *Options) {
-		o.Env = append(os.Environ(), "GOPATH="+host, "CARGO_HOME="+host, "npm_config_cache="+host)
+		o.Env = append(os.Environ(), "GOPATH="+host, "CARGO_HOME="+host, "npm_config_cache="+host, "PIPX_HOME="+host, "UV_CACHE_DIR="+host, "RUSTUP_HOME="+host)
 	})
 	if sum.Failed() {
 		t.Fatalf("run failed:\n%s", out)
@@ -230,7 +230,7 @@ jobs:
 		k, v, _ := strings.Cut(l, "=")
 		seen[k] = v
 	}
-	for _, key := range []string{"GOPATH", "GOMODCACHE", "GOBIN", "CARGO_HOME", "npm_config_prefix", "npm_config_cache", "PIP_CACHE_DIR"} {
+	for _, key := range []string{"GOPATH", "GOMODCACHE", "GOBIN", "CARGO_HOME", "npm_config_prefix", "npm_config_cache", "PIP_CACHE_DIR", "PIPX_HOME", "PIPX_BIN_DIR", "UV_TOOL_DIR", "UV_TOOL_BIN_DIR", "UV_PYTHON_INSTALL_DIR", "UV_CACHE_DIR", "RUSTUP_HOME"} {
 		printed, ok := isolateValue(out, key)
 		if !ok {
 			t.Errorf("%s was set for the steps but never printed:\n%s", key, out)
@@ -243,7 +243,7 @@ jobs:
 			t.Errorf("a step saw %s=%q, want the isolated directory the run printed (%s)", key, seen[key], printed)
 		}
 	}
-	for _, bin := range []string{"/isolation/npm-prefix", "/isolation/gopath/bin", "/isolation/cargo-home/bin"} {
+	for _, bin := range []string{"/isolation/npm-prefix", "/isolation/gopath/bin", "/isolation/cargo-home/bin", "/isolation/pipx-bin", "/isolation/uv-tool-bin"} {
 		if !strings.Contains(seen["PATH"], bin) {
 			t.Errorf("PATH %q lacks %s, so what an install puts there would not be found", seen["PATH"], bin)
 		}
@@ -297,5 +297,41 @@ jobs:
 	}
 	if home, _ := isolateValue(out, "CARGO_HOME"); under(home, host) {
 		t.Errorf("CARGO_HOME = %s is the box's own %s", home, host)
+	}
+}
+
+func TestRun_RustupGetsTheBoxsToolchainsLinkedAndSettingsCopiedButNewOnesLandInTheScratch(t *testing.T) {
+	host := t.TempDir()
+	toolchain := filepath.Join(host, "toolchains", "stable-host")
+	writeTo(t, filepath.Join(toolchain, "bin", "rustc"), "compiler")
+	writeTo(t, filepath.Join(host, "settings.toml"), "default_toolchain = \"stable-host\"\n")
+	sum, out, dir := runFlow(t, `
+on: pull_request
+jobs:
+  r:
+    steps:
+      - run: |
+          cat "$RUSTUP_HOME/toolchains/stable-host/bin/rustc" >> seen.txt
+          cat "$RUSTUP_HOME/settings.toml" >> seen.txt
+          mkdir -p "$RUSTUP_HOME/toolchains/nightly-new/bin"
+          echo downloaded > "$RUSTUP_HOME/toolchains/nightly-new/bin/rustc"
+`, func(o *Options) { o.Env = append(os.Environ(), "RUSTUP_HOME="+host) })
+	if sum.Failed() {
+		t.Fatalf("run failed:\n%s", out)
+	}
+	if got := readFile(t, filepath.Join(dir, "seen.txt")); got != "compilerdefault_toolchain = \"stable-host\"\n" {
+		t.Errorf("the step saw %q, want the box's toolchain through the link and its settings copied", got)
+	}
+	if home, _ := isolateValue(out, "RUSTUP_HOME"); under(home, host) || !strings.Contains(filepath.ToSlash(home), "/isolation/") {
+		t.Errorf("RUSTUP_HOME = %s, want a directory of the run's own, not the box's %s", home, host)
+	}
+	if _, err := os.Stat(filepath.Join(host, "toolchains", "nightly-new")); !os.IsNotExist(err) {
+		t.Errorf("a toolchain the run installed landed in the box's rustup home (stat err %v)", err)
+	}
+	if got := readFile(t, filepath.Join(toolchain, "bin", "rustc")); got != "compiler" {
+		t.Errorf("the box's toolchain changed: %q", got)
+	}
+	if !strings.Contains(out, "rustup:") {
+		t.Errorf("what was linked must be said:\n%s", out)
 	}
 }

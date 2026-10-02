@@ -77,6 +77,8 @@ func newIsolation(ctx context.Context, scratch string, base []string) *isolation
 	cargo := s.dir("CARGO_HOME", "cargo-home")
 	s.path = append(s.path, filepath.Join(cargo, "bin"))
 	s.copyCargoConfig(base, cargo)
+	s.toolDirs()
+	s.linkRustup(base, s.dir("RUSTUP_HOME", "rustup-home"))
 	return s
 }
 
