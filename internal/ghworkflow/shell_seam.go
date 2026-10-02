@@ -24,21 +24,14 @@ func hostOS() string {
 // is Git for Windows' bash, never the WSL launcher a bare PATH lookup finds
 // first.
 var locateBash = func() (string, error) {
-	if runtime.GOOS == "windows" {
-		if out, err := exec.Command("git", "--exec-path").Output(); err == nil { // stderr-ok: a failed probe falls back to the PATH lookup below
-			root := filepath.Join(strings.TrimSpace(string(out)), "..", "..", "..")
-			for _, rel := range []string{filepath.Join("bin", "bash.exe"), filepath.Join("usr", "bin", "bash.exe")} {
-				if p := filepath.Join(root, rel); fileExists(p) {
-					return p, nil
-				}
-			}
-		}
+	if p, ok := gitForWindowsBash(); ok {
+		return p, nil
 	}
 	p, err := exec.LookPath("bash")
 	if err != nil {
 		return "", fmt.Errorf("bash is not on PATH: workflow run: steps need it")
 	}
-	if runtime.GOOS == "windows" && strings.Contains(strings.ToLower(p), `\system32\`) {
+	if isWSLLauncher(p) {
 		return "", fmt.Errorf("the bash on PATH is the WSL launcher (%s); install Git for Windows so workflow steps run under Git Bash", p)
 	}
 	return p, nil

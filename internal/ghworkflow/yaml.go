@@ -89,10 +89,6 @@ func ParseYAML(src string) (*Node, error) {
 	if p.pos < len(p.lines) && p.lines[p.pos].text == "---" {
 		p.pos++
 	}
-	p.skipBlank()
-	if p.pos >= len(p.lines) {
-		return &Node{Kind: KindNull}, nil
-	}
 	n, err := p.parseBlock(0)
 	if err != nil {
 		return nil, err
@@ -233,7 +229,7 @@ func (p *parser) parseValue(l srcLine, rest string, indent int) (*Node, error) {
 		next := p.lines[p.pos]
 		switch {
 		case next.indent > indent:
-			return p.parseBlock(indent + 1)
+			return p.parseBlock(next.indent)
 		case next.indent == indent && isSeqItem(next.text):
 			return p.parseSeq(indent)
 		}
@@ -462,7 +458,7 @@ func (p *parser) parseBlockScalar(l srcLine, header string, parentIndent int) (*
 			if raw.indent <= parentIndent {
 				break
 			}
-			if contentIndent < 0 {
+			if contentIndent == -1 {
 				contentIndent = raw.indent
 			}
 			if raw.indent < contentIndent {
@@ -472,21 +468,20 @@ func (p *parser) parseBlockScalar(l srcLine, header string, parentIndent int) (*
 		body = append(body, raw.raw)
 		p.pos++
 	}
+	prefix := strings.Repeat(" ", max(contentIndent, 0))
 	for i, b := range body {
-		if len(b) >= contentIndent && contentIndent > 0 {
-			body[i] = b[contentIndent:]
+		if strings.TrimSpace(b) == "" {
+			body[i] = ""
 		} else {
-			body[i] = strings.TrimLeft(b, " ")
+			body[i] = strings.TrimPrefix(b, prefix)
 		}
 	}
-	last := -1
-	for i, b := range body {
-		if strings.TrimSpace(b) != "" {
-			last = i
-		}
+	trailing := 0
+	// walk-terminates: each turn drops one trailing blank line from body
+	for len(body) > 0 && body[len(body)-1] == "" {
+		body = body[:len(body)-1]
+		trailing++
 	}
-	trailing := len(body) - 1 - last
-	body = body[:last+1]
 	text := joinBlock(body, folded)
 	switch {
 	case chomp == "-" || len(body) == 0:
