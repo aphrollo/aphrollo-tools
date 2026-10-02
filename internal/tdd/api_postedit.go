@@ -9,11 +9,21 @@ import (
 
 const DefaultPostEditTimeout = postedit.DefaultPostEditTimeout
 
+const StopHookStop = postedit.StopHookStop
+
+const StopHookSubagentStop = postedit.StopHookSubagentStop
+
+const StopHookTaskCompleted = postedit.StopHookTaskCompleted
+
 const WallDiscard = postedit.WallDiscard
 
 type DeferredJob = postedit.DeferredJob
 
 type PhaseOutcome = postedit.PhaseOutcome
+
+type StopEvent = postedit.StopEvent
+
+type StopVerdict = postedit.StopVerdict
 
 type Waiver = postedit.Waiver
 
@@ -34,6 +44,8 @@ func ConsumePrimaryBashSpent(p0 []string) bool { return postedit.ConsumePrimaryB
 func DecideBashSuite(p0 []byte) (Decision, bool) { return postedit.DecideBashSuite(p0) }
 
 func DecidePreEdit(p0 []byte) (Decision, error) { return postedit.DecidePreEdit(p0) }
+
+func DecideStop(p0 StopEvent, p1 []byte) StopVerdict { return postedit.DecideStop(p0, p1) }
 
 func DeferredPhasesEnabled() bool { return postedit.DeferredPhasesEnabled() }
 
@@ -75,9 +87,17 @@ func RecordFinishedDeferredJobForTest(p0 string, p1 string) {
 	postedit.RecordFinishedDeferredJobForTest(p0, p1)
 }
 
+func RecordFinishedRedDeferredJobForTest(p0 string, p1 string, p2 string, p3 string) {
+	postedit.RecordFinishedRedDeferredJobForTest(p0, p1, p2, p3)
+}
+
 func RenderPostToolUse(p0 string) ([]byte, int) { return postedit.RenderPostToolUse(p0) }
 
 func RenderPreToolUse(p0 Decision) ([]byte, int) { return postedit.RenderPreToolUse(p0) }
+
+func RenderStopVerdict(p0 StopEvent, p1 StopVerdict) ([]byte, []byte, int) {
+	return postedit.RenderStopVerdict(p0, p1)
+}
 
 func Revoke(p0 string) (string, error) { return postedit.Revoke(p0) }
 

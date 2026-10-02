@@ -1010,6 +1010,9 @@ statusline_suite.go                                suite     # created by P2
 statusline_test.go                                 tdd
 statusline_unproven_test.go                        tdd
 stderrsink.go                                      precommit
+stopcheck.go                                       postedit
+stopcheck_task_test.go                             postedit
+stopcheck_test.go                                  postedit
 style.go                                           install
 style.md                                           install
 style_test.go                                      install
@@ -1045,6 +1048,7 @@ testdata/fuzz/FuzzGateLogLine/                     escape
 testdata/gremlins_report.json                      mutation
 testdata/policies/                                 smell
 testdata/retro/                                    merge
+testdata/stophooks/                                postedit
 testmain_tddtest_test.go                           tdd
 testquality.go                                     smell
 testquality_line_test.go                           postedit  # prefix says smell; its test body reaches postedit

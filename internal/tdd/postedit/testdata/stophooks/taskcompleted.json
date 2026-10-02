@@ -1,0 +1,12 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "transcript_path": "/home/dev/.claude/projects/-home-dev-proj/00000000-0000-4000-8000-000000000001.jsonl",
+  "cwd": "/home/dev/proj",
+  "permission_mode": "default",
+  "hook_event_name": "TaskCompleted",
+  "task_id": "task-001",
+  "task_subject": "Back off between retries",
+  "task_description": "Retry a failed upload with exponential backoff and a jitter, capped at five attempts.",
+  "teammate_name": "builder",
+  "team_name": "upload-retry"
+}

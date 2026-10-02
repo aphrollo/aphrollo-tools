@@ -52,6 +52,7 @@ like `systemctl` (no dry-run, no `--dry`).
   embedded law library (`internal/ratchet/presets/{common,rust,go}`) into a
   repo via `extends`/`[params]`.
 - `gate` — the TDD + law gates (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionend`/
+  `stop`/`subagentstop`/`taskcompleted`/
   `precommit`/`premerge`/`prepush`) + `allow <wall>`/`revoke <wall>` (waive or
   restore a wall, e.g. `allow primary`) + `gate init` (wires session hooks +
   global git gate) + `classify-diff` (read-only: the class CI's `changes` job

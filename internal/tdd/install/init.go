@@ -61,6 +61,12 @@ var managedEvents = []managedEvent{
 	{"PostToolUse", "Edit|Write|MultiEdit", "posttooluse", postToolUseHarnessTimeoutSecs},
 	{"PostToolUse", "Bash", "posttooluse", postToolUseHarnessTimeoutSecs},
 	{"UserPromptSubmit", "", "userpromptsubmit", 10},
+	// The turn-end checks: each reads the session's state and finishes at
+	// once, and the short timeout lets the harness cut one off so the turn,
+	// the subagent or the task goes on.
+	{"Stop", "", "stop", 10},
+	{"SubagentStop", "", "subagentstop", 10},
+	{"TaskCompleted", "", "taskcompleted", 10},
 	{"SessionEnd", "", "sessionend", 10},
 }
 

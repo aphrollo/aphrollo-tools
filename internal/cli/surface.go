@@ -78,6 +78,9 @@ var gateVerbTable = []Verb{
 	{Name: "posttooluse"},
 	{Name: "userpromptsubmit"},
 	{Name: "sessionend"},
+	{Name: "stop"},
+	{Name: "subagentstop"},
+	{Name: "taskcompleted"},
 }
 
 // workspaceVerbTable mirrors runWorkspace's switch in cli_workspace.go, in
