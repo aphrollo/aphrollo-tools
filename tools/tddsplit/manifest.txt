@@ -514,6 +514,7 @@ mechcache_unmoved_test.go                          suite
 mechrun.go                                         precommit
 mechrun_failfirst.go                               failfirst # created by P2
 mechrun_postedit.go                                postedit  # created by P2
+mechrun_split_test.go                              precommit
 mechrun_suite.go                                   suite     # created by P2
 mechrun_untested_test.go                           precommit
 memcap.go                                          lock
@@ -728,6 +729,8 @@ pathlock.go                                        core
 payload.go                                         tddtest
 pidrunning_windows_test.go                         postedit
 pipeline_push_test.go                              tdd
+pkgsecs.go                                         suite
+pkgsecs_test.go                                    suite
 policy.go                                          smell
 policy_registry_test.go                            smell
 policy_test.go                                     smell
@@ -983,6 +986,12 @@ smellscope_own_test.go                             smell
 smellscope_test.go                                 postedit  # prefix says smell; its test body reaches postedit
 splitcommit.go                                     gitx
 splitcommit_test.go                                gitx
+splitpack.go                                       suite
+splitpack_test.go                                  suite
+splitplan.go                                       suite
+splitplan_test.go                                  suite
+splitrun.go                                        suite
+splitrun_test.go                                   suite
 stagedfiles_test.go                                tdd
 staleartifact.go                                   suite
 staleartifact_hint_test.go                         suite

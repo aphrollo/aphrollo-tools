@@ -41,8 +41,6 @@ func TryAcquireLongVerbSlot(p0 string, p1 string, p2 string) (BuildSlot, func(),
 	return lock.TryAcquireLongVerbSlot(p0, p1, p2)
 }
 
-func buildSlotCount() int { return lock.BuildSlotCount() }
-
 func buildSlotHolderDescription(p0 string) string { return lock.BuildSlotHolderDescription(p0) }
 
 func cargoConfigJobs(p0 string) (int, bool) { return lock.CargoConfigJobs(p0) }

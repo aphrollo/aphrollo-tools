@@ -53,6 +53,11 @@ type SuiteResult struct {
 	// crate that names it, and the retained record states both so a reader
 	// can tell which tree was tested (issue #769).
 	Dir string
+	// SplitNote is what a list cut into several runs (splitrun.go) left
+	// undone when it did not finish: the runs that timed out or were ended, by
+	// number and packages, and the runs that never started. "" for a run that
+	// was one command, and for a split list that finished.
+	SplitNote string
 }
 
 // SuiteRunner executes a runner in a project root. It is injected so the
