@@ -149,7 +149,8 @@ jobs:
 	}
 }
 
-func TestRun_AGlobalInstallIsRefusedNamingItsStepAndNothingAfterItRuns(t *testing.T) {
+// ratchet: test_removed TestRun_AGlobalInstallIsRefusedNamingItsStepAndNothingAfterItRuns: a refused step is now listed as skipped, like a uses: step, not failed; TestRun_AGlobalInstallIsListedAsSkippedNamingItsStepAndTheRestRuns covers it
+func TestRun_AGlobalInstallIsListedAsSkippedNamingItsStepAndTheRestRuns(t *testing.T) {
 	sum, out, dir := runFlow(t, `
 on: pull_request
 jobs:
@@ -158,17 +159,26 @@ jobs:
       - run: echo before >> log.txt
       - name: Install system libs
         run: sudo -n apt-get --version
+      - name: Tolerated install
+        continue-on-error: true
+        run: sudo -n apt-get --version
       - run: echo after >> log.txt
 `)
 	r := result(t, sum, "sys")
-	if r.Result != ResultFailure || !strings.Contains(r.Detail, "Install system libs") {
-		t.Errorf("sys = %+v, want a failure naming the step", r)
+	if r.Result != ResultSuccess || len(r.Refused) != 2 || r.Refused[0] != "Install system libs" || r.Refused[1] != "Tolerated install" {
+		t.Errorf("sys = %+v, want success with both refused steps named, never a failure and never tolerated into a pass", r)
 	}
-	if !strings.Contains(out, "[refuse] Install system libs") || !strings.Contains(out, "sudo") {
-		t.Errorf("the refusal must name the step and the command:\n%s", out)
+	if got := sum.Refused(); len(got) != 2 || !strings.HasPrefix(got[0], "ci.yml: sys: Install system libs") {
+		t.Errorf("Summary.Refused = %q, want each refusal with its workflow and job", got)
 	}
-	if got := readFile(t, filepath.Join(dir, "log.txt")); got != "before\n" {
-		t.Errorf("log = %q, want only the step before the refused one", got)
+	if sum.Failed() {
+		t.Errorf("a refusal is not a failure:\n%s", out)
+	}
+	if !strings.Contains(out, "[skip] Install system libs") || !strings.Contains(out, "refused") || !strings.Contains(out, "sudo") {
+		t.Errorf("the skip must name the step, say it was refused and why:\n%s", out)
+	}
+	if got := readFile(t, filepath.Join(dir, "log.txt")); got != "before\nafter\n" {
+		t.Errorf("log = %q, want the steps around the refused ones to run", got)
 	}
 }
 

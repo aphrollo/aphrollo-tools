@@ -232,3 +232,16 @@ func (l *lineEnder) flush() {
 		l.partial = false
 	}
 }
+
+// Refused lists every step the run did not run because it would change the box
+// outside the run's isolation, as "workflow: job: step". A run with any is not
+// a verdict on the tree: a step that never ran judged nothing.
+func (s *Summary) Refused() []string {
+	var out []string
+	for _, j := range s.Jobs {
+		for _, st := range j.Refused {
+			out = append(out, j.Workflow+": "+j.ID+": "+st)
+		}
+	}
+	return out
+}

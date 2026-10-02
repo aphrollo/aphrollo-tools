@@ -114,15 +114,22 @@ func LocalCIWith(laneWorktree string, log io.Writer, run CIRunOptions) (LocalCIV
 	if err != nil {
 		return LocalCIVerdict{Tree: tree}, err
 	}
+	refused := sum.Refused()
 	verdict := "green"
-	if sum.Failed() {
+	switch {
+	case sum.Failed():
 		verdict = "red"
+	case len(refused) > 0:
+		verdict = "inconclusive"
 	}
 	AppendGateLog(ciStage, laneWorktree, "local-ci:"+tree, verdict, time.Since(start))
 	fmt.Fprintf(log, "ci local: %s — %d job(s) ran, %d skipped\n", verdict,
 		sum.Count(ghworkflow.ResultSuccess)+sum.Count(ghworkflow.ResultFailure), sum.Count(ghworkflow.ResultSkipped))
 	if sum.Failed() {
 		return LocalCIVerdict{Tree: tree, Red: true}, fmt.Errorf("local CI is red: %s", failedJobs(sum))
+	}
+	if len(refused) > 0 {
+		return LocalCIVerdict{Tree: tree}, fmt.Errorf("local CI is inconclusive: a step it would not run was refused, so this tree is not proven (%s)", strings.Join(refused, "; "))
 	}
 	return LocalCIVerdict{Tree: tree}, nil
 }
