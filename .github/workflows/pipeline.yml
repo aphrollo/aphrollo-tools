@@ -1188,3 +1188,42 @@ jobs:
         run: |
           echo "::error::aphrollo ratchet check is RED on main at $(git rev-parse HEAD) ($(git log -1 --format='%s')) -- this push is the merge that produced (or has not yet fixed) the regression; see the ratchet output above for which law and file"
           exit 1
+
+  # The version rule (docs/trellis-roadmap.md, Compatibility policy item 1),
+  # held against every pull request. A change to what a consumer's gate says
+  # is at least a minor bump. A path rule can name some of those changes (a
+  # law preset, a language row, a mask) and none of the rest (a gate stage, the
+  # mutation run), so the author states the bump in the PR body ("version:
+  # none|patch|minor|major") and `aphrollo version check` holds the VERSION
+  # file to it: the file must have moved from the PR's base by exactly that
+  # much, a change to the named surfaces must be a minor bump at least, and
+  # CHANGELOG.md must have a section for the new version. The body is read
+  # with gh here, not taken from the event payload, so re-running the job
+  # after editing the body judges the edit. Skipped for Dependabot, whose
+  # dependency bumps move no verdict and cannot carry the line.
+  version-check:
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0   # the PR base must be in the clone to read its VERSION and diff against it
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build aphrollo from this checkout
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: aphrollo version check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.txt"
+          ./bin/aphrollo version check --base "$BASE_SHA" --body-file "$RUNNER_TEMP/pr-body.txt"

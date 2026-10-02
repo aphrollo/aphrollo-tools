@@ -57,6 +57,7 @@ var spreadCallSites = map[string]string{
 	"internal/cli/selfinstall.go:boundedCommand":                     "bounded: fixed go build and self-check arguments",
 	"internal/cli/stalebranch.go:staleBranchGit":                     "bounded: fixed branch and ref arguments",
 	"internal/cli/update.go:runUpdate":                               "bounded: fixed fetch, worktree and build arguments",
+	"internal/cli/version_check.go:gitStdoutIn":                      "bounded: fixed rev-parse, ls-tree, show and diff arguments and one ref or path",
 	"internal/dev/dev.go:runArgv":                                    "bounded: a fixed unit list from the dev tier declaration",
 	"internal/docs/docs.go:lsFiles":                                  "batched: Run splits the cited-path list (#960)",
 	"internal/ghtransport/ghtransport.go:runGH":                      "bounded: fixed gh api arguments",
