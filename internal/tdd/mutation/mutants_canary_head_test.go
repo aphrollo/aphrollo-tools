@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aphrollo/aphrollo-tools/internal/tdd/commitrecord"
+	"github.com/aphrollo/aphrollo-tools/internal/commitrecord"
 )
 
 // ownerCommit makes a commit in lane the way the owner does, through the

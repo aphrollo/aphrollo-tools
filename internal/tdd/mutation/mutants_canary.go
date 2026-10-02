@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aphrollo/aphrollo-tools/internal/tdd/commitrecord"
+	"github.com/aphrollo/aphrollo-tools/internal/commitrecord"
 	gitx "github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 

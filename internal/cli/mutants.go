@@ -6,8 +6,8 @@ import (
 	"io"
 	"os"
 
+	"github.com/aphrollo/aphrollo-tools/internal/commitrecord"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
-	"github.com/aphrollo/aphrollo-tools/internal/tdd/commitrecord"
 )
 
 // runPostCommit is the `gate postcommit` git hook. It writes the

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aphrollo/aphrollo-tools/internal/tdd/commitrecord"
+	"github.com/aphrollo/aphrollo-tools/internal/commitrecord"
 )
 
 // The post-commit hook is the one place that vouches a commit came through the
