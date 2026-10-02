@@ -173,7 +173,7 @@ func failFirstViolated(repoRoot string, tests, srcs []string, run SuiteRunner) f
 func failFirstViolatedAt(repoRoot, root string, tests, srcs []string, run SuiteRunner) failFirstOutcome {
 	wt, err := addGateWorktree(repoRoot)
 	if err != nil {
-		return failFirstOutcome{}
+		return failFirstOutcome{worktreeFailed: err.Error()}
 	}
 	defer removeGateWorktree(repoRoot, wt)
 	// Deferred after the worktree's removal, so it runs first: the
@@ -433,6 +433,8 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 			// `gate stats` must be able to count the proofs that ran and
 			// measured nothing separately from the ones that proved a red.
 			verdict = AllTestsSkipped
+		case out.worktreeFailed != "":
+			verdict = failFirstWorktreeFailed // standdown-logged: logSuiteVerdict(verdict) after the switch
 		case out.notRunnable != "":
 			// #904: the root's own test tool, node, or python is not there to run,
 			// and the proof never falls back to npx.
@@ -456,6 +458,9 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		}
 		if out.notRunnable != "" {
 			fmt.Fprintf(rootseam.Stderr(root), "gate precommit: fail-first in %s → NOT RUN — %s\n", root, out.notRunnable)
+		}
+		if out.worktreeFailed != "" {
+			fmt.Fprintf(rootseam.Stderr(root), "gate precommit: fail-first in %s → NOT RUN — the checkout of HEAD the proof runs in could not be made: %s\n", root, out.worktreeFailed)
 		}
 		if out.vacuous {
 			return GateResult{Blocked: true, Message: vacuousFailFirstMessage(out.vacuousPkgs)}

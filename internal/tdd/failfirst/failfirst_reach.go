@@ -12,6 +12,12 @@ import (
 // stats` never counts it as a red.
 const failFirstTestNotReached = "inconclusive (test-not-reached)"
 
+// failFirstWorktreeFailed is the verdict for a proof whose checkout of HEAD
+// could not be made. Like the proofs above it measured nothing, and its own
+// word keeps `gate stats` from counting it as a red or as an ordinary
+// fail-open.
+const failFirstWorktreeFailed = "inconclusive (worktree-failed, fail-open)" // standdown-logged: failFirstStage hands it to logSuiteVerdict right after its verdict switch
+
 // failureReachedTests reports whether a failed proof run got as far as the
 // staged tests: it names a failing test, or it mentions one of the staged
 // test files — a compile or import error located in the test is exactly the

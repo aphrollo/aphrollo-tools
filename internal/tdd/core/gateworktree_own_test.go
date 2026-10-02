@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -162,5 +163,100 @@ func TestAddGateWorktree_FailsWithNoHeadAndLeavesNothing(t *testing.T) {
 	}
 	if _, serr := os.Stat(stable); !os.IsNotExist(serr) {
 		t.Errorf("a failed checkout left %s behind (%v)", stable, serr)
+	}
+}
+
+// deepStateDir puts the gate's state dir deep enough that the checkout under
+// it, 41 characters further down, is past what git for Windows will make a
+// worktree at: it made one at a path of 215 characters and refused one of 216
+// with "fatal: '$GIT_DIR' too big". The checkout stays under 260, so only
+// git's own rule is in play.
+func deepStateDir(t *testing.T) {
+	t.Helper()
+	deep := t.TempDir()
+	for len(deep) < 180 {
+		deep = filepath.Join(deep, strings.Repeat("d", 30))
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", deep)
+}
+
+// TestAddGateWorktree_ADeepStateDirStillGetsACheckout proves the gate's
+// checkout does not depend on how deep the state dir is: a box whose Claude
+// config dir, or whose test run's temp dir, is long still gets the fail-first
+// proof instead of a worktree git refuses to make.
+func TestAddGateWorktree_ADeepStateDirStillGetsACheckout(t *testing.T) {
+	deepStateDir(t)
+	root := gateRepo(t)
+
+	wt, err := addGateWorktree(root)
+	if err != nil {
+		t.Fatalf("addGateWorktree under a state dir of %d characters: %v", len(StateDir()), err)
+	}
+	defer removeGateWorktree(root, wt)
+	if _, serr := os.Stat(filepath.Join(wt, "a.txt")); serr != nil {
+		t.Errorf("the checkout at %q has no a.txt (%v)", wt, serr)
+	}
+}
+
+// TestGateWorktreeDirWithin_PastTheLimitIsAShortStablePathTheCanaryKnows
+// proves where the checkout goes when the state dir would put it past the
+// limit: a path of the same stable-per-repo kind, under the temp dir, named
+// the way the mutation canary recognises a gate checkout, and a path exactly
+// at the limit does not move.
+func TestGateWorktreeDirWithin_PastTheLimitIsAShortStablePathTheCanaryKnows(t *testing.T) {
+	deepStateDir(t)
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
+	long := gateWorktreeDirWithin("/repo/a", 0)
+
+	if got := gateWorktreeDirWithin("/repo/a", len(long)); got != long {
+		t.Errorf("a checkout path of exactly the limit moved to %q, want %q", got, long)
+	}
+	short := gateWorktreeDirWithin("/repo/a", len(long)-1)
+	if !strings.HasPrefix(short, tmp) || !strings.HasPrefix(filepath.Base(short), "gate-failfirst-") || len(short) >= len(long) {
+		t.Errorf("past the limit the checkout is at %q, want a shorter path named gate-failfirst-<id> under %q", short, tmp)
+	}
+	if again := gateWorktreeDirWithin("/repo/a", len(long)-1); again != short {
+		t.Errorf("the short path is not stable: %q then %q", short, again)
+	}
+	if other := gateWorktreeDirWithin("/repo/b", len(long)-1); other == short {
+		t.Errorf("two repos share the short path %q", short)
+	}
+}
+
+// TestGitCheckoutPathLimit_OnlyWindowsHasOneAndItIsBelowWhatGitRefuses pins
+// the limit's two sides: git for Windows made a worktree at 215 characters
+// and refused 216, so a limit above 215 would still hand it a path it refuses;
+// elsewhere there is no limit to apply.
+func TestGitCheckoutPathLimit_OnlyWindowsHasOneAndItIsBelowWhatGitRefuses(t *testing.T) {
+	got := gitCheckoutPathLimit()
+	if runtime.GOOS != "windows" {
+		if got != 0 {
+			t.Errorf("gitCheckoutPathLimit() = %d on %s, want none", got, runtime.GOOS)
+		}
+		return
+	}
+	if got <= 0 || got > 215 {
+		t.Errorf("gitCheckoutPathLimit() = %d on windows, want 1..215", got)
+	}
+}
+
+// TestAddGateWorktree_AFailureCarriesGitsOwnWords proves the error says what
+// git said, not only its exit status: a caller that has to tell an operator
+// why the proof could not run has the cause in hand.
+func TestAddGateWorktree_AFailureCarriesGitsOwnWords(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	tddtest.GitInit(t, root)
+
+	wt, err := addGateWorktree(root)
+	if err == nil {
+		removeGateWorktree(root, wt)
+		t.Fatal("addGateWorktree checked out a repo with no HEAD")
+	}
+	if !strings.Contains(err.Error(), "invalid reference: HEAD") {
+		t.Errorf("error = %q, want git's own words (invalid reference: HEAD)", err)
 	}
 }
