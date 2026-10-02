@@ -41,13 +41,16 @@ var (
 	// goTestTempRe is the shape t.TempDir() names a test's own directory:
 	// the test's name, then digits.
 	goTestTempRe = regexp.MustCompile(`^Test[A-Za-z0-9_]*\d+$`)
+	// ciRunScratchRe is the shape os.MkdirTemp gives the scratch directory of a
+	// local CI run (aphrollo ci run): a run that is killed leaves it behind.
+	ciRunScratchRe = regexp.MustCompile(`^aphrollo-ci-run-\d+$`)
 )
 
 // scratchName reports whether a directory name is one of the shapes the
 // gate's own runs create.
 func scratchName(name string) bool {
 	switch {
-	case goBuildScratchRe.MatchString(name), goTestTempRe.MatchString(name):
+	case goBuildScratchRe.MatchString(name), goTestTempRe.MatchString(name), ciRunScratchRe.MatchString(name):
 		return true
 	case strings.HasPrefix(name, "aphrollo-lane-"):
 		return true

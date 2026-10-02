@@ -2,6 +2,7 @@ package depinstall
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -38,13 +39,54 @@ func RemoveLinks(root string) error {
 	})
 }
 
+// removeAll is os.RemoveAll. A variable so a test can refuse the way a
+// read-only directory does on a platform where the real one would not.
+var removeAll = os.RemoveAll
+
 // RemoveTree deletes root and everything in it, unlinking every link first so
-// the deletion never reaches a link's target.
+// the deletion never reaches a link's target. A tree that will not go as it
+// stands (a go module cache is read-only by design, and a directory nobody can
+// write to cannot be emptied) has every directory and regular file made
+// writable and is removed again.
 func RemoveTree(root string) error {
+	err := removeTreeOnce(root)
+	if err == nil {
+		return nil
+	}
+	if werr := makeWritable(root, os.Chmod); werr != nil {
+		return fmt.Errorf("%w (making it writable first: %v)", err, werr)
+	}
+	return removeTreeOnce(root)
+}
+
+func removeTreeOnce(root string) error {
 	if err := RemoveLinks(root); err != nil {
 		return err
 	}
-	return os.RemoveAll(root)
+	return removeAll(root)
+}
+
+// makeWritable gives every directory under root, and root itself, an
+// owner-only writable mode through chmod, and every regular file one too. A
+// link is never changed: chmod follows it, and what it points at is not this
+// tree's. A directory is changed before it is read, so one made unreadable too
+// is still walked.
+func makeWritable(root string, chmod func(string, fs.FileMode) error) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		switch {
+		case d.IsDir():
+			return chmod(p, 0o700)
+		case d.Type().IsRegular():
+			return chmod(p, 0o600)
+		}
+		return nil
+	})
 }
 
 // junctions is the set of entry names TreatAsJunction makes RemoveLinks see

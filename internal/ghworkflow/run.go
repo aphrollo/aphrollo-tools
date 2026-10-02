@@ -100,7 +100,9 @@ func Run(ctx context.Context, flows []*Workflow, opt Options) (*Summary, error) 
 	if err != nil {
 		return nil, fmt.Errorf("a scratch directory for the run could not be made: %w", err)
 	}
+	registerScratch(tmp)
 	defer func() {
+		defer unregisterScratch(tmp)
 		if err := removeScratch(tmp); err != nil {
 			fmt.Fprintf(opt.Out, "ci run: [note] the run's scratch directory %s was not removed: %v\n", tmp, err)
 		}

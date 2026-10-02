@@ -476,6 +476,7 @@ livelockdir_guard_test.go                          lock
 localci.go                                          merge
 localci_config.go                                   merge
 localci_config_test.go                              merge
+localci_signal_test.go                              merge
 localci_summary_test.go                             merge
 localci_test.go                                     merge
 lockdir_test.go                                    lock

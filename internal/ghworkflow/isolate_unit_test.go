@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -252,35 +250,7 @@ func TestDescribe_PrintsEveryVariableNoteAndTheDirectoriesAheadOnPATH(t *testing
 	}
 }
 
-func TestMakeWritable_EveryDirectoryAndOnlyDirectoriesAreChanged(t *testing.T) {
-	root := t.TempDir()
-	writeTo(t, filepath.Join(root, "a", "b", "f.txt"), "x")
-	writeTo(t, filepath.Join(root, "a", "g.txt"), "y")
-	var changed []string
-	var modes []fs.FileMode
-	err := makeWritable(root, func(p string, m fs.FileMode) error {
-		changed, modes = append(changed, p), append(modes, m)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{root, filepath.Join(root, "a"), filepath.Join(root, "a", "b")}
-	sort.Strings(changed)
-	sort.Strings(want)
-	if !reflect.DeepEqual(changed, want) {
-		t.Errorf("changed %q, want exactly the directories %q", changed, want)
-	}
-	for _, m := range modes {
-		if m != 0o700 {
-			t.Errorf("a directory was given mode %o, want 700", m)
-		}
-	}
-	boom := errors.New("chmod refused")
-	if err := makeWritable(root, func(string, fs.FileMode) error { return boom }); !errors.Is(err, boom) {
-		t.Errorf("a chmod that fails must stop the walk with its error, got %v", err)
-	}
-}
+// ratchet: test_removed TestMakeWritable_EveryDirectoryAndOnlyDirectoriesAreChanged: the scratch is removed by depinstall.RemoveTree, which makes directories and files writable; TestMakeWritable_EveryDirectoryAndRegularFileIsChangedAndNothingElse in internal/depinstall covers it
 
 func TestLookPython_FindsPython3ThenPythonOnPATHAndNothingElse(t *testing.T) {
 	dir, _ := fakeToolsOnPath(t) // python, python3 and pip first on PATH

@@ -58,6 +58,10 @@ func NormalizeCIMode(v string) (string, error) {
 	return "", fmt.Errorf("ci = %q is not a CI mode (want auto | local | github)", v)
 }
 
+// ciScratchGrace is how long a signalled process waits for the cancelled run to
+// remove its own scratch before it removes it.
+const ciScratchGrace = 5 * time.Second
+
 // LocalCIVerdict is what a local CI run answered: the tree it judged and
 // whether a stored green stood in for a run.
 type LocalCIVerdict struct {
@@ -104,13 +108,23 @@ func LocalCIWith(laneWorktree string, log io.Writer, run CIRunOptions) (LocalCIV
 	if err != nil {
 		return LocalCIVerdict{}, err
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	var once sync.Once
-	safeCleanup := func() { once.Do(cleanup) }
+	// A signal exits the process from its handler, so Run never returns to remove
+	// its own scratch: stop the run's steps, then remove what it left.
+	safeCleanup := func() {
+		once.Do(func() {
+			cancel()
+			ghworkflow.RemoveLiveScratch(ciScratchGrace)
+			cleanup()
+		})
+	}
 	defer safeCleanup()
 	defer watchPRGateSignals(safeCleanup, log)()
 	fmt.Fprintf(log, "ci local: judging %s merged into %s (tree %s, in %s)\n", tips.lane, tips.trunkRef, tree, wt)
 	start := time.Now()
-	sum, err := runWorkflows(laneWorktree, wt, tips, commit, log, run)
+	sum, err := runWorkflows(ctx, laneWorktree, wt, tips, commit, log, run)
 	if err != nil {
 		return LocalCIVerdict{Tree: tree}, err
 	}
@@ -147,7 +161,7 @@ func failedJobs(sum *ghworkflow.Summary) string {
 // runWorkflows loads the merge result's pull_request workflows and runs them.
 // It records nothing: a missing or unreadable workflow is a refusal, not a
 // verdict, since no job judged the tree.
-func runWorkflows(lane, wt string, tips prGateTips, commit string, log io.Writer, run CIRunOptions) (*ghworkflow.Summary, error) {
+func runWorkflows(ctx context.Context, lane, wt string, tips prGateTips, commit string, log io.Writer, run CIRunOptions) (*ghworkflow.Summary, error) {
 	flows, skipped, err := ghworkflow.LoadDir(wt)
 	if err != nil {
 		return nil, fmt.Errorf("local CI could not read this repo's workflows: %w", err)
@@ -164,7 +178,7 @@ func runWorkflows(lane, wt string, tips prGateTips, commit string, log io.Writer
 		"base_ref":   strings.TrimPrefix(tips.trunkRef, "origin/"),
 		"repository": repoSlug(strings.TrimSpace(gitOut(lane, "config", "--get", "remote.origin.url"))),
 	}
-	return ghworkflow.Run(context.Background(), flows, ghworkflow.Options{Dir: wt, Out: log, Event: event, Jobs: run.Jobs, StepTimeout: run.StepTimeout})
+	return ghworkflow.Run(ctx, flows, ghworkflow.Options{Dir: wt, Out: log, Event: event, Jobs: run.Jobs, StepTimeout: run.StepTimeout})
 }
 
 // repoSlug is owner/repo from a GitHub remote URL, "" for anything else.

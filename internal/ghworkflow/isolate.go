@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -194,29 +193,6 @@ func envIn(env []string, key string) string {
 
 // pathIn is the PATH an environment holds.
 func pathIn(env []string) string { return envIn(env, "PATH") }
-
-// removeScratch removes the run's scratch directory. A go module cache is
-// read-only by design, and a directory nobody can write to cannot be emptied,
-// so every directory is made writable first.
-func removeScratch(dir string) error {
-	walkErr := makeWritable(dir, os.Chmod)
-	if err := os.RemoveAll(dir); err != nil {
-		return fmt.Errorf("%w (making its directories writable first: %v)", err, walkErr)
-	}
-	return nil
-}
-
-// makeWritable gives every directory under dir, and dir itself, an owner-only
-// writable mode through chmod, and leaves files as they are. A directory is
-// changed before it is read, so one made unreadable too is still walked.
-func makeWritable(dir string, chmod func(string, fs.FileMode) error) error {
-	return filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && d.IsDir() {
-			return chmod(p, 0o700)
-		}
-		return nil
-	})
-}
 
 // shellOf is the shell a step runs under: its own, its job's, its workflow's.
 func (r *jobRun) shellOf(st *Step) string {
