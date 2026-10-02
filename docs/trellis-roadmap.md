@@ -43,15 +43,15 @@ A `trellis update` never turns a green consuming repo red on its own. Every chan
 
 ## Roadmap
 
-Six phases in order; each starts only when the previous gate is met. The name decision sits between core and plugin, because only the plugin carries the name.
+Six phases in order; each starts only when the previous gate is met. The move to the new repo comes last: every phase is built in aphrollo/aphrollo-tools, and the move waits until the lead view's gate is met (decided 2026-10-02).
 
 1. **0 · Now**: unblock fanvue, the paused lane, a minimal event log. Gate: fanvue merges; events are logged.
 2. **1a · Core**: compatibility, Windows CI, red to green, guardrails, escapes, #1078, #1079. Gate: a release replays with 0 new hits.
-3. **Decision**: move to trellis, a new repo under harryberg1n.
-4. **1b · Setup and worktrees**: launcher, config, session and repo start, lanes on a write to main. Gate: setup on a new box is one step.
-5. **2 · Events**: the full event log joined with OpenTelemetry. Gate: retro numbers come from events.
-6. **3 · Integration**: CI under the merge verb, local merges; Artifact review. Gate: a merge completes without GitHub.
-7. **4 · Lead view**: a dashboard as an Artifact page, metrics only. Gate: one page shows what worked.
+3. **1b · Setup and worktrees**: launcher, config, session and repo start, lanes on a write to main. Gate: setup on a new box is one step.
+4. **2 · Events**: the full event log joined with OpenTelemetry. Gate: retro numbers come from events.
+5. **3 · Integration**: CI under the merge verb, local merges; Artifact review. Gate: a merge completes without GitHub.
+6. **4 · Lead view**: a dashboard as an Artifact page, metrics only. Gate: one page shows what worked.
+7. **Move**: to trellis, a new repo under harryberg1n, once phase 4's gate is met.
 
 No dates yet: each phase is sized when it starts, from what the event log then measures.
 
@@ -213,7 +213,7 @@ The owner is decided: the tool becomes a new repo under harryberg1n, renamed in 
 | --- | --- | --- | --- |
 | Repo owner | decided | New repo under harryberg1n | Personal tool, not company infrastructure |
 | Name | decided | trellis | A trellis gives a plant structure to grow on without constraining it, as the tool does for Claude. It is short as a CLI word, and nothing called `trellis` is on this box's PATH. harryberg1n/trellis is free. 39 Go repos use the word in their name but none dominates it; keel has 101 and tether 71. It carries no vendor mark. |
-| Move and rename | decided | Once, together | One migration, one round of updates on every box |
+| Move and rename | decided | Once, together, after phase 4 | One migration, one round of updates on every box; the phases are built in aphrollo/aphrollo-tools first |
 | Integration and UI | decided | Claude's tools first. Lanes are Claude's native worktrees; review, diffs, trackers and the dashboard are Artifact pages; only the merge queue and local CI on plain git are our own code; GitHub issues where a repo is on GitHub. | We build gate logic and data; Claude provides the interface. Artifacts live on claude.ai, so pages get aggregated metrics only; transcripts, tool content and client code stay on the box, and a client diff is shown while viewed, never stored in a page. |
 | Analytics data | decided | Everything, always: gate events, Claude Code's OpenTelemetry with tool content, tokens and cost, transcripts, git and CI events, resource use | Kept safe by four rules: local only, secrets redacted before anything is stored, one store per owner (the repo's remote owner, else its parent folder) so client data never mixes (the lead view aggregates metrics, never content), raw data kept 90 days and metrics forever |
 | Distribution | decided | A Claude Code plugin that pins one binary version; binaries come from GitHub Releases built on GitHub-hosted runners. No deploy runner, no self-hosted runner. | Hosted runners are free on a public repo, a pinned binary keeps plugin and binary in lockstep, and no box needs a Go toolchain or a runner of its own. |
@@ -276,7 +276,7 @@ The review on 2026-10-01 found these contradictions and gaps; each needed a deci
 
 ## Queue mapped onto the phases
 
-The open work fits the phases; nothing in it has to wait for a decision except the rename and the move.
+The open work fits the phases; nothing in it has to wait for a decision. The rename and the move come after phase 4.
 
 | Phase | Open item | Why here |
 | --- | --- | --- |
@@ -290,7 +290,6 @@ The open work fits the phases; nothing in it has to wait for a decision except t
 | 1a · core | #1078 commit-time survivors past the budget | The last gap between a local green and CI's mutation verdict |
 | 1a · core | #1079 call-site stage covers the related-runner table | Last escape of the call-site class |
 | 1a · core | Red to green at edit time: a real red opens code edits, green closes them; test-map refactors; ledger proof at commit (R13) | The order is enforced where it happens, and commits stop rebuilding HEAD |
-| decision · decided | Move to the new repo harryberg1n/trellis (name decided) | The plugin carries the name |
 | 1b · plugin | Setup: plugin, first run, native lanes (R2–R5; absorbs #999 and #998) | Setup and worktrees happen by themselves, on Claude Code's own hooks and worktrees |
 | 1b · plugin | Release workflow on GitHub-hosted runners; retire deploy-prod.sh and the deploy job; move the three nightlies to hosted runners | No self-hosted runner remains; the plugin fetches released binaries |
 | 1b · plugin | Configuration: four layers, trellis config show and set, a checked schema, the ci setting, per-repo git gate install | Setup records once and every setting changes later in conversation; settles the local-CI override and the global git gate |
@@ -299,6 +298,7 @@ The open work fits the phases; nothing in it has to wait for a decision except t
 | 3 · integration | Merge queue and local CI on plain git (grown from #1064), plus Artifact pages for review, diffs and the tracker | Works without GitHub, using Claude's tools for every interface |
 | 3 · integration | A red after a local green, in CI or at the merge gate, re-closes the lane until a test reproduces it (R13) | Every fix of a later red starts with a failing test |
 | 4 · lead view | Dashboard per project, lane and week, as an Artifact page | Loops, refusals, escapes, tokens and cost in one place |
+| after 4 · move | Move to the new repo harryberg1n/trellis (name decided) | One migration once the phases stand, not in the middle of them |
 | any | #963 JS/TS presets, #962 StrykerJS | Language breadth; independent of the phases |
 | any | #1080 flaky TestLintEdited\_RealGolangciLintFlagsOnlyTheTouchedLines | Opened 10-01; a flaky gate test costs every lane a re-run |
 | any | trellis lite for folders without git: a recorded mode; each git step skips itself | Deferred: git init is cheap, and lite would branch every flow after Repo start |
