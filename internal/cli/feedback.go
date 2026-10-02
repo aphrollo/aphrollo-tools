@@ -94,6 +94,7 @@ func runGateFeedback(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo gate feedback: %v\n", err)
 		return 1
 	}
+	tdd.AppendEvent(tdd.Event{Kind: "feedback", Root: root, Verdict: "recorded", Detail: map[string]string{"tracker": target}})
 	fmt.Fprintln(stdout, url)
 	return 0
 }

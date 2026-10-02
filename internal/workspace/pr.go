@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // PRInfo is the subset of a GitHub PR the verbs care about.
@@ -254,6 +257,8 @@ func (p *PR) Apply(stdout, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	tdd.AppendEvent(tdd.Event{Kind: "pr_opened", Root: p.Target.Worktree, Verdict: "ok",
+		Detail: map[string]string{"pr": strconv.Itoa(info.Number), "draft": strconv.FormatBool(info.IsDraft)}})
 	draftWord := ""
 	if info.IsDraft {
 		draftWord = "draft "

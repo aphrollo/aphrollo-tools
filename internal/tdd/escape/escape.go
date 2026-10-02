@@ -114,6 +114,10 @@ func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
 	if err := appendEscape(r); err != nil {
 		return EscapeRecord{}, err
 	}
+	// Reason and evidence are free text and stay out of the event; the kind
+	// separates a real escape from a false positive (a wrong deny).
+	AppendEvent(Event{Kind: "escape", Root: o.Repo, Verdict: r.Kind,
+		Detail: map[string]string{"id": r.ID, "check": r.Check, "from_ci": r.FromCI}})
 	if url, number, err := openEscapeIssue(o.Repo, r); err == nil {
 		r.Issue, r.Number = url, number
 		updateEscape(r)

@@ -10,9 +10,13 @@ const Source = core.Source
 
 const Test = core.Test
 
+type Event = core.Event
+
 type Kind = core.Kind
 
 type gateEntry = core.GateEntry
+
+func AppendEvent(p0 Event) { core.AppendEvent(p0) }
 
 func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }
 

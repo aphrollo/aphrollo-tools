@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -201,6 +202,8 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if err := merge(); err != nil {
 		return err
 	}
+	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: m.Target.Worktree, Verdict: "ok",
+		Detail: map[string]string{"pr": strconv.Itoa(pr.Number), "method": m.Method}})
 	fmt.Fprintf(stdout, "merged PR #%d (%s): %s\n", pr.Number, m.Method, pr.URL)
 	if m.DeleteBranch {
 		skipped, err := ghDeleteRemoteBranch(m.Target.Worktree, m.Target.Branch)
