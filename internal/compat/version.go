@@ -6,6 +6,7 @@
 package compat
 
 import (
+	"cmp"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -53,15 +54,16 @@ func (v Version) String() string {
 	return fmt.Sprintf("%d.%d.%d", v.Major, v.Minor, v.Patch)
 }
 
-// Less reports whether v is an older version than o.
+// Less reports whether v is an older version than o: the first of major, minor
+// and patch that differs decides. It is one three-way compare rather than a
+// ladder of != and <, because a < inside a branch that already knows the two
+// numbers differ is a comparison no test can tell from <=.
 func (v Version) Less(o Version) bool {
-	if v.Major != o.Major {
-		return v.Major < o.Major
-	}
-	if v.Minor != o.Minor {
-		return v.Minor < o.Minor
-	}
-	return v.Patch < o.Patch
+	return cmp.Or(
+		cmp.Compare(v.Major, o.Major),
+		cmp.Compare(v.Minor, o.Minor),
+		cmp.Compare(v.Patch, o.Patch),
+	) < 0
 }
 
 var binary = MustParseVersion(buildinfo.Version())
