@@ -288,3 +288,23 @@ func TestMakeWritable_EveryDirectoryAndOnlyDirectoriesAreChanged(t *testing.T) {
 		t.Errorf("a chmod that fails must stop the walk with its error, got %v", err)
 	}
 }
+
+func TestLookPython_FindsPython3ThenPythonOnPATHAndNothingElse(t *testing.T) {
+	dir, _ := fakeToolsOnPath(t) // python, python3 and pip first on PATH
+	t.Setenv("PATH", dir)        // and nothing else, so the box's own python is never found
+	got, ok := lookPython()
+	if !ok || !under(got, dir) || !strings.Contains(strings.ToLower(filepath.Base(got)), "python3") {
+		t.Errorf("lookPython = %q, %v, want the python3 in %s", got, ok, dir)
+	}
+	if err := os.Remove(filepath.Join(dir, "python3"+fakeExt())); err != nil {
+		t.Fatal(err)
+	}
+	got, ok = lookPython()
+	if !ok || !under(got, dir) || strings.Contains(strings.ToLower(filepath.Base(got)), "python3") {
+		t.Errorf("without python3, lookPython = %q, %v, want the python in %s", got, ok, dir)
+	}
+	t.Setenv("PATH", t.TempDir())
+	if got, ok := lookPython(); ok {
+		t.Errorf("with no python on PATH, lookPython = %q", got)
+	}
+}

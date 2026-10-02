@@ -24,7 +24,10 @@ import (
 
 // findPython is the interpreter a run's venv is made from: the first python3
 // or python on PATH. A variable so a test never reaches the box's own.
-var findPython = func() (string, bool) {
+var findPython = lookPython
+
+// lookPython is findPython's real answer.
+func lookPython() (string, bool) {
 	for _, name := range []string{"python3", "python"} {
 		if p, err := exec.LookPath(name); err == nil {
 			return p, true
