@@ -67,8 +67,8 @@ const notesMergeAttempts = 3
 // the result.
 func pushNotesMerging(first func() ([]byte, error), again func() ([]byte, error), merge func() error) ([]byte, error) {
 	out, err := first()
-	for attempt := 0; err != nil && attempt < notesMergeAttempts && notesPushRejected(string(out)); attempt++ {
-		if merge() != nil {
+	for range notesMergeAttempts {
+		if err == nil || !notesPushRejected(string(out)) || merge() != nil {
 			break
 		}
 		out, err = again()
