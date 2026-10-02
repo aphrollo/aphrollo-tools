@@ -110,7 +110,7 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 		// (it was already skipped), and the decision to skip it still
 		// happened. Same verdict token the git shim's own no-verify door
 		// writes (issue #314), so `gate stats` counts both under one row.
-		tdd.AppendGateLog("precommit", tdd.LogToken(wt), tdd.LogToken(c.Reason), "override-no-verify", 0)
+		tdd.AppendGateLog("precommit", wt, tdd.LogToken(c.Reason), "override-no-verify", 0)
 	}
 	// Captured before the commit so the marker lookup below only accepts
 	// evidence from THIS commit's own pre-commit run, never a stale one from

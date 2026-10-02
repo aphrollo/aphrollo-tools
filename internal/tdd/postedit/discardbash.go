@@ -97,7 +97,7 @@ func logDiscardBashArmUsed(cmd, cwd string) {
 			root = cwd
 		}
 	}
-	AppendGateLog("bash", LogToken(root), cmd, discardBashArmUsedVerdict, 0)
+	AppendGateLog("bash", root, cmd, discardBashArmUsedVerdict, 0)
 }
 
 // cmdDiscards returns the refusal for the first forbidden invocation cmd, or

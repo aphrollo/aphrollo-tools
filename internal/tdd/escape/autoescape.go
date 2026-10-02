@@ -304,6 +304,9 @@ type CIEscapeOptions struct {
 	Labels   []string
 	Check    string
 	ClosesBy string
+	// Lane and PR name the lane whose CI failed, for the event log.
+	Lane string
+	PR   int
 }
 
 // RecordCIEscape is what the CI job runs when a workflow fails: it records an
@@ -344,6 +347,8 @@ func RecordCIEscape(o CIEscapeOptions, w io.Writer) (EscapeRecord, bool) {
 		Labels:   o.Labels,
 		Check:    o.Check,
 		ClosesBy: o.ClosesBy,
+		Lane:     o.Lane,
+		PR:       o.PR,
 	}, w)
 }
 

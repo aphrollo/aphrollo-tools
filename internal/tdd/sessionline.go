@@ -74,7 +74,7 @@ func issueSummaryLine(repo string, now time.Time) string {
 	}
 	line, ok := fetchIssueSummary(repo, now)
 	if !ok {
-		AppendGateLog("sessionstart", LogToken(repo), "gh issue list", issuesFetchFailedVerdict, 0)
+		AppendGateLog("sessionstart", repo, "gh issue list", issuesFetchFailedVerdict, 0)
 	}
 	writeIssuesCache(path, issuesCache{Schema: StateSchema, At: now, Line: line})
 	return line

@@ -268,9 +268,9 @@ func measureNoVerdict(root, logDir string, code int, cause error, log io.Writer)
 // measureLogRoot is how the gate log names the tree that was measured.
 func measureLogRoot(root string) string {
 	if r := RepoRoot(root); r != "" {
-		return LogToken(r)
+		return r
 	}
-	return LogToken(root)
+	return root
 }
 
 // measureLogVerdict carries criterion 12's counts into the gate log, so

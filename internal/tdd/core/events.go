@@ -3,9 +3,11 @@ package core
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,7 +32,9 @@ type Event struct {
 	// Detail holds small identifiers a kind needs (a PR number, an escape id).
 	Detail map[string]string `json:"detail,omitempty"`
 	// Root is where the event happened; AppendEvent turns it into Repo and Lane
-	// and never writes it.
+	// and never writes it. A Lane the caller already knows (an escape recorded
+	// from the main checkout, naming its PR's lane) is kept over the branch the
+	// root has checked out.
 	Root string `json:"-"`
 }
 
@@ -45,7 +49,7 @@ func EventLogPath() string {
 
 // AppendEvent writes one record. The line goes out in a single write on an
 // O_APPEND handle, so concurrent hooks never interleave. Best-effort like
-// gate.log: a failure never affects a gate decision.
+// gate.log: a failure never affects a gate decision, but it is said once.
 func AppendEvent(e Event) {
 	path := EventLogPath()
 	if path == "" {
@@ -55,20 +59,55 @@ func AppendEvent(e Event) {
 	if e.At == "" {
 		e.At = time.Now().UTC().Format(time.RFC3339)
 	}
-	e.Repo, e.Lane = repoAndLane(e.Root)
+	repo, lane := repoAndLane(e.Root)
+	e.Repo = repo
+	if e.Lane == "" {
+		e.Lane = lane
+	}
 	data, err := json.Marshal(e)
 	if err != nil {
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		warnEventLogUnwritable(fmt.Sprintf("could not create %s: %v", filepath.Dir(path), err))
 		return
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
+		warnEventLogUnwritable(fmt.Sprintf("could not open %s: %v", path, err))
 		return
 	}
 	defer f.Close()
-	_, _ = f.Write(append(data, '\n'))
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		warnEventLogUnwritable(fmt.Sprintf("could not write %s: %v", path, err))
+	}
+}
+
+// AppendEventOnce writes e unless a record of the same kind already carries the
+// same Detail[key], and reports whether it wrote. A settled CI result is read
+// by several verbs; the log keeps one record per commit.
+func AppendEventOnce(e Event, key string) bool {
+	want := e.Detail[key]
+	for _, old := range ReadEvents() {
+		if old.Kind == e.Kind && old.Detail[key] == want {
+			return false
+		}
+	}
+	AppendEvent(e)
+	return true
+}
+
+var eventLogWarnOnce sync.Once
+
+func resetEventLogWarnForTest() { eventLogWarnOnce = sync.Once{} }
+
+// warnEventLogUnwritable is the one place a lost event becomes visible, once
+// per process: every target is computed from this file, so a log that quietly
+// stops growing would read as a quiet week.
+func warnEventLogUnwritable(reason string) {
+	eventLogWarnOnce.Do(func() {
+		fmt.Fprintf(os.Stderr, "aphrollo gate: events.jsonl is not being written: %s\n", reason)
+	})
 }
 
 // ReadEvents returns every record this binary understands, in file order. A

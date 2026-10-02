@@ -89,6 +89,11 @@ type EscapeOptions struct {
 	Check       string
 	ClosesBy    string
 	Fingerprint string
+	// Lane and PR name the lane the escape belongs to when the recorder knows
+	// it. Repo is the main checkout, whose branch is main; without these the
+	// event log files every escape under main and the per-PR count is lost.
+	Lane string
+	PR   int
 }
 
 // EscapeLogPath is where the records live, "" when there is no state dir.
@@ -115,9 +120,19 @@ func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
 		return EscapeRecord{}, err
 	}
 	// Reason and evidence are free text and stay out of the event; the kind
-	// separates a real escape from a false positive (a wrong deny).
-	AppendEvent(Event{Kind: "escape", Root: o.Repo, Verdict: r.Kind,
-		Detail: map[string]string{"id": r.ID, "check": r.Check, "from_ci": r.FromCI}})
+	// separates a real escape from a false positive (a wrong deny). Check and
+	// the CI job ride along only when they are a bare stage or law name.
+	detail := map[string]string{"id": r.ID}
+	if eventToken(r.Check) {
+		detail["check"] = r.Check
+	}
+	if eventToken(r.FromCI) {
+		detail["from_ci"] = r.FromCI
+	}
+	if o.PR > 0 {
+		detail["pr"] = strconv.Itoa(o.PR)
+	}
+	AppendEvent(Event{Kind: "escape", Root: o.Repo, Lane: o.Lane, Verdict: r.Kind, Detail: detail})
 	if url, number, err := openEscapeIssue(o.Repo, r); err == nil {
 		r.Issue, r.Number = url, number
 		updateEscape(r)
@@ -125,6 +140,23 @@ func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
 		fmt.Fprintf(w, "escape %s: %v\n", r.ID, err)
 	}
 	return r, nil
+}
+
+// eventToken reports whether s is a bare identifier (a stage, a law, a job
+// name): short, no whitespace, nothing a person typed as a sentence.
+func eventToken(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case strings.ContainsRune("._:/-", c):
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // newEscapeRecord validates o and builds the record RecordEscape would write.

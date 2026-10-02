@@ -120,7 +120,7 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 				fmt.Fprintln(stderr, line)
 				return 1
 			}
-			tdd.AppendGateLog("precommit", tdd.LogToken(cwd), tdd.LogToken(strings.Join(args, " ")), "override-no-verify", 0)
+			tdd.AppendGateLog("precommit", cwd, tdd.LogToken(strings.Join(args, " ")), "override-no-verify", 0)
 		}
 		if line := primaryRefusalLine(cfg.realGit, classifyRest, workDir, shellAlias); line != "" {
 			fmt.Fprintln(stderr, line)

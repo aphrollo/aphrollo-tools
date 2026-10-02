@@ -364,9 +364,9 @@ func LogBashSuiteDecision(raw []byte, d Decision) {
 	}
 	cmd := LogToken(in.ToolInput.Command)
 	if d.Action == Block {
-		AppendGateLog("preedit", LogToken(root), cmd, "pretooluse-denied:"+LogToken(policyName(d)), 0)
+		AppendGateLog("preedit", root, cmd, "pretooluse-denied:"+LogToken(policyName(d)), 0)
 	}
 	for _, esc := range d.Escapes {
-		AppendGateLog("preedit", LogToken(root), cmd, LogToken(esc), 0)
+		AppendGateLog("preedit", root, cmd, LogToken(esc), 0)
 	}
 }
