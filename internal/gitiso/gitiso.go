@@ -66,6 +66,8 @@ func homeLayout(fake string) map[string]string {
 //     `git config --global` writes a file the test owns, one that already
 //     tells git to take Windows paths past 260 characters, which nested temp
 //     roots reach;
+//   - sends CLAUDE_CONFIG_DIR, where the gate keeps its state, under root, and
+//     points core.hooksPath at an empty dir so no repo hook a test reaches runs;
 //   - switches git's post-commit auto maintenance off.
 //
 // The Go toolchain's cache locations are pinned where they resolve now, so
@@ -92,6 +94,8 @@ func Isolate(root string) (home string, err error) {
 	env["GIT_CEILING_DIRECTORIES"] = gitenv.CeilingList(root, enclosingRepo(cwd))
 	env["GIT_CONFIG_GLOBAL"] = gitconfig
 	env["GIT_CONFIG_NOSYSTEM"] = "1"
+	// The gate's state dir is found through CLAUDE_CONFIG_DIR before the home.
+	env["CLAUDE_CONFIG_DIR"] = filepath.Join(root, "claude")
 	// The environment changes only once everything it names exists: a root that
 	// cannot hold them leaves the process as it was.
 	for _, kv := range os.Environ() {
@@ -102,7 +106,7 @@ func Isolate(root string) (home string, err error) {
 	for name, value := range env {
 		_ = os.Setenv(name, value) // fails only on an empty or malformed name, and these are literals
 	}
-	gitenv.DisableMaintenance(func(k, v string) { _ = os.Setenv(k, v) })
+	gitenv.DisableMaintenanceAndHooks(filepath.Join(root, "nohooks"), func(k, v string) { _ = os.Setenv(k, v) })
 	return home, nil
 }
 
