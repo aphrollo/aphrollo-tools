@@ -1,9 +1,11 @@
 package suite
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -162,5 +164,45 @@ func TestNarrowPytestFailFirst_RunsOnlyTheStagedTestFiles(t *testing.T) {
 	goRunner := Runner{Cmd: "go", Args: []string{"test", "./..."}}
 	if got, ok := narrowPytestFailFirst(goRunner, []string{"tests/test_a.py"}); ok || got.Cmd != "go" {
 		t.Errorf("a go runner was narrowed: %+v, %v", got, ok)
+	}
+}
+
+// TestNarrowPytestFailFirst_PastTheArgvBudgetLeavesTheRunnerWhole is #996 for
+// the pytest proof: it put every staged test file on one command line, so a
+// commit staging a few hundred tests built a line past what Windows starts.
+// One run cannot be split (a verdict reads one run's output), so past the
+// budget the runner stays whole, as the Go -run filter does.
+func TestNarrowPytestFailFirst_PastTheArgvBudgetLeavesTheRunnerWhole(t *testing.T) {
+	t.Parallel()
+	r := Runner{Cmd: "pytest", Args: []string{"-q"}}
+	var tests []string
+	for i := range 200 {
+		tests = append(tests, fmt.Sprintf("services/payments/tests/integration/test_payment_methods_%03d.py", i))
+	}
+	got, ok := narrowPytestFailFirst(r, tests)
+	if ok || !slices.Equal(got.Args, r.Args) {
+		t.Fatalf("200 staged tests: got %d args, %v; want the runner unchanged and not narrowed", len(got.Args), ok)
+	}
+	if line := len(cmdString(got)); line > stagedArgvBudget {
+		t.Fatalf("the line is %d chars, past the %d-char budget", line, stagedArgvBudget)
+	}
+}
+
+// TestNarrowPytestFailFirst_ALineExactlyAtTheBudgetStillNarrows pins the
+// boundary: a line of stagedArgvBudget characters is within it and narrows;
+// one character more stays whole.
+func TestNarrowPytestFailFirst_ALineExactlyAtTheBudgetStillNarrows(t *testing.T) {
+	t.Parallel()
+	r := Runner{Cmd: "pytest", Args: []string{"-q"}}
+	const prefix = len("pytest -q ")
+	file := func(total int) string {
+		name := "test_" + strings.Repeat("a", total-len("test_")-len(".py")) + ".py"
+		return name
+	}
+	if _, ok := narrowPytestFailFirst(r, []string{file(stagedArgvBudget - prefix)}); !ok {
+		t.Errorf("a %d-char line was not narrowed, want it within the budget", stagedArgvBudget)
+	}
+	if _, ok := narrowPytestFailFirst(r, []string{file(stagedArgvBudget - prefix + 1)}); ok {
+		t.Errorf("a %d-char line was narrowed, want it past the budget", stagedArgvBudget+1)
 	}
 }
