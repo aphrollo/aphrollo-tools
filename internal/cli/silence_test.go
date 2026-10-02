@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -54,6 +55,7 @@ func TestSilence_AClaudeHookSaysNothingAndWritesNothingInATrellisRepo(t *testing
 		{"guardrail", "pretooluse"},
 		{"gate", "pretooluse"}, {"gate", "posttooluse"}, {"gate", "userpromptsubmit"},
 		{"gate", "sessionstart"}, {"gate", "sessionend"}, {"gate", "stop"},
+		{"gate", "subagentstop"}, {"gate", "taskcompleted"}, {"tdd", "posttooluse"},
 	} {
 		code, stdout, stderr := runCLI(args, payload(repo))
 		if code != 0 || stdout != "" || stderr != "" {
@@ -82,5 +84,32 @@ func TestSilence_TheGitShimSkipsItsQueueAndWallsInATrellisRepo(t *testing.T) {
 	}
 	if got := os.Getenv(tdd.GitQueuedEnv); got != "1" {
 		t.Fatalf("%s = %q, want 1: the shim's own pass-through marker", tdd.GitQueuedEnv, got)
+	}
+}
+
+func TestSilence_TheCargoShimSkipsItsQueueInATrellisRepo(t *testing.T) {
+	t.Chdir(trellisRepo(t, true))
+	t.Setenv(tdd.BuildLockHeldEnv, "")
+	runCLI([]string{"gate", "cargo", "--version"}, "")
+	if got := os.Getenv(tdd.BuildLockHeldEnv); got != "1" {
+		t.Fatalf("%s = %q, want 1: the shim's own pass-through marker", tdd.BuildLockHeldEnv, got)
+	}
+}
+
+func TestSilence_AShimQueuesAsBeforeWhereThereIsNoTrellisToml(t *testing.T) {
+	t.Chdir(trellisRepo(t, false))
+	t.Setenv(tdd.GitQueuedEnv, "")
+	t.Setenv(tdd.BuildLockHeldEnv, "")
+	runCLI([]string{"gate", "git", "--version"}, "")
+	runCLI([]string{"gate", "cargo", "--version"}, "")
+	if g, c := os.Getenv(tdd.GitQueuedEnv), os.Getenv(tdd.BuildLockHeldEnv); g != "" || c != "" {
+		t.Fatalf("pass-through markers set without trellis.toml: git %q cargo %q", g, c)
+	}
+}
+
+func TestSilence_AnOrdinaryCommandIsNotSilencedInATrellisRepo(t *testing.T) {
+	t.Chdir(trellisRepo(t, true))
+	if code, stdout, _ := runCLI([]string{"version"}, ""); code != 0 || !strings.HasPrefix(stdout, "aphrollo ") {
+		t.Fatalf("version = (%d, %q), want it to print as always", code, stdout)
 	}
 }
