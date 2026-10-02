@@ -141,3 +141,25 @@ func TestReadEvents_SkipsUnknownVersionsAndTornLines(t *testing.T) {
 		t.Fatalf("ReadEvents = %+v, want push then merge", got)
 	}
 }
+
+func TestAppendEvent_ASubdirectoryResolvesToItsRepoAndBranch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := filepath.Join(t.TempDir(), "proj")
+	sub := filepath.Join(repo, "internal", "pkg")
+	for _, d := range []string{filepath.Join(repo, ".git"), sub} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	AppendEvent(Event{Kind: "push", Root: sub})
+
+	var e Event
+	_ = json.Unmarshal([]byte(eventsLines(t)[0]), &e)
+	if filepath.ToSlash(e.Repo) != filepath.ToSlash(repo) || e.Lane != "main" {
+		t.Fatalf("repo/lane = %q / %q, want %q / main", e.Repo, e.Lane, repo)
+	}
+}
