@@ -262,10 +262,13 @@ func installMachineGate(gitHooksDir, cargoShimDir, dir, binName string, uninstal
 		// value, never a shell expansion of "$PATH" (confirmed against the
 		// settings reference: "A value here overwrites the same variable
 		// exported in your shell"), so the fix is to write the whole PATH
-		// this process itself sees, with cdir prepended, straight into
-		// env.PATH — the only PATH a session it starts is ever going to
-		// have. A later change to the box's own PATH needs a re-install to
-		// reach that snapshot; doctorEnvPath warns when it has gone stale.
+		// straight into env.PATH — the only PATH a session it starts, and
+		// every hook it runs, is ever going to have. That PATH is cdir, then
+		// what env.PATH already held, then what this process sees, then the
+		// well-known toolchain dirs: an install run from a minimal PATH (a
+		// provisioning tool's non-login shell) never shrinks it. A later
+		// change to the box's own PATH needs a re-install to reach that
+		// snapshot; doctorEnvPath warns when it has gone stale.
 		pchanged, perr := tdd.InitSettingsEnvPath(dir, cdir, userPathDirsFn(), pathListSep(), false)
 		switch {
 		case perr != nil:

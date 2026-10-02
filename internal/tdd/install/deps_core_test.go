@@ -6,8 +6,6 @@ import (
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
 
-type Runner = core.Runner
-
 type gateEntry = core.GateEntry
 
 func GateLogPath() string { return core.GateLogPath() }

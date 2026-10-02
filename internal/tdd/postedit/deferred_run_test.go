@@ -368,3 +368,59 @@ func TestRunPhase_ReplacedWhileQueuedSaysSoAndNeverBuilds(t *testing.T) {
 		t.Fatalf("log = %q, want it to name the newer request that replaced this one", logged)
 	}
 }
+
+// shellSaying is a command that prints text and exits with code, through the
+// platform's own shell.
+func shellSaying(text, code string) []string {
+	if runtime.GOOS == "windows" {
+		return []string{"cmd", "/c", "echo " + text + " & exit " + code}
+	}
+	return []string{"sh", "-c", "echo '" + text + "' >&2; exit " + code}
+}
+
+// runPhaseOf runs one phase to completion and returns what it reported.
+func runPhaseOf(t *testing.T, runner []string) (PhaseOutcome, DeferredJob) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	withIsolatedBuildLock(t)
+	dir := t.TempDir()
+	j := DeferredJob{Project: dir, Phase: "run", Dir: dir, Runner: runner,
+		Log: filepath.Join(dir, "p.log"), Result: filepath.Join(dir, "p.result.json")}
+	RunPhase(writeJob(t, j))
+	out, done := deferredResult(j)
+	if !done {
+		t.Fatal("the wrapper wrote no result")
+	}
+	return out, j
+}
+
+// A phase whose command cannot start printed nothing and ran nothing: the
+// result says so as an inconclusive phase, and the log says why, instead of
+// leaving an empty log behind a failing exit code that reads as a red.
+func TestRunPhase_ACommandThatCannotStartIsInconclusive(t *testing.T) {
+	out, j := runPhaseOf(t, []string{"aphrollo-no-such-tool-1104", "test"})
+	if !strings.HasPrefix(out.Inconclusive, "SKIPPED (aphrollo-no-such-tool-1104 not on PATH: ") {
+		t.Fatalf("result = %+v, want an inconclusive phase naming the missing tool", out)
+	}
+	if logged := deferredLog(j); !strings.Contains(logged, out.Inconclusive) {
+		t.Errorf("log = %q, want it to say %q", logged, out.Inconclusive)
+	}
+}
+
+// A shell around the suite that cannot find the tool exits 127 saying so: the
+// same missing tool, named from the shell's own line.
+func TestRunPhase_AShellThatCannotFindTheToolIsInconclusive(t *testing.T) {
+	out, _ := runPhaseOf(t, shellSaying("vitest: command not found", "127"))
+	if !strings.HasPrefix(out.Inconclusive, "SKIPPED (vitest not on PATH: ") {
+		t.Fatalf("result = %+v, want an inconclusive phase naming vitest", out)
+	}
+}
+
+// Exit 127 on its own proves nothing about a missing tool: a run that started
+// and failed stays a failure.
+func TestRunPhase_ExitCode127WithoutAMissingCommandStaysAFailure(t *testing.T) {
+	out, _ := runPhaseOf(t, shellSaying("FAIL pkg", "127"))
+	if out.Inconclusive != "" || out.ExitCode != 127 {
+		t.Fatalf("result = %+v, want a plain failing exit 127", out)
+	}
+}

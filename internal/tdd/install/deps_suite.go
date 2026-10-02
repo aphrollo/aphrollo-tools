@@ -6,6 +6,8 @@ import (
 	suite "github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
 )
 
+func DetectRunner(p0 string) (Runner, bool) { return suite.DetectRunner(p0) }
+
 func cargoAphrolloFlag(p0 string, p1 string) bool { return suite.CargoAphrolloFlag(p0, p1) }
 
 func cargoClippyCleanPackages(p0 string) []string { return suite.CargoClippyCleanPackages(p0) }

@@ -66,3 +66,47 @@ func TestJudgeEditResult_ACapKilledPhaseIsInconclusiveNotRed(t *testing.T) {
 		t.Fatalf("judged = %q, want the OOM-KILLED line and no timeout wording", got)
 	}
 }
+
+// A run whose command could not start tested nothing: the line says SKIPPED
+// and names the tool and the PATH it was looked up on, never TIMEOUT, never
+// the memory-cap remedy, and it does not count toward the timeout streak.
+func TestPostEditTimedOut_AMissingToolReadsAsSkippedNeverTimeoutOrRed(t *testing.T) {
+	state := &sessionState{ByProject: map[string]projectState{}}
+	root := t.TempDir()
+	res := SuiteResult{TimedOut: true, Inconclusive: "SKIPPED (go not on PATH: /usr/bin:/bin)"}
+
+	got := postEditTimedOut(Runner{Cmd: "go", Args: []string{"test", "./..."}}, root, "abc123", res, state, "")
+
+	want := "go test ./... in " + root + " → SKIPPED (go not on PATH: /usr/bin:/bin) — inconclusive, the code was NOT tested"
+	if !strings.Contains(got, want) {
+		t.Fatalf("advisory = %q, want it to contain %q", got, want)
+	}
+	for _, never := range []string{"TIMEOUT", "memory-cap"} {
+		if strings.Contains(got, never) {
+			t.Errorf("advisory = %q must not mention %q for a tool that is not installed", got, never)
+		}
+	}
+	if streak := state.ByProject[root].TimeoutStreak; streak != 0 {
+		t.Errorf("timeout streak = %d after a run that never started, want 0", streak)
+	}
+}
+
+func TestInconclusiveVerdict_AMissingToolIsLoggedAsSkippedToolMissing(t *testing.T) {
+	if got := inconclusiveVerdict(SuiteResult{Inconclusive: "SKIPPED (go not on PATH: /usr/bin)"}); got != "skipped-tool-missing" {
+		t.Errorf("verdict for a missing tool = %q, want skipped-tool-missing", got)
+	}
+}
+
+// The deferred harvest reads a phase that could not start the same way: an
+// unpassed inconclusive run, judged as SKIPPED and never as a red summary.
+func TestJudgeEditResult_AMissingToolPhaseIsSkippedNotRed(t *testing.T) {
+	root := t.TempDir()
+	j := DeferredJob{Dir: root, Project: root}
+	res := phaseSuiteResult(j, PhaseOutcome{ExitCode: 1, Inconclusive: "SKIPPED (go not on PATH: /usr/bin)"})
+
+	got := judgeEditResult(Runner{Cmd: "go", Args: []string{"test", "./..."}}, "a.go", "e1", res, root, nil, "", "abc123")
+
+	if !strings.Contains(got, "SKIPPED (go not on PATH: /usr/bin) — inconclusive, the code was NOT tested") {
+		t.Fatalf("judged = %q, want the SKIPPED line naming the missing tool", got)
+	}
+}

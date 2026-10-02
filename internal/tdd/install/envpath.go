@@ -5,32 +5,88 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
 
 // BuildEnvPath computes the literal PATH string `aphrollo install` writes
-// into settings.json's env.PATH: shimDir first, then every directory the
-// installing process's own PATH (pathDirs) already carries that is not
-// shimDir itself. Claude Code's env block is a literal value, never a shell
-// expansion of "$PATH" (verified against the settings reference: "A value
-// here overwrites the same variable exported in your shell"), so the value
-// written here IS the whole PATH the agent's Bash tool will resolve
-// against — there is no live shell to fall back on. Dropping shimDir out of
-// pathDirs before re-prepending it means a PATH that already carried the
-// shim dir once (a prior install, a shell profile line) never ends up
-// holding it twice, and a stale earlier position never wins over the fresh
-// prepend.
+// into settings.json's env.PATH: shimDir first, then every directory in
+// pathDirs, in order, each once. Claude Code's env block is a literal value,
+// never a shell expansion of "$PATH" (verified against the settings reference:
+// "A value here overwrites the same variable exported in your shell"), so the
+// value written here IS the whole PATH the agent's Bash tool and every hook
+// resolve against — there is no live shell to fall back on, and a directory
+// left out of it is a tool no hook can start. Starting the list at shimDir
+// means a PATH that already carried the shim dir once (a prior install, a
+// shell profile line) never ends up holding it twice, and a stale earlier
+// position never wins over the fresh prepend. An empty entry is no directory
+// and is not carried.
 func BuildEnvPath(shimDir string, pathDirs []string, sep string) string {
 	out := make([]string, 0, len(pathDirs)+1)
 	out = append(out, shimDir)
 	for _, d := range pathDirs {
-		if samePath(d, shimDir) {
+		if d == "" || slices.ContainsFunc(out, func(have string) bool { return samePath(have, d) }) {
 			continue
 		}
 		out = append(out, d)
 	}
 	return strings.Join(out, sep)
+}
+
+// mergeSettingsEnvPath is PatchSettingsEnvPath for an install: it never takes
+// a directory out of the env.PATH already written. The new value is shimDir,
+// then the existing entries, then the installing process's own (pathDirs),
+// then the per-user toolchain dirs that exist on this machine. An install run
+// from a minimal PATH (a provisioning tool's non-login shell) therefore adds
+// nothing it cannot see and drops nothing it cannot see either.
+func mergeSettingsEnvPath(existing []byte, shimDir string, pathDirs []string, sep string) ([]byte, bool, error) {
+	return patchSettingsEnvPath(existing, func(prior string) string {
+		return BuildEnvPath(shimDir, slices.Concat(strings.Split(prior, sep), pathDirs, toolchainDirs()), sep)
+	})
+}
+
+// toolchainDirs are the well-known toolchain directories this machine has.
+func toolchainDirs() []string {
+	// No home directory leaves home empty, which toolchainDirCandidates reads as "none".
+	home, _ := os.UserHomeDir()
+	return dirsWithExecutable(toolchainDirCandidates(home))
+}
+
+// toolchainDirCandidates are the places a Go, Rust or Node toolchain is
+// installed per user or by its own installer, none of which a minimal PATH
+// names. The per-user ones are anchored at home, and left out when there is
+// none rather than guessed at as paths relative to the working directory.
+func toolchainDirCandidates(home string) []string {
+	var out []string
+	if home != "" {
+		out = append(out,
+			filepath.Join(home, ".local", "go", "bin"),
+			filepath.Join(home, "go", "bin"),
+			filepath.Join(home, ".cargo", "bin"),
+			filepath.Join(home, ".local", "bin"),
+		)
+	}
+	return append(out, "/usr/local/go/bin")
+}
+
+// dirsWithExecutable is dirs without the ones that are absent or hold nothing
+// to run: a candidate that is not a toolchain on this machine is not put on
+// every hook's PATH.
+func dirsWithExecutable(dirs []string) []string {
+	return slices.DeleteFunc(slices.Clone(dirs), func(dir string) bool { return !holdsExecutable(dir) })
+}
+
+// holdsExecutable reports whether dir has at least one file this box would run.
+func holdsExecutable(dir string) bool {
+	// An unreadable directory lists nothing, and holds nothing this process can run.
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if isExecutableFile(filepath.Join(dir, e.Name())) {
+			return true
+		}
+	}
+	return false
 }
 
 // stripEnvPathShim removes every entry matching shimDir from a literal PATH
@@ -63,6 +119,12 @@ func stripEnvPathShim(value, shimDir, sep string) (string, bool) {
 // deterministic, so a second patch with the same pathValue is a no-op
 // (changed=false, byte-identical) — matching PatchSettings' own contract.
 func PatchSettingsEnvPath(existing []byte, pathValue string) ([]byte, bool, error) {
+	return patchSettingsEnvPath(existing, func(string) string { return pathValue })
+}
+
+// patchSettingsEnvPath is PatchSettingsEnvPath for a value that is computed
+// from the env.PATH the file already holds ("" when it holds none).
+func patchSettingsEnvPath(existing []byte, pathFrom func(prior string) string) ([]byte, bool, error) {
 	root, err := parseSettings(existing)
 	if err != nil {
 		return nil, false, err
@@ -73,7 +135,8 @@ func PatchSettingsEnvPath(existing []byte, pathValue string) ([]byte, bool, erro
 	}
 
 	env := childMap(root, "env")
-	env["PATH"] = pathValue
+	prior, _ := env["PATH"].(string)
+	env["PATH"] = pathFrom(prior)
 	root["env"] = env
 
 	after, err := marshalSettings(root)
@@ -133,7 +196,9 @@ func StripSettingsEnvPathShim(existing []byte, shimDir, sep string) ([]byte, boo
 // env.PATH entry configDir/settings.json carries for the agent's own Bash
 // tool — which reads neither ~/.bashrc nor ~/.profile, so the shell-profile
 // PATH lines a human session relies on never reach it (issue #911). Same
-// backup-then-write contract as InitSettings: creates the file when
+// backup-then-write contract as InitSettings, and an install never takes a
+// directory out of the env.PATH already there (see mergeSettingsEnvPath):
+// creates the file when
 // installing into a fresh dir, backs up any existing file before rewriting
 // it (tagged "-path-" so the two managed writes one `aphrollo install` run
 // makes never collide on the same backup name), and is a no-op when nothing
@@ -156,7 +221,7 @@ func InitSettingsEnvPath(configDir, shimDir string, pathDirs []string, sep strin
 		// mutation nothing could ever observe.
 		out, changed, err = StripSettingsEnvPathShim(existing, shimDir, sep)
 	} else {
-		out, changed, err = PatchSettingsEnvPath(existing, BuildEnvPath(shimDir, pathDirs, sep))
+		out, changed, err = mergeSettingsEnvPath(existing, shimDir, pathDirs, sep)
 	}
 	if err != nil {
 		return false, err

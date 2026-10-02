@@ -11,6 +11,8 @@ const CmdName = core.CmdName
 
 const LegacyCmdName = core.LegacyCmdName
 
+type Runner = core.Runner
+
 type sessionState = core.SessionState
 
 var errNoSession = core.ErrNoSession

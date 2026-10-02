@@ -986,6 +986,8 @@ stagedfiles_test.go                                tdd
 staleartifact.go                                   suite
 staleartifact_hint_test.go                         suite
 staleartifact_test.go                              postedit  # prefix says suite; its test body reaches postedit
+startfail.go                                       suite
+startfail_test.go                                  suite
 state.go                                           core
 state_gitx.go                                      gitx      # created by P2
 state_misc_own_test.go                             suite

@@ -22,17 +22,25 @@ func timeoutAdvisory(r Runner, root string, dur time.Duration) string {
 		cmdString(r), root, int(dur.Seconds()+0.5))
 }
 
-// inconclusiveAdvisory is timeoutAdvisory for a run the memory cap ended or
-// the box's memory refused to start: the line says which, in the run's own
-// words, and never the word TIMEOUT.
+// inconclusiveAdvisory is timeoutAdvisory for a run the memory cap ended, the
+// box's memory refused to start, or whose command could not start at all: the
+// line says which, in the run's own words, and never the word TIMEOUT.
 func inconclusiveAdvisory(r Runner, root string, res SuiteResult) string {
+	if IsToolMissing(res.Inconclusive) {
+		return fmt.Sprintf("gate: %s in %s → %s — inconclusive, the code was NOT tested; the hook's PATH has no such tool, "+
+			"so `aphrollo install` from a shell where it resolves, then `aphrollo gate doctor`",
+			cmdString(r), root, res.Inconclusive)
+	}
 	return fmt.Sprintf("gate: %s in %s → %s — inconclusive, code NOT tested; raise `memory-cap` in aphrollo.toml if the run honestly needs more, or see: aphrollo gate status",
 		cmdString(r), root, res.Inconclusive)
 }
 
 // inconclusiveVerdict is the gate.log token for such a run.
 func inconclusiveVerdict(res SuiteResult) string {
-	if strings.HasPrefix(res.Inconclusive, "OOM-KILLED") {
+	switch {
+	case IsToolMissing(res.Inconclusive):
+		return "skipped-tool-missing"
+	case strings.HasPrefix(res.Inconclusive, "OOM-KILLED"):
 		return "oom-killed"
 	}
 	return "memory-skipped"
