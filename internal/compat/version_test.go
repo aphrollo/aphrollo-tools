@@ -108,3 +108,17 @@ func TestBinary_IsTheVersionTheSourceCarries(t *testing.T) {
 		t.Fatalf("Binary() = %q, want %q", got, want)
 	}
 }
+
+// A version the source itself carries and cannot be read is a build that must
+// not run, not one that guesses: MustParseVersion panics on it and names it.
+func TestMustParseVersion_PanicsNamingTheVersionItCannotRead(t *testing.T) {
+	defer func() {
+		got := recover()
+		err, ok := got.(error)
+		if !ok || !strings.Contains(err.Error(), `"one point one" is not MAJOR.MINOR.PATCH`) {
+			t.Fatalf("MustParseVersion recovered %v, want an error naming the bad version", got)
+		}
+	}()
+	MustParseVersion("one point one")
+	t.Fatal("MustParseVersion returned for a string that is not a version")
+}

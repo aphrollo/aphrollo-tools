@@ -1221,9 +1221,9 @@ jobs:
       - name: aphrollo version check
         env:
           GH_TOKEN: ${{ github.token }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
           gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.txt"
-          ./bin/aphrollo version check --base "$BASE_SHA" --body-file "$RUNNER_TEMP/pr-body.txt"
+          ./bin/aphrollo version check --base "$PR_BASE" --body-file "$RUNNER_TEMP/pr-body.txt"

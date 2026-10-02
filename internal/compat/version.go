@@ -44,7 +44,7 @@ func ParseVersion(s string) (Version, error) {
 func MustParseVersion(s string) Version {
 	v, err := ParseVersion(s)
 	if err != nil {
-		panic("compat: " + err.Error())
+		panic(fmt.Errorf("compat: %w", err))
 	}
 	return v
 }
