@@ -54,7 +54,7 @@ func MkRoot(prefix string) (string, error) {
 			if !e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
 				continue
 			}
-			if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > staleRoot {
+			if info, err := e.Info(); err == nil && info.ModTime().Before(time.Now().Add(-staleRoot)) {
 				RemoveAll(filepath.Join(tmp, e.Name()))
 			}
 		}
@@ -67,11 +67,6 @@ func MkRoot(prefix string) (string, error) {
 // directory a test took away its own write bit on, and os.RemoveAll leaves
 // either behind.
 func RemoveAll(dir string) {
-	_ = os.RemoveAll(dir)
-	// The tree is walked a second time only when the first pass left it.
-	if _, err := os.Lstat(dir); err != nil {
-		return
-	}
 	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if d != nil && d.IsDir() {
 			_ = os.Chmod(path, 0o700)
