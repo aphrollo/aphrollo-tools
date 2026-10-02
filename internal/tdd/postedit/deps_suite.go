@@ -49,8 +49,14 @@ func ExtractFailingTests(p0 string) []string { return suite.ExtractFailingTests(
 
 func FindProjectRoot(p0 string) string { return suite.FindProjectRoot(p0) }
 
+func IsToolMissing(p0 string) bool { return suite.IsToolMissing(p0) }
+
 func NarrowToRelatedTests(p0 Runner, p1 string, p2 string) Runner {
 	return suite.NarrowToRelatedTests(p0, p1, p2)
+}
+
+func StartFailure(p0 error, p1 string, p2 func() string, p3 string) string {
+	return suite.StartFailure(p0, p1, p2, p3)
 }
 
 func attemptedScope(p0 string) runScope { return suite.AttemptedScope(p0) }

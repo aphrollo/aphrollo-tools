@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-// The call-site guard keys its table by "<file>:<function>", so a commit can
+// The call-site guards key their tables by "<file>:<function>", so a commit can
 // move a row without changing a line that names the call: an exec call moved
 // into a new function leaves the call itself as diff context, and only the
 // lines around it change. This half of the trigger reads the staged diff's
@@ -75,28 +75,28 @@ func hunkSpan(start, count string) (lineSpan, bool) {
 	return lineSpan{first: first, last: first + n - 1}, true
 }
 
-// touchesCallSite reports whether the staged diff edits a function that makes
-// an exec call, or a file the guard's table already names.
-func touchesCallSite(repoRoot, diff string) bool {
-	table, _ := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(callsiteGuardFile)))
+// touches reports whether the staged diff edits a function that makes a call
+// the guard accounts for, or a file the guard's table already names.
+func (g siteGuard) touches(repoRoot, diff string) bool {
+	table, _ := os.ReadFile(filepath.Join(repoRoot, filepath.FromSlash(g.table)))
 	for file, spans := range stagedHunks(diff) {
-		if !guardWalks(file) {
+		if !g.walks(file) {
 			continue
 		}
 		if bytes.Contains(table, []byte(`"`+file+`:`)) {
 			return true
 		}
-		if editsExecFunction(repoRoot, ":"+file, spans.added) || editsExecFunction(repoRoot, "HEAD:"+file, spans.old) {
+		if g.editsCallFunction(repoRoot, ":"+file, spans.added) || g.editsCallFunction(repoRoot, "HEAD:"+file, spans.old) {
 			return true
 		}
 	}
 	return false
 }
 
-// editsExecFunction reports whether any of the changed line ranges falls in a
-// function of the file at rev that makes an exec call. A file that cannot be
-// read or parsed is not shown clear of a call.
-func editsExecFunction(repoRoot, rev string, changed []lineSpan) bool {
+// editsCallFunction reports whether any of the changed line ranges falls in a
+// function of the file at rev that makes a call the guard accounts for. A file
+// that cannot be read or parsed is not shown clear of a call.
+func (g siteGuard) editsCallFunction(repoRoot, rev string, changed []lineSpan) bool {
 	if len(changed) == 0 {
 		return false
 	}
@@ -104,7 +104,7 @@ func editsExecFunction(repoRoot, rev string, changed []lineSpan) bool {
 	if err != nil {
 		return true
 	}
-	funcs, err := execFunctionSpans(src)
+	funcs, err := callFunctionSpans(src, g.inFunc)
 	if err != nil {
 		return true
 	}
@@ -118,9 +118,9 @@ func editsExecFunction(repoRoot, rev string, changed []lineSpan) bool {
 	return false
 }
 
-// execFunctionSpans returns the line span of every function declaration in
-// src whose text names an exec call, or the parse error when src is not Go.
-func execFunctionSpans(src string) ([]lineSpan, error) {
+// callFunctionSpans returns the line span of every function declaration in
+// src whose text makes the call, or the parse error when src is not Go.
+func callFunctionSpans(src string, makesCall func(text string) bool) ([]lineSpan, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
 	if err != nil {
@@ -134,7 +134,7 @@ func execFunctionSpans(src string) ([]lineSpan, error) {
 			continue
 		}
 		first, last := fset.Position(fn.Pos()).Line, fset.Position(fn.End()).Line
-		if execCallLine.MatchString(strings.Join(lines[first-1:last], "\n")) {
+		if makesCall(strings.Join(lines[first-1:last], "\n")) {
 			out = append(out, lineSpan{first: first, last: last})
 		}
 	}

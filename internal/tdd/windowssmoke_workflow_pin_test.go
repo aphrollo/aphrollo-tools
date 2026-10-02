@@ -54,3 +54,25 @@ func TestWindowsSmokeWorkflow_RoundTripsAnUntrackedFileThroughProbeDiscard(t *te
 		}
 	}
 }
+
+// TestWindowsSmokeWorkflow_RunsTheAgentPathTestsOfTheInstallPackage pins the
+// slice that puts real Windows paths through env.PATH: a drive letter holds a
+// ":", so a list joined or split on one breaks only on Windows, and #1108's
+// toolchain test did exactly that without any CI job noticing.
+func TestWindowsSmokeWorkflow_RunsTheAgentPathTestsOfTheInstallPackage(t *testing.T) {
+	wf := repoFile(t, ".github", "workflows", "windows-smoke.yml")
+
+	entry := regexp.MustCompile(`(?m)^\s*'\./internal/tdd/install'\s*=\s*'([^']*)'`).FindStringSubmatch(wf)
+	if entry == nil {
+		t.Fatalf("windows-smoke.yml runs no tests of ./internal/tdd/install:\n%s", wf)
+	}
+	filter := regexp.MustCompile(entry[1])
+	for _, name := range []string{
+		"TestInitSettingsEnvPath_AddsTheToolchainDirsThatExistAfterTheUnion",
+		"TestBuildEnvPath_WindowsSeparator",
+	} {
+		if !filter.MatchString(name) {
+			t.Errorf("the install filter %q does not select %s", entry[1], name)
+		}
+	}
+}

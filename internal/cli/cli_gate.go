@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +19,11 @@ Subcommands:
   posttooluse       Run related tests after an edit and report RED/GREEN
   userpromptsubmit  Handle the /gate command and re-inject a RED reminder
   sessionend        Drop the session's state file
+  stop              Stop hook: block the end of a turn once when a deferred run
+                    finished red after Claude's last hook (never twice in a row)
+  subagentstop      SubagentStop hook: the same check, for the subagent's lane
+  taskcompleted     TaskCompleted hook: exit 2 with the failing tests while the
+                    task's tests are red
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
   premerge          Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
   premergecommit    (alias of premerge; retiring next release)
@@ -133,7 +137,11 @@ exits 2 with a deny envelope, and warns on a suppression; otherwise it is
 silent. posttooluse runs the project's related tests after an edit and surfaces
 a failure summary (silent unless RED). userpromptsubmit intercepts
 /gate [status|off|on|reset] and otherwise re-injects the last RED outcome.
-sessionend cleans up the per-session state file. precommit verifies fail-first,
+sessionend cleans up the per-session state file. stop and subagentstop block the
+end of a turn once, with the red's gate line as the reason, when a deferred run
+finished red after the last hook (stop_hook_active true allows); taskcompleted
+exits 2 with the failing tests while the task's tests are red; /gate off allows
+all three. precommit verifies fail-first,
 blocks a newly-added suppression, and runs the suite, exiting non-zero to block.
 Commands a root declares under [aphrollo.precommit] in aphrollo.toml have no
 HEAD baseline: any failure blocks, including one HEAD already had, unless the
@@ -407,7 +415,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	switch args[0] {
-	case "sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend":
+	case "sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend", "stop", "subagentstop", "taskcompleted":
 	default:
 		fmt.Fprintf(stderr, "aphrollo gate: unknown subcommand %q\n\n%s", args[0], gateUsage)
 		return 2
@@ -456,6 +464,8 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "sessionend":
 		tdd.EndSession(raw)
 		return 0
+	case "stop", "subagentstop", "taskcompleted":
+		return runStopCheck(args[0], raw, stdout, stderr)
 	}
 
 	for _, wall := range preToolUseWalls {
@@ -551,48 +561,4 @@ func mergeRatchetAdvisory(decision, r tdd.Decision) tdd.Decision {
 	default:
 		return decision
 	}
-}
-
-// runGateInstall writes the git-hook shims into a single repo, or with --dry
-// prints the plan and stops.
-func runGateInstall(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("install", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	var (
-		repo = fs.String("repo", ".", "repository to install the hooks into")
-		bin  = fs.String("bin", "", "aphrollo binary the repo's own git-hook shims invoke (default: this executable)")
-		mut  = addMutFlags(fs)
-	)
-	pos, err := mut.parse(fs, "gate install", args, stderr)
-	if err != nil || refuseArgs("gate install", pos, stderr) {
-		return 2
-	}
-	apply := mut.execute()
-
-	root := tdd.RepoRoot(*repo)
-	if root == "" {
-		fmt.Fprintf(stderr, "aphrollo: %s is not inside a git repository\n", *repo)
-		return 1
-	}
-	binPath := *bin
-	if binPath == "" {
-		binPath = defaultBinPath()
-	}
-	if apply && refuseUnstableDefaultBin(*bin, binPath, "gate install", stderr) {
-		return 1
-	}
-	plan, err := tdd.BuildInstallPlan(root, binPath)
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
-	}
-	fmt.Fprint(stdout, plan.Render(apply))
-	if !apply {
-		return 0
-	}
-	if err := plan.Apply(); err != nil {
-		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
-	}
-	return 0
 }

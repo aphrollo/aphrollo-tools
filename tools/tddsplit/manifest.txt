@@ -139,6 +139,7 @@ buildslots_test.go                                 suite     # prefix says lock;
 callsite_guard.go                                  precommit
 callsite_guard_funcs.go                            precommit
 callsite_guard_funcs_test.go                       precommit
+callsite_guard_loop_test.go                        precommit
 callsite_guard_test.go                             precommit
 cargo_alwaysrun_test.go                            precommit
 cargo_notrun.go                                    suite
@@ -986,6 +987,8 @@ stagedfiles_test.go                                tdd
 staleartifact.go                                   suite
 staleartifact_hint_test.go                         suite
 staleartifact_test.go                              postedit  # prefix says suite; its test body reaches postedit
+startfail.go                                       suite
+startfail_test.go                                  suite
 state.go                                           core
 state_gitx.go                                      gitx      # created by P2
 state_misc_own_test.go                             suite
@@ -1007,6 +1010,9 @@ statusline_suite.go                                suite     # created by P2
 statusline_test.go                                 tdd
 statusline_unproven_test.go                        tdd
 stderrsink.go                                      precommit
+stopcheck.go                                       postedit
+stopcheck_task_test.go                             postedit
+stopcheck_test.go                                  postedit
 style.go                                           install
 style.md                                           install
 style_test.go                                      install
@@ -1042,6 +1048,7 @@ testdata/fuzz/FuzzGateLogLine/                     escape
 testdata/gremlins_report.json                      mutation
 testdata/policies/                                 smell
 testdata/retro/                                    merge
+testdata/stophooks/                                postedit
 testmain_tddtest_test.go                           tdd
 testquality.go                                     smell
 testquality_line_test.go                           postedit  # prefix says smell; its test body reaches postedit
