@@ -38,6 +38,13 @@ func DisableMaintenanceAndHooks(hooksDir string, set func(key, value string)) {
 	setConfigEnv(append(slices.Clone(maintenanceOff), [2]string{"core.hooksPath", hooksDir}), set)
 }
 
+// AllowRepoHooks undoes the hooks half of DisableMaintenanceAndHooks through
+// set (t.Setenv), for the test whose subject is a hook it plants in a repo of
+// its own. Maintenance stays off.
+func AllowRepoHooks(set func(key, value string)) {
+	set("GIT_CONFIG_COUNT", strconv.Itoa(len(maintenanceOff)))
+}
+
 func setConfigEnv(entries [][2]string, set func(key, value string)) {
 	set("GIT_CONFIG_COUNT", strconv.Itoa(len(entries)))
 	for i, kv := range entries {
