@@ -124,3 +124,32 @@ func TestDoctorEnvPath_SplitsOnSemicolonOnWindows(t *testing.T) {
 		t.Errorf("a healthy Windows env.PATH must pass when split on ';': %s", c.Detail)
 	}
 }
+
+// A user PATH that carries the shim dir twice and lacks the binary dir is a
+// WARN naming both defects; a converged one is OK; no registry read at all
+// (non-Windows) is not applicable.
+func TestDoctorUserPath_WarnsOnDuplicateAndMissing(t *testing.T) {
+	in := healthyInstall(t)
+	in.Bin = `C:\Users\me\bin\aphrollo.exe`
+	in.ShimDir = `C:\Users\me\bin\cargo-queue`
+	in.UserPathDirs = []string{in.ShimDir, `C:\Tools`, in.ShimDir}
+	c, ok := doctorUserPath(in)
+	if !ok || !c.Warn || c.OK {
+		t.Fatalf("want a warning, got ok=%v %+v", ok, c)
+	}
+	for _, want := range []string{"appears 2 times", `C:\Users\me\bin is missing`, "aphrollo install"} {
+		if !strings.Contains(c.Detail, want) {
+			t.Errorf("detail %q lacks %q", c.Detail, want)
+		}
+	}
+
+	in.UserPathDirs = []string{in.ShimDir, `C:\Users\me\bin`, `C:\Tools`}
+	if c, ok := doctorUserPath(in); !ok || !c.OK {
+		t.Fatalf("converged PATH must be OK, got ok=%v %+v", ok, c)
+	}
+
+	in.UserPathDirs = nil
+	if _, ok := doctorUserPath(in); ok {
+		t.Fatal("no user PATH read must be not-applicable")
+	}
+}

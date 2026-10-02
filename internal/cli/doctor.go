@@ -52,6 +52,7 @@ func doctorInput(configDir, shimDir, repo string) tdd.DoctorInput {
 		ShimDir:        shim,
 		Repo:           repo,
 		PathDirs:       userPathDirsFn(),
+		UserPathDirs:   userPathEntries(),
 		GitHooksPath:   gitHooksPathFn(),
 		ShimBypassLine: shimBypassLineFn(bin),
 	}

@@ -58,6 +58,9 @@ func Doctor(in DoctorInput) []DoctorCheck {
 	if c, ok := doctorEnvPath(in); ok {
 		checks = append(checks, c)
 	}
+	if c, ok := doctorUserPath(in); ok {
+		checks = append(checks, c)
+	}
 	if c, ok := doctorIdentity(in); ok {
 		checks = append(checks, c)
 	}

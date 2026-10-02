@@ -276,6 +276,10 @@ func installMachineGate(gitHooksDir, cargoShimDir, dir, binName string, uninstal
 			fmt.Fprintf(stdout, "aphrollo gate: agent env.PATH already up to date (%s)\n", path)
 		}
 
+		// The user PATH is what PowerShell, cmd and Git Bash all inherit; the
+		// env.PATH snapshot above reaches only the agent's own Bash tool.
+		convergeUserPath(cdir, binName, stdout, stderr)
+
 	} else {
 		// The shim FILES stay (a session may still have cdir on PATH), but
 		// env.PATH is a literal value a live session actually resolves
