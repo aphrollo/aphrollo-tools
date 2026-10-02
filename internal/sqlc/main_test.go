@@ -19,7 +19,7 @@ import (
 // GIT_AUTHOR_*/GIT_COMMITTER_* env, so an empty global config costs the
 // fixtures nothing.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "aphrollo-sqlc-pkgtest-")
+	dir, err := gitiso.MkRoot("aphrollo-sqlc-pkgtest-")
 	if err != nil {
 		panic(err)
 	}
@@ -30,6 +30,6 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	code := m.Run()
-	_ = os.RemoveAll(dir)
+	gitiso.RemoveAll(dir)
 	os.Exit(code)
 }
