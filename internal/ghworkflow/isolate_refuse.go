@@ -57,21 +57,28 @@ var wrappers = map[string]wrapper{
 // skip is the index of the word after the wrapper at words[from-1] and its
 // flags, and whether it runs a command at all (command -v only looks one up).
 func (w wrapper) skip(words []string, from int) (next int, runs bool) {
-	n := from
-	for n < len(words) && strings.HasPrefix(words[n], "-") {
-		flag := words[n]
-		n++
-		if flag == "--" {
+	rest := words[from:]
+	consumed := 0
+	valueNext := false
+	for _, word := range rest {
+		if valueNext {
+			valueNext = false
+			consumed++
+			continue
+		}
+		if !strings.HasPrefix(word, "-") {
 			break
 		}
-		if contains(w.lookup, flag) {
+		consumed++
+		if word == "--" {
+			break
+		}
+		if contains(w.lookup, word) {
 			return from, false
 		}
-		if contains(w.valueFlags, flag) {
-			n++
-		}
+		valueNext = contains(w.valueFlags, word)
 	}
-	return min(n+w.positional, len(words)), true
+	return from + min(consumed+w.positional, len(rest)), true
 }
 
 // refuseGlobal is why a script is not run: the first command in it that
