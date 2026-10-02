@@ -201,3 +201,27 @@ func TestMergeWait_RecordsARedCIEventWhenAFirstRunFails(t *testing.T) {
 		t.Fatalf("ci events = %+v, want one red for %s", cis, newSHA)
 	}
 }
+
+// A push before any PR exists still records the settled result, with no pr.
+func TestPushApply_CIEventHasNoPRWhenNoneExists(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := pushedLane(t)
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) { return nil, nil },
+		func(wt string, req PRCreate) (*PRInfo, error) { return nil, nil },
+	)
+	stubCI(t, func(wt, sha string) (CIStatus, error) { return CIStatus{State: "red", Failing: 1}, nil })
+
+	p, _ := PushPlan(targetFor(repo, "feat/y"), false)
+	if err := p.Apply(&bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	cis := ofKind(emitted(t), "ci")
+	if len(cis) != 1 || cis[0].Verdict != "red" {
+		t.Fatalf("ci events = %+v, want one red", cis)
+	}
+	if got, ok := cis[0].Detail["pr"]; ok {
+		t.Fatalf("pr = %q with no PR open", got)
+	}
+}

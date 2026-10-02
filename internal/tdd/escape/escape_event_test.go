@@ -88,3 +88,36 @@ func TestRecordEscape_EventDropsACheckThatIsNotAToken(t *testing.T) {
 		t.Fatalf("free-text check reached the event: %q", got)
 	}
 }
+
+// The token filter admits the edge of every class it names and nothing past it.
+func TestEventToken_AdmitsOnlyBareIdentifiers(t *testing.T) {
+	for _, ok := range []string{"a", "z", "A", "Z", "0", "9", "ratchet:law_x-1.2/y", strings.Repeat("x", 64)} {
+		if !eventToken(ok) {
+			t.Errorf("eventToken(%q) = false, want true", ok)
+		}
+	}
+	for _, bad := range []string{"", "has space", "`", "{", "@", "[", "=", "\"", strings.Repeat("x", 65)} {
+		if eventToken(bad) {
+			t.Errorf("eventToken(%q) = true, want false", bad)
+		}
+	}
+}
+
+// A PR number rides along only when the escape named one.
+func TestRecordEscape_EventPRDetailOnlyWhenNamed(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := RecordEscape(EscapeOptions{Reason: "no pr"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := recordedEvent(t).Detail["pr"]; ok {
+		t.Fatalf("pr = %q on an escape that named none", got)
+	}
+
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	if _, err := RecordEscape(EscapeOptions{Reason: "one", PR: 1}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := recordedEvent(t).Detail["pr"]; got != "1" {
+		t.Fatalf("pr = %q, want 1", got)
+	}
+}
