@@ -33,7 +33,7 @@ func releaseRepo(t *testing.T, version string) (repo string, sh func(script stri
 	sh = func(script string, env ...string) (string, error) {
 		cmd := exec.Command(bash, filepath.ToSlash(filepath.Join(scripts, script)))
 		cmd.Dir = repo
-		cmd.Env = append(os.Environ(), append([]string{"NO_PUSH=1"}, env...)...)
+		cmd.Env = append(os.Environ(), append([]string{"NO_PUSH=1", "GITHUB_SHA="}, env...)...)
 		out, err := cmd.CombinedOutput()
 		return strings.TrimSpace(string(out)), err
 	}
