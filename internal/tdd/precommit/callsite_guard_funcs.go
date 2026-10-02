@@ -104,7 +104,7 @@ func (g siteGuard) editsCallFunction(repoRoot, rev string, changed []lineSpan) b
 	if err != nil {
 		return true
 	}
-	funcs, err := callFunctionSpans(src, g.call)
+	funcs, err := callFunctionSpans(src, g.inFunc)
 	if err != nil {
 		return true
 	}
@@ -119,8 +119,8 @@ func (g siteGuard) editsCallFunction(repoRoot, rev string, changed []lineSpan) b
 }
 
 // callFunctionSpans returns the line span of every function declaration in
-// src whose text matches call, or the parse error when src is not Go.
-func callFunctionSpans(src string, call *regexp.Regexp) ([]lineSpan, error) {
+// src whose text makes the call, or the parse error when src is not Go.
+func callFunctionSpans(src string, makesCall func(text string) bool) ([]lineSpan, error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", src, parser.SkipObjectResolution)
 	if err != nil {
@@ -134,7 +134,7 @@ func callFunctionSpans(src string, call *regexp.Regexp) ([]lineSpan, error) {
 			continue
 		}
 		first, last := fset.Position(fn.Pos()).Line, fset.Position(fn.End()).Line
-		if call.MatchString(strings.Join(lines[first-1:last], "\n")) {
+		if makesCall(strings.Join(lines[first-1:last], "\n")) {
 			out = append(out, lineSpan{first: first, last: last})
 		}
 	}

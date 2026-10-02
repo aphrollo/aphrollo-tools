@@ -139,6 +139,7 @@ buildslots_test.go                                 suite     # prefix says lock;
 callsite_guard.go                                  precommit
 callsite_guard_funcs.go                            precommit
 callsite_guard_funcs_test.go                       precommit
+callsite_guard_loop_test.go                        precommit
 callsite_guard_test.go                             precommit
 cargo_alwaysrun_test.go                            precommit
 cargo_notrun.go                                    suite

@@ -9,22 +9,25 @@ import (
 	"strings"
 )
 
-// The call-site guard stage. internal/argvbatch holds two table-keyed guard
+// The call-site guard stage. internal/argvbatch holds three table-keyed guard
 // tests over the tool's own source, and CI refuses a function with no row in
-// either:
+// any of them:
 //
 //   - callsites_test.go lists every non-test call that hands a slice to a
 //     process (exec.Command, or a git or gh helper) and says what bounds it;
 //   - relatedsites_test.go lists every non-test function in internal/tdd that
 //     names a related-tests verb (vitest's `related`, jest's
 //     `--findRelatedTests`), which builds or reads a command line carrying a
-//     changed-path list.
+//     changed-path list;
+//   - loopsites_test.go lists every non-test function that grows an argument
+//     list one element at a time in a loop and starts a process or builds a
+//     Runner from it, which no spread call shows (issue #996).
 //
 // The commit gate ran only the packages a commit touched, and argvbatch is not
 // one of them when the new call sits in another package, so a missing row
 // passed here and failed only in CI (issue #1034 for the exec table, #1079 for
-// the related-runner table: a helper naming the verb holds no exec call, so
-// the first guard's trigger never saw it).
+// the other two: a helper naming the verb, or a loop building a Runner, holds
+// no exec call, so the first guard's trigger never saw it).
 //
 // The stage runs each guard's test, by name, whenever the staged diff adds,
 // removes or edits a line that makes a call that guard accounts for in a
@@ -45,6 +48,13 @@ const (
 	relatedGuardTest = "TestRelatedRunnerSites_EveryBuilderOfARelatedRunIsBounded"
 	relatedGuardName = "callsites-related"
 	relatedGuardTree = "internal/tdd/"
+
+	loopGuardFile = "internal/argvbatch/loopsites_test.go"
+	loopGuardTest = "TestLoopBuiltArgSites_EveryArgumentListGrownInALoopIsBounded"
+	loopGuardName = "callsites-loop"
+	// loopGuardSkipTree is the one directory, with everything under it, that
+	// the loop guard's walk skips besides .git, .worktrees and gotmp*.
+	loopGuardSkipTree = "internal/tdd/internal/tddtest"
 )
 
 // execCallLine matches a line that names an exec call: exec.Command,
@@ -59,22 +69,47 @@ var execCallLine = regexp.MustCompile(`\bexec\.Command(?:Context)?\(|\b(?:[gG]it
 // execCallLine on purpose: a comment that quotes the verb costs one cheap run.
 var relatedVerbLine = regexp.MustCompile("[\"`]related[\"`]|--findRelatedTests")
 
+// loopAppendLine matches a line that appends to an argument-named slice (args,
+// argv, or a name ending in args, in any case), which is how the loop guard
+// sees a list grown one element at a time. It tells neither a loop from a
+// straight line nor a single element from a spread.
+var loopAppendLine = regexp.MustCompile(`(?i:\b(?:argv|\w*args)\s*=\s*append\()`)
+
+// runnerLiteralLine matches a line that builds a Runner literal.
+var runnerLiteralLine = regexp.MustCompile(`\bRunner\{`)
+
+// loopBuiltLine matches a line that moves a loop guard row: a growing
+// argument list, or a Runner literal it could be handed to.
+var loopBuiltLine = regexp.MustCompile(loopAppendLine.String() + "|" + runnerLiteralLine.String())
+
+// loopBuiltFunction reports whether the text of one function grows an argument
+// list and starts a process or builds a Runner: the pair the loop guard needs
+// to see in one function.
+func loopBuiltFunction(text string) bool {
+	return loopAppendLine.MatchString(text) && (runnerLiteralLine.MatchString(text) || execCallLine.MatchString(text))
+}
+
 // siteGuard is one table-keyed guard test of internal/argvbatch and what moves
 // a row of its table.
 type siteGuard struct {
-	name  string                // the stage label in the gate's messages and log
-	table string                // the table's file; a repo without it does not carry the guard
-	test  string                // the guard's test, run by name
-	call  *regexp.Regexp        // a source line that makes what the table accounts for
-	walks func(rel string) bool // whether the test parses the Go file at rel
+	name   string                 // the stage label in the gate's messages and log
+	table  string                 // the table's file; a repo without it does not carry the guard
+	test   string                 // the guard's test, run by name
+	call   *regexp.Regexp         // a source line that makes what the table accounts for
+	inFunc func(text string) bool // whether one function's text makes what the table accounts for
+	walks  func(rel string) bool  // whether the test parses the Go file at rel
 }
 
 var (
-	execGuard    = siteGuard{callsiteGuardName, callsiteGuardFile, callsiteGuardTest, execCallLine, guardWalks}
-	relatedGuard = siteGuard{relatedGuardName, relatedGuardFile, relatedGuardTest, relatedVerbLine, relatedGuardWalks}
+	execGuard = siteGuard{name: callsiteGuardName, table: callsiteGuardFile, test: callsiteGuardTest,
+		call: execCallLine, inFunc: execCallLine.MatchString, walks: guardWalks}
+	relatedGuard = siteGuard{name: relatedGuardName, table: relatedGuardFile, test: relatedGuardTest,
+		call: relatedVerbLine, inFunc: relatedVerbLine.MatchString, walks: relatedGuardWalks}
+	loopGuard = siteGuard{name: loopGuardName, table: loopGuardFile, test: loopGuardTest,
+		call: loopBuiltLine, inFunc: loopBuiltFunction, walks: loopGuardWalks}
 
 	// siteGuards is every guard the stage judges, in the order it runs them.
-	siteGuards = []siteGuard{execGuard, relatedGuard}
+	siteGuards = []siteGuard{execGuard, relatedGuard, loopGuard}
 )
 
 // callsiteGuardStage judges what a commit changes against each guard's table.
@@ -164,6 +199,24 @@ func relatedGuardWalks(rel string) bool {
 	}
 	for dir := range strings.SplitSeq(path.Dir(rel), "/") {
 		if strings.HasPrefix(dir, "gotmp") || dir == "tddtest" {
+			return false
+		}
+	}
+	return true
+}
+
+// loopGuardWalks reports whether the loop guard parses the file at rel: a
+// non-test Go file anywhere in the module, generated or not, outside .git,
+// .worktrees, gotmp* directories and the tddtest fixture tree.
+func loopGuardWalks(rel string) bool {
+	if !strings.HasSuffix(rel, ".go") || strings.HasSuffix(rel, "_test.go") {
+		return false
+	}
+	if strings.HasPrefix(rel, loopGuardSkipTree+"/") {
+		return false
+	}
+	for dir := range strings.SplitSeq(path.Dir(rel), "/") {
+		if dir == ".git" || dir == ".worktrees" || strings.HasPrefix(dir, "gotmp") {
 			return false
 		}
 	}
