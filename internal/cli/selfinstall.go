@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/rollback"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -60,7 +61,7 @@ func commitAt(repo string) string {
 // the command it ran so the step line can name it. A var so a test can state
 // the build's outcome without a toolchain run.
 var buildAphrollo = func(repo, out string) (string, error) {
-	args := buildArgs(repo, out, commitAt(repo), time.Now())
+	args := buildArgs(repo, out, commitAt(repo), buildClock())
 	cmd, finish := boundedCommand(buildBudget, "go", args...)
 	cmd.Dir = repo
 	var stderr bytes.Buffer
@@ -220,9 +221,10 @@ var renameFn = os.Rename
 var replacedBinaryJobsLineFn = tdd.ReplacedBinaryJobsLine
 
 // swapBinary renames bin aside (if one exists yet), moves staged into its
-// place, and sweeps whatever earlier upgrades left beside it — the sequence
-// any verb that replaces the running binary needs, shared so `gate
-// installer and its callers behave byte-identically instead of drifting.
+// place, and reclaims the copies earlier upgrades left beyond the newest few
+// that stay for rollback — the sequence any verb that replaces the running
+// binary needs, shared so its callers behave byte-identically instead of
+// drifting.
 // prefix names the caller in the three lines this prints to stdout (e.g.
 // "aphrollo update" or "aphrollo install"), so an operator watching either
 // verb sees its own name. stale is the path the previous binary was renamed
@@ -240,7 +242,7 @@ func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err
 	}
 	fmt.Fprintf(stdout, "%s: smoke  %s passed selfcheck\n", prefix, staged)
 
-	stale = siblingPath(bin, fmt.Sprintf("%s%d", stalePrefix, time.Now().Unix()))
+	stale = nextStalePath(bin, time.Now())
 	renamed := false
 	if _, statErr := os.Stat(bin); statErr == nil {
 		if err := renameFn(bin, stale); err != nil {
@@ -276,8 +278,8 @@ func swapBinary(prefix, bin, staged string, stdout io.Writer) (stale string, err
 		return stale, fmt.Errorf("%s was moved into place but does not resolve as a runnable binary: %w", bin, err)
 	}
 
-	removed, held := sweepStaleBinaries(filepath.Dir(bin), filepath.Base(bin), stale)
-	fmt.Fprintf(stdout, "%s: sweep  %d stale copy/copies reclaimed, %d still in use\n", prefix, removed, held)
+	removed, held := pruneKeptBinaries(filepath.Dir(bin), filepath.Base(bin))
+	fmt.Fprintf(stdout, "%s: sweep  %d older copy/copies reclaimed, %d still in use; the newest %d binaries stay for rollback\n", prefix, removed, held, rollback.KeepBinaries)
 
 	// #338: a job still executing the copy just renamed to `stale` holds the
 	// box-wide mutation-run lock and produces results from code no longer
@@ -341,38 +343,4 @@ func siblingPath(bin, infix string) string {
 	dir, name := filepath.Split(bin)
 	ext := filepath.Ext(name)
 	return filepath.Join(dir, strings.TrimSuffix(name, ext)+infix+ext)
-}
-
-// sweepStaleBinaries deletes the copies earlier upgrades renamed aside, and
-// reports how many it reclaimed and how many it could not. keep is this run's
-// own stale copy: on Windows that IS the running process, so it is never a
-// candidate — the NEXT upgrade reclaims it, which is what makes the sweep
-// converge instead of growing.
-//
-// A copy that will not delete is not an error. The whole point of the rename
-// dance is that a running binary cannot be removed, and failing the upgrade
-// over a file the OS is holding would make the operation impossible to
-// perform from the binary being upgraded.
-func sweepStaleBinaries(dir, binName, keep string) (removed, held int) {
-	ext := filepath.Ext(binName)
-	prefix := strings.TrimSuffix(binName, ext) + stalePrefix
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return 0, 0
-	}
-	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), prefix) {
-			continue
-		}
-		path := filepath.Join(dir, e.Name())
-		if path == keep {
-			continue
-		}
-		if os.Remove(path) == nil {
-			removed++
-		} else {
-			held++
-		}
-	}
-	return removed, held
 }

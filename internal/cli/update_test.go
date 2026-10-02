@@ -227,9 +227,16 @@ func TestUpdate_SwapsAndSweepsLikeSelfInstall(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	staleOld := filepath.Join(dir, "aphrollo.stale-1700000000.exe")
-	if err := os.WriteFile(staleOld, []byte("OLDER"), 0o755); err != nil {
-		t.Fatal(err)
+	// Three earlier upgrades left a copy each. The binary installed now and the
+	// one it replaces, plus one more, are the last three: the two oldest of the
+	// copies are swept.
+	var older []string
+	for _, n := range []string{"1700000000", "1700000001", "1700000002"} {
+		p := filepath.Join(dir, "aphrollo.stale-"+n+".exe")
+		if err := os.WriteFile(p, []byte("OLDER"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		older = append(older, p)
 	}
 
 	var out, errb bytes.Buffer
@@ -242,14 +249,25 @@ func TestUpdate_SwapsAndSweepsLikeSelfInstall(t *testing.T) {
 	if err != nil || string(got) != "NEW" {
 		t.Fatalf("bin = %q (%v), want the seam's fixed output", got, err)
 	}
-	if _, err := os.Stat(staleOld); err == nil {
-		t.Fatal("the pre-existing stale copy must be swept")
+	for _, swept := range older[:2] {
+		if _, err := os.Stat(swept); err == nil {
+			t.Fatalf("%s is beyond the last three binaries and must be swept", swept)
+		}
+	}
+	if _, err := os.Stat(older[2]); err != nil {
+		t.Fatalf("the newest earlier copy is the third binary kept: %v", err)
 	}
 	stale := staleCopies(t, dir)
-	if len(stale) != 1 {
-		t.Fatalf("want exactly one new stale copy from this run, got %v", stale)
+	if len(stale) != 2 {
+		t.Fatalf("want the newest earlier copy and this run's own, got %v", stale)
 	}
-	if body, err := os.ReadFile(stale[0]); err != nil || string(body) != "OLD" {
+	var fresh string
+	for _, s := range stale {
+		if s != older[2] {
+			fresh = s
+		}
+	}
+	if body, err := os.ReadFile(fresh); err != nil || string(body) != "OLD" {
 		t.Fatalf("the stale copy must hold the replaced binary, got %q (%v)", body, err)
 	}
 	// One line per step, so an operator can see which one failed, each

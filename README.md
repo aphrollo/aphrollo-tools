@@ -22,7 +22,18 @@ aphrollo install                      # session hooks, git gate, skills, agents,
 aphrollo install --managed-block-only --repo <lane>   # re-render only the CLAUDE.md block (no hooks, no shims)
 aphrollo version                      # stamped commit and build time
 aphrollo update                       # rebuild from origin/main and swap it in
+aphrollo update --to v1.3.0           # install a tag or an origin/main commit sha, and pin the box to it
+aphrollo update --unpin               # clear the pin and return to origin/main
 ```
+
+`update` keeps the last 3 installed binaries beside the installed one, each
+with its commit and build stamp recorded in `aphrollo.installs.json`, and
+reclaims older ones unless something still runs them. `--to` switches to a kept
+binary built from the wanted commit without a build, so a rollback and the way
+forward again cost no compile. While pinned, a plain `aphrollo update` and the
+session-start notice say what the box is pinned to and change nothing; only
+`--unpin` or another `--to` moves it. Every swap, pin and unpin is an `update`
+record in the gate state dir's `events.jsonl`.
 
 `refactor`, `find`, `outline` and `show` need the language server on PATH:
 `gopls`, `rust-analyzer`, `pyright-langserver` or `typescript-language-server`.

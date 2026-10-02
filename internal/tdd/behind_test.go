@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
+	"github.com/aphrollo/aphrollo-tools/internal/rollback"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
@@ -50,6 +51,35 @@ func TestBinaryBehindLine_SilentWhenUnstamped(t *testing.T) {
 	}
 	if called {
 		t.Error("lsRemoteFn was called for an unstamped binary, want never called")
+	}
+}
+
+// A box pinned by `aphrollo update --to` is not behind: it is where the pin put
+// it. The session says so instead of telling the operator to run an update that
+// would refuse, and asks the remote nothing.
+func TestBinaryBehindLine_NamesThePinInsteadOfAskingTheRemote(t *testing.T) {
+	for _, stamped := range []string{stampedCommit, ""} {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		setStamp(t, stamped)
+		if err := rollback.WritePin(rollback.Pin{Ref: "v1.3.0", Commit: stampedCommit}); err != nil {
+			t.Fatal(err)
+		}
+		called := false
+		stubLsRemote(t, func(ctx context.Context) (string, error) {
+			called = true
+			return originHead, nil
+		})
+
+		got := BinaryBehindLine(time.Now())
+
+		for _, want := range []string{"pinned to v1.3.0 (ca47dba)", "aphrollo update --unpin"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("stamp %q: BinaryBehindLine() = %q, want it to contain %q", stamped, got, want)
+			}
+		}
+		if called {
+			t.Errorf("stamp %q: lsRemoteFn was called for a pinned box, want never called", stamped)
+		}
 	}
 }
 

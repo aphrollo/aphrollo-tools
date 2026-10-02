@@ -5,31 +5,42 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
+	"github.com/aphrollo/aphrollo-tools/internal/rollback"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // aphrollo update is the ONLY way the box binary moves. The box running it
 // is not necessarily sitting in a checkout of this repo at the commit it
 // wants, or a clean one, so it fetches the remote and builds from a DETACHED
-// worktree at <remote>/<branch> — never the working tree, which may be behind
-// or carrying an edit of its own. `gate self-install`, which built from an
-// arbitrary checkout and could therefore point the box at unmerged code, was
+// worktree at the commit it resolved — never the working tree, which may be
+// behind or carrying an edit of its own. `gate self-install`, which built from
+// an arbitrary checkout and could therefore point the box at unmerged code, was
 // retired with the bootstrap that needed it (#659, #673).
-const updateUsage = `usage: aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--branch NAME] [--no-init] [--dry]
+const updateUsage = `usage: aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--branch NAME] [--to REF | --unpin] [--no-init] [--dry]
 
 Fetches <remote>/<branch>, builds ./cmd/aphrollo from a detached temporary
 worktree at that commit (never the working tree, which may be behind or
-dirty), swaps it in for --bin, sweeps stale copies beside it, then runs gate
-init UNDER THE NEW BINARY (so the managed files come from its templates, not
-the outgoing build's) unless --no-init. --dry prints the ref it would fetch,
-what it would build and the path it would swap, and stops before the fetch.
+dirty), swaps it in for --bin, then runs gate init UNDER THE NEW BINARY (so
+the managed files come from its templates, not the outgoing build's) unless
+--no-init. The last 3 binaries stay beside --bin (the installed one counted),
+each with its commit and build stamp recorded; older copies are reclaimed
+unless something is still running them.
+
+--to REF installs a tag (v1.3.0) or a commit sha that is already merged on
+<remote>/<branch>, and pins the box to it: a plain update then says it is
+pinned and does nothing, until --unpin clears the pin and returns to
+<remote>/<branch>. When a kept binary was built from the wanted commit, it is
+switched to without a build. Every swap, pin and unpin is written to the event
+log. Idempotent: a box already at the wanted commit reports [skip].
+
+--dry prints the ref it would fetch, what it would build and the path it would
+swap, the pin change and the binaries kept, and stops before the fetch.
 
 This is the only command that replaces the installed binary: gate
 self-install, which built from an arbitrary checkout, is retired.
@@ -61,6 +72,8 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		remote  = fs.String("remote", "origin", "remote to fetch and build from")
 		branch  = fs.String("branch", "main", "branch to build")
 		dry     = fs.Bool("dry", false, "print the ref, build target and swap path and stop before the fetch")
+		to      = fs.String("to", "", "install this tag or commit sha (merged on <remote>/<branch>) and pin the box to it")
+		unpin   = fs.Bool("unpin", false, "clear the pin and return to <remote>/<branch>")
 	)
 	// Everything after a bare "--" is forwarded to `gate init` untouched; what
 	// comes before it is this verb's own flags, read wherever they sit.
@@ -73,10 +86,24 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	if err != nil || refuseArgs("update", pos, stderr) {
 		return 2
 	}
+	if *to != "" && *unpin {
+		fmt.Fprintln(stderr, "aphrollo update: --to and --unpin are exclusive: --to moves the pin, --unpin removes it")
+		return 2
+	}
+	if strings.HasPrefix(*to, "-") {
+		fmt.Fprintf(stderr, "aphrollo update: --to: %q looks like an option, not a tag or commit sha\n", *to)
+		return 2
+	}
 
 	if err := checkAphrolloModule(*repo); err != nil {
 		fmt.Fprintf(stderr, "aphrollo update: --repo: %v\n", err)
 		return 2
+	}
+
+	remoteBranch := *remote + "/" + *branch
+	pin, pinState := rollback.ReadPin()
+	if code, held := holdForPin(stdout, stderr, pinState, pin, *to, *unpin, remoteBranch); held {
+		return code
 	}
 
 	bin := resolveBinPath(*binPath, "aphrollo update", stdout)
@@ -97,9 +124,10 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	installs := rollback.OpenInstalls(filepath.Dir(bin), filepath.Base(bin))
 	if *dry {
-		fmt.Fprintf(stdout, "aphrollo update (dry run): nothing fetched, built or swapped\n  fetch: %s/%s in %s\n  build: ./cmd/aphrollo from a detached worktree at that ref\n  swap:  %s\n",
-			*remote, *branch, *repo, bin)
+		dryRun{repo: *repo, remote: *remote, branch: *branch, bin: bin, to: *to, unpin: *unpin,
+			state: pinState, pin: pin, kept: installs.Others(filepath.Base(bin))}.print(stdout)
 		return 0
 	}
 
@@ -123,49 +151,29 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return strings.TrimSpace(out.String()), nil
 	}
 
-	remoteBranch := *remote + "/" + *branch
+	// A plain fetch also brings every tag that points into the history it
+	// fetches, which is every tag --to may name: it only installs what is
+	// merged on <remote>/<branch>.
 	if _, err := runGit("fetch", *remote); err != nil {
 		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
 		return 1
 	}
-	head, err := runGit("rev-parse", remoteBranch)
+	target, err := resolveUpdateTarget(runGit, *to, remoteBranch)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
 		return 1
 	}
 
-	if commit, _, stamped := buildinfo.Stamp(); stamped && commit == head {
-		fmt.Fprintf(stdout, "aphrollo update: already at %s [skip]\n", shortSHA(head))
-		return 0
+	run := &updateRun{bin: bin, remoteBranch: remoteBranch, target: target, installs: installs, stdout: stdout, stderr: stderr}
+	if commit, _, stamped := buildinfo.Stamp(); stamped && commit == target.Commit {
+		fmt.Fprintf(stdout, "aphrollo update: already at %s [skip]\n", target.describe())
+		return run.settlePin(*to, *unpin, pinState, pin)
 	}
-
-	tmp, err := os.MkdirTemp("", "aphrollo-update-*")
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
-		return 1
+	if code := run.install(runGit); code != 0 {
+		return code
 	}
-	if _, err := runGit("worktree", "add", "--detach", tmp, remoteBranch); err != nil {
-		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
-		_ = os.RemoveAll(tmp)
-		return 1
-	}
-	defer func() {
-		_, _ = runGit("worktree", "remove", "--force", tmp)
-		_ = os.RemoveAll(tmp)
-	}()
-
-	staged := siblingPath(bin, ".new")
-	_ = os.Remove(staged)
-	desc, err := buildAphrollo(tmp, staged)
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo update: build failed, nothing was replaced\n%v\n", err)
-		return 1
-	}
-	fmt.Fprintf(stdout, "aphrollo update: build  %s -> %s\n", desc, staged)
-
-	if _, err := swapBinary("aphrollo update", bin, staged, stdout); err != nil {
-		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
-		return 1
+	if code := run.settlePin(*to, *unpin, pinState, pin); code != 0 {
+		return code
 	}
 
 	if *noInit {
@@ -177,10 +185,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 // shortSHA reports the first 7 characters of a full commit sha, the width
 // `aphrollo version` already uses to name a build.
 func shortSHA(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
-	}
-	return sha
+	return rollback.ShortSHA(sha)
 }
 
 // checkAphrolloModule reports an error unless repo's go.mod declares module

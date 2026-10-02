@@ -133,10 +133,17 @@ func TestUpdate_KeepsAStaleCopyItCannotDelete(t *testing.T) {
 	bin := swapFixture(t, "NEW")
 	dir := filepath.Dir(bin)
 	// A stale path that cannot be removed stands in for the copy Windows is
-	// still holding open: the sweep must report it, not fail the upgrade.
+	// still holding open: the sweep must report it, not fail the upgrade. It is
+	// the oldest of three, so it is beyond the newest copies that are kept and
+	// the sweep does reach it.
 	locked := filepath.Join(dir, "aphrollo.stale-1700000001.exe")
 	if err := os.MkdirAll(filepath.Join(locked, "held"), 0o755); err != nil {
 		t.Fatal(err)
+	}
+	for _, n := range []string{"1700000002", "1700000003"} {
+		if err := os.WriteFile(filepath.Join(dir, "aphrollo.stale-"+n+".exe"), []byte("OLDER"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 
 	var out, errb bytes.Buffer

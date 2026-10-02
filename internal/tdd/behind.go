@@ -13,6 +13,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/rollback"
 )
 
 // A binary that never rebuilds itself drifts from origin/main silently: the
@@ -129,6 +130,11 @@ type binaryBehindCache struct {
 // wolf. now is passed in so the hourly cache window is a decision the caller
 // can test rather than a stopwatch reading.
 func BinaryBehindLine(now time.Time) string {
+	// A pinned box is where the pin put it, not behind: say so, and never ask
+	// the remote about a binary an update would refuse to move.
+	if line, pinned := rollback.PinNotice(); pinned {
+		return line
+	}
 	commit, _, stamped := buildinfo.Stamp()
 	if !stamped {
 		return ""
