@@ -48,7 +48,7 @@ func LogOverride(verdict, session, cwd string) {
 			root = cwd
 		}
 	}
-	AppendGateLog("session", LogToken(root), LogToken(session), verdict, 0)
+	AppendGateLog("session", root, LogToken(session), verdict, 0)
 }
 
 // policyName is the verdict's key. A decision that named no policy still gets
@@ -77,5 +77,5 @@ func logPlace(path string) (root, rel string) {
 	if r, err := filepath.Rel(root, path); err == nil {
 		rel = r
 	}
-	return LogToken(root), LogToken(rel)
+	return root, LogToken(rel)
 }

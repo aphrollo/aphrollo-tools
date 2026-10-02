@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
+	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -25,7 +27,8 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 	if name == "prepush" {
 		prepushRoot := tdd.RepoRoot(".")
 		code := runGatePrepush(os.Stdin, stderr, prepushRoot)
-		tdd.AppendEvent(tdd.Event{Kind: "push", Root: prepushRoot, Stage: "prepush", Verdict: gateVerdictWord(code)})
+		tdd.AppendEvent(tdd.Event{Kind: "push", Root: prepushRoot, Stage: "prepush", Verdict: gateVerdictWord(code),
+			Detail: map[string]string{"sha": headSHA(prepushRoot)}})
 		return code
 	}
 	isMerge := name == "premergecommit" || name == "premerge"
@@ -102,12 +105,27 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 	if res.Blocked {
 		code = 1
 	}
-	kind := "commit_gate"
+	// The stage lines AppendGateLog wrote already carry commit_gate/merge_gate;
+	// the run's overall verdict is its own kind so counting runs never counts
+	// stages too.
+	kind := "commit_gate_result"
 	if isMerge {
-		kind = "merge_gate"
+		kind = "merge_gate_result"
 	}
-	tdd.AppendEvent(tdd.Event{Kind: kind, Root: root, Stage: "result", Verdict: gateVerdictWord(code)})
+	tdd.AppendEvent(tdd.Event{Kind: kind, Root: root, Verdict: gateVerdictWord(code)})
 	return code
+}
+
+// headSHA is the commit root has checked out, "" when it cannot be read: the
+// push event names the commit the CI events that follow it are about.
+func headSHA(root string) string {
+	cmd := exec.Command("git", "-C", root, "rev-parse", "HEAD")
+	cmd.Stderr = io.Discard
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 // gateVerdictWord is the outcome word an event carries for a hook's exit code.

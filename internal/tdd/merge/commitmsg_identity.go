@@ -29,7 +29,7 @@ func identityRefusal(repoRoot string, tells undercover.List) string {
 			continue
 		}
 		if tell, hit := tells.Ident(ident); hit {
-			AppendGateLog("commitmsg", LogToken(repoRoot), "commit-msg", "commitmsg-rejected:identity-"+LogToken(tell), 0)
+			AppendGateLog("commitmsg", repoRoot, "commit-msg", "commitmsg-rejected:identity-"+LogToken(tell), 0)
 			return "gate commit-msg: " + undercover.IdentRefusal(role.name, strings.TrimSpace(ident), tell)
 		}
 	}

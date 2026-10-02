@@ -57,7 +57,7 @@ func mutantsBeforePR(wt, base string, skip SkipMutants, stdout, stderr io.Writer
 	}
 	if skip.Set {
 		fmt.Fprintf(stdout, "mutants: not measured before the PR (--skip-mutants: %s)\n", skip.Reason)
-		tdd.AppendGateLog("prepr", tdd.LogToken(wt), tdd.LogToken(skip.Reason), "override-skip-mutants", 0)
+		tdd.AppendGateLog("prepr", wt, tdd.LogToken(skip.Reason), "override-skip-mutants", 0)
 		return nil
 	}
 	if cfg.BeforePRCI {

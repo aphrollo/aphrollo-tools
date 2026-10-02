@@ -247,6 +247,7 @@ demote_test.go                                     escape
 demote_trend.go                                    escape
 denylog.go                                         postedit
 denylog_core.go                                    core      # created by P2
+denylog_event_test.go                              postedit
 denylog_test.go                                    tdd       # prefix says postedit; its test body reaches tdd
 devtarget_test.go                                  precommit
 dirtytree.go                                       precommit

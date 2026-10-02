@@ -181,6 +181,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if ciErr != nil {
 		return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
 	}
+	recordSettledCI(m.Target.Worktree, pr.HeadSHA, pr.Number, ci.State)
 	if ci.State != "green" {
 		// A red on a tip the local gate already proved green is the exact
 		// disagreement CI's own escape-record job used to catch — recorded
@@ -192,6 +193,8 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 			recordMergeCIEscape(tdd.CIEscapeOptions{
 				Repo:     m.Target.Worktree,
 				Job:      "pipeline",
+				Lane:     m.Target.Branch,
+				PR:       pr.Number,
 				Reason:   fmt.Sprintf("CI is red (%d failing) on a tip the local gate passed green", ci.Failing),
 				Evidence: fmt.Sprintf("gh pr checks reported %d failing check(s) for %s", ci.Failing, m.Target.Branch),
 			}, stderr)

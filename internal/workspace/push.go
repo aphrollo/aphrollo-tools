@@ -5,10 +5,7 @@ import (
 	"io"
 	"net/url"
 	"os/exec"
-	"strconv"
 	"strings"
-
-	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // Push is a resolved push of a worktree's branch to origin. It sets the upstream
@@ -148,14 +145,14 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 	// for the same reason as prInfo above.
 	// The pushed commit's own checks: the PR's head on GitHub may still be the
 	// previous commit for a moment after the push.
-	ci, ciErr := pushedCI(wt)
+	sha, ci, ciErr := pushedCI(wt)
 	p.ci, p.ciErr = ci, ciErr
 	if ciErr == nil {
-		ev := tdd.Event{Kind: "ci", Root: wt, Verdict: ci.State, Detail: map[string]string{}}
+		prNumber := 0
 		if info != nil {
-			ev.Detail["pr"] = strconv.Itoa(info.Number)
+			prNumber = info.Number
 		}
-		tdd.AppendEvent(ev)
+		recordSettledCI(wt, sha, prNumber, ci.State)
 		fmt.Fprintf(stdout, "ci %s\n", ci.Word())
 	}
 	return nil
@@ -163,12 +160,13 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 
 // pushedCI reads CI for the commit the worktree has checked out — the one the
 // push just published.
-func pushedCI(wt string) (CIStatus, error) {
+func pushedCI(wt string) (string, CIStatus, error) {
 	sha, err := laneHeadSHA(wt)
 	if err != nil {
-		return CIStatus{}, err
+		return "", CIStatus{}, err
 	}
-	return ghCIStatus(wt, sha)
+	ci, err := ghCIStatus(wt, sha)
+	return sha, ci, err
 }
 
 func (p *Push) state() string {

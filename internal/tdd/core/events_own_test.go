@@ -163,3 +163,61 @@ func TestAppendEvent_ASubdirectoryResolvesToItsRepoAndBranch(t *testing.T) {
 		t.Fatalf("repo/lane = %q / %q, want %q / main", e.Repo, e.Lane, repo)
 	}
 }
+
+// An event log that cannot be written must say so once: the targets are all
+// computed from it, and a silently empty file reads as "nothing happened".
+func TestAppendEvent_WarnsOncePerProcessWhenTheLogCannotBeWritten(t *testing.T) {
+	resetEventLogWarnForTest()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	// A directory where the file belongs makes the open fail.
+	if err := os.MkdirAll(EventLogPath(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	stderr := captureStderr(t, func() {
+		AppendEvent(Event{Kind: "push", Verdict: "ok"})
+		AppendEvent(Event{Kind: "merge", Verdict: "ok"})
+	})
+
+	if n := strings.Count(stderr, "events.jsonl is not being written"); n != 1 {
+		t.Fatalf("warning printed %d time(s) across two failed writes, want 1:\n%s", n, stderr)
+	}
+}
+
+// An event that already knows its lane (an escape recorded from the main
+// checkout, naming the PR's lane) keeps it instead of the checkout's branch.
+func TestAppendEvent_AnExplicitLaneBeatsTheRootsBranch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := filepath.Join(t.TempDir(), "proj")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	AppendEvent(Event{Kind: "escape", Root: repo, Lane: "lane/fix"})
+
+	var e Event
+	_ = json.Unmarshal([]byte(eventsLines(t)[0]), &e)
+	if e.Lane != "lane/fix" || filepath.ToSlash(e.Repo) != filepath.ToSlash(repo) {
+		t.Fatalf("repo/lane = %q / %q, want %q / lane/fix", e.Repo, e.Lane, repo)
+	}
+}
+
+// A settled CI result is recorded once per commit, however many times the
+// verbs that read it run.
+func TestAppendEventOnce_WritesOneRecordPerKey(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+
+	first := AppendEventOnce(Event{Kind: "ci", Verdict: "green", Detail: map[string]string{"sha": "abc"}}, "sha")
+	again := AppendEventOnce(Event{Kind: "ci", Verdict: "green", Detail: map[string]string{"sha": "abc"}}, "sha")
+	other := AppendEventOnce(Event{Kind: "ci", Verdict: "red", Detail: map[string]string{"sha": "def"}}, "sha")
+
+	if !first || again || !other {
+		t.Fatalf("wrote first/again/other = %v/%v/%v, want true/false/true", first, again, other)
+	}
+	if n := len(eventsLines(t)); n != 2 {
+		t.Fatalf("%d lines, want 2", n)
+	}
+}
