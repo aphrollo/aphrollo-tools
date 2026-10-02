@@ -65,7 +65,13 @@ aphrollo update                       # rebuild from origin/main and swap it in
 - **Merge:** `workspace merge` runs the suites and the mutation measurement on
   the merged tree, refuses an unaccepted survivor or timeout, and a
   not-covered or inconclusive mutant on a line the lane adds, then prints a
-  retro when the PR's journey had friction.
+  retro when the PR's journey had friction. A merge made outside it (the GitHub
+  web UI, `gh pr merge`, a terminal) is recorded once per commit as a `merge`
+  event by=outside plus an `escape` event of verdict outside-merge, when local
+  trunk takes it in: from `workspace sync`, or the post-merge hook in a repo
+  with an `aphrollo.toml`, a `.ratchet` directory or a Cargo
+  `[workspace.metadata.aphrollo]` table. `workspace sync --since <ref>`
+  backfills a range once (`--dry` names the merges and writes nothing).
 - **Walls:** the primary checkout is merge-only; discarding commands are
   refused (`gate allow <wall>` arms one command).
 - **Memory:** every test, suite, lint and mutation process the gate starts runs

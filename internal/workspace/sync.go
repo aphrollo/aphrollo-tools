@@ -97,6 +97,10 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 		return nil
 	}
 
+	// The tip trunk had before the move: what the fast-forward takes in is
+	// checked below for merges made outside `workspace merge`.
+	before := refTip(top, local)
+
 	if holder != "" {
 		// --ff-only run in the holding checkout advances its HEAD, index and
 		// files together. It also refuses anything that isn't a fast-forward —
@@ -113,6 +117,7 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 			return nil
 		}
 		fmt.Fprintf(stdout, "fast-forwarded %s to %s (%d commit(s))%s\n", def, remote, behind, inOtherCheckout(top, holder))
+		noteTrunkMove(top, before, def, stdout)
 		return nil
 	}
 
@@ -136,6 +141,7 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 		return fmt.Errorf("git branch --force %s %s: %w", def, remote, err)
 	}
 	fmt.Fprintf(stdout, "fast-forwarded %s ref to %s (%d commit(s)) — ref only, no checkout is on %s\n", def, remote, behind, def)
+	noteTrunkMove(top, before, def, stdout)
 	return nil
 }
 

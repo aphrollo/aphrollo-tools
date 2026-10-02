@@ -237,6 +237,9 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if err := merge(); err != nil {
 		return err
 	}
+	// Recorded BEFORE the sync below moves local trunk: the trunk move reads
+	// this record to tell this merge from one made outside the verb, and would
+	// otherwise count it as an outside one (see outsidemerge.go).
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: m.Target.Worktree, Verdict: "ok",
 		Detail: map[string]string{"pr": strconv.Itoa(pr.Number), "method": m.Method}})
 	fmt.Fprintf(stdout, "merged PR #%d (%s): %s\n", pr.Number, m.Method, pr.URL)
