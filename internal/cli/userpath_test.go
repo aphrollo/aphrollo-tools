@@ -16,6 +16,7 @@ type fakeUserPath struct {
 	raw      string
 	expand   bool
 	readErr  error
+	writeErr error
 	writes   int
 	wroteExp bool
 }
@@ -24,7 +25,7 @@ func (f *fakeUserPath) Read() (string, bool, error) { return f.raw, f.expand, f.
 func (f *fakeUserPath) Write(raw string, expand bool) error {
 	f.raw, f.wroteExp = raw, expand
 	f.writes++
-	return nil
+	return f.writeErr
 }
 
 func useFakeUserPath(t *testing.T, f *fakeUserPath) {
@@ -100,5 +101,22 @@ func TestDoctorInput_ReadsUserPathFromStore(t *testing.T) {
 	want := []string{`C:\a`, `D:\b`, `C:\a`}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("UserPathDirs = %q, want %q", got, want)
+	}
+}
+
+// A failed write is reported on stderr as such, and a good one is reported as
+// converged on stdout, never the other way round.
+func TestConvergeUserPath_ReportsWriteOutcome(t *testing.T) {
+	var out, errb bytes.Buffer
+	useFakeUserPath(t, &fakeUserPath{raw: `C:\Tools`})
+	convergeUserPath(`C:\q`, `C:/b/aphrollo.exe`, &out, &errb)
+	if !strings.Contains(out.String(), "converged the user PATH") || errb.Len() != 0 {
+		t.Fatalf("success: stdout %q stderr %q", out.String(), errb.String())
+	}
+	out.Reset()
+	useFakeUserPath(t, &fakeUserPath{raw: `C:\Tools`, writeErr: errors.New("denied")})
+	convergeUserPath(`C:\q`, `C:/b/aphrollo.exe`, &out, &errb)
+	if !strings.Contains(errb.String(), "could not write the user PATH: denied") || out.Len() != 0 {
+		t.Fatalf("failure: stdout %q stderr %q", out.String(), errb.String())
 	}
 }
