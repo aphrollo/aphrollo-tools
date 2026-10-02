@@ -23,7 +23,7 @@ import (
 // which keeps the call in TestMain's own text, where the test_main_exit law
 // looks for it.
 func Main(run func() int) int {
-	root, err := os.MkdirTemp("", "aphrollo-gitiso-")
+	root, err := os.MkdirTemp("", "gi-")
 	if err != nil {
 		panic(err)
 	}
@@ -63,7 +63,9 @@ func homeLayout(fake string) map[string]string {
 //     discover a real repository by walking up;
 //   - points HOME and every spelling of it, GIT_CONFIG_GLOBAL and the XDG
 //     directories into the fake home, and switches the system config off, so
-//     `git config --global` writes a file the test owns;
+//     `git config --global` writes a file the test owns, one that already
+//     tells git to take Windows paths past 260 characters, which nested temp
+//     roots reach;
 //   - switches git's post-commit auto maintenance off.
 //
 // The Go toolchain's cache locations are pinned where they resolve now, so
@@ -83,7 +85,7 @@ func Isolate(root string) (home string, err error) {
 		env[name] = path
 	}
 	gitconfig := filepath.Join(home, ".gitconfig")
-	if err := os.WriteFile(gitconfig, nil, 0o644); err != nil {
+	if err := os.WriteFile(gitconfig, []byte("[core]\n\tlongpaths = true\n"), 0o644); err != nil {
 		return "", err
 	}
 	cwd, _ := os.Getwd()
