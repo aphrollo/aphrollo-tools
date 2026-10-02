@@ -288,3 +288,27 @@ func TestWrapperSkip_FlagsTheirValuesAndThePositionalsBeforeTheCommand(t *testin
 		}
 	}
 }
+
+func TestFeedsShell_OnlyAShellThatReadsItsScriptFromStdin(t *testing.T) {
+	for line, want := range map[string]bool{
+		"bash <<EOF":                 true,
+		"cat <<EOF | sh":             true,
+		"sudo bash <<EOF":            false, // sudo is the command; sudo itself is refused
+		"bash -c x <<EOF":            false,
+		"bash run.sh <<EOF":          false,
+		"cat <<EOF > run.sh":         false,
+		"then":                       false,
+		"A=1":                        false,
+		"":                           false,
+		"timeout 5 bash -s <<EOF":    true,
+		"python3 <<EOF":              false,
+		"echo \"bash\" <<EOF":        false,
+		"if true; then bash <<EOF":   true,
+		"cat <<EOF | timeout 5 bash": true,
+		"cat <<EOF | grep bash":      false,
+	} {
+		if got := feedsShell(line); got != want {
+			t.Errorf("feedsShell(%q) = %v, want %v", line, got, want)
+		}
+	}
+}
