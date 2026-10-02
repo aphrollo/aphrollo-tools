@@ -30,9 +30,9 @@ var ghPRText = func(wt, branch string) (title, body string, err error) {
 	return pr.Title, pr.Body, nil
 }
 
-// ghMergePRBody is ghMergePR with an explicit commit body.
-var ghMergePRBody = func(wt, branch, method, body string) error {
-	args := []string{"pr", "merge", "--" + method, "--body", body, "--", branch}
+// ghMergePRBody is ghMergePR with an explicit commit subject and body.
+var ghMergePRBody = func(wt, branch, method, subject, body string) error {
+	args := []string{"pr", "merge", "--" + method, "--subject", subject, "--body", body, "--", branch}
 	out, err := ghCombinedOutput(wt, args...)
 	if err != nil {
 		return fmt.Errorf("gh pr merge: %v\n%s", err, strings.TrimSpace(string(out)))
@@ -44,30 +44,33 @@ var ghMergePRBody = func(wt, branch, method, body string) error {
 // merge must pass body explicitly: the repo set `undercover = true` and the
 // method writes a commit body (a rebase writes none). A repo that never
 // asked merges exactly as before.
-func undercoverMerge(t *Target, method string) (body string, useBody bool, err error) {
+func undercoverMerge(t *Target, method string) (body, title string, useBody bool, err error) {
 	tells, on := undercover.Load(t.Worktree)
 	if !on {
-		return "", false, nil
+		return "", "", false, nil
 	}
 	if err := undercoverPRCommits(t, tells); err != nil {
-		return "", false, err
+		return "", "", false, err
 	}
 	if method == "rebase" {
-		return "", false, nil
+		return "", "", false, nil
 	}
 	title, raw, err := ghPRText(t.Worktree, t.Branch)
 	if err != nil {
-		return "", false, err
+		return "", "", false, err
+	}
+	if h, hit := tells.Text(title); hit {
+		return "", "", false, errors.New(undercover.TextRefusal("PR title", h))
 	}
 	kept, _ := undercover.StripFooter(raw, tells)
 	if h, hit := tells.Text(kept); hit {
-		return "", false, errors.New(undercover.TextRefusal("PR body", h))
+		return "", "", false, errors.New(undercover.TextRefusal("PR body", h))
 	}
 	if strings.TrimSpace(kept) == "" {
 		kept = title
 	}
 	base := "origin/" + resolveDefaultBranch(t.Worktree)
-	return withClosingTrailers(kept, commitMessagesSince(t.Worktree, base, "HEAD")), true, nil
+	return withClosingTrailers(kept, commitMessagesSince(t.Worktree, base, "HEAD")), title, true, nil
 }
 
 // missingCloses is every issue a lane commit closes that body does not, in

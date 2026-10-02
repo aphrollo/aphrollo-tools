@@ -174,3 +174,21 @@ func TestRunGatePrepush_PassesTheGuidanceFileInNamesAndMessages(t *testing.T) {
 		t.Fatalf("exit %d: %s", code, errb.String())
 	}
 }
+
+// The assigned-branch exemption is for a branch ref only: a tag carrying the
+// same name still reaches the remote with the tell in it.
+func TestRunGatePrepush_AssignedBranchPassesButATagOfThatNameDoesNot(t *testing.T) {
+	root := prepushRoot(t, true)
+	t.Setenv("CLAUDE_CODE_REMOTE", "true")
+	t.Setenv("APHROLLO_ASSIGNED_BRANCH", "claude/fix-login-8f3a")
+	oid := strings.Repeat("a", 40)
+	var errb bytes.Buffer
+	branch := "refs/heads/claude/fix-login-8f3a " + oid + " refs/heads/claude/fix-login-8f3a " + zeroOid + "\n"
+	if code := runGatePrepush(strings.NewReader(branch), &errb, root); code != 0 {
+		t.Fatalf("assigned branch refused: %s", errb.String())
+	}
+	tag := "refs/tags/claude/fix-login-8f3a " + oid + " refs/tags/claude/fix-login-8f3a " + zeroOid + "\n"
+	if code := runGatePrepush(strings.NewReader(tag), &errb, root); code == 0 {
+		t.Fatal("a tag named like the assigned branch passed")
+	}
+}

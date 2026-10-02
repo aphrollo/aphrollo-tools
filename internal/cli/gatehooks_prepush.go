@@ -34,7 +34,7 @@ func runGatePrepush(stdin io.Reader, stderr io.Writer, root string) int {
 			continue
 		}
 		for _, side := range []struct{ kind, ref string }{{"local ref", f[0]}, {"remote ref", f[2]}} {
-			name := strings.TrimPrefix(strings.TrimPrefix(side.ref, "refs/heads/"), "refs/tags/")
+			name := strings.TrimPrefix(side.ref, "refs/heads/")
 			if tell, hit := tells.RefName(name); hit {
 				fmt.Fprintln(stderr, "gate prepush: "+undercover.RefRefusal(side.kind, name, tell))
 				return 1

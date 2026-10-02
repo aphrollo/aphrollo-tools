@@ -51,7 +51,7 @@ func stubMergeUndercover(t *testing.T, title, body string) (plain *bool, withBod
 	stubSync(t, func(string, bool, io.Writer, io.Writer) error { return nil })
 	prevText, prevBody, prevGate, prevRetro := ghPRText, ghMergePRBody, premergeGate, postMergeRetro
 	ghPRText = func(wt, branch string) (string, string, error) { return title, body, nil }
-	ghMergePRBody = func(wt, branch, method, b string) error { *withBody = b; return nil }
+	ghMergePRBody = func(wt, branch, method, subject, b string) error { *withBody = b; return nil }
 	premergeGate = func(*Target, io.Writer) error { return nil }
 	postMergeRetro = func(string, string, string, int, io.Writer) {}
 	t.Cleanup(func() {
