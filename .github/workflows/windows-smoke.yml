@@ -23,6 +23,8 @@ jobs:
   smoke:
     if: github.event.pull_request.draft != true
     runs-on: windows-latest
+    permissions:
+      contents: read
     timeout-minutes: 10
     defaults:
       run:

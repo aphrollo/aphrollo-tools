@@ -515,6 +515,7 @@ memcap_box_unix.go                                 lock
 memcap_box_windows.go                              lock
 memcap_own_test.go                                 lock
 memcap_run.go                                      lock
+memcap_run_poll.go                                 lock
 memcap_run_own_test.go                             lock
 memcap_run_unix.go                                 lock
 memcap_run_unix_own_test.go                        lock
@@ -1065,6 +1066,7 @@ verdict_kinds_test.go                              suite
 verdict_test.go                                    precommit # prefix says suite; its test body reaches precommit
 weekly.go                                          escape
 weekly_test.go                                     escape
+windowssmoke_workflow_pin_test.go                 tdd
 winpath_test.go                                    install
 workspacecheck_test.go                             precommit
 worktree.go                                        postedit
