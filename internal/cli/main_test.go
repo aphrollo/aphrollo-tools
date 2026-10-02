@@ -41,7 +41,7 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, msg)
 		os.Exit(2)
 	}
-	dir, err := os.MkdirTemp("", "aphrollo-cli-pkgtest-")
+	dir, err := gitiso.MkRoot("aphrollo-cli-pkgtest-")
 	if err != nil {
 		panic(err)
 	}
@@ -99,7 +99,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	restoreRunners()
 	restoreLocks()
-	os.RemoveAll(dir)
+	gitiso.RemoveAll(dir)
 	stubDirsMu.Lock()
 	dirs := append([]string(nil), stubDirs...)
 	stubDirsMu.Unlock()

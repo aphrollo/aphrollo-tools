@@ -150,7 +150,7 @@ func Main(m *testing.M, s Seams) int {
 	if run == nil {
 		run = m.Run
 	}
-	dir, err := os.MkdirTemp("", "aphrollo-tdd-pkgtest-")
+	dir, err := gitiso.MkRoot("aphrollo-tdd-pkgtest-")
 	if err != nil {
 		panic(err)
 	}
@@ -260,7 +260,7 @@ func Main(m *testing.M, s Seams) int {
 	}
 	restoreRunners()
 	restoreLocks()
-	os.RemoveAll(dir)
+	gitiso.RemoveAll(dir)
 	return code
 }
 

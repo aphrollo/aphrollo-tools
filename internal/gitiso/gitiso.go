@@ -9,10 +9,12 @@ package gitiso
 import (
 	"cmp"
 	"encoding/json"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 )
@@ -23,7 +25,7 @@ import (
 // which keeps the call in TestMain's own text, where the test_main_exit law
 // looks for it.
 func Main(run func() int) int {
-	root, err := os.MkdirTemp("", "gi-")
+	root, err := MkRoot("aphrollo-gi-")
 	if err != nil {
 		panic(err)
 	}
@@ -31,8 +33,52 @@ func Main(run func() int) int {
 		panic(err)
 	}
 	code := run()
-	os.RemoveAll(root)
+	RemoveAll(root)
 	return code
+}
+
+// staleRoot is how old a root directory of a finished-or-killed run must be
+// before the next run of its family removes it. No test binary of this module
+// runs for anything near it.
+const staleRoot = 2 * time.Hour
+
+// MkRoot makes the root directory of a test binary's run under the temp dir,
+// named with prefix. A binary killed by a timeout or a signal never reaches
+// the removal at the end of its TestMain, so before making its own root it
+// removes the directories of the same family older than staleRoot: the temp
+// dir, RAM-backed on some boxes, does not fill up one killed run at a time.
+func MkRoot(prefix string) (string, error) {
+	tmp := os.TempDir()
+	if entries, err := os.ReadDir(tmp); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() || !strings.HasPrefix(e.Name(), prefix) {
+				continue
+			}
+			if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > staleRoot {
+				RemoveAll(filepath.Join(tmp, e.Name()))
+			}
+		}
+	}
+	return os.MkdirTemp(tmp, prefix)
+}
+
+// RemoveAll removes dir and everything under it, making read-only
+// directories writable first: a Go module cache is read-only, and so is a
+// directory a test took away its own write bit on, and os.RemoveAll leaves
+// either behind.
+func RemoveAll(dir string) {
+	_ = os.RemoveAll(dir)
+	// The tree is walked a second time only when the first pass left it.
+	if _, err := os.Lstat(dir); err != nil {
+		return
+	}
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if d != nil && d.IsDir() {
+			_ = os.Chmod(path, 0o700)
+		}
+		return nil
+	})
+	_ = os.RemoveAll(dir)
 }
 
 // homeLayout maps every variable a Go program, git, or a tool a test spawns
