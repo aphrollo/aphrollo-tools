@@ -468,6 +468,9 @@ lintlock.go                                        lock
 lintlock_test.go                                   lock
 lintworkflow_pin_test.go                           tdd
 livelockdir_guard_test.go                          lock
+localci.go                                          merge
+localci_summary_test.go                             merge
+localci_test.go                                     merge
 lockdir_test.go                                    lock
 lockgovernor_test.go                               lock
 lockowner_shared_unix_test.go                      mutation

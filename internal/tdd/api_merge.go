@@ -7,11 +7,19 @@ import (
 	io "io"
 )
 
+const CIAuto = merge.CIAuto
+
+const CIGithub = merge.CIGithub
+
+const CILocal = merge.CILocal
+
 const MergeQueueMerged = merge.MergeQueueMerged
 
 const MergeQueuePending = merge.MergeQueuePending
 
 const MergeQueueRefused = merge.MergeQueueRefused
+
+type LocalCIVerdict = merge.LocalCIVerdict
 
 type MergeQueuePR = merge.MergeQueuePR
 
@@ -27,7 +35,11 @@ func LoadMergeQueueRecord(p0 string) (*MergeQueueRecord, error) {
 	return merge.LoadMergeQueueRecord(p0)
 }
 
+func LocalCI(p0 string, p1 io.Writer) (LocalCIVerdict, error) { return merge.LocalCI(p0, p1) }
+
 func MergeQueueStoppedLine(p0 string) string { return merge.MergeQueueStoppedLine(p0) }
+
+func NormalizeCIMode(p0 string) (string, error) { return merge.NormalizeCIMode(p0) }
 
 func PostCommitMergeSweep(p0 string, p1 io.Writer, p2 io.Writer) []PrunedLane {
 	return merge.PostCommitMergeSweep(p0, p1, p2)
@@ -44,6 +56,8 @@ func PostMergeSweep(p0 string, p1 io.Writer, p2 io.Writer) []PrunedLane {
 func PruneMergedLanesAfterMerge(p0 string, p1 string, p2 io.Writer, p3 io.Writer) []PrunedLane {
 	return merge.PruneMergedLanesAfterMerge(p0, p1, p2, p3)
 }
+
+func ReadCIMode(p0 string) (string, error) { return merge.ReadCIMode(p0) }
 
 func RemoveMergeQueueRecord(p0 string) { merge.RemoveMergeQueueRecord(p0) }
 

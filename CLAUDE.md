@@ -73,6 +73,12 @@ like `systemctl` (no dry-run, no `--dry`).
 - `ci why` — read-only answer to "why is this run red?": resolves a PR's,
   a run id's or main's latest pipeline run through `gh` and prints each failed
   job with its failing tests, mutation survivors or infrastructure cause.
+- `ci run` — the one CI entry point: runs the repo's own `pull_request` GitHub
+  workflow(s) on this HEAD merged into trunk, in a throwaway worktree (`run:` steps
+  under bash, `uses:` steps listed and skipped, first matrix combination only, no
+  mutation). `workspace merge` runs it when `ci = local` (or `auto` and GitHub's
+  jobs never started); the verdict is a gate.log line keyed by the merge result's
+  tree, and a stored green for the same tree is reused.
 - `install` / `config` / `check` / `issue` / `update` / `version` — box setup
   (session hooks + git-hook shims in one run, and the opt-in feature table once
   per repo), that table on demand with the repo's values, read-only tree
@@ -119,6 +125,7 @@ internal/gitiso/     TestMain isolation every package's tests run under: no GIT_
 internal/rootseam/   per-worktree-root tables: the gate's stderr and the probes a test states, carried by root so the tests that use them run in parallel
 internal/dev/        dev-tier control plane (systemd)
 internal/ciwhy/      ci why: resolve a pipeline run through gh, summarise its failed jobs
+internal/ghworkflow/  a YAML-subset reader for .github/workflows and the runner behind ci run
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
 ```
 

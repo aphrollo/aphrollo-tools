@@ -111,18 +111,24 @@ var (
 
 // CIStatus is the resolved CI state for one commit: State is one of "green"
 // (all checks passed), "red" (at least one failed) or "pending" (still running,
-// or no check has started on the commit yet — NoRun). Failing is the count of
-// failed checks, surfaced in the blocked receipt. SHA is the commit judged.
+// or no check has started on the commit yet — NoRun) or "unavailable" (no
+// check failed, but hosted CI never started NotStarted of the jobs, #1064).
+// Failing is the count of failed checks, surfaced in the blocked receipt. SHA
+// is the commit judged.
 type CIStatus struct {
-	State   string // green | red | pending
-	Failing int
-	SHA     string
-	NoRun   bool // no check exists for SHA yet
+	State      string // green | red | pending | unavailable
+	Failing    int
+	NotStarted int
+	SHA        string
+	NoRun      bool // no check exists for SHA yet
 }
 
 // Word renders the state for a receipt line: a commit CI has not reached reads
 // "pending (no run yet for <sha>)", never the state of an earlier commit.
 func (c CIStatus) Word() string {
+	if c.State == "unavailable" {
+		return fmt.Sprintf("unavailable: %d job(s) not started on %s", c.NotStarted, short(c.SHA))
+	}
 	if c.NoRun {
 		return fmt.Sprintf("%s (no run yet for %s)", c.State, short(c.SHA))
 	}
@@ -145,7 +151,7 @@ var ghCIStatus = func(wt, sha string) (CIStatus, error) {
 	if err != nil {
 		return CIStatus{}, err
 	}
-	failing, pending, reached := 0, 0, false
+	failing, pending, notStarted, reached := 0, 0, 0, false
 	for _, r := range runs {
 		if r.SHA != sha {
 			continue
@@ -153,6 +159,10 @@ var ghCIStatus = func(wt, sha string) (CIStatus, error) {
 		reached = true
 		switch classifyCheckRun(r) {
 		case "fail":
+			if r.NotStarted {
+				notStarted++
+				continue
+			}
 			failing++
 		case "pending":
 			pending++
@@ -165,6 +175,8 @@ var ghCIStatus = func(wt, sha string) (CIStatus, error) {
 		return CIStatus{State: "red", Failing: failing, SHA: sha}, nil
 	case pending > 0:
 		return CIStatus{State: "pending", SHA: sha}, nil
+	case notStarted > 0:
+		return CIStatus{State: "unavailable", NotStarted: notStarted, SHA: sha}, nil
 	default:
 		return CIStatus{State: "green", SHA: sha}, nil
 	}

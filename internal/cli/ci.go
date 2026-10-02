@@ -13,7 +13,17 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/ciwhy"
 )
 
-const ciUsage = `usage: aphrollo ci why [<pr>|<run-id>|--main] [--workflow NAME] [--raw]
+const ciUsage = `usage: aphrollo ci run [--dry]
+       aphrollo ci why [<pr>|<run-id>|--main] [--workflow NAME] [--raw]
+
+ci run is the one CI entry point: it runs the repo's own GitHub workflow(s)
+that run on pull_request, in a throwaway worktree of this checkout's HEAD
+merged into trunk. Every job's run: steps execute in needs order under bash
+(Git Bash on Windows); uses: steps are not executed and are printed by name;
+a matrix runs its first combination only, and the output says so. A job with
+services or a container is skipped and named. Mutation is not run. A green is
+stored per merge-result tree and reused. --dry prints the plan and runs
+nothing.
 
 Explains why a pipeline run is red, read-only: one line per failed job, then
 its failing Go tests with their assertion lines, its mutation survivors,
@@ -57,6 +67,9 @@ func runCI(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
 		fmt.Fprint(stdout, ciUsage)
 		return 0
+	}
+	if len(args) > 0 && args[0] == "run" {
+		return runCIRun(args[1:], stdout, stderr)
 	}
 	if len(args) == 0 || args[0] != "why" {
 		fmt.Fprint(stderr, ciUsage)
