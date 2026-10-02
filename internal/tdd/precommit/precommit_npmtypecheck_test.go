@@ -138,7 +138,7 @@ func TestNpmTypecheck_AphrolloTomlDeclaresTheRootsTypecheckAndLint(t *testing.T)
 		"web/package.json":  `{"name": "web", "scripts": {"check": "tsc --noEmit"}}`,
 		"web/tsconfig.json": plainTsconfig,
 	})
-	root := repo + "/web"
+	root := filepath.Join(repo, "web")
 	installFakePackage(t, root, "@vue/typecheck", "vue-tsc", "")
 	installFakePackage(t, root, "typescript", "tsc", "")
 	installFakePackage(t, root, "eslint", "eslint", "")

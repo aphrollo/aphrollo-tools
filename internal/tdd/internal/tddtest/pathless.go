@@ -43,5 +43,8 @@ func VerdictWordTmp(t testing.TB) {
 // judges what the code printed and never the text of the path it ran under.
 func Pathless(t testing.TB, out string) string {
 	t.Helper()
-	return strings.ReplaceAll(out, filepath.Dir(t.TempDir()), "<tmp>")
+	tree := filepath.Dir(t.TempDir())
+	// A gate line spells one path both ways on Windows: as the OS does, and
+	// with forward slashes in the command it suggests running.
+	return strings.ReplaceAll(strings.ReplaceAll(out, tree, "<tmp>"), filepath.ToSlash(tree), "<tmp>")
 }

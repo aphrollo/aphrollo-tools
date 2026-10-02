@@ -101,6 +101,15 @@ func mustInitRepo(dir string) {
 		{"config", "user.email", "t@t"},
 		{"config", "user.name", "t"},
 		{"config", "commit.gpgsign", "false"},
+		// The code under test runs git with every GIT_* variable stripped, so the
+		// box's system config reaches it whatever this harness pointed
+		// GIT_CONFIG_SYSTEM at: on Windows that is core.autocrlf=true, which
+		// rewrites a fixture's files to CRLF and leaves a merge --abort
+		// "not uptodate", and init.defaultBranch=master, which makes the trunk
+		// resolve to a branch these fixtures never made. The repo's own config
+		// outranks it.
+		{"config", "core.autocrlf", "false"},
+		{"config", "init.defaultBranch", "main"},
 	} {
 		mustGit(dir, args...)
 	}
@@ -255,7 +264,7 @@ func IsolateGitConfig(t *testing.T) string {
 		t.Fatal(err)
 	}
 	t.Setenv("GIT_CONFIG_GLOBAL", gc)
-	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
 	// CLAUDE_CONFIG_DIR is deliberately left alone here: Main already
 	// isolates the whole package from the operator's real ~/.claude, and a
 	// caller that also builds a git-hosting FIXTURE through this helper (

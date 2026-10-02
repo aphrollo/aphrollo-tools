@@ -3,6 +3,7 @@ package tdd
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 func TestDefaultCargoShimDir_NonWindows_IsPerUserDataDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	got := DefaultCargoShimDir("/opt/aphrollo-cli/releases/20260101-abcdef/aphrollo", "linux")
 	want := filepath.Join(home, ".local", "share", "aphrollo", "cargo-queue")
 	if got != want {
@@ -55,6 +57,7 @@ func TestShimCommandName_AppendsExeOnWindowsOnly(t *testing.T) {
 func TestShimBypassLine_SilentWhenShimNeverInstalled(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	restore := SetShimBypassLookPathForTest(func(string) (string, error) {
 		return "/usr/bin/git", nil
 	})
@@ -71,7 +74,9 @@ func TestShimBypassLine_SilentWhenShimNeverInstalled(t *testing.T) {
 func TestShimBypassLine_WarnsWhenLookPathEscapesTheShimDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	shimDir := filepath.Join(home, ".local", "share", "aphrollo", "cargo-queue")
+	t.Setenv("USERPROFILE", home)
+	bin := filepath.Join(home, "bin", "aphrollo")
+	shimDir := DefaultCargoShimDir(bin, runtime.GOOS) // beside bin on Windows, under home elsewhere
 	if err := os.MkdirAll(shimDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -79,14 +84,14 @@ func TestShimBypassLine_WarnsWhenLookPathEscapesTheShimDir(t *testing.T) {
 		t.Fatal(err)
 	}
 	restore := SetShimBypassLookPathForTest(func(name string) (string, error) {
-		if name == "cargo" {
+		if strings.TrimSuffix(name, ".exe") == "cargo" { // Windows asks for cargo.exe
 			return "/usr/bin/cargo", nil
 		}
 		return filepath.Join(shimDir, name), nil
 	})
 	defer restore()
 
-	line := ShimBypassLine("/opt/aphrollo/aphrollo")
+	line := ShimBypassLine(bin)
 	if line == "" {
 		t.Fatal("expected a warning when cargo resolves outside the installed shim dir")
 	}
@@ -105,7 +110,9 @@ func TestShimBypassLine_WarnsWhenLookPathEscapesTheShimDir(t *testing.T) {
 func TestShimBypassLine_SilentWhenBothResolveInsideTheShimDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	shimDir := filepath.Join(home, ".local", "share", "aphrollo", "cargo-queue")
+	t.Setenv("USERPROFILE", home)
+	bin := filepath.Join(home, "bin", "aphrollo")
+	shimDir := DefaultCargoShimDir(bin, runtime.GOOS) // beside bin on Windows, under home elsewhere
 	if err := os.MkdirAll(shimDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

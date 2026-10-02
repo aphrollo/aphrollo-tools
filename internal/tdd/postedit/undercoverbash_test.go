@@ -66,7 +66,7 @@ func TestUndercoverBashDecision_RefusesTellTextForAPROrIssue(t *testing.T) {
 		`gh pr create --title=t --body="ran under opus-5"`,
 		"gh pr create --title t --body-file body.md",
 		"gh pr create -t t -F body.md",
-		"gh pr create --title t --body-file=" + filepath.Join(dir, "body.md"),
+		"gh pr create --title t --body-file=" + filepath.ToSlash(filepath.Join(dir, "body.md")),
 		`gh pr edit 7 --body "sonnet-4 wrote it"`,
 		`gh pr comment 7 --body "` + bashTellFooter + `"`,
 		`gh pr review 7 --approve -b "anthropic tooling"`,

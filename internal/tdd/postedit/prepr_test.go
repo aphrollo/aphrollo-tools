@@ -174,7 +174,7 @@ func TestDirectPROpenDecision_RefusesACreatePullRequestMutation(t *testing.T) {
 		"gh api graphql -f query='mutation($i: CreatePullRequestInput!) { pr: createPullRequest (input: $i) { clientMutationId } }' -f i=x",
 		"gh api graphql -F query=@q.graphql",
 		"gh api graphql --field=query=@q.graphql",
-		"gh api graphql -F query=@" + filepath.Join(dir, "q.graphql"),
+		"gh api graphql -F query=@" + filepath.ToSlash(filepath.Join(dir, "q.graphql")),
 	} {
 		got := DirectPROpenDecision(bashPayload(t, "s", dir, cmd))
 		if got.Action != Block {

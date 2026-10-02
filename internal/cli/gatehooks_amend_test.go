@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/shfake"
 )
 
 // Issue #749, borld lane/coast-drag: a merge of main into the lane ran the
@@ -103,11 +103,8 @@ func fakeCleanGolangciLint(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "ran")
-	script := filepath.Join(dir, "golangci-lint")
-	body := "#!/bin/sh\ntouch " + marker + "\nexit 0\n"
-	if err := proc.WriteExecutable(script, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	body := "#!/bin/sh\ntouch '" + filepath.ToSlash(marker) + "'\nexit 0\n"
+	shfake.Install(t, dir, "golangci-lint", body)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return marker
 }

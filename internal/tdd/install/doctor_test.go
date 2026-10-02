@@ -44,7 +44,7 @@ func healthyInstall(t *testing.T) DoctorInput {
 	if _, err := InstallGitShim(shim, bin); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := InitSettingsEnvPath(cfg, shim, []string{shim, binDir}, ":", false); err != nil {
+	if _, err := InitSettingsEnvPath(cfg, shim, []string{shim, binDir}, envPathSep(hookGOOSFn()), false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := installShimExes(shim, bin, doctorShimExeNames()); err != nil {
