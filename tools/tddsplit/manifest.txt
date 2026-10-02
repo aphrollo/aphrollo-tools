@@ -35,6 +35,7 @@ root internal/tdd
 shell     L0   internal/tdd/shell
 gitx      L0   internal/tdd/gitx
 core      L1   internal/tdd/core
+commitrecord L2 internal/tdd/commitrecord
 lock      L2   internal/tdd/lock
 suite     L3   internal/tdd/suite
 smell     L4   internal/tdd/smell
@@ -202,6 +203,8 @@ commitmsg_test.go                                  merge
 commitmsg_verify.go                                merge
 commitmsg_verify_test.go                           merge
 commitowed_test.go                                 precommit
+commitrecord.go                                     commitrecord
+commitrecord_test.go                                commitrecord
 config_git_own_test.go                             suite
 data.go                                            tddtest
 deferred.go                                        postedit

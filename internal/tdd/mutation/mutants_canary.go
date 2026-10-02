@@ -8,6 +8,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/commitrecord"
+	gitx "github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // The canary. A mutation runner starts test processes, and a test that reaches
@@ -30,6 +33,9 @@ type gitWorldPart struct {
 	// fetched when it was read (originBehind, originAhead, originApart), and ""
 	// for every other part and when there is no origin/main.
 	Origin string
+	// Repo is, for the checked-out commit, the checkout it was read in, so the
+	// commits a move passed over can be looked up; "" for every other part.
+	Repo string
 }
 
 // gitWorld is everything the canary watches, in a fixed order.
@@ -62,7 +68,7 @@ func snapshotGitWorld(root string) gitWorld {
 		w = append(w, gitWorldPart{Label: "the worktree registrations", Present: true, Text: registrations})
 		w = append(w, gitWorldPart{Label: worktreeHeadsLabel, Present: true, Text: heads})
 		w = append(w, gitWorldPart{Label: "the branches", Present: true, Text: withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads"))})
-		w = append(w, gitWorldPart{Label: "the checked-out commit", Present: true, Text: strings.TrimSpace(gitOut(lane, "rev-parse", "HEAD"))})
+		w = append(w, gitWorldPart{Label: checkedOutLabel, Present: true, Text: strings.TrimSpace(gitOut(lane, "rev-parse", "HEAD")), Repo: lane})
 		tip := strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/heads/main"))
 		log := strings.TrimSuffix(gitOut(lane, "log", "-g", "-n", strconv.Itoa(reflogWindow), "--format=%gs", "refs/heads/main"), "\n")
 		w = append(w, gitWorldPart{Label: tipOfMainLabel, Present: true, Text: tip + "\n" + log, Origin: mainOriginRelation(lane, tip)})
@@ -119,7 +125,31 @@ func worktreeFacts(porcelain string) (registrations, heads string) {
 const (
 	worktreeHeadsLabel = "the worktree HEADs"
 	tipOfMainLabel     = "the tip of main"
+	checkedOutLabel    = "the checked-out commit"
 )
+
+// ownerCommitted reports whether the checked-out commit moved from was to now
+// only by commits made through the real commit path: now descends from was,
+// and every commit on now's first-parent line above was has a record written by
+// the post-commit hook (commitrecord). A commit a test process leaked never ran
+// that hook, so it has none, whatever identity it committed under; a reset, a
+// move to a commit that is not a descendant, and a move with nothing in between
+// are not owner commits either. Commits a merge brought in from another line
+// are not followed: the merge commit is the owner's, and they are not.
+func ownerCommitted(was, now gitWorldPart) bool {
+	if was.Repo == "" || was.Text == "" || now.Text == "" || was.Text == now.Text {
+		return false
+	}
+	if _, err := gitx.Git(now.Repo, "merge-base", "--is-ancestor", was.Text, now.Text); err != nil {
+		return false
+	}
+	between := strings.Fields(gitOut(now.Repo, "rev-list", "--first-parent", was.Text+".."+now.Text))
+	if len(between) == 0 {
+		return false
+	}
+	recorded := commitrecord.Recorded(now.Repo)
+	return !slices.ContainsFunc(between, func(sha string) bool { return !recorded[sha] })
+}
 
 // withoutLaneBranches is a list of branch refs, one per line, without the
 // lane/* ones: a lane is made and pruned with its branch through any run.
@@ -340,6 +370,9 @@ func (w gitWorld) changesTo(after gitWorld) []string {
 			was.Text, now.Text = sharedWorktreeHeads(was.Text, now.Text)
 		}
 		if was.Label == tipOfMainLabel && !mainMoveCounts(was, now) {
+			continue
+		}
+		if was.Label == checkedOutLabel && ownerCommitted(was, now) {
 			continue
 		}
 		if was.Label != now.Label || (was.Present == now.Present && was.Text == now.Text) {
