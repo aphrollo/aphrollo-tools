@@ -27,7 +27,7 @@ func launchCapped(cmd *exec.Cmd, c MemCap) (CapResult, error) {
 		res.Mode = "none"
 		return res, cmd.Run()
 	}
-	defer windows.CloseHandle(job)
+	defer func() { _ = windows.CloseHandle(job) }() // best effort: the run is over, and a leaked handle dies with the process
 	limit := uintptr(c.MB) << 20
 	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
 	info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_JOB_MEMORY
