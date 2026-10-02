@@ -225,8 +225,16 @@ func RunPhase(jobPath string) int {
 		break
 	}
 	out := PhaseOutcome{ExitCode: code, Seconds: time.Since(start).Seconds()}
-	if killedByCap.Killed {
+	switch {
+	case killedByCap.Killed:
 		out.Inconclusive = killedByCap.Line()
+	case code != 0:
+		// A command that never started, or a shell that could not find one,
+		// ran nothing: it reports as inconclusive, not as the red an exit
+		// status and an empty log would read as.
+		out.Inconclusive = StartFailure(err, j.Runner[0], func() string { return deferredLog(j) }, os.Getenv("PATH"))
+	}
+	if out.Inconclusive != "" {
 		fmt.Fprintf(log, "aphrollo: %s\n", out.Inconclusive)
 	}
 	writePhaseResult(j.Result, out)

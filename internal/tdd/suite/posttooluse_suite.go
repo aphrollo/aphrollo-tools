@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -166,6 +167,11 @@ func runSuiteOnce(timeout time.Duration) SuiteRunner {
 			// kill's doing, so it is inconclusive, never red and never a
 			// timeout.
 			res.Passed, res.TimedOut, res.Inconclusive = false, true, capped.Line()
+		}
+		if why := StartFailure(err, r.Cmd, func() string { return outputText }, os.Getenv("PATH")); why != "" {
+			// The command never started, or a shell around it could not find
+			// one: nothing ran that could have failed, so this is no red.
+			res.Passed, res.TimedOut, res.Inconclusive = false, true, why
 		}
 		return res
 	}

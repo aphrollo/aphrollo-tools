@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -286,5 +288,148 @@ func TestInitSettingsEnvPath_UninstallMissingIsNoop(t *testing.T) {
 	}
 	if changed {
 		t.Error("expected changed=false uninstalling a missing settings.json")
+	}
+}
+
+// Every entry appears once, at its first position: an install that merges the
+// existing env.PATH with the installing process's PATH meets the same
+// directory twice, and a PATH that grows by a copy per install is never
+// settled. An empty entry (a stray "::") is no directory and is not carried.
+func TestBuildEnvPath_KeepsEachEntryOnceAtItsFirstPosition(t *testing.T) {
+	t.Parallel()
+	got := BuildEnvPath(shimDirForTest, []string{"/usr/bin", "/opt/a", "", "/usr/bin/", "/opt/a", "/bin"}, ":")
+	want := shimDirForTest + ":/usr/bin:/opt/a:/bin"
+	if got != want {
+		t.Errorf("BuildEnvPath = %q, want %q", got, want)
+	}
+}
+
+// The installing process may run with a minimal PATH (a provisioning tool's
+// non-login shell): what the install wrote before must survive it. Dropping
+// ~/.local/go/bin here is what left every agent hook unable to start `go`.
+func TestInitSettingsEnvPath_AShrunkenInstallPathKeepsTheExistingEntries(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	prior := shimDirForTest + ":/home/x/.local/go/bin:/home/x/.local/bin:/home/x/.cargo/bin:/usr/bin"
+	seed := []byte(`{"env": {"PATH": "` + prior + `", "DISABLE_AUTO_COMPACT": "1"}}`)
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), seed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := InitSettingsEnvPath(dir, shimDirForTest, []string{"/usr/local/sbin", "/usr/bin", "/bin"}, ":", false); err != nil {
+		t.Fatalf("InitSettingsEnvPath: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := envAt(t, data)
+	got, _ := env["PATH"].(string)
+	// The well-known toolchain dirs that exist on the machine running this
+	// test follow the union, so the union is judged as a prefix.
+	want := shimDirForTest + ":/home/x/.local/go/bin:/home/x/.local/bin:/home/x/.cargo/bin:/usr/bin:/usr/local/sbin:/bin"
+	if !strings.HasPrefix(got, want) {
+		t.Errorf("env.PATH = %q, want it to start with %q", got, want)
+	}
+	if env["DISABLE_AUTO_COMPACT"] != "1" {
+		t.Errorf("dropped foreign env key DISABLE_AUTO_COMPACT\n%s", data)
+	}
+}
+
+// An install adds the per-user toolchain dirs that are really on the machine,
+// after everything it already carries, so a PATH built by a process that never
+// saw them still reaches go, cargo and node.
+func TestInitSettingsEnvPath_AddsTheToolchainDirsThatExistAfterTheUnion(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	goBin := filepath.Join(home, ".local", "go", "bin")
+	if err := os.MkdirAll(goBin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(goBin, "go.exe"), []byte("go"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	emptyCargo := filepath.Join(home, ".cargo", "bin")
+	if err := os.MkdirAll(emptyCargo, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+
+	if _, err := InitSettingsEnvPath(dir, shimDirForTest, []string{"/usr/bin"}, ":", false); err != nil {
+		t.Fatalf("InitSettingsEnvPath: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Split(envAt(t, data)["PATH"].(string), ":")
+	if goAt, usrAt := slices.Index(got, goBin), slices.Index(got, "/usr/bin"); goAt < 0 || goAt < usrAt {
+		t.Errorf("env.PATH = %q, want %s after /usr/bin", got, goBin)
+	}
+	if slices.Contains(got, emptyCargo) {
+		t.Errorf("env.PATH = %q names %s, which holds no executable", got, emptyCargo)
+	}
+}
+
+func TestToolchainDirCandidates_NameTheWellKnownDirs(t *testing.T) {
+	t.Parallel()
+	home := filepath.Join(string(filepath.Separator), "h")
+	want := []string{
+		filepath.Join(home, ".local", "go", "bin"),
+		filepath.Join(home, "go", "bin"),
+		filepath.Join(home, ".cargo", "bin"),
+		filepath.Join(home, ".local", "bin"),
+		"/usr/local/go/bin",
+	}
+	if got := toolchainDirCandidates(home); !slices.Equal(got, want) {
+		t.Errorf("toolchainDirCandidates = %q, want %q", got, want)
+	}
+	// With no home to anchor them the per-user dirs are not guessed at as
+	// relative paths: only the machine-wide one remains.
+	if got := toolchainDirCandidates(""); !slices.Equal(got, []string{"/usr/local/go/bin"}) {
+		t.Errorf("toolchainDirCandidates(\"\") = %q, want only /usr/local/go/bin", got)
+	}
+}
+
+func TestDirsWithExecutable_KeepsOnlyTheDirsHoldingOne(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	withTool := filepath.Join(root, "with")
+	empty := filepath.Join(root, "empty")
+	missing := filepath.Join(root, "missing")
+	for _, d := range []string{withTool, empty} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(withTool, "tool.exe"), []byte("x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got := dirsWithExecutable([]string{missing, empty, withTool})
+	if !slices.Equal(got, []string{withTool}) {
+		t.Errorf("dirsWithExecutable = %q, want only %q", got, withTool)
+	}
+}
+
+// A settings.json that is not JSON is the operator's file to repair: an
+// install reports it and writes nothing over it.
+func TestInitSettingsEnvPath_AMalformedSettingsFileIsRefusedAndLeftAlone(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := InitSettingsEnvPath(dir, shimDirForTest, []string{"/usr/bin"}, ":", false)
+
+	if err == nil || changed {
+		t.Fatalf("InitSettingsEnvPath = (%v, %v), want an error and no change", changed, err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != "{not json" {
+		t.Errorf("settings.json = %q, want it left as it was", got)
 	}
 }
