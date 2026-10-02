@@ -433,6 +433,8 @@ gitbin_test.go                                     gitx
 gitgate.go                                         install
 gitgate_core.go                                    core      # created by P2
 gitgate_test.go                                    install
+gitpathlimit_other.go                              core
+gitpathlimit_windows.go                            core
 gitplumbing.go                                     gitx
 gitplumbing_stdout_test.go                         gitx
 gitspawn_test.go                                    gitx

@@ -44,12 +44,27 @@ func writeGateOrigin(dir, root string) {
 // workspace crates every time even with a warm CARGO_TARGET_DIR. "" when
 // there is no state dir (the caller then falls back to a temp dir).
 func gateWorktreeDir(repoRoot string) string {
+	return gateWorktreeDirWithin(repoRoot, gitCheckoutPathLimit())
+}
+
+// gateWorktreeDirWithin is gateWorktreeDir for a path of at most limit
+// characters (no bound when limit is 0). A state dir that would put the
+// checkout past the limit, a long Claude config dir or a test run's deep temp
+// dir, gets the same stable per-repo name under the temp dir instead, spelled
+// the way the temp checkout of addGateWorktree is so the mutation canary reads
+// it as the gate's own. A checkout git refuses to make is no checkout, and the
+// fail-first proof that needs it would not run.
+func gateWorktreeDirWithin(repoRoot string, limit int) string {
 	base := StateDir()
 	if base == "" {
 		return ""
 	}
 	sum := sha256.Sum256([]byte(repoRoot))
-	dir := filepath.Join(base, "failfirst-wt", hex.EncodeToString(sum[:8]))
+	id := hex.EncodeToString(sum[:8])
+	dir := filepath.Join(base, "failfirst-wt", id)
+	if limit > 0 && len(dir) > limit {
+		dir = filepath.Join(os.TempDir(), "gate-failfirst-"+id)
+	}
 	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
 		return ""
 	}
@@ -70,9 +85,12 @@ func addGateWorktree(repoRoot string) (string, error) {
 	} else if err := clearGateWorktree(repoRoot, wt); err != nil {
 		return "", fmt.Errorf("the gate checkout %s from an earlier run is still there: %v; remove that link by hand (it points into an install that must not be deleted), then run again", wt, err)
 	}
-	if _, err := git(repoRoot, "worktree", "add", "--detach", wt, "HEAD"); err != nil {
+	if out, err := git(repoRoot, "worktree", "add", "--detach", wt, "HEAD"); err != nil {
 		_ = depinstall.RemoveTree(wt)
-		return "", err
+		// git's own words ride along: the bare exit status ("exit status 128")
+		// leaves the one who has to fix the cause guessing at it.
+		said := strings.Join(strings.Fields(out), " ")
+		return "", fmt.Errorf("git worktree add --detach %s HEAD: %s", wt, strings.TrimSpace(said+" ("+err.Error()+")"))
 	}
 	return wt, nil
 }

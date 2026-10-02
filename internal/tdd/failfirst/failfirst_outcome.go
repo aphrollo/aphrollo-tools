@@ -33,6 +33,11 @@ type failFirstOutcome struct {
 	// npm root's test tool is not installed or node is not on PATH (#904), or
 	// a pytest root has no interpreter that imports pytest.
 	notRunnable string
+	// worktreeFailed is why the proof's checkout of HEAD could not be made,
+	// in git's own words: a path past what git accepts, a full disk, a lock.
+	// The proof measured nothing, and the stage says so rather than letting
+	// the commit pass unremarked.
+	worktreeFailed string
 	// inconclusive is why an over-budget stand-down was not a timeout: the
 	// memory cap ended the run, or the box had none to start it.
 	inconclusive string
