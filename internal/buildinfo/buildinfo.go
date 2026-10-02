@@ -1,10 +1,28 @@
 // Package buildinfo holds the commit and build time the linker stamps into
-// the binary via -ldflags -X. It imports nothing from this module: later
-// packages (tdd's update verb, a session-start behind-notice) need to read
-// the stamp without pulling in the rest of the CLI.
+// the binary via -ldflags -X, and the semantic version the source carries. It
+// imports nothing from this module: later packages (tdd's update verb, a
+// session-start behind-notice) need to read the stamp without pulling in the
+// rest of the CLI.
 package buildinfo
 
-import "testing"
+import (
+	_ "embed"
+	"strings"
+	"testing"
+)
+
+// versionFile is the one place the semantic version lives: VERSION, beside
+// this file, compiled into every build. Its bump rule and its changelog
+// section are enforced by `aphrollo version check` (internal/compat).
+//
+//go:embed VERSION
+var versionFile string
+
+// Version is the semantic version this binary was built at, MAJOR.MINOR.PATCH.
+// Unlike the stamp it is present in a build made by hand with no linker flags.
+func Version() string {
+	return strings.TrimSpace(versionFile)
+}
 
 // commit and builtAt are set by the linker (see internal/cli/selfinstall.go's
 // buildArgs), never assigned at runtime outside SetForTest.

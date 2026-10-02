@@ -20,9 +20,20 @@ maps the verbs.
 go build -o aphrollo ./cmd/aphrollo   # then put it on PATH
 aphrollo install                      # session hooks, git gate, skills, agents, queue shims
 aphrollo install --managed-block-only --repo <lane>   # re-render only the CLAUDE.md block (no hooks, no shims)
-aphrollo version                      # stamped commit and build time
+aphrollo version                      # semantic version, then the stamped commit and build time
 aphrollo update                       # rebuild from origin/main and swap it in
 ```
+
+The version lives in `internal/buildinfo/VERSION`, and `CHANGELOG.md` says per
+version what a consumer will notice. A repo declares the oldest binary it
+accepts with `requires = ">=1.4"` under `[aphrollo]` in `aphrollo.toml` (under
+`[workspace.metadata.aphrollo]` in a Cargo workspace's manifest). An older
+binary does not judge that repo: a hook prints one line naming the version
+needed and `aphrollo update`, and lets the edit or commit through; a verb that
+writes repo state or judges the tree by its laws (`ratchet`, `check`, `docs`,
+`sqlc`, `install`, `workspace` bar `list`, and the like) refuses with exit 1 and
+the same line. `aphrollo version check --base <ref> --body-file <file>` holds a
+change to the version rule in this repo's CI.
 
 `refactor`, `find`, `outline` and `show` need the language server on PATH:
 `gopls`, `rust-analyzer`, `pyright-langserver` or `typescript-language-server`.
