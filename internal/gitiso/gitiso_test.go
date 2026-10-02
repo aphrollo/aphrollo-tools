@@ -99,6 +99,16 @@ func TestIsolate_PutsTheGitConfigTempDirAndHomeUnderTheRunsRoot(t *testing.T) {
 	}
 }
 
+// Nested temp roots (a probe that runs a whole test binary inside a test's own
+// temp dir, under a gate checkout) pass Windows' 260-character limit, and git
+// refuses a longer path unless it is told to take it: "Filename too long".
+func TestIsolate_TellsGitToTakeLongPaths(t *testing.T) {
+	out, err := exec.Command("git", "config", "--global", "--get", "core.longpaths").Output() // stderr-ok: the value is asserted below
+	if err != nil || strings.TrimSpace(string(out)) != "true" {
+		t.Fatalf("git config --global core.longpaths = %q (%v), want true", out, err)
+	}
+}
+
 // The run started in a checkout, so the checkout's root is a ceiling too:
 // git run from the package directory cannot walk up into it.
 func TestIsolate_NamesTheCheckoutTheRunStartedInAsACeiling(t *testing.T) {

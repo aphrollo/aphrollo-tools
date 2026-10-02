@@ -92,7 +92,7 @@ func VerifyNoLeak(t *testing.T, probe string) {
 	}{{"hook environment", true}, {"repository around the run", false}} {
 		t.Run(scenario.name, func(t *testing.T) {
 			victim := makeVictim(t)
-			hostileHome := t.TempDir()
+			hostileHome := shortTempDir(t)
 			hostileGlobal := filepath.Join(hostileHome, ".gitconfig")
 			if err := os.WriteFile(hostileGlobal, []byte("[user]\n\tname = Real Person\n"), 0o644); err != nil {
 				t.Fatal(err)
@@ -106,7 +106,7 @@ func VerifyNoLeak(t *testing.T, probe string) {
 			env := hostileEnv(hostileHome, victim, scenario.hook)
 			dir := filepath.Join(victim, "pkg")
 			if scenario.hook {
-				dir = t.TempDir()
+				dir = shortTempDir(t)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 			defer cancel()
@@ -127,11 +127,25 @@ func VerifyNoLeak(t *testing.T, probe string) {
 	}
 }
 
+// shortTempDir is t.TempDir without the test's name in the path. The child run
+// nests its own temp root under the victim, and each t.TempDir level carries
+// the full test and subtest name, which on Windows pushes the probe's
+// repositories past MAX_PATH ("Filename too long").
+func shortTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "v")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
 // makeVictim is a repository with a commit and a package directory, standing in
 // for the checkout a test binary is started inside.
 func makeVictim(t *testing.T) string {
 	t.Helper()
-	victim := t.TempDir()
+	victim := shortTempDir(t)
 	if err := os.MkdirAll(filepath.Join(victim, "pkg"), 0o755); err != nil {
 		t.Fatal(err)
 	}
