@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/aphrollo/aphrollo-tools/internal/commitrecord"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -34,6 +35,9 @@ func runPostCommit(stdout, stderr io.Writer) int {
 	if root == "" {
 		return 0
 	}
+	// First, and cheap (one git call, one append): the canary's record of every
+	// commit made through this path. It fails open.
+	commitrecord.Record(root)
 	tdd.PostCommit(root)
 	// The guarded lane sweep's second path (issue #716): a lane landed by
 	// resolving a conflict and concluding with a plain `git commit` never
