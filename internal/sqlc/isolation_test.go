@@ -1,6 +1,7 @@
 package sqlc
 
 import (
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -22,7 +23,9 @@ func TestFixtureGit_RunsNoneOfThisBoxsInstalledHooks(t *testing.T) {
 	// --get exits 1 when the key is set nowhere, which is the answer this
 	// test wants; only the VALUE decides the verdict.
 	out, _ := exec.Command("git", "-C", repo, "config", "--get", "core.hooksPath").Output()
-	if got := strings.TrimSpace(string(out)); got != "" {
+	got := strings.TrimSpace(string(out))
+	// The isolation points it at an empty directory, which runs no hook at all.
+	if entries, err := os.ReadDir(got); got != "" && (err != nil || len(entries) != 0) {
 		t.Fatalf("a fixture repo resolves core.hooksPath = %q, so every fixture commit runs the box's real gate and writes its verdict to the real gate.log", got)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -167,6 +168,7 @@ func shellSlash(p string) string { return strings.ReplaceAll(p, `\`, "/") }
 // shim's recovery side.
 func installMarkerWritingHook(t *testing.T, repo, markerPath string) {
 	t.Helper()
+	gitenv.AllowRepoHooks(t.Setenv) // the hook planted below is the test's subject
 	hooksDir := filepath.Join(repo, ".git", "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		t.Fatal(err)
@@ -227,6 +229,7 @@ func makeAbortFailingMergeRepo(t *testing.T) (repo, branch, filePath string) {
 // change: "error: Entry '<path>' not uptodate. Cannot merge."
 func installMarkerWritingHookThatCorruptsFile(t *testing.T, repo, markerPath, targetFile string) {
 	t.Helper()
+	gitenv.AllowRepoHooks(t.Setenv) // the hook planted below is the test's subject
 	hooksDir := filepath.Join(repo, ".git", "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		t.Fatal(err)

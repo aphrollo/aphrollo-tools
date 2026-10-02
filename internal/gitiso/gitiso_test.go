@@ -94,8 +94,8 @@ func TestIsolate_PutsTheGitConfigTempDirAndHomeUnderTheRunsRoot(t *testing.T) {
 	if got := os.Getenv("GIT_CEILING_DIRECTORIES"); !strings.Contains(got, root) {
 		t.Errorf("GIT_CEILING_DIRECTORIES = %q, want it to name the run's root %q", got, root)
 	}
-	if got := os.Getenv("GIT_CONFIG_COUNT"); got != "3" {
-		t.Errorf("GIT_CONFIG_COUNT = %q, want 3: auto maintenance switched off", got)
+	if got := os.Getenv("GIT_CONFIG_COUNT"); got != "4" {
+		t.Errorf("GIT_CONFIG_COUNT = %q, want 4: auto maintenance off and the repo hooks off", got)
 	}
 }
 
@@ -368,4 +368,16 @@ func envMap(env []string) map[string]string {
 		}
 	}
 	return m
+}
+
+// A leaked commit must run no hook of the repo it lands in, and write no gate
+// state under the operator's config dir: both are named by the isolation.
+func TestIsolate_SendsHooksAndTheGateStateToTheRunsRoot(t *testing.T) {
+	root := filepath.Dir(os.Getenv("HOME"))
+	if v := os.Getenv("CLAUDE_CONFIG_DIR"); v == "" || !inside(root, v) {
+		t.Errorf("CLAUDE_CONFIG_DIR = %q, want a path under the run's root %q", v, root)
+	}
+	if os.Getenv("GIT_CONFIG_KEY_3") != "core.hooksPath" || !inside(root, os.Getenv("GIT_CONFIG_VALUE_3")) {
+		t.Errorf("core.hooksPath = %q = %q, want an empty dir under the run's root", os.Getenv("GIT_CONFIG_KEY_3"), os.Getenv("GIT_CONFIG_VALUE_3"))
+	}
 }

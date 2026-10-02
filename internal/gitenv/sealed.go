@@ -3,6 +3,7 @@ package gitenv
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -58,6 +59,10 @@ func Sealed(env []string, area string) []string {
 		}
 	}
 	out = append(out, "GIT_CEILING_DIRECTORIES="+CeilingList(area), "GIT_CONFIG_GLOBAL="+config, "GIT_CONFIG_NOSYSTEM=1")
-	DisableMaintenance(func(k, v string) { out = append(out, k+"="+v) })
+	DisableMaintenanceAndHooks(filepath.Join(area, "nohooks"), func(k, v string) { out = append(out, k+"="+v) })
+	// The gate's state dir is found through this before the home, and a record
+	// written there by a test would be the operator's.
+	out = slices.DeleteFunc(out, func(kv string) bool { return strings.HasPrefix(kv, "CLAUDE_CONFIG_DIR=") })
+	out = append(out, "CLAUDE_CONFIG_DIR="+filepath.Join(area, "claude"))
 	return out
 }

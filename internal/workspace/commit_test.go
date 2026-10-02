@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -315,6 +316,7 @@ func TestCommit_NoVerifyLogsOverrideTokenWithReason(t *testing.T) {
 // exercised against git's own hook plumbing rather than a stubbed error.
 func installFailingPreCommitHook(t *testing.T, repo string) {
 	t.Helper()
+	gitenv.AllowRepoHooks(t.Setenv) // the hook planted below is the test's subject
 	hooksDir := filepath.Join(repo, ".git", "hooks")
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		t.Fatal(err)
