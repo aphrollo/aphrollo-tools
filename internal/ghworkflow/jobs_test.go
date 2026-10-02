@@ -389,3 +389,14 @@ func TestLineEnder_OnlyAnOpenLineGetsItsNewline(t *testing.T) {
 		t.Errorf("output %q, want %q", out.String(), want)
 	}
 }
+
+func TestInFlight_CountsWhatStartedAndHasNotEnded(t *testing.T) {
+	started := []bool{true, true, false, true}
+	done := []bool{true, false, false, false}
+	if got := inFlight(started, done); got != 2 {
+		t.Errorf("inFlight = %d, want 2 (jobs 1 and 3)", got)
+	}
+	if got := inFlight(nil, nil); got != 0 {
+		t.Errorf("inFlight of nothing = %d", got)
+	}
+}

@@ -69,19 +69,18 @@ func runJobs(ctx context.Context, wf *Workflow, jobs []*Job, opt Options, tmp st
 	}
 	mux := &lineMux{w: opt.Out}
 	started := make([]bool, len(jobs))
+	done := make([]bool, len(jobs))
 	finished := map[string]bool{}
 	ended := make(chan int)
-	running := 0
 	for range jobs {
 		for i, j := range jobs {
-			if running == opt.Jobs {
+			if inFlight(started, done) >= opt.Jobs {
 				break
 			}
 			if started[i] || !allDone(j.Needs, finished) {
 				continue
 			}
 			started[i] = true
-			running++
 			go func() {
 				out := &jobWriter{mux: mux, prefix: "[" + j.ID + "] "}
 				jobOpt := opt
@@ -91,11 +90,25 @@ func runJobs(ctx context.Context, wf *Workflow, jobs []*Job, opt Options, tmp st
 				ended <- i
 			}()
 		}
+		if inFlight(started, done) == 0 {
+			break
+		}
 		i := <-ended
-		running--
+		done[i] = true
 		finished[jobs[i].ID] = true
 	}
 	return results
+}
+
+// inFlight is how many jobs have started and not yet ended.
+func inFlight(started, done []bool) int {
+	n := 0
+	for i, s := range started {
+		if s && !done[i] {
+			n += 1
+		}
+	}
+	return n
 }
 
 // runJob runs one job, records what the jobs that need it will read, and says

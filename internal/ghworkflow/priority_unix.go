@@ -17,7 +17,10 @@ import (
 // priorityWrappers are the commands that put what follows them at low
 // priority, outermost first. ionice is only used when a trial run of it works:
 // in a container that bars the syscall it refuses and would run nothing.
-var priorityWrappers = sync.OnceValue(func() [][]string {
+var priorityWrappers = sync.OnceValue(buildPriorityWrappers)
+
+// buildPriorityWrappers looks the wrappers up on PATH now.
+func buildPriorityWrappers() [][]string {
 	var wrappers [][]string
 	if p, err := exec.LookPath("ionice"); err == nil && exec.Command(p, "-c", "2", "-n", "7", "true").Run() == nil {
 		wrappers = append(wrappers, []string{p, "-c", "2", "-n", "7"})
@@ -26,7 +29,7 @@ var priorityWrappers = sync.OnceValue(func() [][]string {
 		wrappers = append(wrappers, []string{p, "-n", "10"})
 	}
 	return wrappers
-})
+}
 
 // lowPriorityArgv is argv run under nice and ionice.
 func lowPriorityArgv(argv []string) []string {

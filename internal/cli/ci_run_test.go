@@ -118,3 +118,14 @@ func TestRunCIRun_RefusesAJobCountOrTimeoutThatIsNotOneBeforeJudgingAnything(t *
 		}
 	}
 }
+
+func TestRunCIRun_OneJobAtATimeIsAValidCount(t *testing.T) {
+	calls := stubLocalCI(t, tdd.LocalCIVerdict{Tree: "abc123"}, nil)
+	var out, errb bytes.Buffer
+	if code := Run([]string{"ci", "run", "--ci-jobs", "1"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("exit %d, stderr: %s", code, errb.String())
+	}
+	if len(*calls) != 1 || (*calls)[0].opts.Jobs != 1 {
+		t.Errorf("the run was asked %+v, want Jobs 1", *calls)
+	}
+}

@@ -45,9 +45,7 @@ func (o Options) withDefaults() Options {
 	if o.Env == nil {
 		o.Env = os.Environ()
 	}
-	if o.Jobs < 1 {
-		o.Jobs = 1
-	}
+	o.Jobs = max(o.Jobs, 1)
 	return o
 }
 

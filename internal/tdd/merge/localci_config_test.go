@@ -21,6 +21,7 @@ func TestReadCIRunOptions_ReadsBothKeysAndRefusesAnythingElse(t *testing.T) {
 		"nothing declared": {"", CIRunOptions{}, ""},
 		"no table":         {"ci = \"local\"\n", CIRunOptions{}, ""},
 		"jobs":             {"[aphrollo]\nci-jobs = 3\n", CIRunOptions{Jobs: 3}, ""},
+		"one job":          {"[aphrollo]\nci-jobs = 1\n", CIRunOptions{Jobs: 1}, ""},
 		"jobs quoted":      {"[aphrollo]\nci-jobs = \"2\"\n", CIRunOptions{Jobs: 2}, ""},
 		"timeout":          {"[aphrollo]\nci-timeout = \"45m\"\n", CIRunOptions{StepTimeout: 45 * time.Minute}, ""},
 		"both":             {"[aphrollo]\nci-jobs = 2\nci-timeout = \"1h30m\"\n", CIRunOptions{Jobs: 2, StepTimeout: 90 * time.Minute}, ""},
