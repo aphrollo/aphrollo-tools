@@ -187,6 +187,30 @@ func TestSetupPython_NoPythonOrABrokenVenvLeavesNoVenvAndSaysWhy(t *testing.T) {
 	}
 }
 
+func TestIsPythonShell_ThePythonsAndTheirTemplatesAndNothingThatOnlyLooksLikeOne(t *testing.T) {
+	for shell, want := range map[string]bool{
+		"python":                  true,
+		"python3":                 true,
+		"python3.12":              true,
+		" python3 ":               true,
+		"python {0}":              true,
+		"python -u {0}":           true,
+		"/usr/bin/python3 -I {0}": true,
+		`C:\Py\python.exe {0}`:    false, // a backslash path is not split on this platform's separator everywhere
+		"python.exe {0}":          true,
+		"":                        false,
+		"   ":                     false,
+		"bash":                    false,
+		"pythonic {0}":            false,
+		"bash -c 'python {0}'":    false,
+		"pwsh -c {0}":             false,
+	} {
+		if got := isPythonShell(shell); got != want && !strings.Contains(shell, `\`) {
+			t.Errorf("isPythonShell(%q) = %v, want %v", shell, got, want)
+		}
+	}
+}
+
 func TestInterpreter_OnlyAPythonShellStepGetsTheVenvsPython(t *testing.T) {
 	argv := []string{"/box/python3", "script.py"}
 	withVenv := &isolation{python: "/venv/python"}

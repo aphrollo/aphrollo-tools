@@ -100,6 +100,27 @@ jobs:
 	}
 }
 
+func TestRun_AShellPythonTemplateStepIsPythonNotShellAndRunsTheVenvsInterpreter(t *testing.T) {
+	boxBin, log := fakeToolsOnPath(t)
+	useFakePython(t, boxBin)
+	sum, out, _ := runFlow(t, `
+on: pull_request
+jobs:
+  script:
+    steps:
+      - shell: python -u {0}
+        run: sudo apt-get install libfoo
+`)
+	if sum.Failed() || len(sum.Refused()) != 0 {
+		t.Fatalf("a python script is not shell text to scan; refused %q:\n%s", sum.Refused(), out)
+	}
+	venv, _ := isolateValue(out, "VIRTUAL_ENV")
+	calls := fakeLogLines(t, log)
+	if len(calls) != 1 || venv == "" || !under(calls[0][0], venv) {
+		t.Errorf("a python {0} step ran %v, want the interpreter inside the venv %q", calls, venv)
+	}
+}
+
 // ratchet: test_removed TestRun_NoVenvIsMadeWhenNoStepMentionsPython: a script such as ./ci.sh can pip install without any step naming python, so the venv is made whenever python is on PATH; TestRun_AScriptThatPipInstallsGetsAVenvEvenWhenNoStepNamesPython covers it
 func TestRun_AScriptThatPipInstallsGetsAVenvEvenWhenNoStepNamesPython(t *testing.T) {
 	boxBin, _ := fakeToolsOnPath(t)

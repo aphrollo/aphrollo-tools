@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -222,13 +223,17 @@ func (r *jobRun) shellOf(st *Step) string {
 	return firstNonEmpty(st.Shell, r.job.Shell, r.wf.Shell)
 }
 
-// isPythonShell reports whether a step's script is python, not shell.
+// pythonCommand is the name of a python interpreter: python, python3, python3.12.
+var pythonCommand = regexp.MustCompile(`^python[0-9.]*$`)
+
+// isPythonShell reports whether a step's script is python, not shell: the
+// shell is python, or a template such as `python -u {0}` that starts with it.
 func isPythonShell(shell string) bool {
-	switch strings.TrimSpace(shell) {
-	case "python", "python3":
-		return true
+	fields := strings.Fields(shell)
+	if len(fields) == 0 {
+		return false
 	}
-	return false
+	return pythonCommand.MatchString(strings.TrimSuffix(filepath.Base(fields[0]), ".exe"))
 }
 
 // refusal is why a step is not run, "" when it may run. A python script is not
