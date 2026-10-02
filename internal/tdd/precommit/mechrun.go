@@ -41,7 +41,16 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	// (issue #660, budgetfloor.go). Zero when gate.log has no completed run
 	// to derive one from, which is today's arithmetic unchanged.
 	floor := recordedSuiteFloor(gateName, cmdString(runner))
-	res, waited, acquired := runCargoLocked(run, pinned, root, precommitLockWait(), DefaultPrecommitTimeout, floor.Budget)
+	// A `go test` list the recorded package times say would not fit one run's
+	// budget is cut into runs that each do, under one overall cap, and every
+	// package is still run once with the flags it always had (splitplan.go). A
+	// list that fits is the one command it was, and is only recorded.
+	plan := PlanGoTestRun(pinned, root, DefaultPrecommitTimeout)
+	budget := plan.Budget(DefaultPrecommitTimeout)
+	if plan.Split() {
+		fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → %s\n", stage, gateName, cmdString(runner), root, plan.Describe())
+	}
+	res, waited, acquired := runCargoLocked(plan.Wrap(run), pinned, root, precommitLockWait(), budget, floor.Budget)
 	logLockWait(gateName, root, runner, waited)
 	if !acquired {
 		// A commit the gate never tested must not land. This used to fail
@@ -110,23 +119,29 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 		// "something unrelated ate the cores" without reasoning about it
 		// from the log alone.
 		load := foreignLoadReport(os.Getpid())
+		// A list cut into runs may have proved some of its packages, so what
+		// it left untested is named (splitrun.go) rather than claimed whole.
+		untested, noteLine := "nothing was tested", ""
+		if res.SplitNote != "" {
+			untested, noteLine = "not every package was tested", res.SplitNote+"\n"
+		}
 		if res.Inconclusive != "" {
 			// The memory cap ended the run, or the box had none to start it:
 			// not a slow suite, so no budget floor to quote and no timeout
 			// word, but the commit is just as untested.
-			line := fmt.Sprintf("[%s] gate %s: %s in %s %s REJECTED (nothing was tested)", stage, gateName, cmdString(runner), root, res.Inconclusive)
+			line := strings.TrimRight(fmt.Sprintf("[%s] gate %s: %s in %s %s REJECTED (%s)\n%s", stage, gateName, cmdString(runner), root, res.Inconclusive, untested, noteLine), "\n")
 			fmt.Fprintln(stderrFor(root), line)
 			AppendGateLog(gateName, root, cmdString(runner), "inconclusive-rejected", res.Duration)
 			return GateResult{Blocked: true, Message: fmt.Sprintf(
-				"gate %s: %s ended as %s, so nothing was tested and the commit is refused. Raise `memory-cap` in aphrollo.toml if the suite honestly needs more.",
-				gateName, cmdString(runner), res.Inconclusive)}
+				"gate %s: %s ended as %s, so %s and the commit is refused. Raise `memory-cap` in aphrollo.toml if the suite honestly needs more.%s",
+				gateName, cmdString(runner), res.Inconclusive, untested, strings.TrimSuffix("\n"+noteLine, "\n"))}
 		}
-		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (nothing was tested)\n%s", stage, gateName, cmdString(runner), root, res.Duration.Seconds(), load)
+		line := fmt.Sprintf("[%s] gate %s: %s in %s TIMEOUT after %.0fs REJECTED (%s)\n%s%s", stage, gateName, cmdString(runner), root, res.Duration.Seconds(), untested, noteLine, load)
 		fmt.Fprintln(stderrFor(root), line)
 		AppendGateLog(gateName, root, cmdString(runner), "timeout-rejected", res.Duration)
 		return GateResult{Blocked: true, Message: fmt.Sprintf(
-			"gate %s: %s did not finish in %.0fs, so nothing was tested and the commit is refused.\n%s\n%s",
-			gateName, cmdString(runner), res.Duration.Seconds(), floor.RefusalNote(DefaultPrecommitTimeout), load)}
+			"gate %s: %s did not finish in %.0fs, so %s and the commit is refused.\n%s%s\n%s",
+			gateName, cmdString(runner), res.Duration.Seconds(), untested, noteLine, floor.RefusalNote(budget), load)}
 	case !res.Passed:
 		fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmdString(runner), root)
 		logSuiteVerdict(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res)

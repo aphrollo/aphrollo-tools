@@ -10,6 +10,8 @@ import (
 
 const BuildLockHeldEnv = lock.BuildLockHeldEnv
 
+const suiteFloorMargin = lock.SuiteFloorMargin
+
 type BuildLockOwner = lock.BuildLockOwner
 
 type BuildSlot = lock.BuildSlot
@@ -27,6 +29,8 @@ func WaitForHeadroom(p0 string, p1 time.Duration) string { return lock.WaitForHe
 func acquireBuildSlot(p0 string, p1 time.Duration, p2 string, p3 string) (BuildSlot, func(), bool) {
 	return lock.AcquireBuildSlot(p0, p1, p2, p3)
 }
+
+func buildSlotCount() int { return lock.BuildSlotCount() }
 
 func cappedFloor(p0 time.Duration, p1 time.Duration) time.Duration { return lock.CappedFloor(p0, p1) }
 

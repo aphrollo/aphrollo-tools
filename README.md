@@ -72,6 +72,20 @@ aphrollo update                       # rebuild from origin/main and swap it in
   with an `aphrollo.toml`, a `.ratchet` directory or a Cargo
   `[workspace.metadata.aphrollo]` table. `workspace sync --since <ref>`
   backfills a range once (`--dry` names the merges and writes nothing).
+- **Long suites:** a `go test` package list the recorded per-package times say
+  would not fit one run's 600s budget is cut into runs that each do, instead of
+  timing out whole. The merge's `-race` list and the commit gate's plain list
+  take the same path. The gate records each package's own seconds from every
+  `go test` run it makes (the newest twenty, p90, weighed ×1.5; 90s for a
+  package never recorded, 30s without `-race`), and a list that fits stays the
+  one command it was. Every package is in exactly one run, with the flags it
+  always had. Runs go side by side up to the build-slot count
+  (`APHROLLO_MECH_PARALLEL` overrides), each starting through the
+  memory-headroom wait and under the memory cap, all inside one overall cap
+  (`APHROLLO_MECH_TOTAL_SECS`, 2700 by default). The verdict is green only if
+  every run is; a run that does not finish makes the result a timeout that
+  names its packages and the runs that never started, never a pass, and a run
+  that fails ends the starting of new ones.
 - **Walls:** the primary checkout is merge-only; discarding commands are
   refused (`gate allow <wall>` arms one command).
 - **Memory:** every test, suite, lint and mutation process the gate starts runs

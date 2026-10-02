@@ -23,6 +23,8 @@ const outcomeTimeout = suite.OutcomeTimeout
 
 const outcomeVacuous = suite.OutcomeVacuous
 
+type GoTestPlan = suite.GoTestPlan
+
 type SuiteResult = suite.SuiteResult
 
 type SuiteRunner = suite.SuiteRunner
@@ -34,6 +36,10 @@ type suiteProofLedger = suite.SuiteProofLedger
 func DetectRunner(p0 string) (Runner, bool) { return suite.DetectRunner(p0) }
 
 func ExtractFailingTests(p0 string) []string { return suite.ExtractFailingTests(p0) }
+
+func PlanGoTestRun(p0 Runner, p1 string, p2 time.Duration) GoTestPlan {
+	return suite.PlanGoTestRun(p0, p1, p2)
+}
 
 func cargoAlwaysRunPackages(p0 string) []string { return suite.CargoAlwaysRunPackages(p0) }
 
