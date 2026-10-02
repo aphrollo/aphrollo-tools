@@ -29,6 +29,10 @@ func TestSuiteRunDirs_SubshellCdClosedByALoneParenIsScoped(t *testing.T) {
 }
 
 func TestSuiteRunDirs_NestedSubshellsRestoreOneLevelEach(t *testing.T) {
+	// /a and /b are drive letters to Git Bash on Windows; this is about nesting.
+	old := pathStyleGOOS
+	pathStyleGOOS = "linux"
+	t.Cleanup(func() { pathStyleGOOS = old })
 	cwd := filepath.FromSlash("/repo")
 	got := suiteRunDirs(cwd, `(cd /a; (cd /b; go test ./...); go test ./...); go test ./...`)
 	want := []string{filepath.FromSlash("/b"), filepath.FromSlash("/a"), cwd}
@@ -117,7 +121,10 @@ func TestSuiteRunDirs_MsysPathsAreMappedBeforeResolving(t *testing.T) {
 	cwd := filepath.FromSlash("/repo")
 	// On a non-Windows host `C:\lane` is not absolute, so it joins onto the
 	// cwd; the joined form is what proves the mapping ran.
-	want := filepath.Join(cwd, `C:\lane`)
+	want := `C:\lane`
+	if !filepath.IsAbs(want) {
+		want = filepath.Join(cwd, want)
+	}
 	if got := suiteRunDirs(cwd, `cd /c/lane && go test ./...`); !reflect.DeepEqual(got, []string{want}) {
 		t.Errorf("cd operand: suiteRunDirs = %q, want %q", got, []string{want})
 	}

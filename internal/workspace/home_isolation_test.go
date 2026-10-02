@@ -44,16 +44,19 @@ func TestGitGlobalConfig_ResolvesUnderTheRedirectedHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("git", "config", "--global", "--list", "--show-origin").CombinedOutput()
+	// -z: the origin comes unquoted. Without it git C-quotes a path holding a
+	// backslash, which every Windows path does.
+	out, err := exec.Command("git", "config", "--global", "--list", "--show-origin", "-z").CombinedOutput()
 	if err != nil && !strings.Contains(string(out), "file:") {
 		return // no global config yet under the fresh home, which is also isolation
 	}
-	for line := range strings.SplitSeq(string(out), "\n") {
-		origin, _, ok := strings.Cut(strings.TrimPrefix(strings.TrimSpace(line), "file:"), "\t")
+	for field := range strings.SplitSeq(string(out), "\x00") {
+		origin, ok := strings.CutPrefix(field, "file:")
 		if !ok || origin == "" {
 			continue
 		}
-		if !strings.HasPrefix(filepath.Clean(origin), filepath.Clean(home)) {
+		// git spells the path with forward slashes on Windows.
+		if !strings.HasPrefix(filepath.ToSlash(filepath.Clean(origin)), filepath.ToSlash(filepath.Clean(home))) {
 			t.Errorf("git reads global config from %q, outside the redirected home %q", origin, home)
 		}
 	}
