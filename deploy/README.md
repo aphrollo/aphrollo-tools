@@ -2,8 +2,10 @@
 
 `/usr/local/bin/aphrollo` deploys **on merge to `main`**, the same way the Go
 services do: the `deploy` job in `.github/workflows/pipeline.yml` builds the
-binary on the self-hosted runner and runs `deploy/deploy-prod.sh`, which stages a
-release, smoke-tests it, and atomically swaps a `current` symlink. No manual
+binary on the self-hosted runner and runs `deploy/deploy-prod.sh`, which stages the
+build and hands it to the root-owned installer (`aphrollo-install-release`): it
+verifies it, installs a release, smoke-tests it, and atomically swaps a `current`
+symlink. No manual
 `deploy-infra` step, no stale-operator-clone footgun.
 
 ## Release layout
@@ -13,14 +15,17 @@ release, smoke-tests it, and atomically swaps a `current` symlink. No manual
   releases/
     20260617-1a2b3c4/aphrollo   # one dir per deploy: <ts>-<sha7>
     ...
-  current  ->  releases/<ts>-<sha7>     # atomically swapped by deploy-prod.sh
+  current  ->  releases/<ts>-<sha7>     # atomically swapped by the installer
 /usr/local/bin/aphrollo  ->  /opt/aphrollo-cli/current/aphrollo
 ```
 
 Every coder/devops/operator session — and the TDD git gate / Bash guardrail
 hook — execs `/usr/local/bin/aphrollo` fresh per call, so a swapped `current` is
-picked up on the next exec. There is **no daemon to restart**, hence the deploy
-needs **no sudo**: it only writes under `/opt/aphrollo-cli` (runner-writable).
+picked up on the next exec. There is **no daemon to restart**. `/opt/aphrollo-cli`
+is **root-owned**: every session runs this binary, so the runner never writes it.
+The deploy stages its build in `/var/lib/aphrollo-release-staging/aphrollo-cli`
+and runs `sudo aphrollo-install-release aphrollo-cli`, the one sudoers grant it
+holds for this.
 
 ## Safety
 
@@ -39,8 +44,10 @@ mv -Tf  /opt/aphrollo-cli/current.new      /opt/aphrollo-cli/current
 `aphrollo-infra` (its `site.yml` playbook) owns these — the app's deploy owns
 only `current`:
 
-- `/opt/aphrollo-cli` and `/opt/aphrollo-cli/releases` — `github-runner`-owned,
-  `0755` (the runner stages releases + swaps `current` here).
+- `/opt/aphrollo-cli` and `/opt/aphrollo-cli/releases` — `root`-owned, `0755`
+  (only the installer writes releases and swaps `current` here).
+- `/var/lib/aphrollo-release-staging/aphrollo-cli` — `github-runner`-owned
+  staging dir the deploy copies its build into.
 - `/usr/local/bin/aphrollo` — a **symlink** → `/opt/aphrollo-cli/current/aphrollo`
   (created by root once; `/usr/local/bin` is not runner-writable).
 - A one-time bootstrap that seeds `current` from the operator clone **only if it

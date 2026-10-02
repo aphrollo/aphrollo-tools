@@ -6,14 +6,27 @@
 # release dir, smoke-tests the new binary, then atomically flips the `current`
 # symlink. No daemon to restart — every coder/devops/operator session execs
 # /usr/local/bin/aphrollo fresh per call, so a swapped `current` is picked up on
-# the next exec. That also means NO sudo: the deploy only writes under
-# /opt/aphrollo-cli (runner-writable); /usr/local/bin/aphrollo is a root-made
-# symlink → /opt/aphrollo-cli/current/aphrollo (see deploy/README.md).
+# the next exec. /usr/local/bin/aphrollo is a root-made symlink →
+# /opt/aphrollo-cli/current/aphrollo (see deploy/README.md). /opt/aphrollo-cli is
+# root-owned and the binary is the one every session runs, so the runner never
+# writes it: it stages the build and the root-owned installer does the rest.
+#
+# Two paths, one build:
+#   - installer (the host's normal path): the runner stages the build in
+#     /var/lib/aphrollo-release-staging/aphrollo-cli and calls
+#     `sudo aphrollo-install-release aphrollo-cli`, which verifies it, installs a
+#     root-owned release, smoke-tests the new binary as an unprivileged user
+#     BEFORE the swap, swaps `current` and prunes. /opt/aphrollo-cli is
+#     root-owned, so the runner writes none of it.
+#   - in-script (below the installer block): used only while the host has not yet
+#     applied the aphrollo-infra change that provides the installer. Delete it
+#     once every host has.
 #
 # Server prerequisites (one-time, provisioned by aphrollo-infra — see
 # deploy/README.md):
-#   - /opt/aphrollo-cli              github-runner-writable (atomic current swap)
-#   - /opt/aphrollo-cli/releases     github-runner-writable (staged releases)
+#   - /opt/aphrollo-cli              root-owned (aphrollo-infra)
+#   - /opt/aphrollo-cli/releases     root-owned (aphrollo-infra)
+#   - github-runner sudoers rule for `aphrollo-install-release aphrollo-cli`
 #   - /usr/local/bin/aphrollo        symlink → /opt/aphrollo-cli/current/aphrollo
 #
 # Rollback is implicit: the new binary is smoke-tested BEFORE the swap, so a
@@ -36,12 +49,37 @@ ok()   { printf '\033[32m✓ %s\033[0m\n' "$*"; }
 fail() { printf '\033[31m✗ %s\033[0m\n' "$*" >&2; exit 1; }
 
 [ -f bin/aphrollo ] || fail "missing bin/aphrollo — did go build run?"
-[ -d "$RELEASES" ]  || fail "$RELEASES missing — run the aphrollo-infra prereqs (deploy/README.md)"
+
+# stage_artifact <dir>: lay the release out in <dir> (the staging dir for the
+# installer, the release dir for the in-script path).
+stage_artifact() {
+	local dest=$1
+	install -m 755 bin/aphrollo "$dest/aphrollo"
+	echo "$SHA" > "$dest/SHA"
+}
+
+# --- installer path --------------------------------------------------------------
+INSTALLER="${APHROLLO_INSTALLER:-/usr/local/bin/aphrollo-install-release}"
+STAGING="${APHROLLO_RELEASE_STAGING:-/var/lib/aphrollo-release-staging}/aphrollo-cli"
+if [ -x "$INSTALLER" ] && sudo -n -l "$INSTALLER" aphrollo-cli >/dev/null 2>&1; then
+	[ -d "$STAGING" ] || fail "$STAGING missing — apply aphrollo-infra (deploy-infra.yml)"
+	say "stage release ${RELEASE_NAME} in ${STAGING}"
+	find "$STAGING" -mindepth 1 -delete
+	stage_artifact "$STAGING"
+	say "manifest"
+	(cd "$STAGING" && find . -type f ! -name MANIFEST.sha256 -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > MANIFEST.sha256)
+	say "install via ${INSTALLER}"
+	sudo -n "$INSTALLER" aphrollo-cli
+	ok "aphrollo-cli installed from ${STAGING}"
+	exit 0
+fi
+
+# --- in-script path (host without the installer) ------------------------------------
+[ -d "$RELEASES" ] || fail "$RELEASES missing — run the aphrollo-infra prereqs (deploy/README.md)"
 
 say "stage release ${RELEASE_NAME}"
 mkdir -p "$TARGET"
-install -m 755 bin/aphrollo "$TARGET/aphrollo"
-echo "$SHA" > "$TARGET/SHA"
+stage_artifact "$TARGET"
 
 # Smoke the staged binary BEFORE swapping it in — a non-runnable build (bad
 # arch, missing subcommand wiring) must not replace a working `current`. These
