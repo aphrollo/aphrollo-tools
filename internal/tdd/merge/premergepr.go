@@ -63,14 +63,24 @@ func GatePRMerge(laneWorktree string, run SuiteRunner, log io.Writer) error {
 	if !cfg.AtMerge && !ratchet.HasLaws(laneWorktree) {
 		return nil
 	}
-	tips, err := prGateTipsOf(laneWorktree, log)
-	if err != nil {
-		return err
+	return judgeMergedTree(laneWorktree, run, log, nil)
+}
+
+// judgeMergedTree is the body both the merge gate and local CI run: build the
+// merge in a throwaway checkout and hand it to Mechanical. tips, when the
+// caller already resolved them, are not resolved again.
+func judgeMergedTree(laneWorktree string, run SuiteRunner, log io.Writer, tips *prGateTips) error {
+	if tips == nil {
+		resolved, err := prGateTipsOf(laneWorktree, log)
+		if err != nil {
+			return err
+		}
+		tips = &resolved
 	}
 	if tips.landed {
 		return nil // trunk already contains this lane: nothing lands, nothing to judge
 	}
-	wt, cleanup, err := prGateMergedCheckout(laneWorktree, tips)
+	wt, cleanup, err := prGateMergedCheckout(laneWorktree, *tips)
 	if err != nil {
 		return err
 	}

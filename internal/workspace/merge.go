@@ -116,6 +116,7 @@ type Merge struct {
 	Target       *Target
 	Method       string // squash | merge | rebase
 	DeleteBranch bool   // delete the PR branch after merging
+	CI           string // --ci mode (auto | local | github); empty reads the repo's setting
 }
 
 // MergePlan validates the merge without touching gh; the PR is resolved at Apply
@@ -177,36 +178,28 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
-	ci, ciErr := ghCIStatus(m.Target.Worktree, pr.HeadSHA)
-	if ciErr != nil {
-		return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
+	choice, err := chooseCI(m.Target.Worktree, m.CI)
+	if err != nil {
+		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
-	recordSettledCI(m.Target.Worktree, pr.HeadSHA, pr.Number, ci.State)
-	if ci.State != "green" {
-		// A red on a tip the local gate already proved green is the exact
-		// disagreement CI's own escape-record job used to catch — recorded
-		// here instead, since this is the one local point that reads BOTH
-		// halves: the gate note this tip carries, and the CI state just read
-		// above. RecordCIEscape no-ops silently when the tip carries no green
-		// note, so a genuinely red lane records nothing extra.
-		if ci.State == "red" {
-			recordMergeCIEscape(tdd.CIEscapeOptions{
-				Repo:     m.Target.Worktree,
-				Job:      "pipeline",
-				Lane:     m.Target.Branch,
-				PR:       pr.Number,
-				Reason:   fmt.Sprintf("CI is red (%d failing) on a tip the local gate passed green", ci.Failing),
-				Evidence: fmt.Sprintf("gh pr checks reported %d failing check(s) for %s", ci.Failing, m.Target.Branch),
-			}, stderr)
+	useLocal := choice.mode == tdd.CILocal
+	if useLocal {
+		fmt.Fprintf(stdout, "ci: local (%s) — GitHub's checks are not read\n", choice.source)
+	} else {
+		ci, ciErr := ghCIStatus(m.Target.Worktree, pr.HeadSHA)
+		if ciErr != nil {
+			return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
 		}
-		detail := ci.Word()
-		if ci.State == "red" && ci.Failing > 0 {
-			detail = fmt.Sprintf("red (%d failing)", ci.Failing)
+		recordSettledCI(m.Target.Worktree, pr.HeadSHA, pr.Number, ci.State)
+		switch {
+		case ci.State == "unavailable" && choice.mode == tdd.CIAuto:
+			useLocal = true
+			fmt.Fprintf(stdout, "ci: local (%s) — GitHub's CI is unavailable: %s\n", choice.source, ci.Word())
+		case ci.State == "green":
+			fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(ci.SHA))
+		default:
+			return m.refuseGitHubCI(ci, stderr)
 		}
-		if ci.State == "unavailable" {
-			detail = "ci " + detail
-		}
-		return fmt.Errorf("refusing to merge %s: required checks are not green (%s)", m.Target.Branch, detail)
 	}
 	// The escape-closure and pr-closes-check judgment `workspace pr`/`submit`/
 	// `ship` already ran before opening this PR — run again here for a PR
@@ -223,7 +216,14 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	// this path alone. It runs AFTER the two remote reads above because they
 	// are cheap and this is not: a PR GitHub itself refuses never pays for a
 	// local measurement.
-	if err := premergeGate(m.Target, stderr); err != nil {
+	//
+	// Local CI judges the same merged tree through the same gate, with no
+	// opt-in, so when it is the CI it stands in for this gate.
+	gate := func() error { return premergeGate(m.Target, stderr) }
+	if useLocal {
+		gate = func() error { return runLocalCI(m.Target, stdout, stderr) }
+	}
+	if err := gate(); err != nil {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method) }
@@ -269,4 +269,30 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 
 	fmt.Fprintf(stdout, "  next: aphrollo workspace prune  (sweep the merged local worktree)\n")
 	return nil
+}
+
+// refuseGitHubCI is the merge's refusal when GitHub's checks are not green.
+func (m *Merge) refuseGitHubCI(ci CIStatus, stderr io.Writer) error {
+	// A red on a tip the local gate already proved green is the exact
+	// disagreement CI's own escape-record job used to catch — recorded
+	// here instead, since this is the one local point that reads BOTH
+	// halves: the gate note this tip carries, and the CI state just read
+	// above. RecordCIEscape no-ops silently when the tip carries no green
+	// note, so a genuinely red lane records nothing extra.
+	if ci.State == "red" {
+		recordMergeCIEscape(tdd.CIEscapeOptions{
+			Repo:     m.Target.Worktree,
+			Job:      "pipeline",
+			Reason:   fmt.Sprintf("CI is red (%d failing) on a tip the local gate passed green", ci.Failing),
+			Evidence: fmt.Sprintf("gh pr checks reported %d failing check(s) for %s", ci.Failing, m.Target.Branch),
+		}, stderr)
+	}
+	detail := ci.Word()
+	if ci.State == "red" && ci.Failing > 0 {
+		detail = fmt.Sprintf("red (%d failing)", ci.Failing)
+	}
+	if ci.State == "unavailable" {
+		detail = "ci " + detail
+	}
+	return fmt.Errorf("refusing to merge %s: required checks are not green (%s)", m.Target.Branch, detail)
 }

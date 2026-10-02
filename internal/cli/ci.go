@@ -13,7 +13,14 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/ciwhy"
 )
 
-const ciUsage = `usage: aphrollo ci why [<pr>|<run-id>|--main] [--workflow NAME] [--raw]
+const ciUsage = `usage: aphrollo ci run [--dry]
+       aphrollo ci why [<pr>|<run-id>|--main] [--workflow NAME] [--raw]
+
+ci run is the one CI entry point: it judges this checkout's HEAD merged into
+trunk, in a throwaway worktree of the merge result, with what the merge gate
+judges (ratchet laws, docs check, each detected root's suites and, where the
+repo declares mutants-at-merge, the mutation measurement). A green is stored
+per merge-result tree and reused. --dry prints the plan and runs nothing.
 
 Explains why a pipeline run is red, read-only: one line per failed job, then
 its failing Go tests with their assertion lines, its mutation survivors,
@@ -57,6 +64,9 @@ func runCI(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help" || args[0] == "help") {
 		fmt.Fprint(stdout, ciUsage)
 		return 0
+	}
+	if len(args) > 0 && args[0] == "run" {
+		return runCIRun(args[1:], stdout, stderr)
 	}
 	if len(args) == 0 || args[0] != "why" {
 		fmt.Fprint(stderr, ciUsage)

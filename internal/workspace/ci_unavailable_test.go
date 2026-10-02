@@ -23,6 +23,7 @@ func notStartedRun(name, sha string) CheckRun {
 }
 
 func TestMergeWait_JobsThatNeverStartedReportCIUnavailableNotFailed(t *testing.T) {
+	pinCIMode(t, tdd.CIGithub)
 	pr := &fakePR{number: 193, branch: "feat/tg", steps: []ciStep{
 		{head: newSHA, checks: []CheckRun{
 			notStartedRun("backend", newSHA),
@@ -107,6 +108,7 @@ func TestGhCIStatus_JobsThatNeverStartedAreUnavailableNotRed(t *testing.T) {
 }
 
 func TestMerge_CIUnavailableRefusesByNameAndRecordsNoEscape(t *testing.T) {
+	pinCIMode(t, tdd.CIGithub)
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 193, URL: "u"}, nil },
 		func(wt, branch, method string) error {

@@ -277,6 +277,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		wait   = fs.Bool("wait", false, "wait for every check on the PR's current head, then merge; with PR numbers, merge them as a serial queue")
 		tmo    = fs.Duration("timeout", workspace.DefaultWaitOpts().Timeout, "with --wait: how long to wait for checks before giving up")
 		resume = fs.Bool("resume", false, "with --wait: merge the PRs a stopped merge queue in this repo left pending")
+		ciMode = fs.String("ci", "", "CI that judges the merge: auto | local | github (default: ci in aphrollo.toml, else auto)")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
@@ -292,6 +293,12 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "aphrollo: choose one of --squash | --merge | --rebase")
 		return 2
 	}
+	if *ciMode != "" {
+		if _, err := tdd.NormalizeCIMode(*ciMode); err != nil {
+			fmt.Fprintf(stderr, "aphrollo: --ci: %v\n", err)
+			return 2
+		}
+	}
 	if *resume && !*wait {
 		fmt.Fprintln(stderr, "aphrollo: --resume needs --wait: workspace merge --wait --resume")
 		return 2
@@ -299,6 +306,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 	if *wait {
 		opts := workspace.DefaultWaitOpts()
 		opts.Timeout = *tmo
+		opts.CI = *ciMode
 		if *resume && len(pos) > 0 {
 			fmt.Fprintln(stderr, "aphrollo: --resume takes no PR numbers: it resumes the queue this repo's record names")
 			return 2
@@ -314,6 +322,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
 	}
+	m.CI = *ciMode
 	apply := !*dry
 	fmt.Fprint(stdout, m.Render(apply))
 	if !apply {

@@ -21,6 +21,7 @@ import (
 type WaitOpts struct {
 	Interval time.Duration
 	Timeout  time.Duration
+	CI       string // --ci mode (auto | local | github); empty reads the repo's setting
 }
 
 // DefaultWaitOpts polls every 30 s — the floor for a remote API on this box —
@@ -291,7 +292,7 @@ func notStartedError(branch string, head *PRHead, idle []CheckRun) error {
 	for _, c := range idle {
 		fmt.Fprintf(&b, "\n  %s  %s", c.Name, c.URL)
 	}
-	return fmt.Errorf("%s", b.String())
+	return &ciUnavailableError{msg: b.String()}
 }
 
 // MergeWait waits until every check on the lane PR's current head has
@@ -302,8 +303,17 @@ func MergeWait(t *Target, method string, deleteBranch bool, o WaitOpts, stdout, 
 	if err != nil {
 		return err
 	}
-	if err := waitForGreen(t, o, stdout); err != nil {
-		return err
+	m.CI = o.CI
+	choice, err := chooseCI(t.Worktree, o.CI)
+	if err != nil {
+		return fmt.Errorf("refusing to merge %s: %w", t.Branch, err)
+	}
+	if choice.mode != tdd.CILocal {
+		// Under auto an outage is not an answer: Apply reads the head's checks
+		// once more and falls back to local CI, naming the outage as its reason.
+		if err := waitForGreen(t, o, stdout); err != nil && (choice.mode != tdd.CIAuto || !isCIUnavailable(err)) {
+			return err
+		}
 	}
 	return m.Apply(stdout, stderr)
 }

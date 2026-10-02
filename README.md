@@ -43,7 +43,7 @@ aphrollo update                       # rebuild from origin/main and swap it in
 | `aphrollo docs` | `docs check`: every repo path a tracked `*.md` cites must resolve |
 | `aphrollo sqlc` | `check` for sqlc drift, `regen --scoped` |
 | `aphrollo check` | judge the tree read-only: ratchet, docs, sqlc, doctor |
-| `aphrollo ci` | `ci why [<pr>\|<run-id>\|--main]`: why a pipeline run is red |
+| `aphrollo ci` | `ci run`: the one CI entry point, judging this HEAD merged into trunk in a throwaway worktree with what the merge gate judges (a green is stored per tree and reused); `ci why [<pr>\|<run-id>\|--main]`: why a pipeline run is red |
 | `aphrollo issue` | open an issue against this repo |
 | `aphrollo feedback` | file gate feedback with the upstream tracker |
 | `aphrollo status` | one-line gate state for this checkout |
@@ -106,6 +106,7 @@ One ref name is let through: in a cloud session (`CLAUDE_CODE_REMOTE=true`) the 
 | `memory-cap` | derived by default: the most memory, in GB, one test, suite or mutation run the gate starts may hold before it is killed and reported OOM-KILLED (inconclusive, never red); derived from RAM, free memory and the slot count; off disables it; cost: a cap below what a build honestly needs kills honest work |
 | `memory-headroom` | derived by default: the available memory, in GB, a suite or measurement needs before it starts; below it the start waits, then is refused with the numbers; doubled while swap is 90% full; cost: a higher figure defers work on a busy box |
 | `undercover` | off by default: the commit-msg gate refuses AI attribution trailers; cost: none |
+| `ci` | `auto` (default), `local` or `github`: which CI judges `workspace merge`. `auto` uses GitHub's checks and falls back to local CI (`ci run`) when its jobs never start (a billing lock); `local` never waits on GitHub; `github` refuses an outage. `workspace merge --ci <mode>` beats it for one merge; every merge prints which CI judged it and why |
 | `commit-message-deny` | commit-msg deny patterns |
 | `undercover-extra` | extra tokens for the undercover checks, e.g. `["codename"]` |
 | `always-run`, `clippy-clean` | suites run on every merge; crates gated on clippy `-D warnings` |
