@@ -85,16 +85,17 @@ func ReadEvents() []Event {
 	}
 	defer f.Close()
 	var out []Event
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for sc.Scan() {
+	r := bufio.NewReader(f)
+	for {
+		line, err := r.ReadBytes('\n')
 		var e Event
-		if json.Unmarshal(sc.Bytes(), &e) != nil || e.V != EventSchema {
-			continue
+		if json.Unmarshal(line, &e) == nil && e.V == EventSchema {
+			out = append(out, e)
 		}
-		out = append(out, e)
+		if err != nil {
+			return out
+		}
 	}
-	return out
 }
 
 // eventKind names what a gate.log line was, from its stage and verdict.
