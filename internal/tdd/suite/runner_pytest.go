@@ -143,5 +143,11 @@ func narrowPytestFailFirst(r Runner, tests []string) (Runner, bool) {
 	if len(args) == 1 {
 		return r, false
 	}
-	return Runner{Cmd: "pytest", Args: args, Dir: r.Dir}, true
+	scoped := Runner{Cmd: "pytest", Args: args, Dir: r.Dir}
+	// The files cannot be split across runs (one verdict reads one run's
+	// output); past the budget the runner stays whole, which is bounded.
+	if len(cmdString(scoped)) > stagedArgvBudget {
+		return r, false
+	}
+	return scoped, true
 }
