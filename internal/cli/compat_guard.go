@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -155,11 +156,11 @@ func compatHookDir(raw []byte) string {
 // sees exactly what it would have seen alone.
 type tailReader struct{ err error }
 
+// Read never returns (0, nil): with no error to report it says EOF, because a
+// reader that answers nothing and no end would hold the hook that reads it
+// until the editor kills it.
 func (r tailReader) Read([]byte) (int, error) {
-	if r.err == nil {
-		return 0, io.EOF
-	}
-	return 0, r.err
+	return 0, cmp.Or(r.err, io.EOF)
 }
 
 // compatGuard runs before every command. It answers a command whose repo
