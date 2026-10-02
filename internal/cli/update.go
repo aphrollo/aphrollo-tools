@@ -15,21 +15,25 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// aphrollo update is the ONLY way the box binary moves. The box running it
-// is not necessarily sitting in a checkout of this repo at the commit it
-// wants, or a clean one, so it fetches the remote and builds from a DETACHED
-// worktree at <remote>/<branch> — never the working tree, which may be behind
-// or carrying an edit of its own. `gate self-install`, which built from an
-// arbitrary checkout and could therefore point the box at unmerged code, was
+// aphrollo update is the ONLY way the box binary moves. It follows the newest
+// release TAG (v<MAJOR.MINOR.PATCH>), never the tip of main: a tag is made per
+// merged PR that bumps internal/buildinfo/VERSION, so what a box runs is a
+// version a consumer was told about. The box running it is not necessarily
+// sitting in a checkout of this repo at the commit it wants, or a clean one,
+// so it fetches the remote's tags and builds from a DETACHED worktree at the
+// tag, never the working tree, which may be behind or carrying an edit of its
+// own. `gate self-install`, which built from an arbitrary checkout, was
 // retired with the bootstrap that needed it (#659, #673).
-const updateUsage = `usage: aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--branch NAME] [--no-init] [--dry]
+const updateUsage = `usage: aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--no-init] [--dry]
 
-Fetches <remote>/<branch>, builds ./cmd/aphrollo from a detached temporary
-worktree at that commit (never the working tree, which may be behind or
-dirty), swaps it in for --bin, sweeps stale copies beside it, then runs gate
-init UNDER THE NEW BINARY (so the managed files come from its templates, not
-the outgoing build's) unless --no-init. --dry prints the ref it would fetch,
-what it would build and the path it would swap, and stops before the fetch.
+Fetches <remote>'s tags, finds the newest release tag (v<MAJOR.MINOR.PATCH>),
+builds ./cmd/aphrollo from a detached temporary worktree at that tag (never
+the working tree, which may be behind or dirty), swaps it in for --bin,
+sweeps stale copies beside it, then runs gate init UNDER THE NEW BINARY (so
+the managed files come from its templates, not the outgoing build's) unless
+--no-init. It prints the version it moved from and to, or "[skip] already at
+vX". --dry prints what it would fetch, build and swap, and stops before the
+fetch.
 
 This is the only command that replaces the installed binary: gate
 self-install, which built from an arbitrary checkout, is retired.
@@ -59,8 +63,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		binPath = fs.String("bin", "", "binary to replace (default: this executable)")
 		noInit  = fs.Bool("no-init", false, "replace the binary only; skip `gate init`")
 		remote  = fs.String("remote", "origin", "remote to fetch and build from")
-		branch  = fs.String("branch", "main", "branch to build")
-		dry     = fs.Bool("dry", false, "print the ref, build target and swap path and stop before the fetch")
+		dry     = fs.Bool("dry", false, "print the tag source, build target and swap path and stop before the fetch")
 	)
 	// Everything after a bare "--" is forwarded to `gate init` untouched; what
 	// comes before it is this verb's own flags, read wherever they sit.
@@ -98,8 +101,8 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *dry {
-		fmt.Fprintf(stdout, "aphrollo update (dry run): nothing fetched, built or swapped\n  fetch: %s/%s in %s\n  build: ./cmd/aphrollo from a detached worktree at that ref\n  swap:  %s\n",
-			*remote, *branch, *repo, bin)
+		fmt.Fprintf(stdout, "aphrollo update (dry run): nothing fetched, built or swapped\n  fetch: %s tags, newest v<MAJOR.MINOR.PATCH> in %s\n  build: ./cmd/aphrollo from a detached worktree at that tag\n  swap:  %s\n",
+			*remote, *repo, bin)
 		return 0
 	}
 
@@ -123,19 +126,28 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return strings.TrimSpace(out.String()), nil
 	}
 
-	remoteBranch := *remote + "/" + *branch
-	if _, err := runGit("fetch", *remote); err != nil {
+	if _, err := runGit("fetch", "--tags", *remote); err != nil {
 		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
 		return 1
 	}
-	head, err := runGit("rev-parse", remoteBranch)
+	tagList, err := runGit("tag", "--list", "v*")
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
+		return 1
+	}
+	tag, found := newestReleaseTag(strings.Fields(tagList))
+	if !found {
+		fmt.Fprintf(stderr, "aphrollo update: %s has no release tag (v<MAJOR.MINOR.PATCH>): a tag is made when a PR that bumps internal/buildinfo/VERSION merges; ask for the release to be tagged\n", *remote)
+		return 1
+	}
+	head, err := runGit("rev-parse", tag+"^{commit}")
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
 		return 1
 	}
 
 	if commit, _, stamped := buildinfo.Stamp(); stamped && commit == head {
-		fmt.Fprintf(stdout, "aphrollo update: already at %s [skip]\n", shortSHA(head))
+		fmt.Fprintf(stdout, "aphrollo update: [skip] already at %s\n", tag)
 		return 0
 	}
 
@@ -144,7 +156,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
 		return 1
 	}
-	if _, err := runGit("worktree", "add", "--detach", tmp, remoteBranch); err != nil {
+	if _, err := runGit("worktree", "add", "--detach", tmp, head); err != nil {
 		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
 		_ = os.RemoveAll(tmp)
 		return 1
@@ -167,20 +179,12 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)
 		return 1
 	}
+	fmt.Fprintf(stdout, "aphrollo update: v%s -> %s\n", buildinfo.Version(), tag)
 
 	if *noInit {
 		return 0
 	}
 	return initAfterSwap("aphrollo update", bin, forwarded, stdout, stderr)
-}
-
-// shortSHA reports the first 7 characters of a full commit sha, the width
-// `aphrollo version` already uses to name a build.
-func shortSHA(sha string) string {
-	if len(sha) > 7 {
-		return sha[:7]
-	}
-	return sha
 }
 
 // checkAphrolloModule reports an error unless repo's go.mod declares module

@@ -19,6 +19,29 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.2.0 - 2026-10-03
+
+`aphrollo update` follows releases, and aphrollo steps aside in a repo that
+trellis gates.
+
+### What you will notice
+
+- `aphrollo update` moves to the newest release tag (`v<MAJOR.MINOR.PATCH>`),
+  not the latest commit on main. It prints the version it moved from and to
+  (`aphrollo update: v1.1.0 -> v1.2.0`), or `[skip] already at v1.2.0`. The
+  `--branch` flag is gone, since there is no branch to pick; a release tag is
+  made when a change that bumps the version merges. A remote with no release tag
+  is refused, with the reason.
+- The Linux deploy ships the same newest tag, so the shared box and your update
+  agree on one version.
+- In a repo whose root holds `trellis.toml`, aphrollo says nothing and writes
+  nothing: its editor hooks and git hooks exit 0 silently, and its git and cargo
+  queue shims pass straight through. trellis and aphrollo never both gate one repo.
+- `aphrollo gate doctor` has a new row, "one live gate": it fails when the
+  aphrollo hooks and a trellis plugin or hook are wired into the same Claude
+  settings, and names the fix (disable the trellis plugin, or run
+  `aphrollo gate init --uninstall`).
+
 ## 1.1.0 - 2026-10-02
 
 Local CI (`aphrollo ci run`, and `workspace merge` when `ci = local`) is safer and
