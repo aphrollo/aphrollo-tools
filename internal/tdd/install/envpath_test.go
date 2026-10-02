@@ -357,7 +357,11 @@ func TestInitSettingsEnvPath_AddsTheToolchainDirsThatExistAfterTheUnion(t *testi
 	}
 	dir := t.TempDir()
 
-	if _, err := InitSettingsEnvPath(dir, shimDirForTest, []string{"/usr/bin"}, ":", false); err != nil {
+	// The toolchain dirs are real paths of this machine, and a Windows one
+	// holds a ":" (its drive letter), so the list is joined and split with
+	// this platform's own separator.
+	sep := string(os.PathListSeparator)
+	if _, err := InitSettingsEnvPath(dir, shimDirForTest, []string{"/usr/bin"}, sep, false); err != nil {
 		t.Fatalf("InitSettingsEnvPath: %v", err)
 	}
 
@@ -365,7 +369,7 @@ func TestInitSettingsEnvPath_AddsTheToolchainDirsThatExistAfterTheUnion(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := strings.Split(envAt(t, data)["PATH"].(string), ":")
+	got := filepath.SplitList(envAt(t, data)["PATH"].(string))
 	if goAt, usrAt := slices.Index(got, goBin), slices.Index(got, "/usr/bin"); goAt < 0 || goAt < usrAt {
 		t.Errorf("env.PATH = %q, want %s after /usr/bin", got, goBin)
 	}
