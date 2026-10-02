@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -184,5 +185,24 @@ func TestNarrowPytestFailFirst_PastTheArgvBudgetLeavesTheRunnerWhole(t *testing.
 	}
 	if line := len(cmdString(got)); line > stagedArgvBudget {
 		t.Fatalf("the line is %d chars, past the %d-char budget", line, stagedArgvBudget)
+	}
+}
+
+// TestNarrowPytestFailFirst_ALineExactlyAtTheBudgetStillNarrows pins the
+// boundary: a line of stagedArgvBudget characters is within it and narrows;
+// one character more stays whole.
+func TestNarrowPytestFailFirst_ALineExactlyAtTheBudgetStillNarrows(t *testing.T) {
+	t.Parallel()
+	r := Runner{Cmd: "pytest", Args: []string{"-q"}}
+	const prefix = len("pytest -q ")
+	file := func(total int) string {
+		name := "test_" + strings.Repeat("a", total-len("test_")-len(".py")) + ".py"
+		return name
+	}
+	if _, ok := narrowPytestFailFirst(r, []string{file(stagedArgvBudget - prefix)}); !ok {
+		t.Errorf("a %d-char line was not narrowed, want it within the budget", stagedArgvBudget)
+	}
+	if _, ok := narrowPytestFailFirst(r, []string{file(stagedArgvBudget - prefix + 1)}); ok {
+		t.Errorf("a %d-char line was narrowed, want it past the budget", stagedArgvBudget+1)
 	}
 }
