@@ -33,11 +33,11 @@ Subcommands:
                     resolved by hand and concluded with "git commit" just
                     landed (the shape post-merge never sees). Never blocks,
                     never fails
-  postmerge         Git post-merge hook: in a repo declaring
-                    prune-lanes-on-merge = true, sweep the lanes this merge
-                    landed (the same guarded sweep workspace merge runs,
-                    never the worktree the hook fired in). Silent and inert
-                    in a repo that did not declare it. Never blocks
+  postmerge         Git post-merge hook: in an aphrollo repo, records the
+                    merges this one brought onto trunk that workspace merge
+                    did not make; in a repo declaring prune-lanes-on-merge =
+                    true, sweeps the lanes it landed (guarded, never the
+                    worktree the hook fired in). Otherwise inert. Never blocks
   mutants           run measures THIS checkout's lane against its base in the
                     FOREGROUND and is the check — exit 1 on an unaccepted
                     survivor, a mutant that stayed unmeasured, or a run that

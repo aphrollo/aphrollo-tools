@@ -77,7 +77,12 @@ Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
                             resolves the cwd's repo (the same rule commit uses).
                             Strict FF only: a dirty or diverged clone is left
                             untouched, exit 0 with the reason. Idempotent (--dry
-                            previews).
+                            previews). A merge the move takes in that
+                            workspace merge did not make is recorded as an
+                            outside merge. --since <ref> also records the
+                            merges between <ref> and the remote tip the event
+                            log never saw — the one-time backfill; each merge
+                            is recorded once, however often it runs.
   diff                      Print the branch's PR diff vs origin/<default>
                             (read-only; --stat for the diffstat).
   verify                    Legacy name — prints "workspace verify is now aphrollo
@@ -230,6 +235,7 @@ func runWorkspaceSync(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	dry := fs.Bool("dry", false, "preview the fetch + fast-forward and stop (default: execute)")
+	since := fs.String("since", "", "also record the merges between <ref> and the remote tip that the event log never saw (--dry names them)")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
@@ -240,8 +246,15 @@ func runWorkspaceSync(args []string, stdout, stderr io.Writer) int {
 	case 1:
 		repo = pos[0]
 	default:
-		fmt.Fprintln(stderr, "aphrollo: usage: workspace sync [repo]")
+		fmt.Fprintln(stderr, "aphrollo: usage: workspace sync [repo] [--since <ref>]")
 		return 2
+	}
+	if *since != "" {
+		if err := workspace.SyncSince(repo, *since, *dry, stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		return 0
 	}
 	if err := workspace.Sync(repo, *dry, stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)

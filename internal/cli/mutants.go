@@ -8,6 +8,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/commitrecord"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/workspace"
 )
 
 // runPostCommit is the `gate postcommit` git hook. It writes the
@@ -48,15 +49,19 @@ func runPostCommit(stdout, stderr io.Writer) int {
 	return 0
 }
 
-// runPostMerge is the `gate postmerge` git hook: the opt-in lane sweep for
-// the repo the merge landed in, run from the worktree git fired the hook in
-// (which is therefore the one worktree the sweep must never remove). Like
+// runPostMerge is the `gate postmerge` git hook. It first records the merges
+// this one brought onto trunk that `workspace merge` did not make (a pull that
+// took in a GitHub-side merge, a hand merge in a terminal) — cheap, and inert
+// in a repo that never declared itself aphrollo's. Then the opt-in lane sweep
+// for the repo the merge landed in, run from the worktree git fired the hook
+// in (which is therefore the one worktree the sweep must never remove). Like
 // post-commit it never blocks and never reports failure — the merge is
-// already made — and unlike it, it does nothing at all unless the repo
-// declared `prune-lanes-on-merge = true`: core.hooksPath is machine-wide, so
-// this fires in every repo on the box and after every `git pull`, and the
-// sweep removes worktrees and deletes branches.
+// already made — and the sweep does nothing at all unless the repo declared
+// `prune-lanes-on-merge = true`: core.hooksPath is machine-wide, so this
+// fires in every repo on the box and after every `git pull`, and the sweep
+// removes worktrees and deletes branches.
 func runPostMerge(stdout, stderr io.Writer) int {
+	workspace.PostMergeRecord(".", stderr)
 	tdd.PostMergeSweep(".", stdout, stderr)
 	return 0
 }
