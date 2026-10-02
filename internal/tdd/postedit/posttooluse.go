@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -239,9 +240,9 @@ func unownedEditSkip(root, target, home string) string {
 	return fmt.Sprintf("gate: → skipped in %s (%s sits in no %s and is not a build input — no build, no suite run)", root, rel, home)
 }
 
-// toolMissingSkip logs and renders the edit hook's line for an npm root
-// whose test tool cannot run under node: nothing ran, it says why, and it
-// never falls back to npx.
+// toolMissingSkip logs and renders the edit hook's line for a root whose test
+// tool cannot run (an npm tool under node, pytest under no interpreter):
+// nothing ran, it says why, and it never falls back to npx or a bare pytest.
 func toolMissingSkip(r Runner, root, why string) string {
 	AppendGateLog("postedit", root, cmdString(r), "skipped-tool-missing", 0)
 	return fmt.Sprintf("gate: %s in %s → SKIPPED (%s) — inconclusive, the code was NOT tested", cmdString(r), root, why)
@@ -259,8 +260,9 @@ type stateSnapshot struct {
 	prevFailing []string
 	// editID names this edit's edit-ledger record, where its verdict lands.
 	editID string
-	// toolMissing says why runner's npm test tool cannot run under node
-	// (nodeToolRunner); "" when it can, or when runner is not one.
+	// toolMissing says why runner's test tool cannot run: an npm tool under
+	// node (nodeToolRunner) or pytest under any interpreter
+	// (pytestExecRunner); "" when it can, or when runner is neither.
 	toolMissing string
 }
 
@@ -280,6 +282,10 @@ func captureStateSnapshot(session, target, root string, touched []string) (state
 	}
 	runner := withTouchedFiles(withTouchedTestTargets(NarrowToRelatedTests(base, target, root), base, root, touched), base, root, touched)
 	runner, toolMissing := nodeToolRunner(root, runner)
+	// A pytest root runs under an interpreter that imports pytest, the one
+	// the commit gate's proof resolves, never a bare `pytest` off PATH.
+	runner, pytestMissing := pytestExecRunner(root, runner)
+	toolMissing = cmp.Or(toolMissing, pytestMissing)
 
 	fp := computeFingerprint(root)
 	var prevFailing []string
