@@ -52,12 +52,15 @@ func TestAcquireLintLock_AcquiresOnceFirstReleases(t *testing.T) {
 
 	release1()
 
-	release2, waited, _, ok := AcquireLintLock("golangci-lint run ./b", "/repo/b", time.Second)
+	release2, _, contended, ok := AcquireLintLock("golangci-lint run ./b", "/repo/b", time.Second)
 	if !ok {
 		t.Fatal("a queued lint must acquire the lock once the first releases it")
 	}
-	if waited <= 0 {
-		t.Fatal("a queued acquirer must report non-zero wait time")
+	// The wait itself is a clock reading, and Windows' clock ticks every 15 ms,
+	// so an acquisition that took no time reads as exactly zero there. What
+	// the first release decides is that the lock was free on the first try.
+	if contended {
+		t.Fatal("the lock was free by the time the second call started: its first attempt must succeed")
 	}
 	release2()
 }
