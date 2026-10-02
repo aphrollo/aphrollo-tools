@@ -221,7 +221,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	// checks: the repo's own workflow on the merge result. The gate below
 	// still judges the merge as before, mutation included where declared.
 	if useLocal {
-		if err := runLocalCI(m.Target, stdout, stderr); err != nil {
+		if err := runLocalCI(m.Target, pr.HeadSHA, pr.Number, stdout, stderr); err != nil {
 			return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 		}
 	}

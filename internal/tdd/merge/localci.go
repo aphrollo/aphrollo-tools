@@ -64,6 +64,7 @@ type LocalCIVerdict struct {
 	Tree   string
 	Reused bool
 	Landed bool // trunk already holds the lane: nothing to judge
+	Red    bool // the workflows ran and a job failed (an error alone may be a setup refusal)
 }
 
 // LocalCI judges the merge of laneWorktree's HEAD into trunk by running the
@@ -110,7 +111,7 @@ func LocalCI(laneWorktree string, log io.Writer) (LocalCIVerdict, error) {
 	fmt.Fprintf(log, "ci local: %s — %d job(s) ran, %d skipped\n", verdict,
 		sum.Count(ghworkflow.ResultSuccess)+sum.Count(ghworkflow.ResultFailure), sum.Count(ghworkflow.ResultSkipped))
 	if sum.Failed() {
-		return LocalCIVerdict{Tree: tree}, fmt.Errorf("local CI is red: %s", failedJobs(sum))
+		return LocalCIVerdict{Tree: tree, Red: true}, fmt.Errorf("local CI is red: %s", failedJobs(sum))
 	}
 	return LocalCIVerdict{Tree: tree}, nil
 }

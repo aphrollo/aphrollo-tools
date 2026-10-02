@@ -60,11 +60,15 @@ func isCIUnavailable(err error) bool {
 
 // runLocalCI is the local CI step of a merge: it judges the merge result of
 // the lane and refuses the merge on a red.
-func runLocalCI(t *Target, stdout, stderr io.Writer) error {
+func runLocalCI(t *Target, sha string, pr int, stdout, stderr io.Writer) error {
 	v, err := localCI(t, stderr)
 	if err != nil {
+		if v.Red {
+			recordSettledCIBy(t.Worktree, sha, pr, "red", tdd.CILocal)
+		}
 		return err
 	}
+	recordSettledCIBy(t.Worktree, sha, pr, "green", tdd.CILocal)
 	switch {
 	case v.Landed:
 		fmt.Fprintf(stdout, "ci: local — trunk already holds this lane, nothing to judge\n")
