@@ -24,12 +24,18 @@ func TestMutantsCapHelper_Allocate(t *testing.T) {
 		t.Skip("child process of the memory-cap tests")
 	}
 	mb, _ := strconv.Atoi(raw)
-	b := make([]byte, mb<<20)
-	for i := 0; i < len(b); i += 4096 {
-		b[i] = 1
+	// Grown in steps, as a runaway grows: one allocation larger than the whole
+	// cap is refused outright by a Windows job limit before any of it counts.
+	var held [][]byte
+	for done := 0; done < mb; done += 16 {
+		b := make([]byte, 16<<20)
+		for i := 0; i < len(b); i += 4096 {
+			b[i] = 1
+		}
+		held = append(held, b)
 	}
 	time.Sleep(20 * time.Second)
-	_ = b[0]
+	_ = held[0][0]
 }
 
 func runCappedMutantsHelper(t *testing.T, c MemCap) (int, string) {

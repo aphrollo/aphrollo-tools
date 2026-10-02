@@ -2,12 +2,8 @@ package workspace
 
 import (
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
-
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeGHPrinting builds a `gh` script in t.TempDir() that prints stdout on
@@ -17,13 +13,8 @@ import (
 func fakeGHPrinting(t *testing.T, stdout, stderr string) {
 	t.Helper()
 	dir := t.TempDir()
-	name := "gh"
 	script := "#!/bin/sh\nprintf '%s\\n' '" + stdout + "'\nprintf '%s\\n' '" + stderr + "' 1>&2\n"
-	if runtime.GOOS == "windows" {
-		name = "gh.bat"
-		script = "@echo off\r\necho " + stdout + "\r\necho " + stderr + " 1>&2\r\n"
-	}
-	if err := proc.WriteExecutable(filepath.Join(dir, name), []byte(script), 0o755); err != nil {
+	if err := writeShGh(t, dir, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

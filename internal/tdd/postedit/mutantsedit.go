@@ -193,6 +193,7 @@ func launchMutantsEdit(cmd *exec.Cmd, logPath string) (int, bool) {
 	err = cmd.Start()
 	closeStdio()
 	if err != nil {
+		_ = log.Close() // Windows will not delete a file that is still open
 		_ = os.Remove(logPath)
 		return 0, false
 	}

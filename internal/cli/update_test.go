@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -447,6 +448,10 @@ func TestUpdate_RefusesToBuildWhenTheInstallIsNotWritable(t *testing.T) {
 // OWNS (chmod locked itself out of writing it, which is still enough to
 // refuse) resolves a real username, and the message must name it.
 func TestUpdate_RefusalNamesTheOwnerWhenOneIsKnown(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		// skip-ok: tdd.InstallOwner resolves a file's owner from a unix uid and is deliberately "" on Windows, so there is no owner to name.
+		t.Skip("a Windows file owner is not resolved; the refusal never names one there")
+	}
 	_, clone, _ := updateFixture(t)
 
 	dir := t.TempDir()

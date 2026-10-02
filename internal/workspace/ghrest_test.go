@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // withOrigin adds a GitHub-shaped origin remote to a repo built by initRepo,
@@ -42,7 +40,7 @@ func fakeGhAPIScript(t *testing.T, byPath map[string]struct {
 		fmt.Fprintf(&b, "  \"%s\") printf '%%s' '%s'; exit %d ;;\n", path, r.stdout, r.exit)
 	}
 	b.WriteString("  *) exit 1 ;;\nesac\n")
-	if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte(b.String()), 0o755); err != nil {
+	if err := writeShGh(t, dir, b.String()); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -119,7 +117,7 @@ if [ -n "$fields" ] && [ "$method" != "GET" ]; then
 fi
 printf '%s' 7
 `
-	if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+	if err := writeShGh(t, dir, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -255,7 +253,7 @@ func TestRequireGHReal_RefusesWhenGHMissing(t *testing.T) {
 func TestRequireGHReal_ReadyWhenGHAnswersREST(t *testing.T) {
 	dir := t.TempDir()
 	script := "#!/bin/sh\ncase \"$1 $2\" in\n  \"api user\") exit 0 ;;\n  \"api graphql\") exit 1 ;;\n  *) exit 1 ;;\nesac\n"
-	if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+	if err := writeShGh(t, dir, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

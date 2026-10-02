@@ -2,6 +2,8 @@ package core
 
 import (
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -10,6 +12,9 @@ func TestNormalizeProjectPath_AbsoluteAndCleaned(t *testing.T) {
 	messy := filepath.Join(dir, "a", "..", "b")
 	got := normalizeProjectPath(messy)
 	want := filepath.Join(dir, "b")
+	if runtime.GOOS == "windows" {
+		want = strings.ToLower(want) // normalizeProjectPath folds case there
+	}
 	if got != want {
 		t.Fatalf("normalizeProjectPath(%q) = %q, want %q", messy, got, want)
 	}

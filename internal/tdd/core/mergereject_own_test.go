@@ -42,6 +42,7 @@ func TestMergeRejectedMarkerPath_EmptyWithoutAStateDirOrRepoRoot(t *testing.T) {
 
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
 	if got := MergeRejectedMarkerPath("/repo"); got != "" {
 		t.Fatalf("MergeRejectedMarkerPath with no state dir = %q, want \"\"", got)
 	}
@@ -92,6 +93,7 @@ func TestWriteMergeRejectedMarker_RecordsATimestampAndTheFirstLine(t *testing.T)
 func TestWriteMergeRejectedMarker_NoStateDirIsANoOp(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
 	// Must not panic when it has nowhere to write.
 	WriteMergeRejectedMarker("/repo/a", "message")
 }

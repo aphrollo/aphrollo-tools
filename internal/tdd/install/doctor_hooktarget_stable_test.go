@@ -27,7 +27,7 @@ func TestDoctor_ReportsAGitHookRunningABinaryUnderAVersionedReleaseDir(t *testin
 		t.Fatalf("a hook naming a path under releases/ must be a finding, got ok: %s", c.Detail)
 	}
 	for _, want := range []string{filepath.ToSlash(releaseBin), "pre-commit", "aphrollo install"} {
-		if !strings.Contains(c.Detail, want) {
+		if !strings.Contains(slashes(c.Detail), want) {
 			t.Errorf("detail = %q, want it to carry %q", c.Detail, want)
 		}
 	}
@@ -50,7 +50,7 @@ func TestDoctor_ReportsASessionHookRunningABinaryUnderAVersionedReleaseDir(t *te
 	if c.OK {
 		t.Fatalf("a session hook naming a path under releases/ must be a finding, got ok: %s", c.Detail)
 	}
-	if !strings.Contains(c.Detail, filepath.ToSlash(releaseBin)) {
+	if !strings.Contains(slashes(c.Detail), filepath.ToSlash(releaseBin)) {
 		t.Errorf("detail = %q, want it to name %q", c.Detail, releaseBin)
 	}
 }
@@ -77,3 +77,7 @@ func writeFakeBinAt(t *testing.T, path string) {
 		t.Fatal(err)
 	}
 }
+
+// slashes spells every path separator in s as "/": the detail names a path as
+// the OS spells it, and the expectation is the slash form.
+func slashes(s string) string { return strings.ReplaceAll(s, `\`, "/") }

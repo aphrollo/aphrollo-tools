@@ -73,11 +73,11 @@ func readGatePRMergeHolderPID(wt string) (int, bool) {
 	return 0, false
 }
 
-// removeGatePRMergeWorktree removes a registered gate-prmerge checkout the
-// way `git worktree remove` always has: from INSIDE the worktree being
-// removed. A GCCandidate carries no repo root to run `-C <repo>` with, and
-// git resolves the shared repository data from the worktree itself either
-// way.
+// removeGatePRMergeWorktree removes a registered gate-prmerge checkout. A
+// GCCandidate carries no repo root, so the shared git directory is asked of the
+// worktree itself, and the removal then runs from there: a process whose
+// working directory is inside the tree being deleted holds it open, which on
+// Windows is "Permission denied".
 //
 // It unlinks every link in the checkout first: a forced `worktree remove`
 // deletes an untracked node_modules, and through a junction that is the
@@ -86,7 +86,11 @@ func removeGatePRMergeWorktree(path string) error {
 	if err := depinstall.RemoveLinks(path); err != nil {
 		return err
 	}
-	out, err := exec.Command("git", "-C", path, "worktree", "remove", "--force", ".").CombinedOutput()
+	common, err := exec.Command("git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir").Output() // stderr-ok: a failed lookup is reported by the exit error below
+	if err != nil {
+		return fmt.Errorf("finding the shared git dir of %s: %w", path, err)
+	}
+	out, err := exec.Command("git", "-C", strings.TrimSpace(string(common)), "worktree", "remove", "--force", path).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}

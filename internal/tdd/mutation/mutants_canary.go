@@ -267,7 +267,7 @@ func isGateWorktree(path string) bool {
 // deeper, in the run's temp dirs under laneDir, or in the system's; both are
 // watched.
 func isWatchedWorktree(path, laneDir string) bool {
-	return !isGateWorktree(path) && filepath.Dir(path) != laneDir
+	return !isGateWorktree(path) && filepath.Dir(path) != filepath.Clean(laneDir)
 }
 
 // keepWorktrees is the lines of text, each starting with a worktree's path

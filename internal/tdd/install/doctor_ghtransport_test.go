@@ -2,10 +2,9 @@ package install
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/shfake"
 )
 
 // fakeGHForDoctor builds a `gh` script in t.TempDir() that answers `api user`
@@ -21,9 +20,7 @@ func fakeGHForDoctor(t *testing.T, restExit, graphqlExit int) {
 		"  \"api graphql\") exit " + oneOrZero(graphqlExit) + " ;;\n" +
 		"  *) exit 1 ;;\n" +
 		"esac\n"
-	if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	shfake.Install(t, dir, "gh", script)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 

@@ -481,7 +481,7 @@ func TestPruneMergedLanesAfterMerge_LeavesAHiddenWorktreeRegistered(t *testing.T
 	var out, errb bytes.Buffer
 	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
 
-	if len(pruned) != 1 || pruned[0].Worktree != mergedWT {
+	if len(pruned) != 1 || cleanWorktreePath(pruned[0].Worktree) != cleanWorktreePath(mergedWT) {
 		t.Fatalf("pruned = %+v, want exactly lane/merged at %s", pruned, mergedWT)
 	}
 	registered := false

@@ -105,10 +105,17 @@ func maskStringLines(raw []string, lex func(string) string) []string {
 	src := strings.Join(raw, "\n") + "\n"
 	masked := splitLines(lex(src))
 	if len(masked) != len(raw) {
-		// Cannot happen — the lexer only ever replaces bytes with spaces — but
-		// a view that has silently lost a line would misattribute every hit
+		// A view that has silently lost a line would misattribute every hit
 		// below it, so the raw lines are the safe answer.
 		return raw
+	}
+	for i := range raw {
+		// A raw line ending in a lone "\r" is rejoined as "\r\n" and read back
+		// as a CRLF, so the masked line is a byte shorter than the raw one and
+		// a caller slicing by the raw length would run off its end.
+		if len(masked[i]) != len(raw[i]) {
+			return raw
+		}
 	}
 	return masked
 }

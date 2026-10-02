@@ -55,3 +55,16 @@ func TestCodeOnly_BlockCommentsReadARustLifetimeAsCode(t *testing.T) {
 		t.Fatalf("want one hit on line 2, got %+v", keys(hits))
 	}
 }
+
+// A line that itself ends in a carriage return (the file had "\r\r\n") is
+// rejoined with "\n" for the file-level lexer, which makes that "\r\n"; reading
+// the lexed text back folded it, so the lexed line came back one byte shorter
+// than the line the per-line cut kept, and slicing it panicked.
+func TestCodeOnly_ALineEndingInALoneCarriageReturnDoesNotPanic(t *testing.T) {
+	l := lawWith(Matcher{Kind: KindRegexAbsent, Pattern: regexp.MustCompile(`\bany\b`), Key: KeyLineContent})
+	l.CodeOnly = true
+	hits := l.HitsIn("a.ts", "let a: any;\r\r\n/* x */ let b: any;\r\r\n")
+	if len(hits) != 2 || hits[0].Line != 1 || hits[1].Line != 2 {
+		t.Fatalf("want hits on lines 1 and 2, got %+v", keys(hits))
+	}
+}

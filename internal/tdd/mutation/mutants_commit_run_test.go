@@ -314,7 +314,7 @@ func TestRunCommitMutants_ARunPastTheBudgetIsNotMeasured(t *testing.T) {
 		}
 	}
 	t.Cleanup(func() { resolveExecFn = prev })
-	got := runCommitOnce(t, root, planFor(nil), kindMutant, 300*time.Millisecond)
+	got := runCommitOnce(t, root, planFor(nil), kindMutant, 2*time.Second) // the box may spend a fair part of it before the run starts
 	if got.NotMeasured == "" || got.Outcome.Status == "missed" {
 		t.Fatalf("outcome = %q, not measured %q, want NOT MEASURED", got.Outcome.Status, got.NotMeasured)
 	}

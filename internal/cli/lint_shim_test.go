@@ -3,13 +3,12 @@ package cli
 import (
 	"bytes"
 	"os"
-	"os/exec"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/shfake"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -46,15 +45,9 @@ func withIsolatedLintLock(t *testing.T) {
 // linter installed.
 func fakeGolangciLint(t *testing.T) {
 	t.Helper()
-	sh, err := exec.LookPath("sh")
-	if err != nil {
-		t.Fatalf("no sh on PATH to stand in for golangci-lint: %v", err)
-	}
 	dir := t.TempDir()
-	if err := os.Symlink(sh, filepath.Join(dir, "golangci-lint")); err != nil {
-		t.Fatal(err)
-	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	shfake.Install(t, dir, "golangci-lint", "#!/bin/sh\nexec sh \"$@\"\n")
 }
 
 func fakeLintArgsExit(code int) []string {

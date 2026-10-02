@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/shfake"
 )
 
 // This package shells out to gh for the operations with the largest blast
@@ -66,3 +67,11 @@ func installRefusingGh() string {
 var ghRefusalPath string
 
 func ghRefusalDir() string { return ghRefusalPath }
+
+// writeShGh installs script (a POSIX sh script) as the `gh` in dir; see shfake
+// for how Windows runs it.
+func writeShGh(t *testing.T, dir, script string) error {
+	t.Helper()
+	shfake.Install(t, dir, "gh", script)
+	return nil
+}

@@ -61,7 +61,7 @@ func TestPathless_NeutralisesTheTestsTempTree(t *testing.T) {
 	out := "gate: go test ./x in " + root + " → RED-MISSING-IMPL\nfull output: " + cfg + "/red.log" +
 		"\nkept: /elsewhere/green\n"
 
-	got := Pathless(t, out)
+	got := filepath.ToSlash(Pathless(t, out)) // the test's own paths below are native
 
 	want := "gate: go test ./x in <tmp>/002 → RED-MISSING-IMPL\nfull output: <tmp>/003/red.log\nkept: /elsewhere/green\n"
 	if got != want {

@@ -2,6 +2,7 @@ package core
 
 import (
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -23,11 +24,11 @@ func TestSamePath_NormalizesSeparatorsAndQuoting(t *testing.T) {
 }
 
 func TestSamePath_CaseSensitiveOnNonWindows(t *testing.T) {
-	// This suite runs on Linux; case must matter there (only Windows folds
-	// case), so two differently-cased spellings of the same directory name
-	// must NOT be treated as the same path.
-	if samePath("/tmp/Repo", "/tmp/repo") {
-		t.Fatal("case must matter on a non-Windows OS")
+	// Case must matter off Windows (only Windows folds case), so two
+	// differently-cased spellings of the same directory name must NOT be
+	// treated as the same path there; on Windows they are the same.
+	if got, want := samePath("/tmp/Repo", "/tmp/repo"), runtime.GOOS == "windows"; got != want {
+		t.Fatalf("samePath of two case spellings = %v, want %v on %s", got, want, runtime.GOOS)
 	}
 }
 

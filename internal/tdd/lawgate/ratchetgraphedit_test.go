@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/shfake"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
@@ -52,9 +53,7 @@ func countGoListRuns(t *testing.T) func() int {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls.log")
 	script := "#!/bin/sh\necho \"$1\" >> '" + log + "'\nexec '" + real + "' \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "go"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	shfake.Install(t, dir, "go", script)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return func() int {
 		data, _ := os.ReadFile(log)
