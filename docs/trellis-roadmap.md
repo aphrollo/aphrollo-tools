@@ -283,6 +283,7 @@ The open work fits the phases; nothing in it has to wait for a decision except t
 | 0 · now | #1064 local CI merge mode. Step 1 (a check that never started reads "ci unavailable", not "failed") is pushed to lane/1064-ci-unavailable, no PR yet; #1081 asks for the same mode; the --local-ci design is decided in Open questions | fanvue can't merge while its GitHub Actions billing is blocked |
 | 0 · now | Paused lane: zig row, PHP fixtures, `install --dry` | Half done, uncommitted edits waiting |
 | 0 · now | Minimal event log: `gate.log` as JSONL | The targets need numbers from the start |
+| 0 · now | #1085 undercover accepts a cloud session's assigned branch; the merge verb writes its own merge subject | A cloud session cannot push its own branch until then |
 | 0 · now | #1072, #1074, #1076: the test-map build changes a worktree's git state; #1083: workspace prune deletes through a node\_modules junction | Open escapes of the safety class in compatibility item 5; five more of the same class are already closed |
 | 1a · core | Compatibility policy items 1 to 4 and 6 | Not built yet: versions and requires, consumer changelog, two-release format changes, release and local replay, rollback |
 | 1a · core | Windows smoke job on windows-latest (#866, PR #987) | Free on a public repo; Windows bugs were half the serious ones |
