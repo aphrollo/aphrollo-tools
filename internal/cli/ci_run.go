@@ -11,7 +11,7 @@ import (
 // ciRunLocal is the seam over the local CI run, so the verb's own logic is
 // tested without a repo and a suite.
 var ciRunLocal = func(repo string, log io.Writer) (tdd.LocalCIVerdict, error) {
-	return tdd.LocalCI(repo, tdd.RunSuite(tdd.DefaultPrecommitTimeout), log)
+	return tdd.LocalCI(repo, log)
 }
 
 // runCIRun is `ci run`: the single CI entry point. Local CI runs this same
@@ -33,7 +33,7 @@ func runCIRun(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	if *dry {
-		fmt.Fprintf(stdout, "ci run: would judge HEAD of %s merged into trunk, in a throwaway worktree (a stored green for the same tree is reused)\n", repo)
+		fmt.Fprintf(stdout, "ci run: would run the pull_request workflows of %s on HEAD merged into trunk, in a throwaway worktree (a stored green for the same tree is reused)\n", repo)
 		return 0
 	}
 	v, err := ciRunLocal(repo, stderr)

@@ -76,8 +76,8 @@ func TestMergeCI_LocalNeverReadsGitHubAndNamesItsReason(t *testing.T) {
 	if w.localRuns != 1 || w.merges != 1 {
 		t.Errorf("local runs = %d, merges = %d, want 1 and 1", w.localRuns, w.merges)
 	}
-	if w.gateRuns != 0 {
-		t.Errorf("the pre-merge gate ran %d time(s) beside local CI, which already judges the same tree", w.gateRuns)
+	if w.gateRuns != 1 {
+		t.Errorf("the pre-merge gate ran %d time(s) beside local CI, want 1 as before: local CI replaces GitHub's checks, not the gate", w.gateRuns)
 	}
 	if !strings.Contains(out, "ci: local") || !strings.Contains(out, "--ci local") {
 		t.Errorf("merge did not say which CI judged it and why:\n%s", out)
@@ -220,5 +220,22 @@ func TestMergeWait_GithubModeStillRefusesAnOutage(t *testing.T) {
 	}
 	if w.localRuns != 0 {
 		t.Error("github mode ran local CI")
+	}
+}
+
+func TestMergeCI_TheRefusalCountsTheFailingChecksOnlyWhenThereAreSome(t *testing.T) {
+	for _, c := range []struct {
+		failing int
+		want    string
+	}{
+		{2, "(red (2 failing))"},
+		{1, "(red (1 failing))"},
+		{0, "(red)"},
+	} {
+		newCIWorld(t, tdd.CIGithub, CIStatus{State: "red", Failing: c.failing, SHA: "021f725aaaa"})
+		_, err := applyMerge(t, "")
+		if err == nil || !strings.HasSuffix(err.Error(), c.want) {
+			t.Errorf("failing=%d: refusal = %v, want it to end %q", c.failing, err, c.want)
+		}
 	}
 }

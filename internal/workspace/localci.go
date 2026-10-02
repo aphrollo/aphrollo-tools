@@ -19,7 +19,7 @@ import (
 var (
 	readCIMode = tdd.ReadCIMode
 	localCI    = func(t *Target, log io.Writer) (tdd.LocalCIVerdict, error) {
-		return tdd.LocalCI(t.Worktree, tdd.RunSuite(tdd.DefaultPrecommitTimeout), log)
+		return tdd.LocalCI(t.Worktree, log)
 	}
 )
 

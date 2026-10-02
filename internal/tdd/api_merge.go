@@ -35,9 +35,7 @@ func LoadMergeQueueRecord(p0 string) (*MergeQueueRecord, error) {
 	return merge.LoadMergeQueueRecord(p0)
 }
 
-func LocalCI(p0 string, p1 SuiteRunner, p2 io.Writer) (LocalCIVerdict, error) {
-	return merge.LocalCI(p0, p1, p2)
-}
+func LocalCI(p0 string, p1 io.Writer) (LocalCIVerdict, error) { return merge.LocalCI(p0, p1) }
 
 func MergeQueueStoppedLine(p0 string) string { return merge.MergeQueueStoppedLine(p0) }
 

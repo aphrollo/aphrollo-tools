@@ -43,7 +43,7 @@ aphrollo update                       # rebuild from origin/main and swap it in
 | `aphrollo docs` | `docs check`: every repo path a tracked `*.md` cites must resolve |
 | `aphrollo sqlc` | `check` for sqlc drift, `regen --scoped` |
 | `aphrollo check` | judge the tree read-only: ratchet, docs, sqlc, doctor |
-| `aphrollo ci` | `ci run`: the one CI entry point, judging this HEAD merged into trunk in a throwaway worktree with what the merge gate judges (a green is stored per tree and reused); `ci why [<pr>\|<run-id>\|--main]`: why a pipeline run is red |
+| `aphrollo ci` | `ci run`: the one CI entry point; runs the repo's own pull_request workflow(s) on this HEAD merged into trunk in a throwaway worktree (run: steps under bash, uses: steps listed and skipped, first matrix combination only, no mutation); a green is stored per tree and reused; `ci why [<pr>\|<run-id>\|--main]`: why a pipeline run is red |
 | `aphrollo issue` | open an issue against this repo |
 | `aphrollo feedback` | file gate feedback with the upstream tracker |
 | `aphrollo status` | one-line gate state for this checkout |

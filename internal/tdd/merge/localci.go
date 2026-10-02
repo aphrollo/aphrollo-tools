@@ -2,19 +2,24 @@ package merge
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/ghworkflow"
 )
 
-// Local CI is the merge gate run as CI: the same throwaway checkout of the
-// lane merged into trunk, the same Mechanical stage (ratchet laws, docs check,
-// every detected root's suites, and the mutation measurement a repo declares),
-// but without the opt-in GatePRMerge keeps. A repo with no laws and no
-// mutants-at-merge pays nothing at the merge gate because GitHub's CI judges
-// it; when local CI stands in for GitHub there is nobody else to.
+// Local CI is the repo's own GitHub workflow run on this box, so a local green
+// means what a GitHub green means. It runs in a throwaway worktree of the merge
+// result (the lane merged into trunk, made as a commit with git plumbing so no
+// hook fires), through internal/ghworkflow: every pull_request workflow's jobs
+// in needs order, each run: step under bash. uses: steps are not executed and
+// are printed by name. Mutation is not part of it: hosted CI measures it, and
+// the pre-merge gate measures it where a repo declares mutants-at-merge.
 //
 // The verdict is a gate.log line keyed by the merge result's tree hash, so
 // `gate stats` and `gate output` show it like any gate result, and the same
@@ -61,10 +66,10 @@ type LocalCIVerdict struct {
 	Landed bool // trunk already holds the lane: nothing to judge
 }
 
-// LocalCI judges the merge of laneWorktree's HEAD into trunk. A stored green
-// for the same merge-result tree is reused; otherwise the merged tree is
-// judged in a throwaway checkout and the verdict, green or red, is recorded.
-func LocalCI(laneWorktree string, run SuiteRunner, log io.Writer) (LocalCIVerdict, error) {
+// LocalCI judges the merge of laneWorktree's HEAD into trunk by running the
+// repo's pull_request workflows. A stored green for the same merge-result tree
+// is reused; otherwise the verdict, green or red, is recorded.
+func LocalCI(laneWorktree string, log io.Writer) (LocalCIVerdict, error) {
 	if log == nil {
 		log = io.Discard
 	}
@@ -75,36 +80,116 @@ func LocalCI(laneWorktree string, run SuiteRunner, log io.Writer) (LocalCIVerdic
 	if tips.landed {
 		return LocalCIVerdict{Landed: true}, nil
 	}
-	// A merge git cannot even compute a tree for has no key; the checkout
-	// below reports the conflict by name, so no tree is not refused here.
-	tree := ""
-	if out, err := git(laneWorktree, "merge-tree", "--write-tree", tips.trunk, tips.lane); err == nil {
-		tree = strings.TrimSpace(strings.SplitN(out, "\n", 2)[0])
+	tree, commit, err := buildMergeResult(laneWorktree, tips)
+	if err != nil {
+		return LocalCIVerdict{}, err
 	}
-	if tree != "" && storedGreen(tree) {
-		fmt.Fprintf(log, "ci local: tree %s already judged green — reusing that verdict\n", shortTree(tree))
+	if storedGreen(tree) {
+		fmt.Fprintf(log, "ci local: merge result %s already judged green — reusing that verdict\n", tree)
 		return LocalCIVerdict{Tree: tree, Reused: true}, nil
 	}
-	start := time.Now()
-	err = judgeMergedTree(laneWorktree, run, log, &tips)
-	if tree != "" {
-		verdict := "green"
-		if err != nil {
-			verdict = "red"
-		}
-		AppendGateLog(ciStage, laneWorktree, "local-ci:"+tree, verdict, time.Since(start))
+	wt, cleanup, err := ciCheckout(laneWorktree, commit)
+	if err != nil {
+		return LocalCIVerdict{}, err
 	}
+	var once sync.Once
+	safeCleanup := func() { once.Do(cleanup) }
+	defer safeCleanup()
+	defer watchPRGateSignals(safeCleanup, log)()
+	fmt.Fprintf(log, "ci local: judging %s merged into %s (tree %s, in %s)\n", tips.lane, tips.trunkRef, tree, wt)
+	start := time.Now()
+	sum, err := runWorkflows(laneWorktree, wt, tips, commit, log)
 	if err != nil {
 		return LocalCIVerdict{Tree: tree}, err
+	}
+	verdict := "green"
+	if sum.Failed() {
+		verdict = "red"
+	}
+	AppendGateLog(ciStage, laneWorktree, "local-ci:"+tree, verdict, time.Since(start))
+	fmt.Fprintf(log, "ci local: %s — %d job(s) ran, %d skipped\n", verdict,
+		sum.Count(ghworkflow.ResultSuccess)+sum.Count(ghworkflow.ResultFailure), sum.Count(ghworkflow.ResultSkipped))
+	if sum.Failed() {
+		return LocalCIVerdict{Tree: tree}, fmt.Errorf("local CI is red: %s", failedJobs(sum))
 	}
 	return LocalCIVerdict{Tree: tree}, nil
 }
 
-func shortTree(s string) string {
-	if len(s) > 12 {
-		return s[:12]
+func failedJobs(sum *ghworkflow.Summary) string {
+	var parts []string
+	for _, j := range sum.Jobs {
+		if j.Result == ghworkflow.ResultFailure {
+			parts = append(parts, fmt.Sprintf("%s: %s (%s)", j.Workflow, j.ID, j.Detail))
+		}
 	}
-	return s
+	return strings.Join(parts, "; ")
+}
+
+// runWorkflows loads the merge result's pull_request workflows and runs them.
+// It records nothing: a missing or unreadable workflow is a refusal, not a
+// verdict, since no job judged the tree.
+func runWorkflows(lane, wt string, tips prGateTips, commit string, log io.Writer) (*ghworkflow.Summary, error) {
+	flows, skipped, err := ghworkflow.LoadDir(wt)
+	if err != nil {
+		return nil, fmt.Errorf("local CI could not read this repo's workflows: %w", err)
+	}
+	for _, s := range skipped {
+		fmt.Fprintf(log, "ci local: [skip] workflow %s\n", s)
+	}
+	if len(flows) == 0 {
+		return nil, fmt.Errorf("local CI has nothing to run: no workflow under .github/workflows runs on pull_request")
+	}
+	event := map[string]any{
+		"sha": commit, "base_sha": tips.trunk, "head_sha": tips.lane,
+		"head_ref":   strings.TrimSpace(gitOut(lane, "rev-parse", "--abbrev-ref", "HEAD")),
+		"base_ref":   strings.TrimPrefix(tips.trunkRef, "origin/"),
+		"repository": repoSlug(strings.TrimSpace(gitOut(lane, "config", "--get", "remote.origin.url"))),
+	}
+	return ghworkflow.Run(context.Background(), flows, ghworkflow.Options{Dir: wt, Out: log, Event: event})
+}
+
+// repoSlug is owner/repo from a GitHub remote URL, "" for anything else.
+func repoSlug(url string) string {
+	_, after, ok := strings.Cut(url, "github.com")
+	if !ok {
+		return ""
+	}
+	return strings.TrimSuffix(strings.Trim(after, ":/"), ".git")
+}
+
+// buildMergeResult makes the merge of the lane into trunk without touching any
+// worktree: its tree, and a commit of it with both tips as parents, so the
+// throwaway checkout has a real merge commit as HEAD.
+func buildMergeResult(lane string, tips prGateTips) (tree, commit string, err error) {
+	out, err := git(lane, "merge-tree", "--write-tree", tips.trunk, tips.lane)
+	if err != nil {
+		return "", "", prGateRefusal(lane, "no-merge-tree",
+			"this lane does not merge cleanly into %s here, so the merged tree could not be judged"+
+				" — update the lane (git fetch && git merge %s) and try again\n%s",
+			tips.trunkRef, tips.trunkRef, strings.TrimSpace(out))
+	}
+	tree = strings.TrimSpace(strings.SplitN(out, "\n", 2)[0])
+	commit, err = git(lane, "-c", "user.name=aphrollo", "-c", "user.email=aphrollo@localhost",
+		"commit-tree", tree, "-p", tips.trunk, "-p", tips.lane, "-m", "aphrollo local CI: merge result")
+	if err != nil {
+		return "", "", prGateRefusal(lane, "no-merge-commit", "the merge result could not be committed (%v)\n%s", err, strings.TrimSpace(commit))
+	}
+	return tree, strings.TrimSpace(commit), nil
+}
+
+// ciCheckout is the throwaway worktree of the merge commit, built beside the
+// repo's lanes like the merge gate's own and swept by the same holder file.
+func ciCheckout(lane, commit string) (string, func(), error) {
+	wt, err := os.MkdirTemp(prGateCheckoutParent(lane), "gate-prmerge-")
+	if err != nil {
+		return "", nil, prGateRefusal(lane, "no-checkout", "a checkout to run CI in could not be created (%v), so the merge was never judged", err)
+	}
+	if out, err := git(lane, "worktree", "add", "--detach", wt, commit); err != nil {
+		_ = os.RemoveAll(wt)
+		return "", nil, prGateRefusal(lane, "no-checkout", "a checkout of the merge result could not be made (%v), so the merge was never judged\n%s", err, strings.TrimSpace(out))
+	}
+	prGateWriteHolder(wt)
+	return wt, func() { prGateRemoveCheckout(lane, wt) }, nil
 }
 
 // storedGreen reports whether gate.log holds a green local CI verdict for tree.
@@ -120,7 +205,6 @@ func storedGreen(tree string) bool {
 	defer f.Close()
 	want := "local-ci:" + tree
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
 	for sc.Scan() {
 		if e, ok := parseGateLine(sc.Text()); ok && e.Stage == ciStage && e.Cmd == want && e.Verdict == "green" {
 			return true

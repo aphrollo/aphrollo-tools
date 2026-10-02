@@ -217,13 +217,15 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	// are cheap and this is not: a PR GitHub itself refuses never pays for a
 	// local measurement.
 	//
-	// Local CI judges the same merged tree through the same gate, with no
-	// opt-in, so when it is the CI it stands in for this gate.
-	gate := func() error { return premergeGate(m.Target, stderr) }
+	// Local CI, when it is the CI, runs first and in its place of GitHub's
+	// checks: the repo's own workflow on the merge result. The gate below
+	// still judges the merge as before, mutation included where declared.
 	if useLocal {
-		gate = func() error { return runLocalCI(m.Target, stdout, stderr) }
+		if err := runLocalCI(m.Target, stdout, stderr); err != nil {
+			return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+		}
 	}
-	if err := gate(); err != nil {
+	if err := premergeGate(m.Target, stderr); err != nil {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method) }

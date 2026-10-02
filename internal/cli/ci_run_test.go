@@ -57,7 +57,7 @@ func TestRunCIRun_DryRunsNothing(t *testing.T) {
 	if len(*repos) != 0 {
 		t.Errorf("--dry judged %v", *repos)
 	}
-	if !strings.Contains(out.String(), "would judge") {
+	if !strings.Contains(out.String(), "would run the pull_request workflows") {
 		t.Errorf("--dry must print the plan:\n%s", out.String())
 	}
 }
