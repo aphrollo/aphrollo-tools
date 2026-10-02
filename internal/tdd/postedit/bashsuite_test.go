@@ -499,3 +499,26 @@ func TestHasMutationProofMarker_IgnoresTheWordInsideAPath(t *testing.T) {
 		}
 	}
 }
+
+// The 2026-10 incident end to end: the hook's PATH has no go, so the suite
+// cannot start. The edit's line says SKIPPED and names go, no red is logged,
+// and the narrowed rerun stays the way to an answer: refusing it beside a red
+// that never was left a session with no test result at all.
+func TestPostEdit_AGoSuiteWhoseGoIsNotOnThePathIsSkippedAndTheRerunStaysAllowed(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := mkProject(t, "go.mod")
+	t.Setenv("PATH", t.TempDir())
+
+	got := PostEdit(postPayload("Edit", filepath.Join(root, "widget.go")), RunSuite(time.Minute))
+
+	if !strings.Contains(got, "SKIPPED (go not on PATH: ") || !strings.Contains(got, "inconclusive, the code was NOT tested") {
+		t.Fatalf("edit line = %q, want a SKIPPED line naming the missing go", got)
+	}
+	if strings.Contains(got, "outcome=red") {
+		t.Fatalf("edit line = %q, a suite that never started is no red", got)
+	}
+	d := decideBash(t, "s1", root, "go test -run TestWidget ./...")
+	if d.Action != Allow {
+		t.Fatalf("a narrowed rerun after a run that never started must stay allowed, got %v (reason %q)", d.Action, d.Reason)
+	}
+}
