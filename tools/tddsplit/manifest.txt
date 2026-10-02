@@ -517,6 +517,7 @@ memcap_run_unix_own_test.go                        lock
 memcap_run_windows.go                              lock
 mergeaware_test.go                                 precommit
 mergeprune.go                                      merge
+mergeprune_subject_test.go                         merge
 mergeprune_test.go                                 merge
 mergequeue_record.go                               merge
 mergequeue_sessionstart_test.go                    tdd

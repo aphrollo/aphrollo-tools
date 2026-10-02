@@ -92,6 +92,8 @@ rows) with this repo's values; a repo's first `aphrollo install` prints them onc
 
 With `undercover = true` a tool identity is refused at commit, pre-push and `workspace merge` and flagged at session start and by `gate doctor`; the Bash/PowerShell hook, the git shim, pre-push and `workspace create`/`claim`/`pr`/`ship`/`submit` refuse a tell ref name; `pr`/`ship`/`submit`, `issue`, `feedback` and the Bash/PowerShell hook (for a `gh pr`, `gh issue` or `gh api` call) check text before `gh`. The Bash/PowerShell hook judges `gh pr`/`gh issue` create, edit, comment, review and merge text, and a `gh api` request's title, body and head fields, `--input` JSON file and GraphQL mutation. Every check runs on this box before the text reaches GitHub; nothing in CI repeats it.
 
+One ref name is let through: in a cloud session (`CLAUDE_CODE_REMOTE=true`) the branch the platform assigned, named by `APHROLLO_ASSIGNED_BRANCH=<branch>`, matched byte for byte, never by pattern. Every branch a session names itself stays refused. `workspace merge` always writes its own merge subject (the PR title and number), so GitHub's "Merge pull request #N from <branch>" line never reaches history.
+
 | key | effect |
 |---|---|
 | `mutants-at-merge` | off by default: mutation measurement of the merged tree before every merge; cost: high CPU and wall-clock: a lane runs tens of mutants, each re-running its package's suite |

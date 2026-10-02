@@ -130,7 +130,14 @@ func (l List) Ident(ident string) (tell string, hit bool) {
 // RefName reports the tell a ref name carries. The name is split on `/`, `-`,
 // `_` and `.` and matched token by token, so `lane/cairo` never matches a
 // word inside a word, and `Claude_x` still does.
+//
+// The one exception is the branch a cloud session was assigned (see
+// AssignedBranchEnv), matched exactly: the platform picked that name, the
+// session did not.
 func (l List) RefName(name string) (tell string, hit bool) {
+	if isAssignedBranch(name) {
+		return "", false
+	}
 	toks := splitTokens(strings.ToLower(name))
 	for i, tok := range toks {
 		for _, t := range Tells {

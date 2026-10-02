@@ -34,12 +34,34 @@ var ghMergePR = func(wt, branch, method string) error {
 	if !found {
 		return fmt.Errorf("gh api pulls: no PR found for %s", branch)
 	}
-	out, err := ghCombinedOutput(wt, "api", fmt.Sprintf("repos/%s/%s/pulls/%d/merge", owner, repo, n),
-		"-X", "PUT", "-f", "merge_method="+method)
+	args := []string{"api", fmt.Sprintf("repos/%s/%s/pulls/%d/merge", owner, repo, n),
+		"-X", "PUT", "-f", "merge_method=" + method}
+	if method != "rebase" {
+		// A rebase writes no merge commit; the others get this verb's own
+		// subject so GitHub's "Merge pull request #N from <branch>" never
+		// carries the branch name into history.
+		title, err := ghCombinedOutput(wt, "api", fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, n), "--jq", ".title")
+		if err != nil {
+			return fmt.Errorf("gh api pulls title: %v: %s", err, strings.TrimSpace(string(title)))
+		}
+		args = append(args, "-f", "commit_title="+mergeSubject(string(title), n))
+	}
+	out, err := ghCombinedOutput(wt, args...)
 	if err != nil {
 		return fmt.Errorf("gh api pulls merge: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// mergeSubject is the subject every merge this verb makes carries: the PR's
+// title and number, never git's or GitHub's default line naming the branch.
+func mergeSubject(title string, n int) string {
+	title = strings.TrimSpace(title)
+	suffix := fmt.Sprintf("(#%d)", n)
+	if strings.HasSuffix(title, suffix) {
+		return title
+	}
+	return title + " " + suffix
 }
 
 // remoteBranchAlreadyGone reports whether a failed `git push origin --delete`
@@ -147,7 +169,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if pr == nil {
 		return fmt.Errorf("no open PR for %s — run: aphrollo workspace pr", m.Target.Branch)
 	}
-	body, useBody, err := undercoverMerge(m.Target, m.Method)
+	body, prTitle, useBody, err := undercoverMerge(m.Target, m.Method)
 	if err != nil {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
@@ -196,7 +218,9 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	}
 	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method) }
 	if useBody {
-		merge = func() error { return ghMergePRBody(m.Target.Worktree, m.Target.Branch, m.Method, body) }
+		merge = func() error {
+			return ghMergePRBody(m.Target.Worktree, m.Target.Branch, m.Method, mergeSubject(prTitle, pr.Number), body)
+		}
 	}
 	if err := merge(); err != nil {
 		return err
