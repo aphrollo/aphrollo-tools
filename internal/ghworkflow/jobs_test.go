@@ -364,3 +364,28 @@ func TestFailureDetail_NamesTheStepAndTheLimitOnlyForATimeout(t *testing.T) {
 		t.Errorf("failureDetail after a timeout = %q", got)
 	}
 }
+
+func TestRun_ASerialStepsLastWordsWithNoNewlineDoNotRunIntoTheNextLine(t *testing.T) {
+	_, out, _ := runFlow(t, "on: pull_request\njobs:\n  a:\n    steps:\n      - run: printf last-words\n      - run: echo next\n")
+	if !strings.Contains(out, "last-words\n") || strings.Contains(out, "last-wordsci run:") || strings.Contains(out, "last-words  [run]") {
+		t.Errorf("a step's unterminated last line ran into what followed:\n%s", out)
+	}
+}
+
+func TestLineEnder_OnlyAnOpenLineGetsItsNewline(t *testing.T) {
+	var out strings.Builder
+	l := &lineEnder{w: &out}
+	l.flush()
+	if out.String() != "" {
+		t.Errorf("flush on nothing wrote %q", out.String())
+	}
+	l.Write([]byte("whole\n"))
+	l.flush()
+	l.Write([]byte("open"))
+	l.Write(nil)
+	l.flush()
+	l.flush()
+	if want := "whole\nopen\n"; out.String() != want {
+		t.Errorf("output %q, want %q", out.String(), want)
+	}
+}

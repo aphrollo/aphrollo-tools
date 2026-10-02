@@ -191,3 +191,31 @@ func (r *jobRun) stopReason(ctx, stepCtx context.Context, err error) error {
 	}
 	return errors.New("stopped: the run was cancelled")
 }
+
+// lineEnder passes output through and remembers whether it stopped mid-line, so
+// a step that ends without a newline does not have the next line of the run
+// printed on its last one.
+type lineEnder struct {
+	mu      sync.Mutex
+	w       io.Writer
+	partial bool
+}
+
+func (l *lineEnder) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(p) > 0 {
+		l.partial = p[len(p)-1] != '\n'
+	}
+	return l.w.Write(p)
+}
+
+// flush ends a line that was left open.
+func (l *lineEnder) flush() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.partial {
+		_, _ = l.w.Write([]byte("\n"))
+		l.partial = false
+	}
+}

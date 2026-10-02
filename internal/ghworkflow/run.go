@@ -106,6 +106,7 @@ func Run(ctx context.Context, flows []*Workflow, opt Options) (*Summary, error) 
 			fmt.Fprintf(opt.Out, "ci run: [note] the run's scratch directory %s was not removed: %v\n", tmp, err)
 		}
 	}()
+	opt.Out = &lineEnder{w: opt.Out}
 	opt.iso = newIsolation(ctx, tmp, flows, opt.Env)
 	opt.iso.describe(opt.Out)
 	opt.describe(opt.Out)
