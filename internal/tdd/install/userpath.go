@@ -69,16 +69,11 @@ func isGitDir(dir string) bool {
 // once, and shimDir ahead of every Git directory. nil means healthy.
 func AuditUserPath(entries []string, shimDir, binDir string) []string {
 	var problems []string
-	shimAt := -1
 	for _, dir := range []string{shimDir, binDir} {
 		n := 0
-		for i, e := range entries {
-			if winPathKey(e) != winPathKey(dir) {
-				continue
-			}
-			n++
-			if dir == shimDir && shimAt < 0 {
-				shimAt = i
+		for _, e := range entries {
+			if winPathKey(e) == winPathKey(dir) {
+				n++
 			}
 		}
 		switch {
@@ -88,12 +83,16 @@ func AuditUserPath(entries []string, shimDir, binDir string) []string {
 			problems = append(problems, fmt.Sprintf("%s appears %d times in the user PATH", dir, n))
 		}
 	}
-	if shimAt >= 0 {
-		for _, e := range entries[:shimAt] {
-			if isGitDir(e) {
-				problems = append(problems, fmt.Sprintf("%s comes after %s, so git resolves to Git's own binary", shimDir, e))
-				break
+	gitDir := ""
+	for _, e := range entries {
+		if winPathKey(e) == winPathKey(shimDir) {
+			if gitDir != "" {
+				problems = append(problems, fmt.Sprintf("%s comes after %s, so git resolves to Git's own binary", shimDir, gitDir))
 			}
+			break
+		}
+		if gitDir == "" && isGitDir(e) {
+			gitDir = e
 		}
 	}
 	return problems
