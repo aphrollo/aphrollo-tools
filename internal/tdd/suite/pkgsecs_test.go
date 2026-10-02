@@ -1,6 +1,7 @@
 package suite
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -168,5 +169,53 @@ func TestPkgSecsPath_LivesBesideTheGateLog(t *testing.T) {
 
 	if got, want := pkgSecsPath(), fmt.Sprintf("%s%cgate-state%cpkg-secs.jsonl", dir, os.PathSeparator, os.PathSeparator); got != want {
 		t.Fatalf("path = %q, want %q", got, want)
+	}
+}
+
+// TestRecordPkgSamples_ARecordExactlyAtTheCeilingIsNotCompacted pins the
+// ceiling as a ceiling: a record that reaches it to the byte is left as it is,
+// and one byte over is rewritten (the padding line here is one the rewrite
+// drops, being no sample).
+func TestRecordPkgSamples_ARecordExactlyAtTheCeilingIsNotCompacted(t *testing.T) {
+	isolatedState(t)
+	prev := pkgSecsCompactAt
+	t.Cleanup(func() { pkgSecsCompactAt = prev })
+	s := pkgSample{At: time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC), Pkg: "m/a", Race: true, Secs: 5}
+	line, err := json.Marshal(s)
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	pad := strings.Repeat("x", 63) + "\n"
+	path := pkgSecsPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	total := int64(len(pad) + len(line) + 1)
+
+	for _, tc := range []struct {
+		name    string
+		ceiling int64
+		padKept bool
+	}{
+		{"at the ceiling", total, true},
+		{"one byte over the ceiling", total - 1, false},
+	} {
+		if err := os.WriteFile(path, []byte(pad), 0o600); err != nil {
+			t.Fatalf("%s: setup: %v", tc.name, err)
+		}
+		pkgSecsCompactAt = tc.ceiling
+
+		recordPkgSamples([]pkgSample{s})
+
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("%s: reading the record: %v", tc.name, err)
+		}
+		if kept := strings.Contains(string(data), pad); kept != tc.padKept {
+			t.Errorf("%s: padding line kept = %v, want %v (record %q)", tc.name, kept, tc.padKept, data)
+		}
+		if !strings.Contains(string(data), `"pkg":"m/a"`) {
+			t.Errorf("%s: the sample is gone from the record %q", tc.name, data)
+		}
 	}
 }

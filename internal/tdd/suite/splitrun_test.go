@@ -438,3 +438,30 @@ func TestGoTestPlan_ARealGoTestIsCutIntoTwoRunsAndRecordsBothPackages(t *testing
 		}
 	}
 }
+
+// TestSplitNote_NamesOnlyWhatTheRunLeftUndoneInTheOrderItIsWorded pins the
+// words a refusal carries: a part appears only for a run that has something to
+// say (the unfinished, the ended, the unstarted), never as an empty heading,
+// and the parts are one per line.
+func TestSplitNote_NamesOnlyWhatTheRunLeftUndoneInTheOrderItIsWorded(t *testing.T) {
+	cases := []struct {
+		name                       string
+		unfinished, ended, unstart []string
+		want                       string
+	}{
+		{"nothing", nil, nil, nil, ""},
+		{"unfinished only", []string{"run 1 of 3 [a] after 600s"}, nil, nil,
+			"1 of 3 runs did not finish: run 1 of 3 [a] after 600s"},
+		{"ended only", nil, []string{"run 2 of 3 [b] ended: memory cap", "run 3 of 3 [c] ended: memory cap"}, nil,
+			"run 2 of 3 [b] ended: memory cap; run 3 of 3 [c] ended: memory cap"},
+		{"unstarted only", nil, nil, []string{"run 2 of 3 [b]", "run 3 of 3 [c]"},
+			"not started: run 2 of 3 [b], run 3 of 3 [c]"},
+		{"all three", []string{"run 1 of 3 [a] after 600s"}, []string{"run 2 of 3 [b] ended: memory cap"}, []string{"run 3 of 3 [c]"},
+			"1 of 3 runs did not finish: run 1 of 3 [a] after 600s\nrun 2 of 3 [b] ended: memory cap\nnot started: run 3 of 3 [c]"},
+	}
+	for _, tc := range cases {
+		if got := splitNote(3, tc.unfinished, tc.ended, tc.unstart); got != tc.want {
+			t.Errorf("%s: splitNote = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}

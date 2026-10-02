@@ -241,7 +241,7 @@ func TestGoTestPlan_DescribeNamesTheRunsAndWhatTheyWereJudgedFrom(t *testing.T) 
 
 	got := p.Describe()
 
-	for _, want := range []string{"2 packages", "1 recorded", "1 at the 90s default", "2 runs", "./p00", "./p01"} {
+	for _, want := range []string{"2 runs", "2 packages (1 recorded, 1 at the 90s default)", "./p00", "./p01"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("Describe() = %q, want it to contain %q", got, want)
 		}

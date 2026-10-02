@@ -181,3 +181,65 @@ func TestPackGroups_EveryItemLandsInExactlyOneGroupWithinCapacity(t *testing.T) 
 		}
 	})
 }
+
+// TestPackGroups_AnOversizeItemDoesNotKeepTheRestFromBalancing pins that an
+// item over the capacity (a run to itself, whatever it costs) is not held
+// against the other runs: 700s beside eight 100s under a 600s capacity is
+// three runs, and the eight share out as 400 and 400, not first-fit's 600 and
+// 200.
+func TestPackGroups_AnOversizeItemDoesNotKeepTheRestFromBalancing(t *testing.T) {
+	got := packGroups(costs(700, 100, 100, 100, 100, 100, 100, 100, 100), 600)
+
+	want := [][]string{
+		{"p0"},
+		{"p1", "p3", "p5", "p7"},
+		{"p2", "p4", "p6", "p8"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("groups = %v, want %v", got, want)
+	}
+	for i := range want {
+		if !slices.Equal(names(got[i]), want[i]) {
+			t.Errorf("group %d = %v, want %v", i, names(got[i]), want[i])
+		}
+	}
+}
+
+// TestPackGroups_ABalancedFillOverTheCapacityIsDroppedForTheFirstFitOne pins
+// that sharing the work out never breaks the capacity. 2, 2, 3, 6 and 7 under
+// a capacity of 10 fit two runs of exactly 10 (first-fit); dealing the heaviest
+// first to the lightest run makes 7+2+2 = 11, which is over, so the first-fit
+// runs stand.
+func TestPackGroups_ABalancedFillOverTheCapacityIsDroppedForTheFirstFitOne(t *testing.T) {
+	got := packGroups(costs(2, 2, 3, 6, 7), 10)
+
+	want := [][]string{{"p0", "p1", "p3"}, {"p2", "p4"}}
+	if len(got) != len(want) {
+		t.Fatalf("groups = %v, want %v", got, want)
+	}
+	for i := range want {
+		if !slices.Equal(names(got[i]), want[i]) {
+			t.Errorf("group %d = %v, want %v", i, names(got[i]), want[i])
+		}
+	}
+}
+
+// TestMaterialize_RunsComeHeaviestFirstTiesByTheirEarliestItem pins the order
+// a plan is run and reported in, which is what makes the same input the same
+// plan: heaviest run first, equal loads by the run holding the earliest item,
+// and each run's items in input order.
+func TestMaterialize_RunsComeHeaviestFirstTiesByTheirEarliestItem(t *testing.T) {
+	items := costs(1, 5, 2, 5, 4)
+
+	got := materialize(items, [][]int{{4}, {3}, {2, 0}, {1}})
+
+	want := [][]string{{"p1"}, {"p3"}, {"p4"}, {"p0", "p2"}}
+	if len(got) != len(want) {
+		t.Fatalf("runs = %v, want %v", got, want)
+	}
+	for i := range want {
+		if !slices.Equal(names(got[i]), want[i]) {
+			t.Errorf("run %d = %v, want %v (loads 5, 5, 4, 3)", i, names(got[i]), want[i])
+		}
+	}
+}
