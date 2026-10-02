@@ -40,7 +40,7 @@ func registerStubDir(dir string) {
 // `Apply: step 2 (mark git-safe) failed: exit status 255`, on a tip whose
 // local gate had run the same suite green. See home_isolation_test.go.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "ws-")
+	dir, err := gitiso.MkRoot("aphrollo-ws-pkgtest-")
 	if err != nil {
 		panic(err)
 	}
@@ -71,7 +71,7 @@ func TestMain(m *testing.M) {
 			}
 		}
 	}
-	os.RemoveAll(dir)
+	gitiso.RemoveAll(dir)
 	os.Exit(code)
 }
 

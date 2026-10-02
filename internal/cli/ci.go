@@ -13,7 +13,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/ciwhy"
 )
 
-const ciUsage = `usage: aphrollo ci run [--dry]
+const ciUsage = `usage: aphrollo ci run [--dry] [--ci-jobs N] [--ci-timeout DURATION]
        aphrollo ci why [<pr>|<run-id>|--main] [--workflow NAME] [--raw]
 
 ci run is the one CI entry point: it runs the repo's own GitHub workflow(s)
@@ -24,6 +24,19 @@ a matrix runs its first combination only, and the output says so. A job with
 services or a container is skipped and named. Mutation is not run. A green is
 stored per merge-result tree and reused. --dry prints the plan and runs
 nothing.
+
+Jobs run one at a time, in needs order, and every step runs below normal
+priority (nice and ionice, BELOW_NORMAL_PRIORITY_CLASS on Windows), so a run on
+a shared box takes what is left of it. --ci-jobs N (or ci-jobs in aphrollo.toml)
+runs up to N independent jobs at once; their output is prefixed with the job's
+name. --ci-timeout 45m (or ci-timeout) sets how long one step may run, 30m by
+default; a step that reaches it is stopped and named in the job's result.
+
+A run never changes this box's global toolchains: every install lands in a
+scratch directory of its own (a python venv first on PATH, per-run npm, go and
+cargo prefixes and caches), removed when the run ends and printed at its start.
+A step that would change the box outside that (sudo, a system package manager,
+pip install --user) is refused before it runs, naming the step.
 
 Explains why a pipeline run is red, read-only: one line per failed job, then
 its failing Go tests with their assertion lines, its mutation survivors,

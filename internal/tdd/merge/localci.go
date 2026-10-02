@@ -71,8 +71,19 @@ type LocalCIVerdict struct {
 // repo's pull_request workflows. A stored green for the same merge-result tree
 // is reused; otherwise the verdict, green or red, is recorded.
 func LocalCI(laneWorktree string, log io.Writer) (LocalCIVerdict, error) {
+	return LocalCIWith(laneWorktree, log, CIRunOptions{})
+}
+
+// LocalCIWith is LocalCI with the run's knobs: what the caller leaves zero is
+// taken from the repo's aphrollo.toml (ci-jobs, ci-timeout), and a malformed
+// value there is refused before anything is judged.
+func LocalCIWith(laneWorktree string, log io.Writer, run CIRunOptions) (LocalCIVerdict, error) {
 	if log == nil {
 		log = io.Discard
+	}
+	run, err := resolveCIRunOptions(laneWorktree, run)
+	if err != nil {
+		return LocalCIVerdict{}, err
 	}
 	tips, err := prGateTipsOf(laneWorktree, log)
 	if err != nil {
@@ -99,7 +110,7 @@ func LocalCI(laneWorktree string, log io.Writer) (LocalCIVerdict, error) {
 	defer watchPRGateSignals(safeCleanup, log)()
 	fmt.Fprintf(log, "ci local: judging %s merged into %s (tree %s, in %s)\n", tips.lane, tips.trunkRef, tree, wt)
 	start := time.Now()
-	sum, err := runWorkflows(laneWorktree, wt, tips, commit, log)
+	sum, err := runWorkflows(laneWorktree, wt, tips, commit, log, run)
 	if err != nil {
 		return LocalCIVerdict{Tree: tree}, err
 	}
@@ -129,7 +140,7 @@ func failedJobs(sum *ghworkflow.Summary) string {
 // runWorkflows loads the merge result's pull_request workflows and runs them.
 // It records nothing: a missing or unreadable workflow is a refusal, not a
 // verdict, since no job judged the tree.
-func runWorkflows(lane, wt string, tips prGateTips, commit string, log io.Writer) (*ghworkflow.Summary, error) {
+func runWorkflows(lane, wt string, tips prGateTips, commit string, log io.Writer, run CIRunOptions) (*ghworkflow.Summary, error) {
 	flows, skipped, err := ghworkflow.LoadDir(wt)
 	if err != nil {
 		return nil, fmt.Errorf("local CI could not read this repo's workflows: %w", err)
@@ -146,7 +157,7 @@ func runWorkflows(lane, wt string, tips prGateTips, commit string, log io.Writer
 		"base_ref":   strings.TrimPrefix(tips.trunkRef, "origin/"),
 		"repository": repoSlug(strings.TrimSpace(gitOut(lane, "config", "--get", "remote.origin.url"))),
 	}
-	return ghworkflow.Run(context.Background(), flows, ghworkflow.Options{Dir: wt, Out: log, Event: event})
+	return ghworkflow.Run(context.Background(), flows, ghworkflow.Options{Dir: wt, Out: log, Event: event, Jobs: run.Jobs, StepTimeout: run.StepTimeout})
 }
 
 // repoSlug is owner/repo from a GitHub remote URL, "" for anything else.

@@ -128,15 +128,7 @@ func (f *stepFileSet) collect(r *jobRun) map[string]any {
 }
 
 // pathNow is the PATH the next step would see.
-func (r *jobRun) pathNow() string {
-	path := ""
-	for _, e := range r.env {
-		if k, v, ok := strings.Cut(e, "="); ok && strings.EqualFold(k, "PATH") {
-			path = v
-		}
-	}
-	return path
-}
+func (r *jobRun) pathNow() string { return pathIn(r.env) }
 
 // parseCommandFile reads a GITHUB_OUTPUT or GITHUB_ENV file: name=value lines
 // and name<<DELIMITER blocks.
