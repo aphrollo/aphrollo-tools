@@ -1,0 +1,12 @@
+{
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "transcript_path": "/home/dev/.claude/projects/-home-dev-proj/00000000-0000-4000-8000-000000000001.jsonl",
+  "cwd": "/home/dev/proj/.claude/worktrees/retry",
+  "permission_mode": "default",
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_id": "agent-7f3a91",
+  "agent_type": "builder",
+  "agent_transcript_path": "/home/dev/.claude/projects/-home-dev-proj/00000000-0000-4000-8000-000000000001/subagents/agent-agent-7f3a91.jsonl",
+  "last_assistant_message": "Backoff is in; the retry test is written and the implementation follows it."
+}

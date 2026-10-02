@@ -253,3 +253,109 @@ func TestStripSettings_RemovesOnlyManaged(t *testing.T) {
 		t.Errorf("strip removed foreign caveman hook\n%s", out)
 	}
 }
+
+// hookTimeouts returns the "timeout" of every command hook under an event.
+func hookTimeouts(t *testing.T, data []byte, event string) []float64 {
+	t.Helper()
+	var out []float64
+	for _, g := range hookGroups(t, data, event) {
+		gm, _ := g.(map[string]any)
+		hs, _ := gm["hooks"].([]any)
+		for _, h := range hs {
+			hm, _ := h.(map[string]any)
+			if _, isCmd := hm["command"].(string); !isCmd {
+				continue
+			}
+			got, _ := hm["timeout"].(float64)
+			out = append(out, got)
+		}
+	}
+	return out
+}
+
+// The turn-end hooks end a turn or a task, so the harness must be able to cut
+// them off quickly: each carries a short timeout, and a hook the harness kills
+// lets the turn end rather than holding it.
+func TestPatchSettings_WiresTheTurnEndHooksWithAShortTimeout(t *testing.T) {
+	t.Parallel()
+	out, _, err := PatchSettings(nil, bin)
+	if err != nil {
+		t.Fatalf("PatchSettings: %v", err)
+	}
+	for _, want := range []struct{ event, sub string }{
+		{"Stop", "aphrollo\" gate stop"},
+		{"SubagentStop", "aphrollo\" gate subagentstop"},
+		{"TaskCompleted", "aphrollo\" gate taskcompleted"},
+	} {
+		if !hasCommandContaining(t, out, want.event, want.sub) {
+			t.Errorf("%s: missing command %q\n%s", want.event, want.sub, out)
+		}
+		timeouts := hookTimeouts(t, out, want.event)
+		if len(timeouts) != 1 || timeouts[0] < 1 || timeouts[0] > 10 {
+			t.Errorf("%s: timeouts = %v, want one entry of 1 to 10 seconds", want.event, timeouts)
+		}
+	}
+}
+
+// An install that predates the turn-end hooks gets them added beside whatever
+// else is on those events, and a second patch finds them present and changes
+// nothing.
+func TestPatchSettings_AddsTheTurnEndHooksToAnOlderInstallAndSkipsThemOnceThere(t *testing.T) {
+	t.Parallel()
+	older := []byte(`{
+	  "hooks": {
+	    "SessionStart": [{"hooks": [{"type": "command", "command": "\"/usr/local/bin/aphrollo\" gate sessionstart", "timeout": 10}]}],
+	    "Stop": [{"hooks": [{"type": "command", "command": "node stop-notifier.js"}]}]
+	  }
+	}`)
+
+	out, changed, err := PatchSettings(older, bin)
+	if err != nil {
+		t.Fatalf("PatchSettings: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true: the older install lacks the turn-end hooks")
+	}
+	for _, event := range []string{"Stop", "SubagentStop", "TaskCompleted"} {
+		if !hasCommandContaining(t, out, event, "aphrollo\" gate ") {
+			t.Errorf("%s: aphrollo hook not added\n%s", event, out)
+		}
+	}
+	if !hasCommandContaining(t, out, "Stop", "stop-notifier.js") {
+		t.Errorf("the foreign Stop hook was dropped\n%s", out)
+	}
+
+	again, changedAgain, err := PatchSettings(out, bin)
+	if err != nil {
+		t.Fatalf("second patch: %v", err)
+	}
+	if changedAgain || string(again) != string(out) {
+		t.Errorf("second patch changed settings that already carry the hooks\n%s", again)
+	}
+}
+
+func TestStripSettings_RemovesTheTurnEndHooksAndKeepsAForeignStopHook(t *testing.T) {
+	t.Parallel()
+	installed, _, err := PatchSettings([]byte(`{
+	  "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "node stop-notifier.js"}]}]}
+	}`), bin)
+	if err != nil {
+		t.Fatalf("setup patch: %v", err)
+	}
+
+	out, changed, err := StripSettings(installed)
+	if err != nil {
+		t.Fatalf("StripSettings: %v", err)
+	}
+	if !changed {
+		t.Fatal("expected changed=true stripping installed settings")
+	}
+	for _, event := range []string{"Stop", "SubagentStop", "TaskCompleted"} {
+		if hasCommandContaining(t, out, event, "aphrollo\" gate ") {
+			t.Errorf("%s: aphrollo entry survived strip\n%s", event, out)
+		}
+	}
+	if !hasCommandContaining(t, out, "Stop", "stop-notifier.js") {
+		t.Errorf("strip removed the foreign Stop hook\n%s", out)
+	}
+}
