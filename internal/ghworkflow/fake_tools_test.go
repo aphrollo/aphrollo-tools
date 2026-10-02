@@ -34,6 +34,9 @@ func fakeToolMain() (code int, ok bool) {
 	switch name {
 	case "pip", "pip3":
 		return fakeRecord(name, args), true
+	case "prioprobe":
+		fmt.Println(probePriority())
+		return 0, true
 	case "python", "python3":
 		if len(args) == 3 && args[0] == "-m" && args[1] == "venv" {
 			return fakeVenv(args[2]), true
@@ -117,4 +120,20 @@ func useFakePython(t *testing.T, dir string) {
 	prev := findPython
 	findPython = func() (string, bool) { return filepath.Join(dir, "python3"+fakeExt()), true }
 	t.Cleanup(func() { findPython = prev })
+}
+
+// prioProbeOnPath puts a copy of this binary named prioprobe first on PATH.
+// Run under that name it prints "low" when its own process runs below normal
+// priority and "normal" when it does not (probePriority, per platform).
+func prioProbeOnPath(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(self, filepath.Join(dir, "prioprobe"+fakeExt())); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

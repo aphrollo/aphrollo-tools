@@ -19,6 +19,8 @@ const MergeQueuePending = merge.MergeQueuePending
 
 const MergeQueueRefused = merge.MergeQueueRefused
 
+type CIRunOptions = merge.CIRunOptions
+
 type LocalCIVerdict = merge.LocalCIVerdict
 
 type MergeQueuePR = merge.MergeQueuePR
@@ -36,6 +38,10 @@ func LoadMergeQueueRecord(p0 string) (*MergeQueueRecord, error) {
 }
 
 func LocalCI(p0 string, p1 io.Writer) (LocalCIVerdict, error) { return merge.LocalCI(p0, p1) }
+
+func LocalCIWith(p0 string, p1 io.Writer, p2 CIRunOptions) (LocalCIVerdict, error) {
+	return merge.LocalCIWith(p0, p1, p2)
+}
 
 func MergeQueueStoppedLine(p0 string) string { return merge.MergeQueueStoppedLine(p0) }
 

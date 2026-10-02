@@ -22,6 +22,7 @@ type Options struct {
 	Event       map[string]any // github context values: sha, base_sha, head_sha, head_ref, base_ref, repository
 	StepTimeout time.Duration  // per step, 30 minutes when zero
 	Env         []string       // the base environment, os.Environ() when nil
+	Jobs        int            // jobs that may run at once, one at a time in needs order when zero
 
 	iso *isolation // set by Run: what keeps the steps' installs inside the run's scratch
 }
@@ -43,6 +44,9 @@ func (o Options) withDefaults() Options {
 	}
 	if o.Env == nil {
 		o.Env = os.Environ()
+	}
+	if o.Jobs < 1 {
+		o.Jobs = 1
 	}
 	return o
 }
@@ -104,6 +108,7 @@ func Run(ctx context.Context, flows []*Workflow, opt Options) (*Summary, error) 
 	}()
 	opt.iso = newIsolation(ctx, tmp, flows, opt.Env)
 	opt.iso.describe(opt.Out)
+	opt.describe(opt.Out)
 	sum := &Summary{}
 	for _, wf := range flows {
 		fmt.Fprintf(opt.Out, "ci run: workflow %s (%s)\n", wf.Name, wf.File)
@@ -166,19 +171,7 @@ func runWorkflow(ctx context.Context, wf *Workflow, opt Options, tmp string, sum
 	if err != nil {
 		return err
 	}
-	states := map[string]*jobState{}
-	for _, j := range jobs {
-		r := &jobRun{wf: wf, job: j, opt: opt, tmp: filepath.Join(tmp, j.ID), states: states}
-		res := r.run(ctx)
-		states[j.ID] = &jobState{result: res.Result, outputs: r.outputs}
-		res.Workflow = wf.File
-		sum.Jobs = append(sum.Jobs, res)
-		label := j.ID
-		if res.Detail != "" {
-			label += " (" + res.Detail + ")"
-		}
-		fmt.Fprintf(opt.Out, "ci run: job %s: %s\n", label, res.Result)
-	}
+	sum.Jobs = append(sum.Jobs, runJobs(ctx, wf, jobs, opt, tmp)...)
 	return nil
 }
 
@@ -188,13 +181,15 @@ type jobRun struct {
 	job     *Job
 	opt     Options
 	tmp     string
-	states  map[string]*jobState
+	states  *stateTable
 	steps   map[string]any
 	matrix  map[string]any
 	env     []string
 	envCtx  map[string]any
 	outputs map[string]any
 	scope   *Scope
+	// timedOut is the limit the last step ran into, zero when it did not.
+	timedOut time.Duration
 }
 
 func (r *jobRun) skip(detail string) JobResult {
@@ -239,7 +234,7 @@ func (r *jobRun) run(ctx context.Context) JobResult {
 	jobCtx := ctx
 	if j.TimeoutMin > 0 {
 		var cancel context.CancelFunc
-		jobCtx, cancel = context.WithTimeout(ctx, time.Duration(j.TimeoutMin)*time.Minute)
+		jobCtx, cancel = context.WithTimeout(ctx, time.Duration(j.TimeoutMin)*jobTimeoutUnit)
 		defer cancel()
 	}
 	res := r.runSteps(jobCtx)
@@ -256,7 +251,7 @@ func (r *jobRun) fail(detail string) JobResult {
 // once any job this one needs has failed.
 func (r *jobRun) needsStatus() string {
 	for _, n := range r.job.Needs {
-		if st := r.states[n]; st != nil && st.result == ResultFailure {
+		if st := r.states.get(n); st != nil && st.result == ResultFailure {
 			return ResultFailure
 		}
 	}
@@ -267,7 +262,7 @@ func (r *jobRun) needsStatus() string {
 // them failed or was skipped.
 func (r *jobRun) needsBlock() string {
 	for _, n := range r.job.Needs {
-		if st := r.states[n]; st != nil && st.result != ResultSuccess {
+		if st := r.states.get(n); st != nil && st.result != ResultSuccess {
 			return fmt.Sprintf("needs %s, which %s", n, st.result)
 		}
 	}
@@ -286,7 +281,7 @@ func usesStatus(s *Scope, expr string) bool {
 func (r *jobRun) baseScope() map[string]any {
 	needs := map[string]any{}
 	for _, n := range r.job.Needs {
-		st := r.states[n]
+		st := r.states.get(n)
 		if st == nil {
 			continue
 		}
@@ -366,14 +361,14 @@ func (r *jobRun) runSteps(ctx context.Context) JobResult {
 				continue
 			}
 			status = ResultFailure
-			failedAt = st.Label()
+			failedAt = r.failureDetail(st)
 		}
 	}
 	for _, n := range r.scope.Notes {
 		fmt.Fprintf(r.opt.Out, "  [note] %s\n", n)
 	}
 	if failedAt != "" {
-		return JobResult{ID: r.job.ID, Result: ResultFailure, Detail: "step failed: " + failedAt}
+		return JobResult{ID: r.job.ID, Result: ResultFailure, Detail: failedAt}
 	}
 	return JobResult{ID: r.job.ID, Result: ResultSuccess}
 }
@@ -432,6 +427,11 @@ func (r *jobRun) runStep(ctx context.Context, st *Step) bool {
 		return false
 	}
 	runErr := r.exec(ctx, st, script, r.opt.iso.apply(append(stepEnv, files.env2()...)))
+	var timeout *stepTimeoutError
+	r.timedOut = 0
+	if errors.As(runErr, &timeout) {
+		r.timedOut = timeout.limit
+	}
 	outputs := files.collect(r)
 	outcome := ResultSuccess
 	if runErr != nil {
@@ -452,7 +452,7 @@ func (r *jobRun) exec(ctx context.Context, st *Step, script string, env []string
 	if err != nil {
 		return err
 	}
-	argv = r.opt.iso.interpreter(shell, argv)
+	argv = lowPriorityArgv(r.opt.iso.interpreter(shell, argv))
 	dir := r.opt.Dir
 	if wd := firstNonEmpty(st.WorkDir, r.job.WorkDir, r.wf.WorkDir); wd != "" {
 		wd, _ = r.scope.Interpolate(wd)
@@ -466,14 +466,15 @@ func (r *jobRun) exec(ctx context.Context, st *Step, script string, env []string
 	cmd := exec.CommandContext(stepCtx, argv[0], argv[1:]...)
 	cmd.Dir, cmd.Env = dir, env
 	cmd.Stdout, cmd.Stderr = r.opt.Out, r.opt.Out
-	cmd.SysProcAttr = proc.TreeAttrs()
+	cmd.SysProcAttr = lowPriorityAttrs(proc.TreeAttrs())
 	cmd.Cancel = func() error { return proc.KillTree(cmd.Process.Pid) }
 	cmd.WaitDelay = waitDelay
-	if err := cmd.Run(); err != nil {
-		if stepCtx.Err() != nil {
-			return fmt.Errorf("stopped after %v: %w", r.opt.StepTimeout, stepCtx.Err())
-		}
-		return err
+	err = cmd.Run()
+	if f, ok := r.opt.Out.(interface{ flush() }); ok {
+		f.flush()
+	}
+	if err != nil {
+		return r.stopReason(ctx, stepCtx, err)
 	}
 	return nil
 }

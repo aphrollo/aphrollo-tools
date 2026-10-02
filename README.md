@@ -43,7 +43,7 @@ aphrollo update                       # rebuild from origin/main and swap it in
 | `aphrollo docs` | `docs check`: every repo path a tracked `*.md` cites must resolve |
 | `aphrollo sqlc` | `check` for sqlc drift, `regen --scoped` |
 | `aphrollo check` | judge the tree read-only: ratchet, docs, sqlc, doctor |
-| `aphrollo ci` | `ci run`: the one CI entry point; runs the repo's own pull_request workflow(s) on this HEAD merged into trunk in a throwaway worktree (run: steps under bash, uses: steps listed and skipped, first matrix combination only, no mutation; installs land in a scratch venv, npm, go and cargo directory of the run's own, and a step that would change the box outside them (sudo, a system package manager, pip --user) is refused by name); a green is stored per tree and reused; `ci why [<pr>\|<run-id>\|--main]`: why a pipeline run is red |
+| `aphrollo ci` | `ci run`: the one CI entry point; runs the repo's own pull_request workflow(s) on this HEAD merged into trunk in a throwaway worktree (run: steps under bash, uses: steps listed and skipped, first matrix combination only, no mutation; installs land in a scratch venv, npm, go and cargo directory of the run's own, and a step that would change the box outside them (sudo, a system package manager, pip --user) is refused by name); jobs run one at a time in needs order at below-normal priority (`--ci-jobs N`, or `ci-jobs`, runs N at once) and a step is stopped after `--ci-timeout` (`ci-timeout`, 30m by default), naming the step; a green is stored per tree and reused; `ci why [<pr>\|<run-id>\|--main]`: why a pipeline run is red |
 | `aphrollo issue` | open an issue against this repo |
 | `aphrollo feedback` | file gate feedback with the upstream tracker |
 | `aphrollo status` | one-line gate state for this checkout |
@@ -132,6 +132,8 @@ One ref name is let through: in a cloud session (`CLAUDE_CODE_REMOTE=true`) the 
 | `memory-headroom` | derived by default: the available memory, in GB, a suite or measurement needs before it starts; below it the start waits, then is refused with the numbers; doubled while swap is 90% full; cost: a higher figure defers work on a busy box |
 | `undercover` | off by default: the commit-msg gate refuses AI attribution trailers; cost: none |
 | `ci` | `auto` (default), `local` or `github`: which CI judges `workspace merge`. `auto` uses GitHub's checks and falls back to local CI (`ci run`) when its jobs never start (a billing lock); `local` never waits on GitHub; `github` refuses an outage. `workspace merge --ci <mode>` beats it for one merge; every merge prints which CI judged it and why |
+| `ci-jobs` | 1 by default: the jobs local CI (`ci run`, `workspace merge --ci local`) runs at once; `--ci-jobs N` on `ci run` beats it for one run; cost: each extra job is another full build on the box at once, so keep it at 1 on a shared host |
+| `ci-timeout` | `"30m"` by default: the longest one step of a local CI run may take, as a duration such as `"45m"`; `--ci-timeout` on `ci run` beats it for one run; a step that reaches it is stopped and named; cost: a longer limit holds a hung step longer |
 | `commit-message-deny` | commit-msg deny patterns |
 | `undercover-extra` | extra tokens for the undercover checks, e.g. `["codename"]` |
 | `always-run`, `clippy-clean` | suites run on every merge; crates gated on clippy `-D warnings` |
