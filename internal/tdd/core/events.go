@@ -78,9 +78,7 @@ func AppendEvent(e Event) {
 		return
 	}
 	defer f.Close()
-	if _, err := f.Write(append(data, '\n')); err != nil {
-		warnEventLogUnwritable(fmt.Sprintf("could not write %s: %v", path, err))
-	}
+	_, _ = f.Write(append(data, '\n'))
 }
 
 // AppendEventOnce writes e unless a record of the same kind already carries the
