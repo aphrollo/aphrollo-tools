@@ -98,3 +98,12 @@ func AuditUserPath(entries []string, shimDir, binDir string) []string {
 	}
 	return problems
 }
+
+// winDir is the directory part of a Windows file path, split on either
+// separator so it gives the same answer whatever OS parses it.
+func winDir(p string) string {
+	if i := strings.LastIndexAny(p, `\/`); i >= 0 {
+		return p[:i]
+	}
+	return "."
+}

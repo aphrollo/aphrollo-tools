@@ -2,7 +2,6 @@ package install
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 )
 
@@ -61,7 +60,7 @@ func doctorUserPath(in DoctorInput) (DoctorCheck, bool) {
 	if len(in.UserPathDirs) == 0 {
 		return c, false
 	}
-	problems := AuditUserPath(in.UserPathDirs, in.ShimDir, filepath.Dir(in.Bin))
+	problems := AuditUserPath(in.UserPathDirs, in.ShimDir, winDir(in.Bin))
 	if len(problems) > 0 {
 		c.Warn = true
 		c.Detail = strings.Join(problems, "; ") + " — run `aphrollo install`"

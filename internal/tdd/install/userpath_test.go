@@ -86,3 +86,18 @@ func TestAuditUserPath_ReportsEachDefect(t *testing.T) {
 		}
 	}
 }
+
+// A path is split on either separator, and a bare file name has no directory.
+func TestWinDir_SplitsOnEitherSeparator(t *testing.T) {
+	t.Parallel()
+	for in, want := range map[string]string{
+		`C:\Users\me\bin\aphrollo.exe`: `C:\Users\me\bin`,
+		`C:/Users/me/bin/aphrollo.exe`: `C:/Users/me/bin`,
+		`\aphrollo.exe`:                "",
+		`aphrollo.exe`:                 ".",
+	} {
+		if got := winDir(in); got != want {
+			t.Errorf("winDir(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
