@@ -43,7 +43,7 @@ func TestPytestProofRunner_RunsPytestUnderTheRootsOwnVenvFirst(t *testing.T) {
 	venv := touchVenvPython(t, root)
 	r := Runner{Cmd: "pytest", Args: []string{"-q", "tests/test_a.py"}, Dir: "somewhere"}
 
-	got, why := pytestProofRunner(root, r, onPath, func(string) error { return nil })
+	got, why := pytestProofRunner(pytestSearch{root: root}, r, onPath, func(string) error { return nil })
 	if why != "" {
 		t.Fatalf("unexpected refusal: %s", why)
 	}
@@ -63,7 +63,7 @@ func TestPytestProofRunner_SkipsAnInterpreterWithoutPytest(t *testing.T) {
 		}
 		return nil
 	}
-	got, why := pytestProofRunner(root, Runner{Cmd: "pytest", Args: []string{"-q"}}, onPath, importable)
+	got, why := pytestProofRunner(pytestSearch{root: root}, Runner{Cmd: "pytest", Args: []string{"-q"}}, onPath, importable)
 	if why != "" || got.Cmd != "/usr/bin/python3" {
 		t.Fatalf("got %+v, %q; want python3 from PATH", got, why)
 	}
@@ -74,11 +74,11 @@ func TestPytestProofRunner_SkipsAnInterpreterWithoutPytest(t *testing.T) {
 // import pytest it names the first one and the root. Neither runs anything.
 func TestPytestProofRunner_SaysWhichPieceIsMissing(t *testing.T) {
 	root := t.TempDir()
-	_, why := pytestProofRunner(root, Runner{Cmd: "pytest"}, noInterpreter, func(string) error { return nil })
+	_, why := pytestProofRunner(pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, func(string) error { return nil })
 	if !strings.Contains(why, "no python interpreter") || !strings.Contains(why, root) {
 		t.Errorf("no interpreter: reason %q does not name the missing interpreter and the root", why)
 	}
-	_, why = pytestProofRunner(root, Runner{Cmd: "pytest"}, onPath, func(string) error { return errors.New("no pytest") })
+	_, why = pytestProofRunner(pytestSearch{root: root}, Runner{Cmd: "pytest"}, onPath, func(string) error { return errors.New("no pytest") })
 	if !strings.Contains(why, "pytest is not importable by /usr/bin/python3") || !strings.Contains(why, root) {
 		t.Errorf("no pytest: reason %q does not name the interpreter and the root", why)
 	}
@@ -88,7 +88,7 @@ func TestPytestProofRunner_SaysWhichPieceIsMissing(t *testing.T) {
 // rewritten; a go or node runner comes back as it went in, with no lookup.
 func TestPytestProofRunner_LeavesAnyOtherRunnerAlone(t *testing.T) {
 	r := Runner{Cmd: "go", Args: []string{"test", "./..."}}
-	got, why := pytestProofRunner(t.TempDir(), r, noInterpreter, func(string) error { return errors.New("never asked") })
+	got, why := pytestProofRunner(pytestSearch{root: t.TempDir()}, r, noInterpreter, func(string) error { return errors.New("never asked") })
 	if why != "" || got.Cmd != "go" || !slices.Equal(got.Args, r.Args) {
 		t.Fatalf("got %+v, %q; want the go runner untouched", got, why)
 	}

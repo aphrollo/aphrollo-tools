@@ -76,3 +76,29 @@ func TestGateRoot_MergeSaysNotRunWhenNoInterpreterImportsPytest(t *testing.T) {
 		t.Fatalf("a missing runner was read as a suite failure:\n%s", stderr)
 	}
 }
+
+// TestPytestSuiteRunner_AMergeCheckoutRunsUnderThePrimaryCheckoutsVenv: the
+// pre-merge gate judges a fresh merge worktree, which has no gitignored
+// backend/.venv. The root's interpreter comes from the primary checkout's
+// venv, and the suite still runs in the merge worktree's own backend.
+// Serial: swaps the package-level pytest probe (pytestResolveFn) and sets the process-wide env var PATH.
+func TestPytestSuiteRunner_AMergeCheckoutRunsUnderThePrimaryCheckoutsVenv(t *testing.T) {
+	useRealPytestProbe(t)
+	bin := t.TempDir()
+	if err := proc.WriteExecutable(filepath.Join(bin, "python3"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	primary := makeBackendPytestRepo(t, fakePython)
+	merge := filepath.Join(t.TempDir(), "gate-prmerge-1")
+	gitDo(t, primary, "worktree", "add", "-q", "--detach", merge, "HEAD")
+	backend := filepath.Join(merge, "backend")
+
+	got, refused := pytestSuiteRunner("premerge", backend, Runner{Cmd: "pytest", Args: []string{"-q"}, Dir: backend})
+	if refused.Blocked {
+		t.Fatalf("a merge checkout whose primary has a venv with pytest was refused: %s", refused.Message)
+	}
+	if want := filepath.Join(primary, "backend", ".venv", "bin", "python"); got.Cmd != want || got.Dir != backend {
+		t.Errorf("ran %s in %s, want %s in %s", got.Cmd, got.Dir, want, backend)
+	}
+}
