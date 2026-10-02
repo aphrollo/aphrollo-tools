@@ -70,13 +70,12 @@ func TestSnapshotGitWorld_NamesEachThingALeakChanges(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if c.name == "a moved checkout" {
-				// The checkout's own commit moves when its own branch does; a commit of
-				// the owner's is ordinary work, one under another identity is not.
+				// The checkout's own commit moves when its own branch does.
 				repo, _, _ := canaryLanes(t)
 				lane := filepath.Join(t.TempDir(), "mine")
 				gitDo(t, repo, "worktree", "add", "-q", "-b", "mine", lane)
 				before := snapshotGitWorld(lane)
-				gitDo(t, lane, "-c", "user.email=fixture@example.com", "-c", "user.name=fixture", "commit", "-q", "--allow-empty", "-m", "mine")
+				gitDo(t, lane, "commit", "-q", "--allow-empty", "-m", "mine")
 				requireChange(t, before.changesTo(snapshotGitWorld(lane)), c.label)
 				return
 			}

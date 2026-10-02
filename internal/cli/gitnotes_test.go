@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -334,5 +335,35 @@ func TestGateNotesPushCmd_CanNeverPrompt(t *testing.T) {
 		if !strings.Contains(env, want) {
 			t.Errorf("env lacks %q — every path git can take to a prompt has to be closed, not most of them", want)
 		}
+	}
+}
+
+func TestPushNotesMerging_StopsAfterThreeMergesOfARepeatedRejection(t *testing.T) {
+	rejected := []byte("! [rejected] refs/notes/gate -> refs/notes/gate (fetch first)")
+	merges, pushes := 0, 0
+	push := func() ([]byte, error) { pushes++; return rejected, errors.New("exit status 1") }
+
+	_, err := pushNotesMerging(push, push, func() error { merges++; return nil })
+
+	if err == nil || merges != 3 || pushes != 4 {
+		t.Errorf("err=%v merges=%d pushes=%d, want the rejection after 3 merges and 4 pushes", err, merges, pushes)
+	}
+}
+
+func TestPushNotesMerging_ARefusalThatIsNoRejectionIsNotMerged(t *testing.T) {
+	merged := false
+	push := func() ([]byte, error) { return []byte("remote: denied"), errors.New("exit status 1") }
+
+	_, err := pushNotesMerging(push, push, func() error { merged = true; return nil })
+
+	if err == nil || merged {
+		t.Errorf("err=%v merged=%v, want the refusal returned with no merge", err, merged)
+	}
+}
+
+func TestScratchNotesRef_DiffersPerCallAndLivesUnderNotes(t *testing.T) {
+	a, b := scratchNotesRef(), scratchNotesRef()
+	if a == b || !strings.HasPrefix(a, "refs/notes/") {
+		t.Errorf("scratch refs %q and %q, want two distinct refs under refs/notes/", a, b)
 	}
 }

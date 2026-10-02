@@ -30,9 +30,6 @@ type gitWorldPart struct {
 	// fetched when it was read (originBehind, originAhead, originApart), and ""
 	// for every other part and when there is no origin/main.
 	Origin string
-	// Root is, for the checked-out commit, the checkout it was read in, so a
-	// move of it can be judged against that checkout's history; "" otherwise.
-	Root string
 }
 
 // gitWorld is everything the canary watches, in a fixed order.
@@ -65,7 +62,7 @@ func snapshotGitWorld(root string) gitWorld {
 		w = append(w, gitWorldPart{Label: "the worktree registrations", Present: true, Text: registrations})
 		w = append(w, gitWorldPart{Label: worktreeHeadsLabel, Present: true, Text: heads})
 		w = append(w, gitWorldPart{Label: "the branches", Present: true, Text: withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads"))})
-		w = append(w, gitWorldPart{Label: checkedOutLabel, Present: true, Text: strings.TrimSpace(gitOut(lane, "rev-parse", "HEAD")), Root: lane})
+		w = append(w, gitWorldPart{Label: "the checked-out commit", Present: true, Text: strings.TrimSpace(gitOut(lane, "rev-parse", "HEAD"))})
 		tip := strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/heads/main"))
 		log := strings.TrimSuffix(gitOut(lane, "log", "-g", "-n", strconv.Itoa(reflogWindow), "--format=%gs", "refs/heads/main"), "\n")
 		w = append(w, gitWorldPart{Label: tipOfMainLabel, Present: true, Text: tip + "\n" + log, Origin: mainOriginRelation(lane, tip)})
@@ -120,7 +117,6 @@ func worktreeFacts(porcelain string) (registrations, heads string) {
 // worktreeHeadsLabel names the part holding what each worktree has checked out,
 // and tipOfMainLabel the one holding main's tip and the subjects of its reflog.
 const (
-	checkedOutLabel    = "the checked-out commit"
 	worktreeHeadsLabel = "the worktree HEADs"
 	tipOfMainLabel     = "the tip of main"
 )
@@ -240,28 +236,6 @@ func mainMoveCounts(was, now gitWorldPart) bool {
 	return now.Origin == originApart
 }
 
-// ownerCommitsOnTop reports whether the checkout at lane moving from the
-// commit was to the commit now is the checkout's owner working in it: was is
-// an ancestor of now, and every commit between them, merges included, was
-// authored and committed under the user.email the repository resolves. A
-// runner's window can last minutes, and the lane it watches is the one its
-// owner commits in; a leaked fixture commits under an identity of its own, a
-// reset or a switch moves to something that is no descendant, and neither is
-// this.
-func ownerCommitsOnTop(lane, was, now string) bool {
-	if was == "" || now == "" || strings.TrimSpace(gitOut(lane, "merge-base", was, now)) != was {
-		return false
-	}
-	owner := strings.TrimSpace(gitOut(lane, "config", "user.email"))
-	if owner == "" {
-		return false
-	}
-	// was is an ancestor of now and differs from it, so the range holds at
-	// least one commit.
-	identities := strings.Fields(gitOut(lane, "log", "--format=%ae %ce", was+".."+now))
-	return !slices.ContainsFunc(identities, func(email string) bool { return email != owner })
-}
-
 // worktreeLaneDir is the directory the lanes of lane's repository live in:
 // <parent of the primary>/.worktrees/<repo>. The gate's shared go scratch dir
 // and the mutation area sit in it too, one level down, and a run's test
@@ -366,9 +340,6 @@ func (w gitWorld) changesTo(after gitWorld) []string {
 			was.Text, now.Text = sharedWorktreeHeads(was.Text, now.Text)
 		}
 		if was.Label == tipOfMainLabel && !mainMoveCounts(was, now) {
-			continue
-		}
-		if was.Label == checkedOutLabel && now.Root != "" && ownerCommitsOnTop(now.Root, was.Text, now.Text) {
 			continue
 		}
 		if was.Label != now.Label || (was.Present == now.Present && was.Text == now.Text) {

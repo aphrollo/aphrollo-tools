@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,11 +67,11 @@ func addGateWorktree(repoRoot string) (string, error) {
 		if wt, err = os.MkdirTemp("", "gate-failfirst-"); err != nil {
 			return "", err
 		}
-	} else {
-		clearGateWorktree(repoRoot, wt)
+	} else if err := clearGateWorktree(repoRoot, wt); err != nil {
+		return "", fmt.Errorf("the gate checkout %s from an earlier run is still there: %v; remove that link by hand (it points into an install that must not be deleted), then run again", wt, err)
 	}
 	if _, err := git(repoRoot, "worktree", "add", "--detach", wt, "HEAD"); err != nil {
-		_ = os.RemoveAll(wt)
+		_ = depinstall.RemoveTree(wt)
 		return "", err
 	}
 	return wt, nil
@@ -80,20 +81,20 @@ func addGateWorktree(repoRoot string) (string, error) {
 // of it. Best-effort: a registration that outlives it is cleared by the next
 // addGateWorktree.
 func removeGateWorktree(repoRoot, wt string) {
-	clearGateWorktree(repoRoot, wt)
+	_ = clearGateWorktree(repoRoot, wt)
 }
 
 // clearGateWorktree unregisters wt and deletes it, after unlinking every link
 // in it: a proof that was killed leaves its node_modules links behind, and git
 // deletes an untracked tree through a junction into the install it points at
-// (#1083). A link that cannot be unlinked leaves the checkout in place for the
-// next run.
-func clearGateWorktree(repoRoot, wt string) {
-	if depinstall.RemoveLinks(wt) != nil {
-		return
+// (#1083). A link that cannot be unlinked leaves the checkout in place and is
+// the error, naming the link.
+func clearGateWorktree(repoRoot, wt string) error {
+	if err := depinstall.RemoveLinks(wt); err != nil {
+		return err
 	}
 	_, _ = git(repoRoot, "worktree", "remove", "--force", wt)
-	_ = os.RemoveAll(wt)
+	return depinstall.RemoveTree(wt)
 }
 
 // readStagedTree replaces the gate worktree wt's files with repoRoot's

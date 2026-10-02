@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
@@ -66,5 +67,25 @@ func TestAddGateWorktree_ClearingALeftoverNeverDeletesThroughALinkedNodeModules(
 
 	if _, err := os.Stat(installed); err != nil {
 		t.Errorf("clearing the leftover deleted through the link into its target: %v", err)
+	}
+}
+
+// A leftover checkout holding a link that cannot be unlinked stays whole, and
+// the run refuses with the link's own path rather than deleting around it.
+func TestAddGateWorktree_AStuckLinkIsNamedAndNothingIsDeleted(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := gateRepo(t)
+	stable := gateWorktreeDir(root)
+	kept := filepath.Join(stable, "frontend", "node_modules", "pkg", "index.js")
+	tddtest.MustWrite(t, kept, "module.exports = 1\n")
+	defer depinstall.TreatAsJunction("node_modules")()
+
+	_, err := addGateWorktree(root)
+
+	if err == nil || !strings.Contains(err.Error(), "node_modules") {
+		t.Fatalf("addGateWorktree = %v, want an error naming the node_modules link it could not remove", err)
+	}
+	if _, statErr := os.Stat(kept); statErr != nil {
+		t.Errorf("the contents behind the stuck link were deleted: %v", statErr)
 	}
 }
