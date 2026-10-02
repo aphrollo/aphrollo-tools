@@ -22,6 +22,8 @@ type Options struct {
 	Event       map[string]any // github context values: sha, base_sha, head_sha, head_ref, base_ref, repository
 	StepTimeout time.Duration  // per step, 30 minutes when zero
 	Env         []string       // the base environment, os.Environ() when nil
+
+	iso *isolation // set by Run: what keeps the steps' installs inside the run's scratch
 }
 
 // defaultStepTimeout bounds a step that gives none.
@@ -95,7 +97,13 @@ func Run(ctx context.Context, flows []*Workflow, opt Options) (*Summary, error) 
 	if err != nil {
 		return nil, fmt.Errorf("a scratch directory for the run could not be made: %w", err)
 	}
-	defer os.RemoveAll(tmp)
+	defer func() {
+		if err := removeScratch(tmp); err != nil {
+			fmt.Fprintf(opt.Out, "ci run: [note] the run's scratch directory %s was not removed: %v\n", tmp, err)
+		}
+	}()
+	opt.iso = newIsolation(ctx, tmp, flows, opt.Env)
+	opt.iso.describe(opt.Out)
 	sum := &Summary{}
 	for _, wf := range flows {
 		fmt.Fprintf(opt.Out, "ci run: workflow %s (%s)\n", wf.Name, wf.File)
@@ -412,13 +420,18 @@ func (r *jobRun) runStep(ctx context.Context, st *Step) bool {
 		r.recordStep(st, ResultFailure, ResultFailure, nil)
 		return false
 	}
+	if why := r.refusal(st, script); why != "" {
+		fmt.Fprintf(r.opt.Out, "  [refuse] %s: %s\n", st.Label(), why)
+		r.recordStep(st, ResultFailure, ResultFailure, nil)
+		return false
+	}
 	files, err := r.stepFiles()
 	if err != nil {
 		fmt.Fprintf(r.opt.Out, "  [fail] %v\n", err)
 		r.recordStep(st, ResultFailure, ResultFailure, nil)
 		return false
 	}
-	runErr := r.exec(ctx, st, script, append(stepEnv, files.env2()...))
+	runErr := r.exec(ctx, st, script, r.opt.iso.apply(append(stepEnv, files.env2()...)))
 	outputs := files.collect(r)
 	outcome := ResultSuccess
 	if runErr != nil {
@@ -430,7 +443,7 @@ func (r *jobRun) runStep(ctx context.Context, st *Step) bool {
 }
 
 func (r *jobRun) exec(ctx context.Context, st *Step, script string, env []string) error {
-	shell := firstNonEmpty(st.Shell, r.job.Shell, r.wf.Shell)
+	shell := r.shellOf(st)
 	file := filepath.Join(r.tmp, fmt.Sprintf("step-%d.sh", st.Line))
 	if err := os.WriteFile(file, []byte(script), 0o600); err != nil {
 		return fmt.Errorf("writing the step script: %w", err)
@@ -439,6 +452,7 @@ func (r *jobRun) exec(ctx context.Context, st *Step, script string, env []string
 	if err != nil {
 		return err
 	}
+	argv = r.opt.iso.interpreter(shell, argv)
 	dir := r.opt.Dir
 	if wd := firstNonEmpty(st.WorkDir, r.job.WorkDir, r.wf.WorkDir); wd != "" {
 		wd, _ = r.scope.Interpolate(wd)

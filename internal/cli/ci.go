@@ -25,6 +25,12 @@ services or a container is skipped and named. Mutation is not run. A green is
 stored per merge-result tree and reused. --dry prints the plan and runs
 nothing.
 
+A run never changes this box's global toolchains: every install lands in a
+scratch directory of its own (a python venv first on PATH, per-run npm, go and
+cargo prefixes and caches), removed when the run ends and printed at its start.
+A step that would change the box outside that (sudo, a system package manager,
+pip install --user) is refused before it runs, naming the step.
+
 Explains why a pipeline run is red, read-only: one line per failed job, then
 its failing Go tests with their assertion lines, its mutation survivors,
 timeouts and unmeasured mutants, or its infrastructure cause (runner lost
