@@ -57,6 +57,9 @@ var ghMergePR = func(wt, branch, method string) error {
 // title and number, never git's or GitHub's default line naming the branch.
 func mergeSubject(title string, n int) string {
 	title = strings.TrimSpace(title)
+	if title == "" {
+		return fmt.Sprintf("Pull request #%d", n)
+	}
 	suffix := fmt.Sprintf("(#%d)", n)
 	if strings.HasSuffix(title, suffix) {
 		return title

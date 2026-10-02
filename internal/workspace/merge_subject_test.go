@@ -19,6 +19,8 @@ func TestMergeSubject_IsTheTitleAndPRNumber(t *testing.T) {
 		{"Fix the debounce race", 12, "Fix the debounce race (#12)"},
 		{"  Fix the debounce race\n", 12, "Fix the debounce race (#12)"},
 		{"Fix the debounce race (#12)", 12, "Fix the debounce race (#12)"},
+		{"", 12, "Pull request #12"},
+		{" \n", 12, "Pull request #12"},
 		{"Fix the debounce race (#7)", 12, "Fix the debounce race (#7) (#12)"},
 	}
 	for _, c := range cases {
