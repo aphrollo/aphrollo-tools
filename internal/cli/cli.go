@@ -77,6 +77,12 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprint(stderr, rootUsage)
 		return 2
 	}
+	// A repo that declares a newer `requires` than this binary is not judged
+	// or written by it (internal/compat); everything else goes on unchanged.
+	stdin, code, handled := compatGuard(args, stdin, stdout, stderr)
+	if handled {
+		return code
+	}
 	switch args[0] {
 	case "-h", "--help", "help":
 		fmt.Fprint(stdout, rootUsage)

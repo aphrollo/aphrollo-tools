@@ -91,7 +91,8 @@ like `systemctl` (no dry-run, no `--dry`).
   per repo), that table on demand with the repo's values, read-only tree
   judgment (ratchet + docs + sqlc + doctor + the app trio), open an issue
   against the repo's remote, rebuild from `origin/main` and swap it in, and
-  print the build stamp. The table's rows (`internal/tdd/install/features.go`)
+  print the semantic version and the build stamp (`version check` holds a PR to
+  the version rule). The table's rows (`internal/tdd/install/features.go`)
   are also the README's opt-in configuration rows, kept verbatim by a test.
 
 ## Layout
