@@ -1,10 +1,13 @@
 package mutation
 
 import (
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/commitrecord"
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 )
 
 // ownerCommit makes a commit in lane the way the owner does, through the
@@ -99,4 +102,29 @@ func TestSnapshotGitWorld_AResetOfTheCheckedOutCommitIsAChangeEvenWhenRecorded(t
 	gitDo(t, lane, "reset", "-q", "--hard", "HEAD~1")
 
 	requireChange(t, before.changesTo(snapshotGitWorld(lane)), "the checked-out commit")
+}
+
+func TestSnapshotGitWorld_ALeakedCommitUnderTheSealedEnvironmentRunsNoRepoHookAndIsAChange(t *testing.T) {
+	lane := recordedLane(t)
+	marker := t.TempDir() + "/hook-ran"
+	hook := "#!/bin/sh\necho ran > '" + strings.ReplaceAll(marker, "\\", "/") + "'\n"
+	hooksDir := strings.TrimSpace(gitOutT(t, lane, "rev-parse", "--path-format=absolute", "--git-path", "hooks"))
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hooksDir+"/post-commit", []byte(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	before := snapshotGitWorld(lane)
+
+	cmd := exec.Command("git", "commit", "-q", "--allow-empty", "-m", "leak")
+	cmd.Dir, cmd.Env = lane, gitenv.Sealed(os.Environ(), t.TempDir())
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("sealed commit: %v\n%s", err, out)
+	}
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the repo's post-commit hook ran under the sealed environment")
+	}
+	requireChange(t, before.changesTo(snapshotGitWorld(lane)), checkedOutLabel)
 }

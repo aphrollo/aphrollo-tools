@@ -1,6 +1,10 @@
 package gitenv
 
-import "strconv"
+import (
+	"os"
+	"slices"
+	"strconv"
+)
 
 // maintenanceOff is the git settings that switch post-commit auto
 // maintenance off.
@@ -19,8 +23,24 @@ var maintenanceOff = [][2]string{
 // settings ride GIT_CONFIG_COUNT so a fixture repo's own config cannot switch
 // maintenance back on. For test binaries; production git is unaffected.
 func DisableMaintenance(set func(key, value string)) {
-	set("GIT_CONFIG_COUNT", strconv.Itoa(len(maintenanceOff)))
-	for i, kv := range maintenanceOff {
+	setConfigEnv(maintenanceOff, set)
+}
+
+// DisableMaintenanceAndHooks is DisableMaintenance plus core.hooksPath pointed
+// at hooksDir, which it makes empty-handed if it is not there. With the global
+// config sealed away, git falls back to the repository's own .git/hooks, and on
+// a box with the gate installed that holds the real post-commit shim: a commit a
+// test leaks would run it and leave the record the canary reads as the owner's.
+// An environment config entry outranks the repository's own, so the repo cannot
+// switch its hooks back on.
+func DisableMaintenanceAndHooks(hooksDir string, set func(key, value string)) {
+	_ = os.MkdirAll(hooksDir, 0o755) // a dir that cannot be made is still empty of hooks to git
+	setConfigEnv(append(slices.Clone(maintenanceOff), [2]string{"core.hooksPath", hooksDir}), set)
+}
+
+func setConfigEnv(entries [][2]string, set func(key, value string)) {
+	set("GIT_CONFIG_COUNT", strconv.Itoa(len(entries)))
+	for i, kv := range entries {
 		set("GIT_CONFIG_KEY_"+strconv.Itoa(i), kv[0])
 		set("GIT_CONFIG_VALUE_"+strconv.Itoa(i), kv[1])
 	}

@@ -134,8 +134,10 @@ const (
 // the post-commit hook (commitrecord). A commit a test process leaked never ran
 // that hook, so it has none, whatever identity it committed under; a reset, a
 // move to a commit that is not a descendant, and a move with nothing in between
-// are not owner commits either. Commits a merge brought in from another line
-// are not followed: the merge commit is the owner's, and they are not.
+// are not owner commits either. Commits a merge brought in through its
+// second parent are not followed (--first-parent): the merge commit itself is
+// the owner's and needs a record, but a leaked commit that arrived as a second
+// parent of a recorded merge is not seen.
 func ownerCommitted(was, now gitWorldPart) bool {
 	if was.Repo == "" || was.Text == "" || now.Text == "" || was.Text == now.Text {
 		return false

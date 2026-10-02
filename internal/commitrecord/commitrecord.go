@@ -1,9 +1,14 @@
 // Package commitrecord keeps a record of every commit made through the real
 // commit path: the post-commit hook the gate installs appends the new HEAD's
-// sha to a per-repository file in the gate state dir. A test process runs under
-// the isolation harness with the hooks neutralised, so a commit it leaks never
-// reaches the hook and has no record, whatever identity it commits under. The
-// mutation canary reads the record to tell the lane owner's commits from a leak.
+// sha to a per-repository file in the gate state dir. The record is only as
+// good as the wall around it: a test process must run a git that fires no real
+// hook (gitiso.Isolate and gitenv.Sealed point core.hooksPath at an empty dir,
+// which outranks the repository's own .git/hooks) and keeps the gate state dir
+// (CLAUDE_CONFIG_DIR) out of the operator's, so a commit it leaks has no record
+// in the operator's file whatever identity it commits under. A process that
+// reaches the real hook and the real state dir anyway gets its commits
+// recorded, and the canary then takes them for the owner's. The mutation canary
+// reads the record to tell the lane owner's commits from a leak.
 package commitrecord
 
 import (
