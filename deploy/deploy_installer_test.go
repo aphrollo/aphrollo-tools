@@ -8,7 +8,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/gitiso"
 )
+
+// Every package with tests here isolates its git world (internal/gitiso).
+func TestMain(m *testing.M) {
+	os.Exit(gitiso.Main(func() int { return m.Run() }))
+}
 
 // deploy-prod.sh hands the build to the root-owned installer
 // (aphrollo-install-release) when the host grants it, and only falls back to
