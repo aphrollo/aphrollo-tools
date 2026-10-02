@@ -15,7 +15,7 @@ import (
 // against a temp tree. See gitiso.Isolate for the git side. The fixture helper
 // supplies the git identity per invocation.
 func TestMain(m *testing.M) {
-	dir, err := os.MkdirTemp("", "tddsplit-pkgtest-")
+	dir, err := gitiso.MkRoot("tddsplit-pkgtest-")
 	if err != nil {
 		panic(err)
 	}
@@ -26,6 +26,6 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	code := m.Run()
-	_ = os.RemoveAll(dir)
+	gitiso.RemoveAll(dir)
 	os.Exit(code)
 }
