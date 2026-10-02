@@ -152,11 +152,16 @@ func compactPkgSecs(path string) {
 // it); a median is blind to the slow tail, which is the one that times a run
 // out; the p90 follows the tail and needs more than one slow run to move.
 func recordedPkgSecs(race bool) map[string]float64 {
+	return recordedPkgSecsAt(race, time.Now())
+}
+
+// recordedPkgSecsAt is recordedPkgSecs as of now: a sample exactly a window old
+// still counts, one older does not.
+func recordedPkgSecsAt(race bool, now time.Time) map[string]float64 {
 	path := pkgSecsPath()
 	if path == "" {
 		return nil
 	}
-	now := time.Now()
 	byPkg := map[string][]float64{}
 	for _, s := range readPkgSamples(path) {
 		if s.Race != race || now.Sub(s.At) > pkgSecsWindow {

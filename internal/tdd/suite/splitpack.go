@@ -1,6 +1,7 @@
 package suite
 
 import (
+	"cmp"
 	"slices"
 	"sort"
 )
@@ -83,12 +84,7 @@ func longestFirst(items []splitItem, order []int, n int) [][]int {
 	runs := make([][]int, n)
 	loads := make([]float64, n)
 	for _, i := range order {
-		lightest := 0
-		for r := 1; r < n; r++ {
-			if loads[r] < loads[lightest] {
-				lightest = r
-			}
-		}
+		lightest := slices.Index(loads, slices.Min(loads))
 		runs[lightest] = append(runs[lightest], i)
 		loads[lightest] += items[i].Cost
 	}
@@ -122,11 +118,8 @@ func materialize(items []splitItem, runs [][]int) [][]splitItem {
 	for _, r := range runs {
 		slices.Sort(r)
 	}
-	sort.SliceStable(runs, func(a, b int) bool {
-		if la, lb := loadOf(items, runs[a]), loadOf(items, runs[b]); la != lb {
-			return la > lb
-		}
-		return runs[a][0] < runs[b][0]
+	slices.SortStableFunc(runs, func(a, b []int) int {
+		return cmp.Or(cmp.Compare(loadOf(items, b), loadOf(items, a)), cmp.Compare(a[0], b[0]))
 	})
 	out := make([][]splitItem, len(runs))
 	for r, run := range runs {

@@ -96,7 +96,6 @@ func newGoTestPlan(r Runner, module string, est map[string]float64, perRun time.
 		return p
 	}
 	items := make([]splitItem, len(pkgs))
-	total := 0.0
 	for i, pat := range pkgs {
 		secs, ok := est[importPathOf(module, pat)]
 		if ok {
@@ -106,10 +105,6 @@ func newGoTestPlan(r Runner, module string, est map[string]float64, perRun time.
 			p.defaulted++
 		}
 		items[i] = splitItem{Pkg: pat, Cost: secs * suiteFloorMargin}
-		total += items[i].Cost
-	}
-	if total <= perRun.Seconds() {
-		return p
 	}
 	if groups := packGroups(items, perRun.Seconds()); len(groups) >= 2 {
 		p.groups = groups

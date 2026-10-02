@@ -172,6 +172,27 @@ func TestPkgSecsPath_LivesBesideTheGateLog(t *testing.T) {
 	}
 }
 
+// TestRecordedPkgSecsAt_ASampleExactlyAWindowOldStillCounts pins the edge of
+// the window: a sample thirty days to the nanosecond old is used, one
+// nanosecond older is not.
+func TestRecordedPkgSecsAt_ASampleExactlyAWindowOldStillCounts(t *testing.T) {
+	isolatedState(t)
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	recordPkgSamples([]pkgSample{
+		{At: now.Add(-pkgSecsWindow), Pkg: "m/edge", Race: true, Secs: 11},
+		{At: now.Add(-pkgSecsWindow - time.Nanosecond), Pkg: "m/past", Race: true, Secs: 13},
+	})
+
+	got := recordedPkgSecsAt(true, now)
+
+	if got["m/edge"] != 11 {
+		t.Errorf("estimate for a sample exactly a window old = %v, want 11", got["m/edge"])
+	}
+	if _, ok := got["m/past"]; ok {
+		t.Errorf("estimate for a sample a nanosecond past the window = %v, want none", got["m/past"])
+	}
+}
+
 // TestRecordPkgSamples_ARecordExactlyAtTheCeilingIsNotCompacted pins the
 // ceiling as a ceiling: a record that reaches it to the byte is left as it is,
 // and one byte over is rewritten (the padding line here is one the rewrite
