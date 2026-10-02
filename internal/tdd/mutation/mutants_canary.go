@@ -256,8 +256,10 @@ func ownerCommitsOnTop(lane, was, now string) bool {
 	if owner == "" {
 		return false
 	}
+	// was is an ancestor of now and differs from it, so the range holds at
+	// least one commit.
 	identities := strings.Fields(gitOut(lane, "log", "--format=%ae %ce", was+".."+now))
-	return len(identities) > 0 && !slices.ContainsFunc(identities, func(email string) bool { return email != owner })
+	return !slices.ContainsFunc(identities, func(email string) bool { return email != owner })
 }
 
 // worktreeLaneDir is the directory the lanes of lane's repository live in:
