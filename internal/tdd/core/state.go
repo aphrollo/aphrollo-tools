@@ -368,6 +368,7 @@ func AppendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	// quotedVerdict unwraps byte-for-byte (issue #467).
 	fmt.Fprintf(f, "%s %s %s %s %s %.1fs\n",
 		time.Now().UTC().Format(time.RFC3339), stage, LogToken(root), cmd, quoteVerdict(verdict), dur.Seconds())
+	AppendEvent(Event{Kind: eventKind(stage, verdict), Root: root, Stage: stage, Verdict: verdict, Secs: dur.Seconds()})
 }
 
 // setOff persists the per-session enforcement override (the `/tdd off|on`

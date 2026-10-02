@@ -5,7 +5,10 @@ import (
 	"io"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // Push is a resolved push of a worktree's branch to origin. It sets the upstream
@@ -148,6 +151,11 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 	ci, ciErr := pushedCI(wt)
 	p.ci, p.ciErr = ci, ciErr
 	if ciErr == nil {
+		ev := tdd.Event{Kind: "ci", Root: wt, Verdict: ci.State, Detail: map[string]string{}}
+		if info != nil {
+			ev.Detail["pr"] = strconv.Itoa(info.Number)
+		}
+		tdd.AppendEvent(ev)
 		fmt.Fprintf(stdout, "ci %s\n", ci.Word())
 	}
 	return nil

@@ -23,7 +23,10 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 	// check is the undercover ref wall, which reads git's ref lines from the
 	// hook's own stdin and is inert unless the repo set `undercover = true`.
 	if name == "prepush" {
-		return runGatePrepush(os.Stdin, stderr, tdd.RepoRoot("."))
+		prepushRoot := tdd.RepoRoot(".")
+		code := runGatePrepush(os.Stdin, stderr, prepushRoot)
+		tdd.AppendEvent(tdd.Event{Kind: "push", Root: prepushRoot, Stage: "prepush", Verdict: gateVerdictWord(code)})
+		return code
 	}
 	isMerge := name == "premergecommit" || name == "premerge"
 	root := tdd.RepoRoot(".")
@@ -95,8 +98,22 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 	if res.Message != "" {
 		fmt.Fprintln(stderr, res.Message)
 	}
+	code := 0
 	if res.Blocked {
-		return 1
+		code = 1
 	}
-	return 0
+	kind := "commit_gate"
+	if isMerge {
+		kind = "merge_gate"
+	}
+	tdd.AppendEvent(tdd.Event{Kind: kind, Root: root, Stage: "result", Verdict: gateVerdictWord(code)})
+	return code
+}
+
+// gateVerdictWord is the outcome word an event carries for a hook's exit code.
+func gateVerdictWord(code int) string {
+	if code == 0 {
+		return "pass"
+	}
+	return "blocked"
 }
