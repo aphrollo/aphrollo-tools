@@ -1064,6 +1064,8 @@ vacuous_dispatch.go                                suite
 vacuous_pytest.go                                  suite
 vacuous_pytest_module_test.go                      suite
 vacuous_pytest_test.go                             suite
+userpath.go                                         install
+userpath_test.go                                    install
 vacuous_test.go                                    precommit
 vacuous_vitest.go                                  suite
 vacuous_vitest_test.go                             suite

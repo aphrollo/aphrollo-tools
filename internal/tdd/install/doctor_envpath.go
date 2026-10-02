@@ -50,3 +50,22 @@ func envPathSep(goos string) string {
 	}
 	return ":"
 }
+
+// doctorUserPath audits the user-scope PATH (HKCU\Environment on Windows,
+// the one place a PowerShell, cmd or Git Bash session all inherit from): the
+// shim dir and the binary dir each exactly once, the shim dir ahead of Git's.
+// ok=false when no user PATH was read (not Windows, or the read failed).
+func doctorUserPath(in DoctorInput) (DoctorCheck, bool) {
+	c := DoctorCheck{Name: "user PATH (HKCU Environment)"}
+	if len(in.UserPathDirs) == 0 {
+		return c, false
+	}
+	problems := AuditUserPath(in.UserPathDirs, in.ShimDir, winDir(in.Bin))
+	if len(problems) > 0 {
+		c.Warn = true
+		c.Detail = strings.Join(problems, "; ") + " — run `aphrollo install`"
+		return c, true
+	}
+	c.OK = true
+	return c, true
+}

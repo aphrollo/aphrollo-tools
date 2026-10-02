@@ -31,4 +31,8 @@ type DoctorInput struct {
 	// PathDirs: exec.LookPath reads this box's real PATH, and a check that
 	// called it directly could never be driven from a test.
 	ShimBypassLine string
+	// UserPathDirs is the user-scope (HKCU) PATH entries, expanded, as the
+	// caller read them from the registry; nil off Windows or when the read
+	// failed, which makes the user-PATH check not applicable.
+	UserPathDirs []string
 }

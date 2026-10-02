@@ -24,6 +24,10 @@ func BuildInstallPlan(p0 string, p1 string) (InstallPlan, error) {
 
 func ClaudeMDBlock(p0 BlockFlags) string { return install.ClaudeMDBlock(p0) }
 
+func ConvergeUserPath(p0 string, p1 []string, p2 func(string) string) (string, bool) {
+	return install.ConvergeUserPath(p0, p1, p2)
+}
+
 func Doctor(p0 DoctorInput) []DoctorCheck { return install.Doctor(p0) }
 
 func FeaturesNotYetShown(p0 string) (string, error) { return install.FeaturesNotYetShown(p0) }
