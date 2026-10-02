@@ -400,6 +400,7 @@ func (r *jobRun) tolerated(st *Step) bool {
 
 // runStep runs one run: step and records its outcome. It reports success.
 func (r *jobRun) runStep(ctx context.Context, st *Step) bool {
+	r.timedOut = 0 // before anything below can fail: only this step's own timeout labels it
 	fmt.Fprintf(r.opt.Out, "  [run] %s\n", st.Label())
 	sc := r.ctxFor(r.scope.Status, r.envMap())
 	script, err := sc.Interpolate(st.Run)
@@ -427,7 +428,6 @@ func (r *jobRun) runStep(ctx context.Context, st *Step) bool {
 	}
 	runErr := r.exec(ctx, st, script, r.opt.iso.apply(append(stepEnv, files.env2()...)))
 	var timeout *stepTimeoutError
-	r.timedOut = 0
 	if errors.As(runErr, &timeout) {
 		r.timedOut = timeout.limit
 	}
