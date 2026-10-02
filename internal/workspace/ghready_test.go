@@ -2,11 +2,8 @@ package workspace
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeGhReadyScript writes a `gh` script that answers three shapes: `pr
@@ -29,7 +26,7 @@ func fakeGhReadyScript(t *testing.T, readyExit int, readyOut string, prNumber st
 		"       *) exit 1 ;;\n" +
 		"     esac ;;\n" +
 		"esac\n"
-	if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+	if err := writeShGh(t, dir, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -96,7 +93,7 @@ func fakeGhEditScript(t *testing.T, prNumber string, patchExit int) {
 		"  repos/acme/widgets/pulls/*) exit " + itoa(patchExit) + " ;;\n" +
 		"  *) exit 1 ;;\n" +
 		"esac\n"
-	if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte(script), 0o755); err != nil {
+	if err := writeShGh(t, dir, script); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

@@ -224,6 +224,7 @@ func TestClaudeConfigDir_HonoursTheEnvOverrideElseHome(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	want := filepath.Join(home, ".claude")
 	if got := claudeConfigDir(); got != want {
 		t.Fatalf("claudeConfigDir() = %q, want %q", got, want)

@@ -6,12 +6,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
-
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // fakeGh puts a fake `gh` on PATH that prints message and exits with
@@ -19,32 +16,18 @@ import (
 // be exercised without the network or a real gh install. Like the real gh,
 // it writes message to STDOUT on success (exitCode 0 — the data path) and to
 // STDERR on failure (exitCode != 0 — gh's own error text, never mixed into
-// the data ghCombinedOutput returns on the happy path; see #883). POSIX: a
-// shebang shell script. Windows can't run one directly (no shebang dispatch
-// through CreateProcess, and Go's os/exec refuses a file with no
-// PATHEXT-recognized extension even given a full path) — a .bat with the
-// equivalent lines serves as the fake.
+// the data ghCombinedOutput returns on the happy path; see #883). The fake is
+// a shell script; see writeShGh for how Windows runs it.
 func fakeGh(t *testing.T, message string, exitCode int) {
 	t.Helper()
 	dir := t.TempDir()
-	if runtime.GOOS == "windows" {
-		redirect := ""
-		if exitCode != 0 {
-			redirect = " 1>&2"
-		}
-		body := fmt.Sprintf("@echo off\r\necho %s%s\r\nexit /b %d\r\n", message, redirect, exitCode)
-		if err := proc.WriteExecutable(filepath.Join(dir, "gh.bat"), []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		redirect := ""
-		if exitCode != 0 {
-			redirect = " 1>&2"
-		}
-		body := fmt.Sprintf("#!/bin/sh\necho \"%s\"%s\nexit %d\n", message, redirect, exitCode)
-		if err := proc.WriteExecutable(filepath.Join(dir, "gh"), []byte(body), 0o755); err != nil {
-			t.Fatal(err)
-		}
+	redirect := ""
+	if exitCode != 0 {
+		redirect = " 1>&2"
+	}
+	body := fmt.Sprintf("#!/bin/sh\necho \"%s\"%s\nexit %d\n", message, redirect, exitCode)
+	if err := writeShGh(t, dir, body); err != nil {
+		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }

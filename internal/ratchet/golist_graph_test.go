@@ -4,8 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/shfake"
 )
 
 const liveGraphLaw = `
@@ -51,9 +54,10 @@ func goCallLog(t *testing.T) (string, func() []string) {
 	dir := t.TempDir()
 	log := filepath.Join(dir, "calls.log")
 	wrapper := filepath.Join(dir, "go")
-	if err := os.WriteFile(wrapper, []byte(wrapperScript(real, log, "")), 0o755); err != nil {
-		t.Fatal(err)
+	if runtime.GOOS == "windows" {
+		wrapper += ".exe" // the file LookPath resolves "go" to
 	}
+	shfake.Install(t, dir, "go", wrapperScript(real, log, ""))
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return wrapper, func() []string {
 		data, _ := os.ReadFile(log)

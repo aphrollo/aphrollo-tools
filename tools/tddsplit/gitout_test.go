@@ -2,12 +2,10 @@ package main
 
 import (
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/shfake"
 )
 
 // fakeGitOnPath builds a `git` executable in a fresh t.TempDir() that prints
@@ -17,16 +15,7 @@ import (
 func fakeGitOnPath(t *testing.T, stdout, stderr string) {
 	t.Helper()
 	dir := t.TempDir()
-	name := "git"
-	script := "#!/bin/sh\nprintf '%s' \"$STDOUT_LINE\"\nprintf '%s' \"$STDERR_LINE\" 1>&2\n"
-	if runtime.GOOS == "windows" {
-		name = "git.bat"
-		script = "@echo off\r\n<nul set /p=%STDOUT_LINE%\r\n<nul set /p=%STDERR_LINE% 1>&2\r\n"
-	}
-	path := filepath.Join(dir, name)
-	if err := proc.WriteExecutable(path, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	shfake.Install(t, dir, "git", "#!/bin/sh\nprintf '%s' \"$STDOUT_LINE\"\nprintf '%s' \"$STDERR_LINE\" 1>&2\n")
 	t.Setenv("STDOUT_LINE", stdout)
 	t.Setenv("STDERR_LINE", stderr)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

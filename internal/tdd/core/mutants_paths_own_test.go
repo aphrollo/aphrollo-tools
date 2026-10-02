@@ -26,6 +26,7 @@ func TestMutantsStateDir_UnderTheConfiguredStateDir(t *testing.T) {
 func TestMutantsStateDir_EmptyWhenNoStateDirIsResolvable(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
 	if dir := mutantsStateDir(); dir != "" {
 		t.Fatalf("mutantsStateDir() = %q, want \"\" with no resolvable home", dir)
 	}

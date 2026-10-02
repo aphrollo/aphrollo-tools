@@ -63,6 +63,7 @@ func noStateDir(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
 	if StateDir() != "" {
 		t.Fatalf("setup: StateDir() = %q, want none", StateDir())
 	}
@@ -102,7 +103,9 @@ func TestAddGateWorktree_ChecksHeadOutAtTheStablePath(t *testing.T) {
 	if wt != stable {
 		t.Errorf("worktree at %q, want the stable path %q", wt, stable)
 	}
-	if got, err := os.ReadFile(filepath.Join(wt, "a.txt")); err != nil || string(got) != "a\n" {
+	// A checkout converts line endings by the box's core.autocrlf, so the
+	// content is compared with CRLF folded: the point is that it is HEAD's.
+	if got, err := os.ReadFile(filepath.Join(wt, "a.txt")); err != nil || strings.ReplaceAll(string(got), "\r\n", "\n") != "a\n" {
 		t.Errorf("a.txt in the checkout = %q (%v), want HEAD's", got, err)
 	}
 	if _, err := os.Stat(filepath.Join(wt, "leftover.txt")); !os.IsNotExist(err) {
@@ -121,6 +124,8 @@ func TestAddGateWorktree_FallsBackToATempDirWithNoStateDir(t *testing.T) {
 	noStateDir(t)
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
 	wt, err := addGateWorktree(root)
 	if err != nil {
 		t.Fatalf("addGateWorktree: %v", err)
@@ -135,6 +140,8 @@ func TestAddGateWorktree_FailsWhenNoTempDirCanBeMade(t *testing.T) {
 	root := gateRepo(t)
 	noStateDir(t)
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("TMP", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("TEMP", filepath.Join(t.TempDir(), "missing"))
 	if wt, err := addGateWorktree(root); err == nil {
 		removeGateWorktree(root, wt)
 		t.Fatal("addGateWorktree made a checkout with no temp dir to put it in")
