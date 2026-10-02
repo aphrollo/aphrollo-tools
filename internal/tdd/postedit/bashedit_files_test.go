@@ -1,7 +1,6 @@
 package postedit
 
 import (
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -234,35 +233,4 @@ func TestBashGateFinish_TheNotesRideTheFirstLineAndASmellIsALineOfItsOwn(t *test
 	}
 }
 
-func TestBashGateFinish_StartsLintForEveryGoFileAndMutationsOnlyForLiveGreenFiles(t *testing.T) {
-	root, src := mutantsEditFixture(t, true)
-	noInlineLint(t)
-	mutantJobs := recordEditRunSpawns(t, nil)
-	var lintJobs []string
-	prevLook, prevLoad, prevSpawn := lintEditLook, lintEditLoad, lintEditSpawnFn
-	t.Cleanup(func() { lintEditLook, lintEditLoad, lintEditSpawnFn = prevLook, prevLoad, prevSpawn })
-	lintEditLook = func() bool { return true }
-	lintEditLoad = func() (float64, int, bool) { return 0, 8, true }
-	lintEditSpawnFn = func(j lintEditJob) (int, bool) {
-		lintJobs = append(lintJobs, j.File)
-		return 0, false
-	}
-	mustWrite(t, src, "package m\n\nfunc Widget(n int) bool { return n > 2 }\n")
-	gone := filepath.Join(root, "gone.go")
-
-	_, after := bashGateFinish("s1070fin", root, []string{"widget.go"}, []string{src}, "", nil, []string{src, gone})
-	if len(*mutantJobs) != 0 || len(lintJobs) != 0 {
-		t.Fatalf("nothing may start before the harvest has been read: mutants %v, lint %v", *mutantJobs, lintJobs)
-	}
-	after()
-
-	if len(*mutantJobs) != 1 || (*mutantJobs)[0].File != src {
-		t.Errorf("mutation jobs = %+v, want one over %s and none over the deleted file", *mutantJobs, src)
-	}
-	if !slices.Equal(lintJobs, []string{src}) {
-		t.Errorf("lint jobs over %v, want %v", lintJobs, []string{src})
-	}
-	if _, err := os.Stat(gone); err == nil {
-		t.Fatal("the deleted file exists")
-	}
-}
+// ratchet: test_removed TestBashGateFinish_StartsLintForEveryGoFileAndMutationsOnlyForLiveGreenFiles: a shell write starts no lint or mutation run now; TestBashGateFinish_StartsNoLintOrMutationRun holds that

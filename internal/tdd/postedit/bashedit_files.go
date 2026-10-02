@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 )
 
@@ -59,24 +58,14 @@ func bashGateFinish(session, root string, changed, live []string, formatted stri
 		written[i] = filepath.Join(root, filepath.FromSlash(rel))
 	}
 	text = withGateNote(text, lawRefusalNote(written))
-	var lintKnown []string
-	text = withGateNote(text, lintEditedFiles(live, &lintKnown))
+	text = withGateNote(text, lintEditedFiles(live, nil))
 	for _, line := range bashSmellLines(root, changed) {
 		if text != "" {
 			text += "\n"
 		}
 		text += line
 	}
-	return text, func() {
-		for _, file := range live {
-			startLintEdit(session, file, lintKnown)
-		}
-		for _, file := range greenFiles {
-			if slices.Contains(live, file) {
-				startMutantsEdit(session, FindProjectRoot(file), file)
-			}
-		}
-	}
+	return text, func() {}
 }
 
 // bashSmellLines judges each changed file that is still on disk as the
