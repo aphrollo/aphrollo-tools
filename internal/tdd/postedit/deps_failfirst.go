@@ -8,6 +8,10 @@ import (
 
 func headSHAFor(p0 string) string { return failfirst.HeadSHAFor(p0) }
 
+func pytestExecRunner(p0 string, p1 Runner) (Runner, string) {
+	return failfirst.PytestExecRunner(p0, p1)
+}
+
 func readFailFirstEnv(p0 string) []string { return failfirst.ReadFailFirstEnv(p0) }
 
 func recordEdit(p0 string, p1 string) string { return failfirst.RecordEdit(p0, p1) }
