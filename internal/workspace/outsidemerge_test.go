@@ -231,6 +231,26 @@ func TestPRNumber_ReadsTheSubjectsAMergeCarries(t *testing.T) {
 func TestMergeApply_OwnMergeIsNotRecordedAsOutside(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	clone := repoWithOrigin(t)
+
+	verbMergesPR18(t, clone, targetFor(clone, "lane/z"))
+}
+
+// The verb really runs in a lane worktree, and its record then names the repo
+// through that worktree's link; the trunk move must still recognise it.
+func TestMergeApply_OwnMergeFromALaneWorktreeIsNotRecordedAsOutside(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	clone := repoWithOrigin(t)
+	lane := filepath.Join(t.TempDir(), "lane-z")
+	gitRun(t, clone, "worktree", "add", "-q", "-b", "lane/z", lane)
+
+	verbMergesPR18(t, clone, &Target{Worktree: lane, Branch: "lane/z", MainRepo: clone, RepoName: filepath.Base(clone)})
+}
+
+// verbMergesPR18 drives `workspace merge` of PR 18 with GitHub stubbed to land
+// one squash commit on origin, then holds that the verb's trunk move recorded
+// nothing as outside and left only the verb's own merge event.
+func verbMergesPR18(t *testing.T, clone string, tgt *Target) {
+	t.Helper()
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) {
 			return &PRInfo{Number: 18, URL: "u", State: "OPEN", HeadSHA: "abc123"}, nil
@@ -243,7 +263,7 @@ func TestMergeApply_OwnMergeIsNotRecordedAsOutside(t *testing.T) {
 	stubRetro(t, new([]string))
 	// syncMainClone stays the real Sync: it is what moves local trunk.
 
-	m, _ := MergePlan(targetFor(clone, "lane/z"), "squash", true)
+	m, _ := MergePlan(tgt, "squash", true)
 	var out bytes.Buffer
 	if err := m.Apply(&out, &bytes.Buffer{}); err != nil {
 		t.Fatalf("Apply: %v", err)
