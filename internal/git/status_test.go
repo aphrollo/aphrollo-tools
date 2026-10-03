@@ -154,6 +154,7 @@ func TestParseStatus_SaysWhatItCannotRead(t *testing.T) {
 		name, in string
 	}{
 		{"rename without its source record", "2 R. N... 100644 100644 100644 aaaa bbbb R100 new.txt\x00"},
+		{"rename that ends the output before its source", "2 R. N... 100644 100644 100644 aaaa bbbb R100 new.txt"},
 		{"unknown record type", good + "x what\x00"},
 		{"ordinary record with missing fields", "1 M. N... 100644 f.txt\x00"},
 		{"unmerged record with missing fields", "u UU N... 100644 100644 f.txt\x00"},

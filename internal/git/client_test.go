@@ -376,3 +376,29 @@ func TestStatus_AheadAndBehindComeFromTheUpstreamTheCloneTracks(t *testing.T) {
 		t.Errorf("Branch = %+v, want main tracking origin/main, 1 ahead 0 behind", b)
 	}
 }
+
+func TestIsObjectID_AcceptsOnlyAFullLowercaseHexName(t *testing.T) {
+	sha1 := strings.Repeat("0123456789abcdef", 3)[:40]
+	tests := []struct {
+		name, id string
+		want     bool
+	}{
+		{"sha-1", sha1, true},
+		{"sha-256", sha1 + strings.Repeat("9f", 12), true},
+		{"first and last digits", strings.Repeat("0", 20) + strings.Repeat("f", 20), true},
+		{"one short", sha1[:39], false},
+		{"one long", sha1 + "a", false},
+		{"between sha-1 and sha-256", sha1 + "ab", false},
+		{"one past f", sha1[:39] + "g", false},
+		{"one before a", sha1[:39] + "`", false},
+		{"one past 9", sha1[:39] + ":", false},
+		{"one before 0", sha1[:39] + "/", false},
+		{"not a commit at all", "not a commit", false},
+		{"empty", "", false},
+	}
+	for _, tc := range tests {
+		if got := isObjectID(tc.id); got != tc.want {
+			t.Errorf("%s: isObjectID(%q) = %v, want %v", tc.name, tc.id, got, tc.want)
+		}
+	}
+}
