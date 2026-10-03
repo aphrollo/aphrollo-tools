@@ -140,6 +140,10 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo update: %s has no release tag (v<MAJOR.MINOR.PATCH>): a tag is made when a PR that bumps internal/buildinfo/VERSION merges; ask for the release to be tagged\n", *remote)
 		return 1
 	}
+	if tagOlderThanRunning(tag) {
+		fmt.Fprintf(stdout, "aphrollo update: [skip] newest tag %s is older than the running v%s\n", tag, buildinfo.Version())
+		return 0
+	}
 	head, err := runGit("rev-parse", tag+"^{commit}")
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo update: %v\n", err)

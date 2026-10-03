@@ -45,7 +45,7 @@ func stubBuild(t *testing.T, record *string) {
 func TestUpdate_BuildsTheNewestTagNotMainWhenMainIsAhead(t *testing.T) {
 	_, clone, seed := updateFixture(t)
 	git := realGitForTest(t)
-	tagged := gitOutput(t, git, seed, "rev-parse", "v1.0.0")
+	tagged := gitOutput(t, git, seed, "rev-parse", "v99.0.0")
 	mustWriteFile(t, filepath.Join(seed, "ahead.txt"), "x")
 	gitOutput(t, git, seed, "add", "-A")
 	gitOutput(t, git, seed, "commit", "-q", "-m", "ahead of the tag")
@@ -61,7 +61,7 @@ func TestUpdate_BuildsTheNewestTagNotMainWhenMainIsAhead(t *testing.T) {
 		t.Fatalf("exit = %d\n%s", code, errb.String())
 	}
 	if built != tagged {
-		t.Fatalf("built %s, want the v1.0.0 commit %s", built, tagged)
+		t.Fatalf("built %s, want the v99.0.0 commit %s", built, tagged)
 	}
 }
 
@@ -76,7 +76,7 @@ func TestUpdate_NamesTheTagItMovedFromAndTo(t *testing.T) {
 	if code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb); code != 0 {
 		t.Fatalf("exit = %d\n%s", code, errb.String())
 	}
-	want := "aphrollo update: v" + buildinfo.Version() + " -> v1.0.0\n"
+	want := "aphrollo update: v" + buildinfo.Version() + " -> v99.0.0\n"
 	if !strings.Contains(out.String(), want) {
 		t.Fatalf("stdout lacks %q:\n%s", want, out.String())
 	}
@@ -85,8 +85,8 @@ func TestUpdate_NamesTheTagItMovedFromAndTo(t *testing.T) {
 func TestUpdate_RefusesWithAFixWhenTheRemoteHasNoReleaseTag(t *testing.T) {
 	_, clone, seed := updateFixture(t)
 	git := realGitForTest(t)
-	gitOutput(t, git, seed, "push", "-q", "origin", ":refs/tags/v1.0.0")
-	gitOutput(t, git, clone, "tag", "-d", "v1.0.0")
+	gitOutput(t, git, seed, "push", "-q", "origin", ":refs/tags/v99.0.0")
+	gitOutput(t, git, clone, "tag", "-d", "v99.0.0")
 	var built string
 	stubBuild(t, &built)
 	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
@@ -99,5 +99,57 @@ func TestUpdate_RefusesWithAFixWhenTheRemoteHasNoReleaseTag(t *testing.T) {
 	}
 	if built != "" {
 		t.Fatal("built without a release tag")
+	}
+}
+
+// A remote that only holds tags older than the running binary (v0.2.0 beside a
+// 1.x box) must never downgrade it.
+func TestUpdate_SkipsWhenTheNewestTagIsOlderThanTheRunningBinary(t *testing.T) {
+	_, clone, seed := updateFixture(t)
+	git := realGitForTest(t)
+	gitOutput(t, git, seed, "push", "-q", "origin", ":refs/tags/v99.0.0")
+	gitOutput(t, git, clone, "tag", "-d", "v99.0.0")
+	gitOutput(t, git, seed, "tag", "v0.2.0")
+	gitOutput(t, git, seed, "push", "-q", "origin", "v0.2.0")
+	var built string
+	stubBuild(t, &built)
+	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
+	mustWriteFile(t, bin, "OLD")
+
+	var out, errb bytes.Buffer
+	code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb)
+	want := "aphrollo update: [skip] newest tag v0.2.0 is older than the running v" + buildinfo.Version() + "\n"
+	if code != 0 || out.String() != want {
+		t.Fatalf("exit = %d, stdout = %q; want 0 and %q", code, out.String(), want)
+	}
+	if built != "" {
+		t.Fatal("built an older tag: that is a downgrade")
+	}
+	if got, err := os.ReadFile(bin); err != nil || string(got) != "OLD" {
+		t.Fatalf("the binary changed on a downgrade skip: %q (%v)", got, err)
+	}
+}
+
+// The running version's own tag is not a downgrade: a binary built from main
+// ahead of its release still moves onto the tag.
+func TestUpdate_BuildsATagThatEqualsTheRunningVersion(t *testing.T) {
+	_, clone, seed := updateFixture(t)
+	git := realGitForTest(t)
+	gitOutput(t, git, seed, "push", "-q", "origin", ":refs/tags/v99.0.0")
+	gitOutput(t, git, clone, "tag", "-d", "v99.0.0")
+	same := "v" + buildinfo.Version()
+	gitOutput(t, git, seed, "tag", same)
+	gitOutput(t, git, seed, "push", "-q", "origin", same)
+	var built string
+	stubBuild(t, &built)
+	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
+	mustWriteFile(t, bin, "OLD")
+
+	var out, errb bytes.Buffer
+	if code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d\n%s", code, errb.String())
+	}
+	if built == "" {
+		t.Fatalf("the tag %s equals the running version and must still be built; stdout %q", same, out.String())
 	}
 }

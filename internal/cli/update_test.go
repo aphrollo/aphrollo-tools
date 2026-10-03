@@ -48,8 +48,8 @@ func updateFixture(t *testing.T) (origin, clone, seed string) {
 	run(seed, "add", "-A")
 	run(seed, "commit", "-q", "-m", "init")
 	run(seed, "remote", "add", "origin", origin)
-	run(seed, "tag", "v1.0.0")
-	run(seed, "push", "-q", "origin", "main", "v1.0.0")
+	run(seed, "tag", "v99.0.0")
+	run(seed, "push", "-q", "origin", "main", "v99.0.0")
 
 	clone = filepath.Join(t.TempDir(), "clone")
 	run(t.TempDir(), "clone", "-q", origin, clone)
@@ -93,7 +93,7 @@ func TestUpdate_SkipsWhenTheBinaryIsAlreadyAtOriginMain(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("update exit = %d, want 0\nstderr: %s", code, errb.String())
 	}
-	want := "aphrollo update: [skip] already at v1.0.0\n"
+	want := "aphrollo update: [skip] already at v99.0.0\n" // expectation-changed: the fixture tag is now above any running version, so the downgrade guard stays out of the way
 	if out.String() != want {
 		t.Fatalf("stdout = %q, want %q", out.String(), want)
 	}
@@ -123,8 +123,8 @@ func TestUpdate_BuildsFromADetachedWorktreeAtOriginMainNotTheWorkingTree(t *test
 	}
 	run(seed, "add", "-A")
 	run(seed, "commit", "-q", "-m", "second")
-	run(seed, "tag", "v1.0.1")
-	run(seed, "push", "-q", "origin", "main", "v1.0.1")
+	run(seed, "tag", "v99.0.1")
+	run(seed, "push", "-q", "origin", "main", "v99.0.1")
 	wantHead := gitOutput(t, git, seed, "rev-parse", "main")
 
 	// the clone has an uncommitted edit of its own, which the build must

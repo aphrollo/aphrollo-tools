@@ -27,3 +27,11 @@ func newestReleaseTag(tags []string) (string, bool) {
 	}
 	return found, found != ""
 }
+
+// tagOlderThanRunning reports whether a release tag names an older version
+// than the running binary, so `update` never downgrades a box to an old tag
+// the remote still carries. A tag that is not a release is not older.
+func tagOlderThanRunning(tag string) bool {
+	v, err := compat.ParseVersion(strings.TrimPrefix(tag, "v"))
+	return err == nil && v.Less(compat.Binary())
+}

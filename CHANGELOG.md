@@ -32,6 +32,8 @@ trellis gates.
   `--branch` flag is gone, since there is no branch to pick; a release tag is
   made when a change that bumps the version merges. A remote with no release tag
   is refused, with the reason.
+  It never downgrades: when the newest tag is older than the running version it
+  prints `[skip] newest tag vX is older than the running vY` and exits 0.
 - The Linux deploy ships the same newest tag, so the shared box and your update
   agree on one version.
 - In a repo whose root holds `trellis.toml`, aphrollo says nothing and writes
