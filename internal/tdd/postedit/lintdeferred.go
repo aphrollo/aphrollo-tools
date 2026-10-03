@@ -218,6 +218,7 @@ var lintEditLaunchFn = launchLintEdit
 
 // lintEditCommand is the wrapper run by the binary at self on one job file.
 func lintEditCommand(self string, job lintEditJob) *exec.Cmd {
+	// exec-ok: the lint run is detached on purpose and must outlive the hook that starts it; a guarded child of run ends with its guard, which is the opposite.
 	cmd := exec.Command(self, CmdName, "runphase", "--job", job.Job)
 	cmd.Dir = job.Root
 	cmd.Env = proc.ChildEnv(os.Environ(), append(os.Environ(), "CI=1", "NO_COLOR=1"))

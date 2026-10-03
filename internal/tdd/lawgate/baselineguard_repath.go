@@ -1,10 +1,10 @@
 package lawgate
 
 import (
-	"os/exec"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // countedForm reports whether text parses as a Counted baseline (`<key> |
@@ -62,10 +62,9 @@ func gitBatchBlobs(repoRoot, ref string, rels []string) map[string]string {
 	for _, rel := range rels {
 		stdin.WriteString(ref + ":" + rel + "\n")
 	}
-	cmd := exec.Command(gitBinary(), "-C", repoRoot, "cat-file", "--batch")
-	cmd.Env = cleanGitEnvFor(repoRoot, cmd.Args[1:]...)
-	cmd.Stdin = strings.NewReader(stdin.String())
-	out, err := cmd.Output() // stderr-ok: a failed batch read reads as "content unknown" for every candidate below, never surfaced
+	args := []string{"-C", repoRoot, "cat-file", "--batch"}
+	// Its stderr is dropped: a failed batch read reads as "content unknown" for every candidate below, never surfaced.
+	out, err := run.LightOutput(run.Spec{Name: gitBinary(), Args: args, Env: cleanGitEnvFor(repoRoot, args...), Stdin: strings.NewReader(stdin.String())})
 	if err != nil {
 		return map[string]string{} // absence-ok: a failed batch read reads as "content unknown" for every candidate, never eligible to pair
 	}

@@ -3,7 +3,6 @@
 package suite
 
 import (
-	syscall "syscall"
 	time "time"
 )
 
@@ -302,8 +301,6 @@ func StaleArtifactHint(p0 string, p1 string) string { return staleArtifactHint(p
 func StampProvenSuite(p0 string) { stampProvenSuite(p0) }
 
 func StampTree(p0 string, p1 string) { stampTree(p0, p1) }
-
-func SuiteAttrs() *syscall.SysProcAttr { return suiteAttrs() }
 
 func SuiteEnv(p0 Runner, p1 string) []string { return suiteEnv(p0, p1) }
 

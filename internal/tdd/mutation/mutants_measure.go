@@ -14,7 +14,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // The lane is measured HERE, in the foreground, on the tree that is about to
@@ -72,14 +72,14 @@ var mutantsExecFn = runMutantsTool
 //
 // ctx is the caller's own patience, and it reaches the whole process TREE.
 // cargo-mutants is a launcher: it spawns cargo, which spawns rustc and
-// nextest, and the Cancel exec.CommandContext installs by default kills only
-// the pid it started. A caller that gave up on a run whose children kept
-// compiling would still be holding the box-wide mutation-run lock they
-// inherited, so the next measurement waits a year for a run nobody is
-// reading — which is exactly the hang the deadline existed to prevent.
-// cmd.Cancel is therefore proc.KillTree (the same one a deferred build phase
-// uses) and WaitDelay bounds how long Wait stays for the output pipes to
-// drain after the kill.
+// nextest, and a caller that gave up on a run whose children kept compiling
+// would still be holding the box-wide mutation-run lock they inherited, so the
+// next measurement waits a year for a run nobody is reading — which is exactly
+// the hang the deadline existed to prevent. The tool therefore runs as a heavy
+// child of internal/run, which ends its whole tree when ctx is done: a job
+// object that kills on close on Windows (a test binary stuck in kernel exit
+// or an MSYS grandchild survives `taskkill /T`), a process group elsewhere.
+// run bounds how long Wait stays for the output pipes to drain after the kill.
 //
 // A line past the platform's command-line budget runs as several commands
 // (mutantsToolBatches): the first one that exits non-zero ends the run and
@@ -110,19 +110,8 @@ func mutantsToolBatches(argv []string, budget int) [][]string {
 }
 
 func runMutantsToolOnce(ctx context.Context, dir string, env []string, name string, args []string, log io.Writer) (int, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
-	cmd.Env = env
-	cmd.Stdout, cmd.Stderr = log, log
-	cmd.SysProcAttr = suiteAttrs()
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		return proc.KillTree(cmd.Process.Pid)
-	}
-	cmd.WaitDelay = mutantsKillDrainDelay
-	capped, err := RunMutationChild(cmd, dir, capShare(ctx))
+	spec := run.Spec{Name: name, Args: args, Dir: dir, Env: env, Stdout: log, Stderr: log}
+	capped, err := RunMutationSpec(ctx, spec, dir, capShare(ctx))
 	reportCapKills(log, capped)
 	if err != nil {
 		var ee *exec.ExitError
@@ -172,11 +161,6 @@ func reportCapKills(log io.Writer, capped CapResult) {
 // mutantsHeadroomWait is how long a measurement waits for the box to have
 // the memory to start, before it is refused. A variable so a test can ask once.
 var mutantsHeadroomWait = 5 * time.Minute
-
-// mutantsKillDrainDelay is how long Wait stays after the kill for the
-// output pipes to drain. A mutation run's children write megabytes; a
-// killed tree that still holds the pipe must not hold the caller too.
-const mutantsKillDrainDelay = 5 * time.Second
 
 // SetMutantsExecForTest replaces that seam for one test and answers the
 // restore. Exported because what the CLI layer does with a verdict — the

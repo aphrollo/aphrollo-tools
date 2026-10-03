@@ -5,11 +5,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // The two verbs the commit-time run adds: `gate mutants commit`, which runs
@@ -24,11 +25,9 @@ var goTestedPackagesFn = listTestedPackages
 
 // listTestedPackages is the real listing.
 func listTestedPackages(ctx context.Context, root string) (string, error) {
-	cmd := exec.CommandContext(ctx, "go", "list", "-f", `{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}`, "./...")
-	cmd.Dir = root
 	var out, errOut bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errOut
-	if err := cmd.Run(); err != nil {
+	spec := run.Spec{Name: "go", Args: []string{"list", "-f", `{{if or .TestGoFiles .XTestGoFiles}}{{.Dir}}{{end}}`, "./..."}, Dir: root, Stdout: &out, Stderr: &errOut}
+	if err := run.LightRunCtx(ctx, spec); err != nil {
 		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(errOut.String()))
 	}
 	return out.String(), nil

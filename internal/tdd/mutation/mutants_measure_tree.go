@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // cargo-mutants mutates the tree IN PLACE. That is the whole reason the run
@@ -81,12 +81,8 @@ var gitDiffOutFn = gitDiffOut
 // gitDiffOut runs git in dir with the same scrubbed environment the rest of
 // this package uses, and answers stdout and stderr SEPARATELY.
 func gitDiffOut(dir string, args ...string) (stdout, stderr string, err error) {
-	cmd := exec.Command(gitBinary(), args...)
-	cmd.Dir = dir
-	cmd.Env = cleanGitEnvFor(dir, args...)
 	var out, errBuf bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errBuf
-	err = cmd.Run()
+	err = run.LightRun(run.Spec{Name: gitBinary(), Args: args, Dir: dir, Env: cleanGitEnvFor(dir, args...), Stdout: &out, Stderr: &errBuf})
 	return out.String(), errBuf.String(), err
 }
 

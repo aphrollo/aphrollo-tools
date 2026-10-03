@@ -62,6 +62,7 @@ func spawnTestMapBuild(root string) {
 
 // testMapCommand is the verb run by the binary at self in root.
 func testMapCommand(self, root string) *exec.Cmd {
+	// exec-ok: the map build is detached on purpose and must outlive the hook that starts it; a guarded child of run ends with its guard, which is the opposite.
 	cmd := exec.Command(self, "gate", "mutants", "testmap")
 	cmd.Dir = root
 	cmd.Env = proc.ChildEnv(os.Environ(), append(os.Environ(), "CI=1", "NO_COLOR=1"))

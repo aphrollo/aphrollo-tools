@@ -3,8 +3,9 @@
 package mutation
 
 import (
+	context "context"
+	run "github.com/aphrollo/aphrollo-tools/internal/run"
 	lock "github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
-	exec "os/exec"
 	time "time"
 )
 
@@ -14,8 +15,8 @@ type CapResult = lock.CapResult
 
 func ResolveCargoTargetDir(p0 string) string { return lock.ResolveCargoTargetDir(p0) }
 
-func RunMutationChild(p0 *exec.Cmd, p1 string, p2 int) (CapResult, error) {
-	return lock.RunMutationChild(p0, p1, p2)
+func RunMutationSpec(p0 context.Context, p1 run.Spec, p2 string, p3 int) (CapResult, error) {
+	return lock.RunMutationSpec(p0, p1, p2, p3)
 }
 
 func WaitForHeadroom(p0 string, p1 time.Duration) string { return lock.WaitForHeadroom(p0, p1) }

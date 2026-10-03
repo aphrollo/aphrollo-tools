@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Building a package's per-function test map: compile the package's test
@@ -54,11 +55,8 @@ func packagePattern(dir string) string {
 // is built from, standard library left out, with the files each contributes.
 func listPackageInputs(ctx context.Context, root, dir string) (string, error) {
 	const format = `{{if not .Standard}}{{.Dir}}|{{join .GoFiles ","}}|{{join .TestGoFiles ","}}|{{join .XTestGoFiles ","}}|{{join .EmbedFiles ","}}{{end}}`
-	cmd := exec.CommandContext(ctx, "go", "list", "-deps", "-test", "-f", format, packagePattern(dir))
-	cmd.Dir = root
 	var out, errOut bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errOut
-	if err := cmd.Run(); err != nil {
+	if err := run.LightRunCtx(ctx, run.Spec{Name: "go", Args: []string{"list", "-deps", "-test", "-f", format, packagePattern(dir)}, Dir: root, Stdout: &out, Stderr: &errOut}); err != nil {
 		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(errOut.String()))
 	}
 	return out.String(), nil

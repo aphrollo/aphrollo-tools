@@ -10,6 +10,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // selfExeFn is the running executable's path; a test replaces it to state what
@@ -42,6 +43,7 @@ func spawnPhase(j DeferredJob) (DeferredJob, bool) {
 	}
 	_ = os.Remove(saved.Result)
 
+	// exec-ok: the phase is detached on purpose and must outlive the hook that starts it; a guarded child of run ends with its guard, which is the opposite.
 	cmd := exec.Command(self, CmdName, "runphase", "--job", deferredJobPath(saved.Session, saved.Project))
 	cmd.Dir = saved.Dir
 	cmd.Env = proc.ChildEnv(os.Environ(), append(os.Environ(), "CI=1", "NO_COLOR=1"))
@@ -206,11 +208,8 @@ func RunPhase(jobPath string) int {
 	code := 0
 	var killedByCap CapResult
 	for _, args := range argvbatch.SplitCommand(j.Runner[0], j.Runner[1:], phaseArgvBudgetFn(j.Runner[0])) {
-		cmd := exec.Command(j.Runner[0], args...)
-		cmd.Dir = j.Dir
-		cmd.Env = env
-		cmd.Stdout, cmd.Stderr = log, log
-		capped, runErr := RunSlotChild(cmd, j.Dir)
+		spec := run.Spec{Name: j.Runner[0], Args: args, Dir: j.Dir, Env: env, Stdout: log, Stderr: log}
+		capped, runErr := RunSlotSpec(spec, j.Dir)
 		if capped.Killed {
 			killedByCap = capped
 		}

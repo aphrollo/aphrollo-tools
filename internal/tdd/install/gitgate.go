@@ -4,12 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // gitGateHooks are the git hooks the gate manages, paired with the `aphrollo
@@ -354,19 +354,19 @@ func GlobalHooksPath() string {
 }
 
 func gitConfigGet(key string) (string, error) {
-	out, err := exec.Command(gitBinary(), "config", "--global", "--get", key).Output()
+	out, err := run.LightOutput(run.Spec{Name: gitBinary(), Args: []string{"config", "--global", "--get", key}})
 	return strings.TrimSpace(string(out)), err
 }
 
 func gitConfigSet(key, val string) error {
-	if out, err := exec.Command(gitBinary(), "config", "--global", key, val).CombinedOutput(); err != nil {
+	if out, err := run.LightCombined(run.Spec{Name: gitBinary(), Args: []string{"config", "--global", key, val}}); err != nil {
 		return fmt.Errorf("git config %s: %v: %s", key, err, out)
 	}
 	return nil
 }
 
 func gitConfigUnset(key string) error {
-	if out, err := exec.Command(gitBinary(), "config", "--global", "--unset", key).CombinedOutput(); err != nil {
+	if out, err := run.LightCombined(run.Spec{Name: gitBinary(), Args: []string{"config", "--global", "--unset", key}}); err != nil {
 		return fmt.Errorf("git config --unset %s: %v: %s", key, err, out)
 	}
 	return nil

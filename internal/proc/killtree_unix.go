@@ -22,7 +22,7 @@ func killTreePlan(pid int) []string {
 
 // KillTree signals the child's whole process group. Because this is a
 // negative-pid group signal, a cmd it is used on must have been started with
-// a group-creating SysProcAttr (TreeAttrs, or internal/tdd's suiteAttrs /
+// a group-creating SysProcAttr (TreeAttrs, or internal/tdd's
 // detachedAttrs) — otherwise the signal misses every descendant of a child
 // that never became a group leader, and a child that IS still in the
 // caller's own group would take the caller down with it.

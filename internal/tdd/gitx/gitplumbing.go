@@ -10,6 +10,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // --- git plumbing (scrubbed environment) ------------------------------------
@@ -54,11 +55,7 @@ func git(dir string, args ...string) (string, error) {
 // exited 0 (#869). On failure the diagnostic comes from *exec.ExitError's own
 // captured Stderr rather than the (now stdout-only) out.
 func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
-	cmd := exec.Command(gitBinary(), args...)
-	cmd.Dir = dir
-	cmd.Env = cleanGitEnvFor(dir, args...)
-	cmd.Stdin = stdin
-	out, err := outputGit(cmd)
+	out, err := outputGit(run.Spec{Name: gitBinary(), Args: args, Dir: dir, Env: cleanGitEnvFor(dir, args...), Stdin: stdin})
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
