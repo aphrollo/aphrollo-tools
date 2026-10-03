@@ -19,7 +19,7 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
-## 1.1.1 - 2026-10-03
+## 1.1.2 - 2026-10-03
 
 Local CI runs are safer on a shared box and say more about what they did not run.
 
@@ -59,6 +59,25 @@ Local CI runs are safer on a shared box and say more about what they did not run
   caches.
 - A component or target added to a toolchain the box already has writes through the
   link into the box's copy.
+
+## 1.1.1 - 2026-10-03
+
+Edits are lighter on the box, and a test run that waits for a build slot is no
+longer lost.
+
+### What you will notice
+
+- An edit now leaves one background job at most, the test build. The background
+  lint and mutation runs that followed every edit are gone: lint and mutation
+  are judged when you commit, and in CI.
+- A test run queued behind another build keeps its place for as long as the run
+  may live, and shows as BUILDING meanwhile. Before, it gave up after a quarter
+  of that time and the next hook reported "the code was NOT tested".
+- The gate's record of where a session stood now follows the lane's own git
+  index, so it notices changes in a linked worktree (before, it read as unchanged
+  in every lane).
+- The law scan skips the `.git` file of a linked worktree and `.claude/worktrees/`,
+  so a nested checkout's files are no longer judged as part of the repo around it.
 
 ## 1.1.0 - 2026-10-02
 

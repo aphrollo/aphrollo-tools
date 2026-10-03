@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -301,13 +302,44 @@ func TestRecordSpawnedProcess_SetsStartedWhenTheChildHasNotYet(t *testing.T) {
 	}
 }
 
-// TestDeferredSlotWait_IsAFractionOfTheMaximum pins the same defect at the
-// budget level: queuing for the full ceiling leaves a phase eligible for the
-// abandon kill the instant it starts to build.
-func TestDeferredSlotWait_IsAFractionOfTheMaximum(t *testing.T) {
-	t.Setenv(deferredMaxEnv, "600")
-	if wait, max := deferredSlotWait(), deferredMax(); wait >= max {
-		t.Fatalf("slot wait %s vs max %s — a phase must not be able to spend its whole life queuing", wait, max)
+// ratchet: test_removed TestDeferredSlotWait_IsAFractionOfTheMaximum: a queued phase waits for its whole life now; TestRunPhase_AQueuedPhaseOutwaitsAQuarterOfItsLife holds that
+
+// A phase queued behind a busy slot keeps its place for the whole of its
+// life, not a quarter of it: giving up early ended the run as an infra
+// failure the session never saw coming, the code untested. The slot is
+// released after the old quarter-of-max wait (1s of a 4s ceiling) has
+// passed; the phase must still build.
+func TestRunPhase_AQueuedPhaseOutwaitsAQuarterOfItsLife(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(deferredMaxEnv, "4")
+	withIsolatedBuildLock(t)
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran.txt")
+	_, release, ok := TryAcquireBuildSlot(ResolveCargoTargetDir(dir), "cargo build", "/repo")
+	if !ok {
+		t.Fatal("could not occupy the slot")
+	}
+	var once sync.Once
+	free := func() { once.Do(release) }
+	freed := time.AfterFunc(2500*time.Millisecond, free)
+	defer freed.Stop()
+	t.Cleanup(free)
+
+	j := DeferredJob{Project: dir, Phase: "build", Dir: dir, Runner: append([]string{"cargo"}, writeMarkerCmd(marker)[1:]...),
+		Log: filepath.Join(dir, "p.log"), Result: filepath.Join(dir, "p.result.json")}
+	done := make(chan struct{})
+	go func() { RunPhase(writeJob(t, j)); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("the queued phase never returned")
+	}
+
+	// SetupFailed is "no slot came free": the phase got its slot and went on
+	// to start its command, whatever that command then reported.
+	out, finished := deferredResult(j)
+	if !finished || out.SetupFailed {
+		t.Fatalf("result = %+v (done %v), want the phase to have held the slot once it came free", out, finished)
 	}
 }
 

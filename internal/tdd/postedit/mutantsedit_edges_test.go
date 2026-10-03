@@ -61,7 +61,7 @@ func TestPostEdit_StartsNoMutationRunUnderABrokenConfig(t *testing.T) {
 	root, src := mutantsEditFixture(t, true)
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = true\nmutation-receipt = true\n")
 	jobs := recordEditRunSpawns(t, nil)
-	PostEdit(postPayload("Write", src), greenRun)
+	editStartingMutants(src)
 	if len(*jobs) != 0 {
 		t.Errorf("a run was started under a config the merge gate refuses: %+v", *jobs)
 	}
@@ -70,7 +70,7 @@ func TestPostEdit_StartsNoMutationRunUnderABrokenConfig(t *testing.T) {
 func TestMutantsEditHarvest_UnknownSessionsAndUnreadableRecordsReportNothing(t *testing.T) {
 	root, src := mutantsEditFixture(t, true)
 	recordEditRunSpawns(t, finishWith(t, "ok", "gate edit: mutants → 1 tested, 1 caught, 0 unviable, 0 accepted (1.0s, slowest mutant 0.5s)\n"))
-	PostEdit(postPayload("Write", src), greenRun)
+	editStartingMutants(src)
 	record := mutantsEditRecord(mutantsEditDir(), "sess-post", root)
 
 	if got := harvestMutantsEdit(""); len(got) != 0 {
@@ -123,7 +123,7 @@ func TestPostEdit_TheKeyIsReadFromTheRepositoryTopOrTheProjectItself(t *testing.
 	write(t, root, "svc/go.mod", "module example.com/svc\n\ngo 1.26\n")
 	write(t, root, "svc/svc.go", "package svc\n\nfunc F(n int) bool { return n > 1 }\n")
 	jobs := recordEditRunSpawns(t, nil)
-	PostEdit(postPayload("Write", filepath.Join(root, "svc", "svc.go")), greenRun)
+	editStartingMutants(filepath.Join(root, "svc", "svc.go"))
 	if len(*jobs) != 1 || !sameDir((*jobs)[0].Root, filepath.Join(root, "svc")) {
 		t.Errorf("runs started = %+v, want one for the module in svc, declared at the repository's top", *jobs)
 	}
@@ -133,7 +133,7 @@ func TestPostEdit_TheKeyIsReadFromTheRepositoryTopOrTheProjectItself(t *testing.
 	write(t, plain, "go.mod", "module example.com/plain\n\ngo 1.26\n")
 	write(t, plain, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = true\n")
 	write(t, plain, "plain.go", "package plain\n\nfunc F(n int) bool { return n > 1 }\n")
-	PostEdit(postPayload("Write", filepath.Join(plain, "plain.go")), greenRun)
+	editStartingMutants(filepath.Join(plain, "plain.go"))
 	if len(*jobs) != 2 || !sameDir((*jobs)[1].Root, plain) {
 		t.Errorf("runs started = %+v, want a second one for the project outside any repository", *jobs)
 	}

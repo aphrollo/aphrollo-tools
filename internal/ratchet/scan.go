@@ -208,8 +208,8 @@ func collectFiles(opts Options, laws []Law) ([]string, map[string]bool, error) {
 		}
 		for _, e := range entries {
 			child := path(rel, e.Name())
-			if e.IsDir() && e.Name() == ".git" {
-				continue // never a subject, and no law may opt into it
+			if e.Name() == ".git" || (e.IsDir() && child == ".claude/worktrees") {
+				continue // a .git dir or worktree gitfile, or whole lane checkouts: never a subject
 			}
 			childIgnored := ignored || ignore.ignored(child, e.IsDir())
 			if e.IsDir() {

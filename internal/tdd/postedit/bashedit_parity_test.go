@@ -353,9 +353,11 @@ func TestPostBash_LintsTheChangedGoFilesOncePerPackage(t *testing.T) {
 	}
 }
 
-// The mutation run the edit hook starts after a green edit starts after a
-// green Bash call too, over a changed Go file, and not after a red one.
-func TestPostBash_StartsTheMutationRunAfterAGreenCall(t *testing.T) {
+// ratchet: test_removed TestPostBash_StartsTheMutationRunAfterAGreenCall: inverted into TestPostBash_StartsNoMutationRunAfterAGreenCall, a Bash call starts no mutation run now
+//
+// A green Bash call over a changed Go file starts no mutation run: the commit
+// gate and CI hold mutation.
+func TestPostBash_StartsNoMutationRunAfterAGreenCall(t *testing.T) {
 	root, src := mutantsEditFixture(t, true)
 	noInlineLint(t)
 	jobs := recordEditRunSpawns(t, nil)
@@ -368,8 +370,8 @@ func TestPostBash_StartsTheMutationRunAfterAGreenCall(t *testing.T) {
 	if !strings.Contains(got, "green") {
 		t.Fatalf("the call is not green: %q", got)
 	}
-	if len(*jobs) != 1 || (*jobs)[0].File != src {
-		t.Fatalf("mutation jobs = %+v, want one over %s", *jobs, src)
+	if len(*jobs) != 0 {
+		t.Fatalf("mutation jobs = %+v, want none", *jobs)
 	}
 }
 
