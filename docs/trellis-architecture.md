@@ -28,7 +28,7 @@ Approved 2026-10-03.
    - **F0b:** hot-path fixes. The hidden 150 s slot wait goes, the edit-time lint and mutants jobs go, and the fingerprint reads the lane's own index.
    - **F1:** mutation at the level its data earns. Commit mutation becomes report-only, and CI mutation becomes a report unless a repo pins it. The note names what went unmeasured.
 9. **Next:** a sharded Windows CI test job, then merge reuse of CI's per-OS verdicts. The merge gate drops from p50 261 s to about 1 s when the tree matches.
-10. **Effort:** about 66 lanes and about 12 weeks, with at most 4 lanes open and 2 on the spine. F takes about 6 weeks, against the proposed 3-week timebox; the owner sets the new one.
+10. **Effort:** about 67 lanes and about 12 weeks, with at most 4 lanes open and 2 on the spine. F takes about 6 weeks, against the proposed 3-week timebox; the owner sets the new one.
 
 *Sources.* Platform facts were re-checked on 2026-10-03 against the Claude Code docs (hooks, plugins, sub-agents, worktrees) and this session's environment. Repo facts are at `e813bb71`. Red-team findings are cited as C1–C17 (still-a-cage) and S1–S17 (wont-ship), in the order they were filed.
 
@@ -58,6 +58,10 @@ trellis is a gate built around lanes and an event log.
  kernel     PURE: lane machine · TDD machine per unit · rule table (walls, guardrails, red→green, merge) · levels
  domains    check (runners, scope, verdict cache, coalesce, defer, harvest) · laws (ratchet, lang, mask, tomlsubset)
             proof (fail-first, ledger) · integrate (pr, merge, closure, ci, escapes) · measure (folds, holdout, Decide) · render
+                                          │
+            host port (in integrate): PR view/head/checks/open · Land(pr, head) · queue state · run lookup · issue · release
+                 ├── adapter github  (gh, REST, GraphQL: merge queue where trunk has one, else API merge with sha=head)
+                 └── adapter local   (ci = local, GitHub off: closure + git merge --no-ff)
  spine      run ──▶ git ──▶ store ──▶ config                                test-only: gitiso, rootseam
 ```
 
@@ -72,6 +76,7 @@ trellis is a gate built around lanes and an event log.
   - `store` owns every byte under the state root.
   - `config` owns every setting and environment read.
   - `render` owns every byte Claude reads.
+  - the host port owns every call to the code host (GitHub today): PR view, head, checks, open, `Land`, queue state and removal reason, run lookup for reuse, issue, release. Calls are spread over `internal/workspace`, `internal/tdd/merge`, `internal/ciwhy`, `tools/cireuse` and `issue` today; one lane (F21b) moves them behind the port.
 - **Each rule exists once, and trellis adopts rules Claude Code already enforces rather than copying them.**
   - Inside a Claude Code worktree, Claude Code itself refuses an Edit, Write or NotebookEdit aimed at the main checkout, a command whose working directory is there, and git redirected into it.
   - trellis's wall covers what that leaves: a session on trunk in the primary checkout that is not in a worktree, and Bash or PowerShell writes that land there by path. For PowerShell, Claude Code checks only the working directory.
@@ -394,7 +399,17 @@ trellis deny [primary-write] Write lands in the main checkout on trunk · do: En
    - **Pending:** it names `trellis ci wait <lane> --merge` to run as background Bash. That waits at most 90 min and re-invokes Claude.
    - **Never started:** `auto` falls back to local CI; `github` says "ci unavailable — not failed, no escape; retry, or --ci local".
    - **No ready PR:** "open a ready PR".
-4. When CI is green on every declared OS, the verb computes `git merge-tree --write-tree <trunk> <head>`. If that equals CI's tree, it merges. If trunk has moved, it runs the **intersection closure** (C10):
+4. The next two steps depend on what the host adapter's `Land(pr, head)` does. The GitHub adapter picks the merge queue when the base branch has one, and the API merge otherwise.
+
+   **With a merge queue** (this repo, decided 2026-10-03: a ruleset on main, squash, up to 5 per group, all-green grouping):
+   - **Local gates first:** the lane is at the PR's head, the laws pass, the undercover check and the version rule pass. The verb then enqueues the PR bound to `<head>`; if the head moved since, the enqueue is refused.
+   - **GitHub tests on trunk:** the workflow runs on `merge_group`, on the group's merge of trunk and every PR ahead in the queue. The queue waits only for required checks, so those must cover every per-OS job.
+   - **No closure and no local merge:** the queue's group is already tested against trunk, so a moved trunk costs no rebase and no closure.
+   - **Waiting:** `--wait` follows the PR through the queue until it lands, or reports the removal reason (a red group check, a conflict, a dequeue). A queue state of pending returns like step 3.
+   - **Trunk's push CI** reuses the `merge_group` run's verdict, keyed by the pushed sha and tree, rather than running again.
+   - **Why:** with tree-equal reuse alone, each merge made the next PR stale, which cost a rebase and a 10–15 min CI round per PR.
+
+   **Without a queue**, when CI is green on every declared OS, the verb computes `git merge-tree --write-tree <trunk> <head>`. If that equals CI's tree, it merges. If trunk has moved, it runs the **intersection closure** (C10):
    - **What it re-tests:** only units whose dependency closure holds both a file trunk changed since CI's base and a file the PR changed, plus their `[test] reads` targets. Laws run on the whole merged tree.
    - **Soundness:** it is sound when trunk's tip has its own green verdict. Without one, it widens to every unit trunk's changes reach.
    - **Per language** (S14):
@@ -408,10 +423,10 @@ trellis deny [primary-write] Write lands in the main checkout on trunk · do: En
      - Red: refused, naming the interaction.
      - Over budget: the closure keeps running as a deferred job, and the verb returns `pending: delta closure j17`.
    - **No sync loop:** if trunk moves again, only its own new changes are intersected. Syncs per merge are counted.
-5. The merge goes through the API with `sha=<head>` and the method the repo allows. It prefers `merge` (the `--no-ff` shape) and falls back to squash, saying so in one line. A merge commit made locally has no check runs, so a protected trunk refuses its push; that is why the GitHub path never merges locally. The verb calls the same `MergeGate` function as pre-merge-commit.
+5. **Without a queue**, the merge goes through the API with `sha=<head>` and the method the repo allows. It prefers `merge` (the `--no-ff` shape) and falls back to squash, saying so in one line. **With a queue**, the enqueue of step 4 is the merge request and the queue lands it by the ruleset's method (squash here). Either way a merge commit made locally has no check runs, so a protected trunk refuses its push; that is why the GitHub path never merges locally. The verb calls the same `MergeGate` function as pre-merge-commit.
 6. After a fetch, trunk fast-forwards in the primary checkout; post-merge records `lane.merged` and prunes.
 
-**Without GitHub** (`ci = local`, or `auto` with no remote, or with CI that never starts):
+**Without GitHub** (`ci = local`, or `auto` with no remote, or with CI that never starts). The local adapter implements `Land`: the closure plus `git merge --no-ff`, which is the local queue of A6–A8:
 
 1. `trellis ci` (the ported `ghworkflow`) checks out the merged tree in a throwaway worktree, on each box that serves a declared OS, and runs the workflow's `run:` steps.
    - Steps run serially, at low priority, in the sealed environment. Nothing is installed globally, and `trellis ci` refuses to run on a `host.production` box.
@@ -459,7 +474,8 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 - **Moves out of trellis:**
   - `refactor`, `outline` and `show` (Claude Code's LSP tool covers them);
   - `sqlc`, `dev` and `workspace claim`;
-  - the merge queue, OTel and the dashboard.
+  - OTel and the dashboard;
+  - a merge queue of its own: trellis builds no queue engine and uses the host's (GitHub's) where the repo has one.
 - **Setup:**
   - `install` and `gate init`;
   - the global settings hooks and the global `core.hooksPath` (at M1);
@@ -545,6 +561,7 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 | F7–F12 | 6 | `run`: the package itself (kill-on-close, governor, in-process creation time, `argvbatch` inside, `exec_outside_run`), then call sites package by package | 170 → 0; orphans after a kill; not tested 35–40% → under 10% |
 | F13–F17 | 5 | `kernel`: the lane machine; the TDD machine (pending, tested code); the rule table. Then `engine`, built against a store interface (S15), and `trellis why` | Table and `rapid` tests written first |
 | F18–F21 | 4 | `git`: one client; one status call per batch; trunk resolved, never hard-coded `"main"` | Git spawns per edit 10+ → at most 1 |
+| F21b | 1 | The host port in `integrate`, with the GitHub adapter and the local adapter stub: the GitHub calls spread over `internal/workspace`, `internal/tdd/merge`, `internal/ciwhy`, `tools/cireuse` and `issue` move behind PR view/head/checks/open, `Land(pr, head)`, queue state and removal reason, run lookup, issue and release. The adapter is tested on recorded `gh` responses | GitHub call sites outside the port N → 0 (N counted at the start of the lane) |
 | F22–F23 | 2 | `render`: the line grammar; the caps as golden tests; the `seen` rule (seen only after a delivery recorded as reaching Claude) | Tokens-per-task baseline |
 | F24–F27 | 4 | `store`: checkpoints, lock and fold versions; verdicts; retention. gate.log's readers move to the events, then gate.log stops | Lost updates → 0; state size capped |
 | F28–F29 | 2 | Shadow and holdout: red→green and run decisions recorded beside aphrollo's live hooks for a week | Agreement; would-be wrong blocks |
@@ -553,9 +570,9 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 | F35–F36 | 2 | `laws.Plan`; smells as matcher kinds | Commit refusals the edit check missed → 0 |
 | A1–A3 | 3 | Red→green at PreToolUse in warn, plus the A/B (at least 30 lanes per arm). The rule table goes live: walls scoped to Claude, `secrets`, the shim cut down to its lock plus walls | Escapes and friction per arm; wall implementations 2 → 1 |
 | A4–A5 | 2 | Escape split; holds as guidance; `measure.Decide` in propose mode | Disagreements leave the escape count |
-| A6–A8 | 3 | Intersection closure with per-language paths; pending merges; the allowed merge method with `sha`; `ci wait` | Merge p95 at most 5 min; syncs per merge |
+| A6–A8 | 3 | Intersection closure with per-language paths; pending merges; the allowed merge method with `sha`; `ci wait`; the local adapter of the host port (closure + `git merge --no-ff`, the local queue); the GitHub merge-queue path of `Land` (enqueue bound to head) and `--wait` through it (this repo's `workspace merge` enqueue is lane merge-enqueue, in flight) | Merge p95 at most 5 min; syncs per merge |
 | B1–B2 | 2 | Plugin: native launcher, fetch, sha256 check, keep 3, `.exe` layout, file-level swap, silent stub; the release workflow on hosted runners | Off-here p95 at most 50 ms; SessionStart at most 200 ms |
-| B3–B5 | 3 | `trellis init` (`--protect`, baseRef, managed block, excludes); repo start with a repo-local hooksPath; CwdChanged, DirectoryAdded; briefs, skill, agents | A new box set up in one step; brief tokens |
+| B3–B5 | 3 | `trellis init` (`--protect`, baseRef, managed block, excludes; it offers the merge-queue setup — ruleset, `merge_group` trigger, required checks covering every per-OS job — as an owner decision, since it changes repo settings; doctor in B3 fails a queue on while the workflow lacks `merge_group`, where PRs sit 60 min and drop, and required checks that do not cover every per-OS job, where a red OS merges); repo start with a repo-local hooksPath; CwdChanged, DirectoryAdded; briefs, skill, agents | A new box set up in one step; brief tokens |
 | B6–B8 | 3 | Deny then EnterWorktree; `lane.opened` with the dependency warm-up; actors; lifecycle prune; `why`, `feedback`, `allow`; `TRELLIS_OFF`, `eject`, `update --to` with `.bak` | Follow rate; primary-write overrides |
 | B9–B12 | 4 | Cut over one repo at a time, behind `trellis.toml` and a pin, replay first: this repo, go-telegram, fanvue, then borld through the borld session | Each repo's measures |
 | C1–C4 | 4 | `trellis ci` per tree and OS under the merge verb; local `--no-ff`; Linux mutation under `ci = local`; divergent trunk and `trellis sync` | A merge completes with GitHub off |
@@ -567,7 +584,7 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 - not tested under 10%, with pending runs excluded;
 - 0 exec sites outside `run`;
 - `forwarder_count` falling;
-- every adapter tested on recorded payloads.
+- every adapter, the host port's GitHub adapter included, tested on recorded payloads (hook payloads, recorded `gh` responses).
 
 **Consumers never break.** Until B9 they run aphrollo at a release tag. Each cutover is per repo, pinned, replayed first, and reversible with `trellis eject`.
 
@@ -622,9 +639,9 @@ Still open: the exec (`args`) hook form, `asyncRewake`, and the same recordings 
 - **The repo move at the start of 1b:** blocks B1.
 - **The F timebox (about 6 weeks) and the lane caps:** blocks F's start.
 
-**Effort: 66 lanes, about 12 weeks** at the caps.
+**Effort: 67 lanes, about 12 weeks** at the caps.
 - **Phase 0:** #1102 and #1103 finish beside F0, on disjoint files.
-- **F:** 41 lanes, about 6 weeks. F0 and F1 land in weeks 1–2, so the measures move early.
+- **F:** 42 lanes, about 6 weeks. F0 and F1 land in weeks 1–2, so the measures move early.
 - **1a:** 8 lanes, about 2 weeks.
 - **1b:** 12 lanes, about 3 weeks.
 - **Phase 3 and the move:** 5 lanes, about 1.5 weeks.
@@ -639,7 +656,7 @@ The flow is `docs/trellis-flow/session_flow.py` on main. Where roadmap PR #1114 
 | Getting the binary: pin or override; on the box?; fetch with sha256 (a mismatch is a security error); keep 3 under a lock; `trellis update`'s result in the tool output | Native launcher, `cli update` | Realised. At SessionStart the fetch runs only when the pin is missing, because a download cannot fit in 200 ms. The `.exe` layout and file-level swap follow #366 and #338 |
 | A kept binary? Not ready (silent hooks, ungated commits), or the newest kept with one warning | The launcher's stub as `bin/trellis.exe` | Realised |
 | Newer binary: compare in the background, stage the update | – | Cut (roadmap): a newer pin applies at the next start; per-tag replay is the check |
-| Check the box | SessionStart, from a cached record | Realised. There is no merge queue to name (cut). An old install is named with its removal command, since questions are cut |
+| Check the box | SessionStart, from a cached record | Realised. There is no queue of its own to name (cut); the host's merge queue, where the repo has one, is GitHub's. An old install is named with its removal command, since questions are cut |
 | Setup record; Anyone to answer?; FIRST START; Ask: trellis here? | `config`, `trellis init` | Cut (roadmap, R3): defaults plus `config set`; a repo is in once `trellis.toml` is committed |
 | Check the settings; trellis on here?; inject the rules; `--local` and `--session` | `config`, the off-here exit, the managed block, the brief | Changed: static rules sit in the managed block, which also reaches subagents; dynamic state goes in the brief; `--local` and `--session` are cut |
 | UserPromptSubmit; CwdChanged and DirectoryAdded run repo start | Hooks | Realised. The last two cannot speak to Claude, so their line rides the next hook |
@@ -737,5 +754,7 @@ The flow is `docs/trellis-flow/session_flow.py` on main. Where roadmap PR #1114 
 - **Generated code and exec sites** (S4, S16). Forwarders retire per package under a law, with the generator deleted at M1. `exec_outside_run` replaces the three inventory tests.
 - **Store order** (S15). F4 writes the final event schema at the final path, and the engine is built against a store interface.
 - **Nested lanes** (S17). Runner excludes, plus a replay canary.
-- **Estimate** (C11, S5). Re-estimated at 66 lanes and about 12 weeks, with F at about 6. The lane cap counts production lines only.
+- **Merge queue** (owner, 2026-10-03). GitHub's merge queue is adopted for this repo: a ruleset on main (squash, up to 5 per group, all-green grouping), `pipeline.yml` on `merge_group` (#1193), required checks widened to test, lint, build, docs-check, workflow-pins, pr-ratchet, version-check and the five test-windows shards, and push-to-main reusing the `merge_group` verdict by sha and tree (#1195). Reason: strict tree-equal reuse made each merge stale the next PR (a rebase plus 10–15 min of CI per PR). trellis builds no queue engine of its own.
+- **Host port** (owner, 2026-10-03). One port in `integrate` for every code-host call, with a GitHub adapter (queue where the base has one, else API merge with `sha=head`) and a local adapter (the local queue of A6–A8). Another host is one more adapter. Adapters are tested on recorded responses. One lane (F21b) added.
+- **Estimate** (C11, S5). Re-estimated at 67 lanes and about 12 weeks, with F at about 6 (one lane added for the host port, 2026-10-03). The lane cap counts production lines only.
 - **Platform facts.** Re-checked in the Claude Code docs: the exec form, the 600 s default timeout, the 10,000-character context cap, the `CLAUDE_ENV_FILE` events, `asyncRewake`, plugin data deletion, plugin agent limits, the isolation checks, `baseRef` and `.worktreeinclude`. These replace the claude-platform map, whose 10 s limit and "hooks are synchronous" were wrong.
