@@ -25,7 +25,8 @@ change is what the branch did since it left the merge base of <ref> and HEAD (a
 base that moved on since the branch forked is not the branch's change). The PR
 must not add or edit internal/buildinfo/VERSION (deleting it is fine), must not
 change a released section of CHANGELOG.md, and must not edit or delete a
-fragment already merged. A change to a law preset, a language row or a mask
+fragment the newest release tag contains (a fragment merged since
+is still the PR's own, as a revert needs). A change to a law preset, a language row or a mask
 must be a minor change at least. Every failure is printed on its own line and
 the exit is 1. The release tag itself is made on main from the fragments
 merged: see aphrollo release plan.
@@ -94,6 +95,22 @@ func judgeVersionChange(repo, base, bodyFile string) (problems []string, summary
 		return nil, "", err
 	}
 	change := release.Change{Body: string(body), Files: files, Fragments: map[string]string{}}
+	// What the newest release tag contains is history; the fork's tree is not
+	// consulted, so a fragment merged since that tag stays the PR's to edit.
+	fr := fragmentRepo{root: root}
+	tags, err := fr.tags()
+	if err != nil {
+		return nil, "", err
+	}
+	if newest, _, found := release.NewestRelease(tags); found {
+		names, err := fr.names(newest)
+		if err != nil {
+			return nil, "", err
+		}
+		for _, name := range names {
+			change.ReleasedFragments = append(change.ReleasedFragments, release.FragmentPath(name))
+		}
+	}
 	var added []string
 	for _, f := range files {
 		if _, isFragment := release.FragmentName(f.File); f.Status == 'A' && isFragment {

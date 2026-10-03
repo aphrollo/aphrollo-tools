@@ -145,13 +145,26 @@ func TestJudgeChange_RulesTable(t *testing.T) {
 		},
 		{
 			name:   "a released fragment edited",
-			change: Change{Body: "version: none\n", Files: []FileChange{{Status: 'M', File: "changelog.d/old.md"}}},
+			change: Change{Body: "version: none\n", Files: []FileChange{{Status: 'M', File: "changelog.d/old.md"}}, ReleasedFragments: []string{"changelog.d/old.md"}},
 			want:   []string{"changelog.d/old.md is a released fragment"},
 		},
 		{
 			name:   "a released fragment deleted",
-			change: Change{Body: "version: none\n", Files: []FileChange{{Status: 'D', File: "changelog.d/old.md"}}},
+			change: Change{Body: "version: none\n", Files: []FileChange{{Status: 'D', File: "changelog.d/old.md"}}, ReleasedFragments: []string{"changelog.d/old.md"}},
 			want:   []string{"changelog.d/old.md is a released fragment"},
+		},
+		{
+			name:   "a released fragment deleted says a revert needs its own fragment",
+			change: Change{Body: "version: none\n", Files: []FileChange{{Status: 'D', File: "changelog.d/old.md"}}, ReleasedFragments: []string{"changelog.d/old.md"}},
+			want:   []string{"a revert of a released change adds its own fragment"},
+		},
+		{
+			name:   "a merged but unreleased fragment may be deleted, as a revert does",
+			change: Change{Body: "version: none\n", Files: []FileChange{{Status: 'D', File: "changelog.d/new.md"}}, ReleasedFragments: []string{"changelog.d/old.md"}},
+		},
+		{
+			name:   "a merged but unreleased fragment may be edited",
+			change: Change{Body: "version: none\n", Files: []FileChange{{Status: 'M', File: "changelog.d/new.md"}}},
 		},
 		{
 			name:   "the fragment directory's README may change",
@@ -181,7 +194,7 @@ func TestJudgeChange_RulesTable(t *testing.T) {
 		},
 		{
 			name:   "every problem is named, not just the first",
-			change: Change{Body: "nothing\n", Files: []FileChange{{Status: 'M', File: compat.VersionFile}, {Status: 'M', File: "changelog.d/old.md"}}},
+			change: Change{Body: "nothing\n", Files: []FileChange{{Status: 'M', File: compat.VersionFile}, {Status: 'M', File: "changelog.d/old.md"}}, ReleasedFragments: []string{"changelog.d/old.md"}},
 			want:   []string{"no `version:` line", compat.VersionFile + " is not edited", "changelog.d/old.md is a released fragment"},
 		},
 	}

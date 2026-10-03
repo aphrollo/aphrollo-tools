@@ -150,6 +150,20 @@ func TestVersionCheck_RefusesAPRThatEditsAReleasedChangelogSection(t *testing.T)
 	}
 }
 
+// A merge that has not been tagged yet is not history: a revert PR deletes the
+// fragment of the change it reverts, and must pass.
+func TestVersionCheck_AcceptsARevertThatDeletesAFragmentNoTagContainsYet(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog, "changelog.d/old.md": minorFragment})
+	versionGit(t, lane.dir, "tag", "v1.7.0")
+	lane.commit(map[string]string{"changelog.d/pending.md": minorFragment})
+	lane.base = strings.TrimSpace(versionGit(t, lane.dir, "rev-parse", "HEAD"))
+	lane.remove("changelog.d/pending.md")
+
+	if code, stdout, stderr := lane.check("version: none\n"); code != 0 {
+		t.Fatalf("version check = (%d, %q, %q), want 0", code, stdout, stderr)
+	}
+}
+
 func TestVersionCheck_AcceptsAPRThatEditsTheChangelogPreamble(t *testing.T) {
 	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
 	lane.commit(map[string]string{changelogPath: strings.Replace(frozenChangelog, "Pointer.", "Later releases live in changelog.d.", 1)})
@@ -159,8 +173,9 @@ func TestVersionCheck_AcceptsAPRThatEditsTheChangelogPreamble(t *testing.T) {
 	}
 }
 
-func TestVersionCheck_RefusesAPRThatEditsAFragmentAlreadyMerged(t *testing.T) {
+func TestVersionCheck_RefusesAPRThatEditsAFragmentTheNewestTagContains(t *testing.T) {
 	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog, "changelog.d/old.md": minorFragment})
+	versionGit(t, lane.dir, "tag", "v1.7.0")
 	lane.commit(map[string]string{"changelog.d/old.md": "level: major\n\nRewritten history.\n"})
 
 	code, _, stderr := lane.check("version: none\n")
@@ -303,3 +318,5 @@ func TestVersionCheck_TheFragmentDirectorysReadmeIsNotAFragment(t *testing.T) {
 		t.Fatalf("version check = (%d, %q, %q), want (0, \"version: ok (none)\n\", \"\")", code, stdout, stderr)
 	}
 }
+
+// ratchet: test_removed TestVersionCheck_RefusesAPRThatEditsAFragmentAlreadyMerged: renamed TestVersionCheck_RefusesAPRThatEditsAFragmentTheNewestTagContains, now that only a fragment the newest tag holds is protected

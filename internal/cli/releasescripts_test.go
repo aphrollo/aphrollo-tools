@@ -105,54 +105,72 @@ func TestTagRelease_RefusesAPlanThatIsNotAReleaseTag(t *testing.T) {
 	}
 }
 
-// ghStub is a gh that logs every call, answers `release view` as the test says
-// and records the notes file a `release create` was given.
-func ghStub(t *testing.T, viewExit string) (dir, log string) {
+// ghStub is a gh that logs every call, answers `release view` with the exit
+// status and stderr text the test says, records the notes file a `release
+// create` was given and answers it with createExit.
+func ghStub(t *testing.T, viewExit, viewSaid, createExit string) (dir, log string) {
 	t.Helper()
 	dir = t.TempDir()
 	log = filepath.Join(dir, "gh.log")
 	stubScript(t, dir, "gh", "echo \"gh $*\" >> \""+filepath.ToSlash(log)+"\"\n"+
-		"if [ \"$1 $2\" = \"release view\" ]; then exit "+viewExit+"; fi\n"+
-		"if [ \"$1 $2\" = \"release create\" ]; then while [ $# -gt 0 ]; do if [ \"$1\" = \"--notes-file\" ]; then cat \"$2\" >> \""+filepath.ToSlash(log)+"\"; fi; shift; done; fi\n")
+		"if [ \"$1 $2\" = \"release view\" ]; then echo '"+viewSaid+"' >&2; exit "+viewExit+"; fi\n"+
+		"if [ \"$1 $2\" = \"release create\" ]; then while [ $# -gt 0 ]; do if [ \"$1\" = \"--notes-file\" ]; then cat \"$2\" >> \""+filepath.ToSlash(log)+"\"; fi; shift; done; exit "+createExit+"; fi\n")
 	return dir, log
+}
+
+// ghRelease runs the release step for a repo whose newest tag is v1.7.0 and
+// that has no new fragment, against a gh stubbed as given.
+func ghRelease(t *testing.T, viewExit, viewSaid, createExit string) (out, logged string, err error) {
+	t.Helper()
+	repo, sh := releaseRepo(t)
+	gitOutput(t, realGitForTest(t), repo, "tag", "v1.7.0")
+	aphrollo := stubScript(t, t.TempDir(), "aphrollo", "if [ \"$1 $2\" = \"release plan\" ]; then exit 0; fi\nif [ \"$1 $2 $3\" = \"changelog --tag v1.7.0\" ]; then echo 'Notes of 1.7.0.'; exit 0; fi\nexit 9\n")
+	ghDir, log := ghStub(t, viewExit, viewSaid, createExit)
+	out, err = sh("tag-release.sh", "APHROLLO="+aphrollo, "PATH="+ghDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	data, _ := os.ReadFile(log)
+	return out, string(data), err
 }
 
 // The tag can land and the Release fail; the next run finds no new tag to make
 // and still gives the newest tag the Release it lacks, with its own notes.
-func TestTagRelease_GivesTheNewestTagAReleaseWhenItHasNone(t *testing.T) {
-	repo, sh := releaseRepo(t)
-	git := realGitForTest(t)
-	gitOutput(t, git, repo, "tag", "v1.7.0")
-	aphrollo := stubScript(t, t.TempDir(), "aphrollo", "if [ \"$1 $2\" = \"release plan\" ]; then exit 0; fi\nif [ \"$1 $2 $3\" = \"changelog --tag v1.7.0\" ]; then echo 'Notes of 1.7.0.'; exit 0; fi\nexit 9\n")
-	ghDir, log := ghStub(t, "1")
-
-	out, err := sh("tag-release.sh", "APHROLLO="+aphrollo, "PATH="+ghDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+func TestTagRelease_GivesTheNewestTagAReleaseWhenGhSaysItIsNotFound(t *testing.T) {
+	out, logged, err := ghRelease(t, "1", "release not found", "0")
 	if err != nil {
 		t.Fatalf("run = %q, %v", out, err)
 	}
-	logged, readErr := os.ReadFile(log)
-	if readErr != nil {
-		t.Fatal(readErr)
-	}
 	for _, want := range []string{"gh release view v1.7.0", "gh release create v1.7.0 --verify-tag --title v1.7.0 --notes-file", "Notes of 1.7.0."} {
-		if !strings.Contains(string(logged), want) {
+		if !strings.Contains(logged, want) {
 			t.Errorf("gh log lacks %q:\n%s", want, logged)
 		}
 	}
 }
 
-func TestTagRelease_LeavesAReleaseThatExistsAlone(t *testing.T) {
-	repo, sh := releaseRepo(t)
-	git := realGitForTest(t)
-	gitOutput(t, git, repo, "tag", "v1.7.0")
-	ghDir, log := ghStub(t, "0")
+// A transient API error is not "no release": creating then would fail with
+// "already exists". The job goes on, with a warning, to dispatch the deploy.
+func TestTagRelease_AGhErrorOtherThanNotFoundCreatesNothingAndDoesNotFailTheJob(t *testing.T) {
+	out, logged, err := ghRelease(t, "1", "HTTP 502: Bad Gateway", "0")
+	if err != nil || !strings.Contains(out, "::warning::") {
+		t.Fatalf("run = %q, %v; want exit 0 with a warning", out, err)
+	}
+	if strings.Contains(logged, "release create") {
+		t.Fatalf("a release was created after a view error that was not 'not found':\n%s", logged)
+	}
+}
 
-	out, err := sh("tag-release.sh", "APHROLLO="+planStub(t, ""), "PATH="+ghDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if err != nil {
+// The tag is pushed before the Release: the job must still reach the deploy.
+func TestTagRelease_AFailedReleaseCreateDoesNotFailTheJob(t *testing.T) {
+	out, _, err := ghRelease(t, "1", "release not found", "1")
+	if err != nil || !strings.Contains(out, "::warning::") {
+		t.Fatalf("run = %q, %v; want exit 0 with a warning", out, err)
+	}
+}
+
+func TestTagRelease_LeavesAReleaseThatExistsAlone(t *testing.T) {
+	out, logged, err := ghRelease(t, "0", "", "0")
+	if err != nil || !strings.Contains(out, "[skip] release v1.7.0 already exists") {
 		t.Fatalf("run = %q, %v", out, err)
 	}
-	logged, _ := os.ReadFile(log)
-	if strings.Contains(string(logged), "release create") {
+	if strings.Contains(logged, "release create") {
 		t.Fatalf("a release that exists was created again:\n%s", logged)
 	}
 }
@@ -177,3 +195,4 @@ func TestNewestTag_FailsWithoutAReleaseTag(t *testing.T) {
 
 // ratchet: test_removed TestTagRelease_TagsTheVersionOnce: the tag is no longer read from a VERSION file; the script tags what `aphrollo release plan` says (TestTagRelease_TagsWhatThePlanSaysOnceAtTheCommitItWasAskedFor)
 // ratchet: test_removed TestTagRelease_RefusesAVersionThatIsNotSemver: there is no VERSION file to refuse; a plan that is not a release tag is refused (TestTagRelease_RefusesAPlanThatIsNotAReleaseTag)
+// ratchet: test_removed TestTagRelease_GivesTheNewestTagAReleaseWhenItHasNone: renamed TestTagRelease_GivesTheNewestTagAReleaseWhenGhSaysItIsNotFound

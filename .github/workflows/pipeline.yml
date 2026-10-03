@@ -1177,7 +1177,8 @@ jobs:
   # Checks run on push too (see the header note above), so this uses the same
   # always()+needs-result guard as aphrollo-api regardless: run after they are
   # all green, but a red one means this never fires. A manual workflow_dispatch
-  # stays gated behind the same guard.
+  # stays gated behind the same guard, and runs only on main: a dispatch from a lane
+  # branch would tag that unmerged commit with a real version, which deploy.yml ships.
   # A tag per release: no PR carries a version. When the merge that just landed
   # brings changelog.d fragments the newest v* tag does not contain,
   # `aphrollo release plan` (built from this very commit) names the tag they
@@ -1190,7 +1191,7 @@ jobs:
   # the tip of main, so a box only ever runs a version a consumer was told about.
   release:
     needs: [test, lint, scan, workflow-pins]
-    if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    if: ${{ always() && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

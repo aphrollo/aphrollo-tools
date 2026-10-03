@@ -24,6 +24,10 @@ type Change struct {
 	Files []FileChange
 	// Fragments holds the text, at the PR's head, of each fragment file the PR added.
 	Fragments map[string]string
+	// ReleasedFragments are the paths of the fragments the newest release tag already
+	// contains: history, which a PR does not rewrite. A fragment merged since is
+	// still the PR's own to edit or delete, as a revert does.
+	ReleasedFragments []string
 	// BaseChangelog and HeadChangelog are CHANGELOG.md at the merge base and at the head.
 	BaseChangelog, HeadChangelog string
 }
@@ -34,8 +38,8 @@ type Change struct {
 //
 //   - the body states `version: none|patch|minor|major`;
 //   - the version file is not added or edited (a PR may delete it);
-//   - CHANGELOG.md's released sections are not touched, and a fragment already
-//     merged is not edited or deleted;
+//   - CHANGELOG.md's released sections are not touched, and a fragment the
+//     newest release tag contains is not edited or deleted;
 //   - a non-none PR adds exactly one changelog.d/<slug>.md whose level is the
 //     body's, and a none PR adds none;
 //   - a change to what a consumer's gate says (a law, a language row, a mask) is
@@ -58,8 +62,8 @@ func JudgeChange(c Change) []string {
 				continue
 			}
 			addedFragments = append(addedFragments, f.File)
-		case InFragmentDir(f.File) && f.File != FragmentDir+"/README.md":
-			problems = append(problems, fmt.Sprintf("%s is a released fragment: it is the history of a release, so a PR neither edits nor deletes it", f.File))
+		case InFragmentDir(f.File) && slices.Contains(c.ReleasedFragments, f.File):
+			problems = append(problems, fmt.Sprintf("%s is a released fragment: it is the history of a release, so a PR neither edits nor deletes it; a revert of a released change adds its own fragment saying so, it does not delete the old one", f.File))
 		}
 	}
 	for _, v := range ChangedSections(c.BaseChangelog, c.HeadChangelog) {

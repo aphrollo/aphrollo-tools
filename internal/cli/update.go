@@ -148,7 +148,9 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	if commit, _, stamped := buildinfo.Stamp(); stamped && commit == head {
+	// Only a release build at the tag's commit is done: an older update builds
+	// the tag with no version flag, and that dev build must be replaced, not kept.
+	if commit, _, stamped := buildinfo.Stamp(); stamped && buildinfo.Released() && commit == head {
 		fmt.Fprintf(stdout, "aphrollo update: [skip] already at %s\n", tag)
 		return 0
 	}

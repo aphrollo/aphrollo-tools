@@ -96,3 +96,16 @@ func TestPipeline_ReleaseJobTagsFromTheFragmentsOfTheCommitItBuilds(t *testing.T
 		t.Error("release job must not commit to main: a version is a tag, not a commit")
 	}
 }
+
+// The release job pushes a real version tag, and deploy.yml ships the newest
+// tag. A manual dispatch from a lane branch would find that branch's pending
+// fragment and tag an unmerged commit, so both arms of the trigger are held to
+// main.
+func TestPipeline_ReleaseJobRunsOnlyOnMainWhateverTheTrigger(t *testing.T) {
+	t.Parallel()
+	rel := jobNamed(t, "pipeline.yml", "release").text
+	want := "((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main')"
+	if !strings.Contains(rel, want) {
+		t.Errorf("the release job's `if` must hold push and workflow_dispatch alike to main, as %q:\n%s", want, rel)
+	}
+}
