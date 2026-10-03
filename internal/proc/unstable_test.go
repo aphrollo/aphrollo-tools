@@ -1,21 +1,17 @@
 package proc
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 )
 
 func TestIsUnstableBinary_JudgesTheLocationNotTheName(t *testing.T) {
-	// A real location outside every stable temp root and any .worktrees tree:
-	// Windows ignores a temp dir that is not a drive path, a t.TempDir() sits
-	// under /tmp on Linux, and the checkout may itself be a lane.
-	home, err := os.UserHomeDir()
+	// filepath.Abs gives the root a drive letter on Windows, which ignores a
+	// temp dir that is not a drive path; on POSIX it is /srv/scratchroot.
+	tmp, err := filepath.Abs(filepath.FromSlash("/srv/scratchroot"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmp := filepath.Join(home, "scratchroot")
-	// The temp dir comes from TMPDIR on POSIX and from TMP or TEMP on Windows.
 	t.Setenv("TMPDIR", tmp)
 	t.Setenv("TMP", tmp)
 	t.Setenv("TEMP", tmp)
