@@ -143,6 +143,7 @@ func TestPipeline_EveryWorkflowAndJobDeclaresPermissions(t *testing.T) {
 	}
 }
 
+// ratchet: test_removed internal/tdd/windowssmoke_workflow_pin_test.go: windows-smoke.yml is gone, test-windows runs the full suite on Windows in 5 shards, so the smoke slice and its pins are redundant
 // ratchet: test_removed TestPipeline_OnlyDeployStaysSelfHostedInThePipeline: deploy left the pipeline; NoJobInThePipelineIsSelfHosted pins the stricter rule
 func TestPipeline_NoJobInThePipelineIsSelfHosted(t *testing.T) {
 	t.Parallel()
