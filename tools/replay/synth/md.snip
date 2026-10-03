@@ -1,0 +1,44 @@
+# __W__ guide __N__
+
+See [the first module](__EXIST__) and [a missing page](__GONE__).
+Inline code `__EXIST__` resolves; `__GONE__` does not.
+
+Don't forget: the apostrophe in "don't" is prose, and so is this 'quoted' bit.
+%%%
+## Setup __N__
+
+```ts
+// a comment inside a fenced block
+const s = "a // b"; /* it's */
+```
+
+```python
+# python in a fence
+print("it's # not a comment")
+```
+
+Then run `make __W__` and read [the notes](__EXIST__).
+%%%
+| name | path | note |
+| --- | --- | --- |
+| a__N__ | `__EXIST__` | it's here |
+| b__N__ | `__GONE__` | "missing" |
+
+> A quote block: don't trust `__GONE__` either.
+%%%
+<!-- a comment with `__GONE__` in it, and it's "odd" -->
+Text after the comment, [inline](__EXIST__ "a title") and [ref][ref__N__].
+
+[ref__N__]: __EXIST__
+[ref]: __EXIST__
+%%%
+### TODO __N__
+
+- [ ] write the __W__ section, see `__EXIST__`
+- [x] done: [link](https://example.test/a#b)
+- an item with a trailing backslash \
+- an item with `code // not a comment`
+%%%
+Plain prose paragraph __N__ that says nothing special, but it's long enough to wrap and it carries
+an apostrophe or two (don't, can't, won't) and a "double-quoted phrase" that never closes properly
+on purpose: " and then a stray ' and a backtick ` that opens nothing.

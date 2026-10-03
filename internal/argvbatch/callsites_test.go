@@ -100,6 +100,8 @@ var spreadCallSites = map[string]string{
 	"internal/workspace/run.go:removeWorktree":                       "bounded: one worktree path",
 	"internal/workspace/run.go:runStep":                              "bounded: a plan step's fixed argv",
 	"tools/cireuse/ghsource.go:runGH":                                "bounded: fixed gh api and run download arguments, one repository, sha or run id",
+	"tools/replay/run.go:git":                                        "bounded: a leaf spawn that runs the arguments its caller built; every caller passes fixed arguments and at most one path or ref",
+	"tools/replay/run.go:run":                                        "bounded: a leaf spawn of a binary under replay; every caller passes fixed arguments",
 	"tools/tddsplit/regen.go:checkoutHEAD":                           "bounded: two fixed git argument sets and one directory",
 	"tools/tddsplit/load.go:exportData":                              "bounded: the import set of one package, on a developer tool off the commit path",
 	"tools/tddsplit/run.go:gitOut":                                   "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",

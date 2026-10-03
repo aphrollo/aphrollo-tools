@@ -1,0 +1,65 @@
+service___N__:
+  msg: "a # b"          # a hash inside a double-quoted scalar
+  note: 'it''s fine # still the string'
+  plain: value # a real trailing comment
+  url: http://example.test/y#frag
+%%%
+jobs___N__:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo "# not a yaml comment, it is shell"
+          echo 'don''t break' # a shell comment
+          cat <<'EOF'
+          # inside a heredoc
+          EOF
+      - name: "Step with 'single' quotes"
+        run: >-
+          echo folded
+          # still part of the folded scalar
+%%%
+defaults___N__: &base
+  retries: 3
+  timeout: "30s"
+  tags: ["a", 'b', "c # d"]
+override___N__:
+  <<: *base
+  retries: 5 # raised
+%%%
+flow___N__: {a: 1, b: "x # y", c: [1, 2, "3"], d: 'e''f'}
+ports___N__: ["80:80", '443:443']
+empty___N__:
+%%%
+# TODO: __W__ should come from the environment, not from this file
+env___N__:
+  - name: PATH_TMP
+    value: "/tmp/__W__"
+  - name: GREETING
+    value: 'hello, "world"'
+%%%
+msg: don't stop
+other: it's plain, with a "quote" in the middle
+key with spaces: value
+"quoted key # x": 1
+%%%
+---
+doc___N__: one
+...
+---
+doc___N__: two # second document
+...
+%%%
+script___N__: |
+  line one
+    indented line with a quote "
+  # a hash that is text, not a comment
+  last line: with a colon
+after___N__: done
+%%%
+anchors___N__:
+  list: &list
+    - one
+    - 'two'
+  copy: *list
+  long: "a very long string that goes on and on, with an escaped \" quote and a \\ backslash, to exercise the escape handling in a double-quoted scalar"

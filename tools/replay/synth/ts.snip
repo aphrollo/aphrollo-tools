@@ -1,0 +1,82 @@
+// __W__ handler __N__: strings that look like comments
+export const endpoint__N__ = "https://api.example.test/v1/__W__"; // trailing comment with "quotes" and 'apostrophes'
+const pattern__N__ = '// not a comment, and /* neither */';
+/* it's a block comment mentioning "a string" and a 'char that never closes
+   spanning two lines with a // line marker inside */
+export function build__N__(id: string): string {
+  return `${endpoint__N__}/${id}?q=${encodeURIComponent("a // b")}`; // TODO: __W__ cache
+}
+%%%
+export function render__N__(items: string[], flag: boolean): string {
+  const row = (x: string) => `<li class="${flag ? `on-${x}` : 'off'}">${x /* inline comment */}</li>`;
+  return `<ul>${items.map(row).join("")}</ul>`; // joined
+}
+%%%
+const slashRe__N__ = /\/\/.*$/gm; // matches a // comment
+const quoteRe__N__ = /["'`]/g;
+export const half__N__ = (a: number, b: number) => a / b / 2; // two divisions, not a regex
+export function strip__N__(s: string) {
+  return s.replace(slashRe__N__, "").replace(quoteRe__N__, "");
+}
+%%%
+const esc__N__ = 'it\'s a \"test\" with a \\ backslash and a // slash';
+const uni__N__ = "snowman ☃ and emoji 🎉 // not a comment";
+const multi__N__ = "line one \
+line two";
+export const all__N__ = [esc__N__, uni__N__, multi__N__].join("|"); // join
+%%%
+__TSIGNORE__ legacy shape from __W__
+export const loose__N__: any = JSON.parse("{}");
+export type Mapped__N__<T> = { [K in keyof T]?: T[K] extends string ? "s" : 'o' };
+__TSIGNORE_REASONED__
+export const looser__N__: any = [] as any;
+%%%
+/**
+ * Service __N__.
+ * @example const s = new Service__N__("a */ b");
+ */
+export class Service__N__ {
+  private readonly name = "svc-__N__"; // name
+  constructor(private cfg: { url: string; retries?: number }) {}
+  async fetchPath(path = "/__W__") {
+    return await fetch(this.cfg.url + path, { headers: { "X-Trace": `${this.name}` } });
+  }
+}
+%%%
+describe("service __N__", () => {
+  it("handles 'single' quotes and \"doubles\"", async () => {
+    expect(build__N__("x")).toContain("// not a comment");
+  });
+  it('skips // inside strings', () => {
+    expect(1).toBe(1);
+  });
+});
+%%%
+export const routes__N__ = {
+  home: "/",            // root
+  docs: "/docs//deep",  // double slash in a string
+  api: 'https://x.test/a#b', /* hash in url */
+  tmp: "/tmp/__W__-__N__", // a hand-written scratch path
+};
+%%%
+type Handler__N__ = (req: { path: string; body?: unknown }) => Promise<{ status: number }>;
+export const handlers__N__: Record<string, Handler__N__> = {
+  "GET /__W__": async () => ({ status: 200 }),
+  'POST /__W__': async (req) => ({ status: req.body ? 201 : 400 }), // created or bad
+};
+%%%
+export function tag__N__(strings: TemplateStringsArray, ...values: unknown[]) {
+  return strings.reduce((acc, s, i) => acc + s + (i < values.length ? `[${String(values[i])}]` : ""), "");
+}
+export const tagged__N__ = tag__N__`a ${1} b ${"c // d"} e`; // a tagged template
+%%%
+// FIXME: __W__ is wrong when the id contains a quote like " or '
+export function quote__N__(id: string): string {
+  return id.includes('"') ? `'${id}'` : `"${id}"`;
+}
+%%%
+export enum Mode__N__ {
+  Fast = "fast", // quick
+  Slow = 'slow', /* careful */
+}
+export const modes__N__ = Object.values(Mode__N__).map((m) => `${m}-mode`);
