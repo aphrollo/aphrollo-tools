@@ -6,6 +6,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // This file holds claim's dev-tier hardening: applying the api clone's
@@ -59,10 +61,10 @@ func gooseUp(clone string, stdout, stderr io.Writer) error {
 	if bin == "" {
 		return fmt.Errorf("goose not found (set APHROLLO_GOOSE_BIN or add goose to PATH)")
 	}
-	cmd := exec.Command(bin, "-dir", migDir, "postgres", devDBURL(), "up")
-	cmd.Dir = clone
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	if err := cmd.Run(); err != nil {
+	if err := lightRun(childrun.Spec{
+		Name: bin, Args: []string{"-dir", migDir, "postgres", devDBURL(), "up"}, Dir: clone,
+		Stdout: stdout, Stderr: stderr,
+	}); err != nil {
 		return fmt.Errorf("goose up (dev db): %w", err)
 	}
 	return nil

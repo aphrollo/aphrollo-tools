@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -135,7 +134,7 @@ func deferMutantsToCI(stdout io.Writer, why string) {
 // the lane brought in by merging ref are behind it, so the diff from it is
 // the lane's own change and nothing else.
 func laneMergeBase(wt, ref string) string {
-	out, err := exec.Command("git", "-C", wt, "merge-base", "HEAD", ref).Output() // stderr-ok: no merge base is the whole signal, and the caller defers to CI saying so
+	out, err := lightGit("-C", wt, "merge-base", "HEAD", ref) // stderr-ok: no merge base is the whole signal, and the caller defers to CI saying so
 	if err != nil {
 		return ""
 	}

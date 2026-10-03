@@ -21,16 +21,17 @@
 package workspace
 
 import (
-	"context"
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Request is the parsed input to BuildPlan.
@@ -57,6 +58,10 @@ type Step struct {
 	// deadline at all (issue #351: workspace create/prepare's own fetch was
 	// the one network call in this package Apply ran unbounded).
 	Network bool
+	// Install marks a dependency install, which runs as a heavy child of
+	// internal/run: the tree it starts is ended with it, in the environment
+	// the plan gives it.
+	Install bool
 }
 
 // Plan is the fully-resolved prepare sequence for one repo+branch.
@@ -241,9 +246,10 @@ func BuildPlan(req Request) (*Plan, error) {
 	if !req.NoInstall {
 		if rule, ok := depinstall.Detect(top); ok {
 			step := Step{
-				Title: "install dependencies",
-				Cmd:   rule.Argv,
-				Dir:   wt,
+				Title:   "install dependencies",
+				Cmd:     rule.Argv,
+				Dir:     wt,
+				Install: true,
 			}
 			if rule.Present != "" && !req.Reinstall && dirExists(filepath.Join(wt, rule.Present)) {
 				step.Skip = rule.Present + " already present (pass --reinstall to force)"
@@ -258,7 +264,7 @@ func BuildPlan(req Request) (*Plan, error) {
 // --- git / fs helpers -------------------------------------------------------
 
 func gitToplevel(path string) (string, error) {
-	out, err := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel").Output()
+	out, err := lightGit("-C", path, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", fmt.Errorf("%s is not a git repository", path)
 	}
@@ -271,7 +277,7 @@ func gitToplevel(path string) (string, error) {
 
 func gitBranchExists(repo, branch string) bool {
 	// show-ref exits 0 iff the ref resolves; quiet keeps it silent.
-	return exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
+	return lightGitOK("-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
 }
 
 // gitRemoteBranchExists reports whether origin carries refs/heads/<branch>, via a
@@ -293,17 +299,15 @@ func gitBranchExists(repo, branch string) bool {
 // origin, diverging from it. So a timeout is returned as an error, and
 // BuildPlan must fail loudly on it rather than guess.
 func gitRemoteBranchExists(repo, branch string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitNetworkTimeout)
-	defer cancel()
-	cmd := networkCmd(ctx, "", "git", "-C", repo, "ls-remote", "--heads", "origin", "refs/heads/"+branch)
-	out, err := cmd.Output()
+	var out bytes.Buffer
+	err := lightRun(childrun.Spec{Name: "git", Args: []string{"-C", repo, "ls-remote", "--heads", "origin", "refs/heads/" + branch}, Timeout: gitNetworkTimeout, Stdout: &out})
 	if err != nil {
-		if ctx.Err() == context.DeadlineExceeded {
+		if errors.Is(err, childrun.ErrTimeout) {
 			return false, fmt.Errorf("checking origin for refs/heads/%s: timed out after %s — check network connectivity/credentials and retry", branch, gitNetworkTimeout)
 		}
 		return false, nil
 	}
-	return strings.TrimSpace(string(out)) != "", nil
+	return strings.TrimSpace(out.String()) != "", nil
 }
 
 // resolveDefaultBranch returns the repo's default remote branch short name —
@@ -311,7 +315,7 @@ func gitRemoteBranchExists(repo, branch string) (bool, error) {
 // only when origin/HEAD is unset (no remote, or never resolved); we never assume
 // the default is literally "main" beyond that last resort.
 func resolveDefaultBranch(repo string) string {
-	out, err := exec.Command("git", "-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").Output()
+	out, err := lightGit("-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
 	if err != nil {
 		return "main"
 	}
@@ -324,14 +328,14 @@ func resolveDefaultBranch(repo string) string {
 
 // gitRefExists reports whether ref resolves in repo (quiet, no output).
 func gitRefExists(repo, ref string) bool {
-	return exec.Command("git", "-C", repo, "rev-parse", "--verify", "--quiet", ref).Run() == nil
+	return lightGitOK("-C", repo, "rev-parse", "--verify", "--quiet", ref)
 }
 
 // gitBehindCount returns how many commits `to` has that `from` lacks — i.e. the
 // commits `from` would gain by rebasing onto `to`. ok=false when either rev
 // can't be resolved.
 func gitBehindCount(repo, from, to string) (int, bool) {
-	out, err := exec.Command("git", "-C", repo, "rev-list", "--count", from+".."+to).Output()
+	out, err := lightGit("-C", repo, "rev-list", "--count", from+".."+to)
 	if err != nil {
 		return 0, false
 	}
@@ -363,7 +367,7 @@ func runtimeGitConfig() string {
 // safeDirSet returns true if path is already a safe.directory entry in the
 // runtime config (or that file blanket-allows everything with "*").
 func safeDirSet(path string) bool {
-	out, err := exec.Command("git", "config", "--file", runtimeGitConfig(), "--get-all", "safe.directory").Output()
+	out, err := lightGit("config", "--file", runtimeGitConfig(), "--get-all", "safe.directory")
 	if err != nil {
 		return false // no entries (or no runtime config) => not set
 	}

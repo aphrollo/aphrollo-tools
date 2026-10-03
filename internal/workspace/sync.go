@@ -3,7 +3,6 @@ package workspace
 import (
 	"fmt"
 	"io"
-	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -108,7 +107,7 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 		// so git is the judge of "safe to move", not a pre-check here. A refusal
 		// is reported, never treated as an error: it is non-destructive, and the
 		// reason is git's own.
-		if out, err := exec.Command("git", "-C", holder, "merge", "--ff-only", remote).CombinedOutput(); err != nil {
+		if out, err := lightGitCombined("-C", holder, "merge", "--ff-only", remote); err != nil {
 			if !isDirtyPathRefusal(out) {
 				fmt.Fprint(stderr, string(out))
 				return fmt.Errorf("git merge --ff-only %s: %w", remote, err)
@@ -131,7 +130,7 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 	// --no-track keeps the move to the ref ALONE, exactly like the update-ref it
 	// replaces: without it, `branch --force` re-runs branch.autoSetupMerge and
 	// rewrites branch.<def>.remote/merge as a side effect of a fast-forward.
-	if out, err := exec.Command("git", "-C", top, "branch", "--force", "--no-track", def, remote).CombinedOutput(); err != nil {
+	if out, err := lightGitCombined("-C", top, "branch", "--force", "--no-track", def, remote); err != nil {
 		if isCheckedOutRefusal(out) {
 			fmt.Fprintf(stdout, "%s ref NOT moved — a checkout holds it: %s\n", def, reasonLine(out))
 			fmt.Fprintf(stdout, "  fast-forward it from that checkout: git merge --ff-only %s\n", remote)
@@ -181,7 +180,7 @@ func worktreeOnBranch(repo, def string) string {
 	// git's OWN stderr — surfacing this one too would report a failure the caller
 	// is never asked to act on.
 	// stderr-ok: a probe whose failure is already covered by the refusal below.
-	out, err := exec.Command("git", "-C", repo, "worktree", "list", "--porcelain").Output()
+	out, err := lightGit("-C", repo, "worktree", "list", "--porcelain")
 	if err != nil {
 		return ""
 	}
@@ -231,7 +230,7 @@ func resolveSyncRepo(repoArg string) (string, error) {
 // isAncestor reports whether ancestor is reachable from descendant — i.e. moving
 // from ancestor to descendant is a strict fast-forward (no rewrite, no merge).
 func isAncestor(repo, ancestor, descendant string) bool {
-	return exec.Command("git", "-C", repo, "merge-base", "--is-ancestor", ancestor, descendant).Run() == nil
+	return lightGitOK("-C", repo, "merge-base", "--is-ancestor", ancestor, descendant)
 }
 
 // isDirtyPathRefusal reports whether a `git merge --ff-only` failure is

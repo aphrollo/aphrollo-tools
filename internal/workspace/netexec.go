@@ -1,14 +1,15 @@
 package workspace
 
 import (
-	"context"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
+
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // The workspace verbs run unattended in agent sessions: a stalled `git
@@ -32,15 +33,15 @@ var (
 	ghTimeout = 60 * time.Second
 )
 
-// networkCmd builds name+args under ctx, running in dir, with terminal
-// credential/host-key prompts disabled (GIT_TERMINAL_PROMPT=0) so an
-// interactive stall on stdin fails on the deadline instead of hanging past
-// it.
-func networkCmd(ctx context.Context, dir, name string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Dir = dir
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-	return cmd
+// networkRun runs name+args in dir as a light child of internal/run, ended
+// with its whole process tree at timeout, with terminal credential/host-key
+// prompts disabled (GIT_TERMINAL_PROMPT=0) so an interactive stall on stdin
+// fails on the deadline instead of hanging past it. env is the child's
+// environment, this process's when nil. A deadline that ended the child comes
+// back as the message networkTimeoutErr writes.
+func networkRun(dir string, env []string, timeout time.Duration, stdout, stderr io.Writer, name string, args ...string) error {
+	err := lightRun(childrun.Spec{Name: name, Args: args, Dir: dir, Env: env, Timeout: timeout, Stdout: stdout, Stderr: stderr})
+	return networkTimeoutErr(errors.Is(err, childrun.ErrTimeout), timeout, name, args, err)
 }
 
 // networkTimeoutErr rewrites err into a message naming the stalled command
@@ -57,34 +58,25 @@ func networkTimeoutErr(deadlineHit bool, timeout time.Duration, name string, arg
 // push) under gitNetworkTimeout, in dir, returning combined stdout+stderr
 // like exec.Cmd.CombinedOutput.
 func gitNetworkOutput(dir string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), gitNetworkTimeout)
-	defer cancel()
-	cmd := networkCmd(ctx, dir, "git", args...)
-	out, err := cmd.CombinedOutput()
-	return out, networkTimeoutErr(ctx.Err() == context.DeadlineExceeded, gitNetworkTimeout, "git", args, err)
+	var out bytes.Buffer
+	err := networkRun(dir, nil, gitNetworkTimeout, &out, &out, "git", args...)
+	return out.Bytes(), err
 }
 
 // gitNetworkStream runs a git subcommand that touches the network with its
 // output streamed live to stdout/stderr (push's progress meter) rather than
 // buffered — same deadline and prompt suppression as gitNetworkOutput.
 func gitNetworkStream(dir string, stdout, stderr io.Writer, args ...string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), gitNetworkTimeout)
-	defer cancel()
-	cmd := networkCmd(ctx, dir, "git", args...)
-	cmd.Stdout, cmd.Stderr = stdout, stderr
-	err := cmd.Run()
-	return networkTimeoutErr(ctx.Err() == context.DeadlineExceeded, gitNetworkTimeout, "git", args, err)
+	return networkRun(dir, nil, gitNetworkTimeout, stdout, stderr, "git", args...)
 }
 
 // ghOutput runs a gh subcommand under ghTimeout, in dir, returning just
 // stdout (mirroring exec.Cmd.Output).
 func ghOutput(dir string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), ghTimeout)
-	defer cancel()
-	cmd := networkCmd(ctx, dir, "gh", args...)
+	var out bytes.Buffer
 	// stderr-ok: callers classify gh's stdout; this error text reaches no reader
-	out, err := cmd.Output()
-	return out, networkTimeoutErr(ctx.Err() == context.DeadlineExceeded, ghTimeout, "gh", args, err)
+	err := networkRun(dir, nil, ghTimeout, &out, nil, "gh", args...)
+	return out.Bytes(), err
 }
 
 // ghCombinedOutput runs a gh subcommand under ghTimeout, in dir, returning
@@ -97,17 +89,16 @@ func ghOutput(dir string, args ...string) ([]byte, error) {
 // behaviour there is unchanged, just no longer polluted by stdout noise on
 // the success path.
 func ghCombinedOutput(dir string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), ghTimeout)
-	defer cancel()
-	cmd := networkCmd(ctx, dir, "gh", args...)
-	out, err := cmd.Output()
+	var stdout, stderr bytes.Buffer
+	err := networkRun(dir, nil, ghTimeout, &stdout, &stderr, "gh", args...)
+	out := stdout.Bytes()
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {
-			out = ee.Stderr
+			out = stderr.Bytes()
 		} else {
 			out = nil
 		}
 	}
-	return out, networkTimeoutErr(ctx.Err() == context.DeadlineExceeded, ghTimeout, "gh", args, err)
+	return out, err
 }

@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 	"github.com/aphrollo/aphrollo-tools/internal/dev"
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // claim puts a prepared worktree on the dev tier — it becomes the tree the dev
@@ -85,6 +85,16 @@ type Claim struct {
 	steps    []claimStep
 }
 
+// installDeps runs the dependency install rule in wt as a heavy child, in this
+// process's environment with CI=1 so the package manager never prompts.
+func installDeps(rule depinstall.Rule, wt string, stdout, stderr io.Writer) error {
+	return heavyRun(childrun.Spec{
+		Name: rule.Argv[0], Args: rule.Argv[1:], Dir: wt,
+		Env:    append(os.Environ(), "CI=1"),
+		Stdout: stdout, Stderr: stderr,
+	})
+}
+
 // ClaimPlan resolves the worktree, the dev service, and the claim sequence
 // without executing anything. svc may be "" to derive it from the repo name. It
 // errors early when the worktree is missing, pointing at create. noMigrate
@@ -135,11 +145,7 @@ func ClaimPlan(repo, branch, svc, into string, noMigrate bool) (*Claim, error) {
 		step := claimStep{
 			label: shellJoin(rule.Argv) + "  (cwd " + wt + ")",
 			run: func(stdout, stderr io.Writer) error {
-				cmd := exec.Command(rule.Argv[0], rule.Argv[1:]...)
-				cmd.Dir = wt
-				cmd.Env = append(os.Environ(), "CI=1")
-				cmd.Stdout, cmd.Stderr = stdout, stderr
-				return cmd.Run()
+				return installDeps(rule, wt, stdout, stderr)
 			},
 		}
 		if dirExists(filepath.Join(wt, rule.Present)) {

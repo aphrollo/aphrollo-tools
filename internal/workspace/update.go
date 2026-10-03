@@ -3,7 +3,6 @@ package workspace
 import (
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 )
 
@@ -63,7 +62,7 @@ func Update(t *Target, dry bool, stdout, stderr io.Writer) error {
 	}
 
 	// Rebase HEAD onto the fresh base.
-	out, err := exec.Command("git", "-C", wt, "rebase", base).CombinedOutput()
+	out, err := lightGitCombined("-C", wt, "rebase", base)
 	if err != nil {
 		// A conflict leaves the rebase in progress. Do NOT abort and do NOT push —
 		// the user resolves, then continues (or aborts to back out).
@@ -100,7 +99,7 @@ func Update(t *Target, dry bool, stdout, stderr io.Writer) error {
 // conflictedFiles returns the paths with unresolved merge conflicts in the
 // worktree (`git diff --name-only --diff-filter=U`).
 func conflictedFiles(wt string) []string {
-	out, err := exec.Command("git", "-C", wt, "diff", "--name-only", "--diff-filter=U").Output()
+	out, err := lightGit("-C", wt, "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return nil
 	}

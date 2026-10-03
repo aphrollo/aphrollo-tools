@@ -3,10 +3,10 @@ package workspace
 import (
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"time"
 
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -109,7 +109,7 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	}
 	wt := c.Target.Worktree
 	if c.StageAll {
-		if out, err := exec.Command("git", "-C", wt, "add", "-A").CombinedOutput(); err != nil {
+		if out, err := lightGitCombined("-C", wt, "add", "-A"); err != nil {
 			return fmt.Errorf("git add -A: %v\n%s", err, out)
 		}
 	}
@@ -134,7 +134,9 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	// started" and reported "gate not run" on a commit the gate had actually
 	// verified.
 	started := timeNow().Truncate(time.Second)
-	out, err := exec.Command("git", args...).CombinedOutput()
+	// The hook is the whole gate, so the commit gets commitCeiling, not the
+	// light ceiling.
+	out, err := lightCombined(childrun.Spec{Name: "git", Args: args, Timeout: commitCeiling})
 	if err != nil {
 		if !c.NoVerify {
 			fmt.Fprintf(stderr, "%s\n", strings.TrimRight(string(out), "\n"))
@@ -204,7 +206,7 @@ func (c *Commit) noopMsg() string {
 // --- git helpers ------------------------------------------------------------
 
 func porcelainStatus(wt string) (string, error) {
-	out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
+	out, err := lightGit("-C", wt, "status", "--porcelain")
 	if err != nil {
 		return "", fmt.Errorf("git status: %w", err)
 	}
@@ -214,11 +216,11 @@ func porcelainStatus(wt string) (string, error) {
 // hasStagedChanges reports whether the index differs from HEAD (something to
 // commit without staging more). `git diff --cached --quiet` exits 1 when staged.
 func hasStagedChanges(wt string) bool {
-	return exec.Command("git", "-C", wt, "diff", "--cached", "--quiet").Run() != nil
+	return !lightGitOK("-C", wt, "diff", "--cached", "--quiet")
 }
 
 func shortSHA(wt string) string {
-	out, err := exec.Command("git", "-C", wt, "rev-parse", "--short", "HEAD").Output()
+	out, err := lightGit("-C", wt, "rev-parse", "--short", "HEAD")
 	if err != nil {
 		return "HEAD"
 	}
@@ -228,7 +230,7 @@ func shortSHA(wt string) string {
 // shortstat returns git's own "N files changed, +X -Y" summary for the last
 // commit, normalized to a compact form.
 func shortstat(wt string) string {
-	out, err := exec.Command("git", "-C", wt, "show", "--shortstat", "--oneline", "--no-color", "HEAD").Output()
+	out, err := lightGit("-C", wt, "show", "--shortstat", "--oneline", "--no-color", "HEAD")
 	if err != nil {
 		return ""
 	}

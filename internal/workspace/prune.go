@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -210,7 +209,7 @@ var ghPRHeadOid = func(wt, branch string) (string, error) {
 
 // localHeadSHA returns the worktree's current HEAD commit.
 func localHeadSHA(wt string) (string, error) {
-	out, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
+	out, err := lightGit("-C", wt, "rev-parse", "HEAD")
 	if err != nil {
 		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
 	}
@@ -356,7 +355,7 @@ func (p *Prune) decide(e worktreeEntry, cwd string) pruneDecision {
 // worktree path and the branch checked out there; a detached worktree reports
 // "HEAD".
 func linkedWorktrees(repo string) ([]worktreeEntry, error) {
-	out, err := exec.Command("git", "-C", repo, "worktree", "list", "--porcelain").Output()
+	out, err := lightGit("-C", repo, "worktree", "list", "--porcelain")
 	if err != nil {
 		return nil, fmt.Errorf("git worktree list: %w", err)
 	}
@@ -428,7 +427,7 @@ func samePath(a, b string) bool {
 // worktreeClean reports whether the worktree has no uncommitted changes —
 // `git status --porcelain` empty.
 func worktreeClean(wt string) bool {
-	out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
+	out, err := lightGit("-C", wt, "status", "--porcelain")
 	if err != nil {
 		return false // can't tell => treat as dirty, don't remove
 	}
@@ -451,7 +450,7 @@ func removeWorktree(repo, wt string, force bool) error {
 		args = append(args, "--force")
 	}
 	args = append(args, wt)
-	if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+	if out, err := lightGitCombined(args...); err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -462,5 +461,5 @@ func removeWorktree(repo, wt string, force bool) error {
 // drops exactly that entry; an entry git does not know, or a locked one, is left
 // as it is.
 func dropMissingWorktree(repo, wt string) {
-	_ = exec.Command("git", "-C", repo, "worktree", "remove", wt).Run()
+	_ = lightGitOK("-C", repo, "worktree", "remove", wt)
 }

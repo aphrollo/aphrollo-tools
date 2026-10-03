@@ -4,12 +4,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -48,7 +48,7 @@ type verifyStep struct {
 // A repo with none is never charged for a check that does not apply to it.
 func HasAppProfile(root string) bool {
 	// stderr-ok: a git that cannot list the index tracks no package.json here; the exit alone decides.
-	out, err := exec.Command("git", "-C", root, "ls-files", "--", "package.json", "*/package.json").Output()
+	out, err := lightGit("-C", root, "ls-files", "--", "package.json", "*/package.json")
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
@@ -76,7 +76,7 @@ var verifyChangedPaths = func(wt, baseRef string) []string {
 	if !gitRefExists(wt, baseRef) {
 		return nil
 	}
-	out, err := exec.Command("git", "-C", wt, "diff", "--name-only", baseRef).Output()
+	out, err := lightGit("-C", wt, "diff", "--name-only", baseRef)
 	if err != nil {
 		return nil
 	}
@@ -93,12 +93,11 @@ var verifyChangedPaths = func(wt, baseRef string) []string {
 // Apply's ordering/stop-at-first-failure is testable without spawning real
 // tooling. CI=1/NO_COLOR=1 keeps the run quiet and deterministic.
 var verifyRun = func(cmd []string, dir string, stdout, stderr io.Writer) error {
-	c := exec.Command(cmd[0], cmd[1:]...)
-	c.Dir = dir
-	c.Env = append(os.Environ(), "CI=1", "NO_COLOR=1")
-	c.Stdout = stdout
-	c.Stderr = stderr
-	return c.Run()
+	return heavyRun(childrun.Spec{
+		Name: cmd[0], Args: cmd[1:], Dir: dir,
+		Env:    append(os.Environ(), "CI=1", "NO_COLOR=1"),
+		Stdout: stdout, Stderr: stderr,
+	})
 }
 
 // BuildVerify resolves the affected npm root(s) and computes the verification

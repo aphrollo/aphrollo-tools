@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -170,7 +169,7 @@ func laneMarked(wt string) bool {
 
 // lastCommitTime returns the worktree's HEAD commit time.
 func lastCommitTime(wt string) (time.Time, bool) {
-	out, err := exec.Command("git", "-C", wt, "log", "-1", "--format=%ct").Output()
+	out, err := lightGit("-C", wt, "log", "-1", "--format=%ct")
 	if err != nil {
 		return time.Time{}, false
 	}
@@ -190,7 +189,7 @@ func lastCommitTime(wt string) (time.Time, bool) {
 // whether the tracked files changed, which meant a --stale sweep never saw a
 // tree as idle as long as something kept rebuilding it.
 func trackedAndUntrackedFiles(wt string) ([]string, bool) {
-	out, err := exec.Command("git", "-C", wt, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output()
+	out, err := lightGit("-C", wt, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return nil, false
 	}
@@ -231,7 +230,7 @@ func newestFileMTime(wt string) (time.Time, bool) {
 // dirtyCount returns the number of uncommitted paths `git status --porcelain`
 // reports, 0 for a clean worktree or when git can't be asked.
 func dirtyCount(wt string) int {
-	out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
+	out, err := lightGit("-C", wt, "status", "--porcelain")
 	if err != nil {
 		return 0
 	}
