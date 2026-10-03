@@ -9,6 +9,7 @@
 //	events-YYYY-MM.jsonl         the one log, shared with the gate's v1 events
 //	lanes/<lane>.json            the lane's checkpoint, replaced by rename
 //	lanes/<lane>.lock            the lane's lock
+//	verdicts/<key>.json          the verdicts of one tree key (see verdict.go)
 //
 // <lane> is the lane key written by laneFileName. A checkpoint is
 // {"f":1,"fold":1,"ver":n,"lane":key,"log":{file,off},"rec":{...}}: f is the
@@ -316,11 +317,20 @@ func (s *Store) say(lane string, why error) {
 // holder. A lock that stays held is ErrConflict, which the engine retries; a
 // lock file that cannot be opened is the error it is.
 func (s *Store) lock(ctx context.Context, lane string) (func(), error) {
+	release, err := s.lockAt(ctx, s.lockPath(lane))
+	if err != nil && !errors.Is(err, ErrConflict) && ctx.Err() == nil {
+		return nil, fmt.Errorf("store: lock lane %q: %w", lane, err)
+	}
+	return release, err
+}
+
+// lockAt takes the lock file at path under the same bound.
+func (s *Store) lockAt(ctx context.Context, path string) (func(), error) {
 	deadline := time.Now().Add(s.lockWait)
 	for {
-		f, err := core.OpenLockFile(s.lockPath(lane))
+		f, err := core.OpenLockFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("store: lock lane %q: %w", lane, err)
+			return nil, err
 		}
 		if core.TryLockExclusive(f) {
 			return func() { _ = f.Close() }, nil // closing drops the lock on both platforms

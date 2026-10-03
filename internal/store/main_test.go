@@ -21,6 +21,9 @@ func TestMain(m *testing.M) {
 		if os.Getenv(writerDirEnv) != "" {
 			return writerMain()
 		}
+		if os.Getenv(verdictDirEnv) != "" {
+			return verdictWriterMain()
+		}
 		return m.Run()
 	}))
 }
