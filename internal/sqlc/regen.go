@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // sqlcBin resolves the sqlc binary: APHROLLO_SQLC_BIN, then $PATH, then the
@@ -64,9 +66,7 @@ func Regenerate(cfg Config) (map[string]string, error) {
 		}
 	}
 
-	cmd := exec.Command(bin, "-f", cfg.Name, "generate")
-	cmd.Dir = tmp
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := run.LightCombined(run.Spec{Name: bin, Args: []string{"-f", cfg.Name, "generate"}, Dir: tmp}); err != nil {
 		return nil, fmt.Errorf("sqlc generate (%s): %w\n%s", cfg.Name, err, out)
 	}
 

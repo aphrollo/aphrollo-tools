@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // BaseReader answers a diff-scoped law's OTHER tree: every path present, and
@@ -40,9 +41,7 @@ type gitBaseReader struct {
 }
 
 func (g *gitBaseReader) List() ([]string, error) {
-	lsTreeCmd := exec.Command("git", "-C", g.root, "ls-tree", "-r", "--name-only", g.ref)
-	lsTreeCmd.Env = gitenv.Clean()
-	out, err := gitOutput(lsTreeCmd)
+	out, err := gitOutput(g.git("ls-tree", "-r", "--name-only", g.ref))
 	if err != nil {
 		return nil, fmt.Errorf("git ls-tree -r --name-only %s: %w", g.ref, err)
 	}
@@ -57,9 +56,7 @@ func (g *gitBaseReader) List() ([]string, error) {
 }
 
 func (g *gitBaseReader) Read(path string) ([]byte, error) {
-	showCmd := exec.Command("git", "-C", g.root, "show", g.ref+":"+path)
-	showCmd.Env = gitenv.Clean()
-	out, err := gitOutput(showCmd)
+	out, err := gitOutput(g.git("show", g.ref+":"+path))
 	if err != nil {
 		return nil, fmt.Errorf("git show %s:%s: %w", g.ref, path, err)
 	}
@@ -81,24 +78,29 @@ func (g *gitBaseReader) ReadAll(paths []string) (map[string][]byte, error) {
 	for _, p := range paths {
 		stdin.WriteString(g.ref + ":" + p + "\n")
 	}
-	cmd := exec.Command("git", "-C", g.root, "cat-file", "--batch")
-	cmd.Env = gitenv.Clean()
-	cmd.Stdin = strings.NewReader(stdin.String())
-	out, err := gitOutput(cmd)
+	spec := g.git("cat-file", "--batch")
+	spec.Stdin = strings.NewReader(stdin.String())
+	out, err := gitOutput(spec)
 	if err != nil {
 		return nil, fmt.Errorf("git cat-file --batch: %w", err)
 	}
 	return ParseCatFileBatch(out, paths)
 }
 
-// gitOutput runs cmd and returns its stdout, folding the child's stderr into
-// the error on a non-zero exit: cmd.Output() alone keeps stdout clean (the
-// object content/tree listing gitBaseReader parses) but discards stderr,
-// which is exactly the "exit status 128" with no actual message shape #183
-// found. *exec.ExitError.Stderr already carries it; this is the one place
-// that reads it back out for gitBaseReader's three call sites.
-func gitOutput(cmd *exec.Cmd) ([]byte, error) {
-	out, err := cmd.Output()
+// git is the spec of one git command over the reader's repository, in the
+// scrubbed environment (no GIT_* variable of the caller's reaches it).
+func (g *gitBaseReader) git(args ...string) run.Spec {
+	return run.Spec{Name: "git", Args: append([]string{"-C", g.root}, args...), Env: gitenv.Clean()}
+}
+
+// gitOutput runs the git command in spec and returns its stdout, folding the
+// child's stderr into the error on a non-zero exit: the stdout alone stays
+// clean (the object content/tree listing gitBaseReader parses) but would
+// discard stderr, which is exactly the "exit status 128" with no actual
+// message shape #183 found. *exec.ExitError.Stderr carries it; this is the one
+// place that reads it back out for gitBaseReader's three call sites.
+func gitOutput(spec run.Spec) ([]byte, error) {
+	out, err := run.LightOutput(spec)
 	if err == nil {
 		return out, nil
 	}

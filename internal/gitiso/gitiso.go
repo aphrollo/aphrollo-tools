@@ -186,6 +186,7 @@ func enclosingRepo(dir string) string {
 // under the home dir being replaced. A toolchain that cannot answer leaves the
 // variables as they were.
 func pinToolchainHomes() {
+	// exec-ok: gitiso cannot import internal/run: run's own tests run under gitiso.Main, so the import would be a cycle in test.
 	out, _ := exec.Command("go", "env", "-json", "GOPATH", "GOCACHE", "GOMODCACHE", "GOENV").Output() // stderr-ok: a failed lookup leaves the variables unpinned, and go says nothing a caller could use
 	var resolved map[string]string
 	_ = json.Unmarshal(out, &resolved)

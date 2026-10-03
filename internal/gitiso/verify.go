@@ -40,6 +40,7 @@ func Probe(t *testing.T) {
 	}
 	base := t.TempDir()
 	git := func(dir string, args ...string) error {
+		// exec-ok: gitiso cannot import internal/run: run's own tests run under gitiso.Main, so the import would be a cycle in test, and the probe starts the bare git it proves is walled off.
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
 		out, err := cmd.CombinedOutput()
@@ -110,6 +111,7 @@ func VerifyNoLeak(t *testing.T, probe string) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 			defer cancel()
+			// exec-ok: gitiso cannot import internal/run: run's own tests run under gitiso.Main, so the import would be a cycle in test, and the probe starts the test binary itself under the hostile environment it proves harmless.
 			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+probe+"$", "-test.count=1", "-test.v")
 			cmd.Dir = dir
 			cmd.Env = env
@@ -157,6 +159,7 @@ func makeVictim(t *testing.T) string {
 		{"-c", "user.name=v", "-c", "user.email=v@example.com", "add", "-A"},
 		{"-c", "user.name=v", "-c", "user.email=v@example.com", "commit", "-q", "-m", "victim"},
 	} {
+		// exec-ok: gitiso cannot import internal/run: run's own tests run under gitiso.Main, so the import would be a cycle in test.
 		cmd := exec.Command("git", args...)
 		cmd.Dir = victim
 		cmd.Env = cleanedEnv()
@@ -214,6 +217,7 @@ func victimText(victim string) string {
 		data, _ := os.ReadFile(filepath.Join(victim, ".git", name))
 		sb.WriteString(name + ":\n" + string(data) + "\n")
 	}
+	// exec-ok: gitiso cannot import internal/run: run's own tests run under gitiso.Main, so the import would be a cycle in test.
 	cmd := exec.Command("git", "for-each-ref", "--format=%(refname) %(objectname)")
 	cmd.Dir = victim
 	cmd.Env = cleanedEnv()

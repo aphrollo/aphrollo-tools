@@ -7,12 +7,13 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Three laws judge a whole TREE rather than a file at a time: the resolved
@@ -309,11 +310,11 @@ func loadCargoMetadata(root string, law Law) (*cargoMetadata, error) {
 		if law.CargoOffline {
 			args = append(args, "--offline")
 		}
-		cmd := exec.Command(cargo, args...)
+		spec := run.Spec{Name: cargo, Args: args}
 		if law.CargoTargetDir != "" {
-			cmd.Env = append(os.Environ(), "CARGO_TARGET_DIR="+law.CargoTargetDir)
+			spec.Env = append(os.Environ(), "CARGO_TARGET_DIR="+law.CargoTargetDir)
 		}
-		out, runErr := cmd.Output()
+		out, runErr := run.LightOutput(spec)
 		if runErr != nil {
 			return nil, fmt.Errorf("cargo metadata in %s: %w", root, runErr)
 		}

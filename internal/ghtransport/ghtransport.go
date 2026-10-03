@@ -8,10 +8,11 @@
 package ghtransport
 
 import (
-	"context"
 	"os/exec"
 	"strings"
 	"time"
+
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // probeTimeout bounds each gh call this package makes. A var, not a const,
@@ -95,7 +96,5 @@ func run(checkGraphQL bool) Probe {
 // stdout+stderr for the diagnostic — never parsed as data, only ever shown
 // or compared to "" for presence.
 func runGH(bin string, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	return exec.CommandContext(ctx, bin, args...).CombinedOutput()
+	return childrun.LightCombined(childrun.Spec{Name: bin, Args: args, Timeout: probeTimeout})
 }

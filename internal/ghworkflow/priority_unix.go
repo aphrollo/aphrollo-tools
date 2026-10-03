@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
+
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Every step runs below normal priority, so a local CI run on a box someone
@@ -19,10 +22,14 @@ import (
 // in a container that bars the syscall it refuses and would run nothing.
 var priorityWrappers = sync.OnceValue(buildPriorityWrappers)
 
+// ioniceTrial bounds the trial run of ionice: a host that bars the syscall
+// refuses at once, and one that hangs must not hold the run.
+const ioniceTrial = 10 * time.Second
+
 // buildPriorityWrappers looks the wrappers up on PATH now.
 func buildPriorityWrappers() [][]string {
 	var wrappers [][]string
-	if p, err := exec.LookPath("ionice"); err == nil && exec.Command(p, "-c", "2", "-n", "7", "true").Run() == nil {
+	if p, err := exec.LookPath("ionice"); err == nil && childrun.LightRun(childrun.Spec{Name: p, Args: []string{"-c", "2", "-n", "7", "true"}, Timeout: ioniceTrial}) == nil {
 		wrappers = append(wrappers, []string{p, "-c", "2", "-n", "7"})
 	}
 	if p, err := exec.LookPath("nice"); err == nil {

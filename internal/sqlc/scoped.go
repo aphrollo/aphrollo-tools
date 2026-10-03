@@ -7,6 +7,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // This file implements `aphrollo sqlc regen --scoped`: regenerate, then keep
@@ -341,10 +343,8 @@ func gitShow(repo, ref, relpath string) (string, error) {
 	if !exists {
 		return "", nil
 	}
-	cmd := exec.Command("git", "-C", repo, "show", fmt.Sprintf("%s:%s", ref, relpath))
 	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := run.LightOutput(run.Spec{Name: "git", Args: []string{"-C", repo, "show", fmt.Sprintf("%s:%s", ref, relpath)}, Stderr: &stderr})
 	if err != nil {
 		return "", fmt.Errorf("git show %s:%s: %w: %s", ref, relpath, err, strings.TrimSpace(stderr.String()))
 	}
@@ -355,10 +355,8 @@ func gitShow(repo, ref, relpath string) (string, error) {
 // a typo'd base ref, one never fetched, or git missing from PATH. gitShow
 // must propagate this rather than mistake it for a merely-absent path.
 func verifyRef(repo, ref string) error {
-	cmd := exec.Command("git", "-C", repo, "rev-parse", "--verify", ref+"^{commit}")
 	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
+	if err := run.LightRun(run.Spec{Name: "git", Args: []string{"-C", repo, "rev-parse", "--verify", ref + "^{commit}"}, Stderr: &stderr}); err != nil {
 		return fmt.Errorf("git rev-parse --verify %s: %w: %s", ref, err, strings.TrimSpace(stderr.String()))
 	}
 	return nil
@@ -370,8 +368,7 @@ func verifyRef(repo, ref string) error {
 // distinguished from a real execution failure (git missing, I/O error) by
 // exec.ExitError, the only shape a plain "object does not exist" takes.
 func pathExistsAtRef(repo, ref, relpath string) (bool, error) {
-	cmd := exec.Command("git", "-C", repo, "cat-file", "-e", fmt.Sprintf("%s:%s", ref, relpath))
-	if err := cmd.Run(); err != nil {
+	if err := run.LightRun(run.Spec{Name: "git", Args: []string{"-C", repo, "cat-file", "-e", fmt.Sprintf("%s:%s", ref, relpath)}}); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			return false, nil

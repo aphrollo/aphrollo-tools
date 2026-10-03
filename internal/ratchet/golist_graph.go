@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // goOverlayOf keeps the Go sources of a proposed-content map: `go list`
@@ -73,9 +75,7 @@ func goListStream(root string, overlay map[string]string) ([]byte, error) {
 		}
 		args = append(args, "-overlay", file)
 	}
-	cmd := exec.Command("go", append(args, "./...")...)
-	cmd.Dir = root
-	out, err := cmd.Output()
+	out, err := run.LightOutput(run.Spec{Name: "go", Args: append(args, "./..."), Dir: root})
 	if err != nil {
 		said := ""
 		var exit *exec.ExitError

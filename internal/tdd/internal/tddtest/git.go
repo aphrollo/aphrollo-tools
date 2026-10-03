@@ -8,14 +8,13 @@ import (
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // GitDo runs one git command in dir and fails the test when it fails.
 func GitDo(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command(gitBin(), args...)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := run.LightCombined(run.Spec{Name: gitBin(), Args: args, Dir: dir}); err != nil {
 		t.Fatalf("git %v: %s", args, out)
 	}
 }
@@ -23,9 +22,7 @@ func GitDo(t *testing.T, dir string, args ...string) {
 // GitAddAll stages everything under root.
 func GitAddAll(t *testing.T, root string) {
 	t.Helper()
-	cmd := exec.Command(gitBin(), "add", "-A")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := run.LightCombined(run.Spec{Name: gitBin(), Args: []string{"add", "-A"}, Dir: root}); err != nil {
 		t.Fatalf("git add: %v\n%s", err, out)
 	}
 }
@@ -33,9 +30,7 @@ func GitAddAll(t *testing.T, root string) {
 // CommitAll commits what is staged under root, past every hook.
 func CommitAll(t *testing.T, root string) {
 	t.Helper()
-	cmd := exec.Command(gitBin(), "-c", "core.hooksPath=", "commit", "-q", "-m", "fixture", "--no-verify")
-	cmd.Dir = root
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := run.LightCombined(run.Spec{Name: gitBin(), Args: []string{"-c", "core.hooksPath=", "commit", "-q", "-m", "fixture", "--no-verify"}, Dir: root}); err != nil {
 		t.Fatalf("git commit: %v\n%s", err, out)
 	}
 }
@@ -43,10 +38,8 @@ func CommitAll(t *testing.T, root string) {
 // GitNote is the note under notesRef on rev, "" when there is none.
 func GitNote(t *testing.T, notesRef, dir, rev string) string {
 	t.Helper()
-	cmd := exec.Command(gitBin(), "notes", "--ref="+notesRef, "show", rev)
-	cmd.Dir = dir
-	// stderr-ok: a rev with no note exits non-zero, and that absence is the answer
-	out, err := cmd.Output()
+	// a rev with no note exits non-zero, and that absence is the answer
+	out, err := run.LightOutput(run.Spec{Name: gitBin(), Args: []string{"notes", "--ref=" + notesRef, "show", rev}, Dir: dir})
 	if err != nil {
 		return ""
 	}
@@ -56,9 +49,7 @@ func GitNote(t *testing.T, notesRef, dir, rev string) string {
 // GitOutT is a git value a test needs to compare against.
 func GitOutT(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command(gitBin(), args...)
-	cmd.Dir = dir
-	out, err := cmd.Output()
+	out, err := run.LightOutput(run.Spec{Name: gitBin(), Args: args, Dir: dir})
 	if err != nil {
 		t.Fatalf("git %v: %v%s", args, err, exitStderr(err))
 	}
@@ -79,8 +70,7 @@ func exitStderr(err error) string {
 // under test.
 func GitValue(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command(gitBin(), append([]string{"-C", dir}, args...)...)
-	out, err := cmd.Output()
+	out, err := run.LightOutput(run.Spec{Name: gitBin(), Args: append([]string{"-C", dir}, args...)})
 	if err != nil {
 		t.Fatalf("git %v: %v%s", args, err, exitStderr(err))
 	}

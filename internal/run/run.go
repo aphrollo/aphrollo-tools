@@ -49,6 +49,9 @@ type Spec struct {
 	// Timeout ends the child and its tree when it elapses. A light child needs
 	// one; for a heavy child zero means none.
 	Timeout time.Duration
+	// PipeGrace is how long Wait lets the output pipes drain once the child has
+	// exited or been ended; zero is the default of two seconds.
+	PipeGrace time.Duration
 
 	// The rest is for a heavy child.
 
@@ -220,6 +223,9 @@ func command(spec Spec, env []string) *exec.Cmd {
 		cmd.Stdin = spec.Stdin
 	}
 	cmd.WaitDelay = pipeGrace
+	if spec.PipeGrace > 0 {
+		cmd.WaitDelay = spec.PipeGrace
+	}
 	return cmd
 }
 

@@ -19,7 +19,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -27,6 +26,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Finding is one unresolved reference: a path cited by File at Line that does
@@ -137,10 +137,8 @@ func TrackedPaths(root string) ([]string, error) {
 // order with each path once: what one call over every pathspec lists.
 func lsFiles(root string, paths ...string) ([]string, error) {
 	out, err := argvbatch.Run([]string{"-C", root, "ls-files", "-z", "--"}, paths, func(args []string) (string, error) {
-		cmd := exec.Command("git", args...)
 		var stderr strings.Builder
-		cmd.Stderr = &stderr
-		out, err := cmd.Output()
+		out, err := childrun.LightOutput(childrun.Spec{Name: "git", Args: args, Stderr: &stderr})
 		if err != nil {
 			return "", fmt.Errorf("git ls-files under %s: %w: %s", root, err, strings.TrimSpace(stderr.String()))
 		}
@@ -187,7 +185,7 @@ func Check(root string, paths []string, w io.Writer) (bool, error) {
 }
 
 func gitTopLevel(dir string) (string, error) {
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	out, err := childrun.LightOutput(childrun.Spec{Name: "git", Args: []string{"-C", dir, "rev-parse", "--show-toplevel"}})
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %s", dir)
 	}

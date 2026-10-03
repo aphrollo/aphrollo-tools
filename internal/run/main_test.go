@@ -44,6 +44,10 @@ func helper(mode string, args []string) int {
 		_, _ = io.Copy(os.Stdout, os.Stdin)
 	case "exit3":
 		return 3
+	case "fail":
+		fmt.Fprintln(os.Stdout, "partial")
+		fmt.Fprintln(os.Stderr, "why")
+		return 4
 	case "env":
 		for _, name := range args {
 			if v, ok := os.LookupEnv(name); ok {
