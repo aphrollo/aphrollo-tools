@@ -60,7 +60,7 @@ Kept from before: the name trellis; Go; a Claude Code plugin pinning one binary 
 
 ## Roadmap
 
-Lanes run in order inside a phase; nothing new enters a running phase. Phase 0 (#1102 and #1103, the fanvue unblock) finishes beside F0 on disjoint files. Effort: 66 lanes, about 12 weeks at the caps; F is 41 lanes, about 6 weeks. Consumers keep running aphrollo at a release tag until B9; each cutover is per repo, pinned, replayed first and reversible with `trellis eject`.
+Lanes run in order inside a phase; nothing new enters a running phase. Phase 0 (#1102 and #1103, the fanvue unblock) finishes beside F0 on disjoint files. Effort: 67 lanes, about 12 weeks at the caps; F is 42 lanes, about 6 weeks. Consumers keep running aphrollo at a release tag until B9; each cutover is per repo, pinned, replayed first and reversible with `trellis eject`.
 
 | Step | What | Measured |
 | --- | --- | --- |
@@ -74,17 +74,18 @@ Lanes run in order inside a phase; nothing new enters a running phase. Phase 0 (
 | run | `internal/run`: every exec, memory cap, tree kill; call sites move package by package | exec sites outside `run` 170 to 0; not tested under 10% |
 | kernel | The lane machine, the TDD machine and the rule table; `engine`; `trellis why` | table and property tests first |
 | git | One git client, one status call per batch | git spawns per edit 10+ to at most 1 |
+| host | F21b: the host port in `integrate` with a GitHub adapter; the GitHub calls now spread over `internal/workspace`, `internal/tdd/merge`, `internal/ciwhy`, `tools/cireuse` and `issue` move behind it | GitHub call sites outside the port to 0 |
 | render | The line grammar, caps as golden tests, the `seen` rule | tokens-per-task baseline |
 | store | Checkpoints, lock and fold versions, retention; gate.log retires | lost updates 0 |
 | shadow | Red to green and run decisions recorded beside the live hooks for a week | agreement; would-be wrong blocks |
 | config | One schema, three layers; 44 to 3 environment variables | misread keys 0 |
 | laws | `laws.Plan`; smells as matcher kinds | commit refusals the edit check missed 0 |
-| A | Red to green at PreToolUse in warn, plus the A/B; rule table live; escape split; holds as guidance; delta closure, pending merges, `ci wait` | escapes and friction per arm; merge p95 at most 5 min |
-| B | Plugin and launcher, release workflow, `trellis init`, repo start, deny then EnterWorktree, `why`, `eject`; cut over this repo, go-telegram, fanvue, then borld through the borld session | off-here p95 at most 50 ms; a new box in one step |
+| A | Red to green at PreToolUse in warn, plus the A/B; rule table live; escape split; holds as guidance; delta closure, pending merges, `ci wait`; the local adapter of the host port; the GitHub merge-queue path and `--wait` through it | escapes and friction per arm; merge p95 at most 5 min |
+| B | Plugin and launcher, release workflow, `trellis init` (offers the merge-queue setup as an owner decision; doctor checks a queue on without `merge_group` in the workflow, and required checks not covering every per-OS job), repo start, deny then EnterWorktree, `why`, `eject`; cut over this repo, go-telegram, fanvue, then borld through the borld session | off-here p95 at most 50 ms; a new box in one step |
 | C | `trellis ci` per tree and OS under the merge verb; local merges; divergent trunk | a merge completes with GitHub off |
 | M1 | The last aphrollo release switches boxes over; an `aphrollo` alias for one release | none |
 
-**F exits:** the three measures recorded for a week on both boxes; first-run CI green at 85% or more with mutation counted separately; not tested under 10%; 0 exec sites outside `run`; `forwarder_count` falling; every hook adapter tested on recorded payloads.
+**F exits:** the three measures recorded for a week on both boxes; first-run CI green at 85% or more with mutation counted separately; not tested under 10%; 0 exec sites outside `run`; `forwarder_count` falling; every adapter (hook payloads, recorded `gh` responses for the host port) tested on recorded payloads.
 
 ## How work is done
 
@@ -99,6 +100,8 @@ Risks and the full cut list are in the architecture (sections 10 and 12). Stays 
 ## Open
 
 - [x] **This repo's CI mutation level.** Decided 2026-10-03: mutation is opt-in, report by default, block only when pinned. This repo is opted in at the report level; `mutants-verdict` is no longer a required check, and the merge gate waits for it only where block is pinned.
+- [x] **GitHub merge queue adopted 2026-10-03 for this repo.** A ruleset on main (squash, up to 5 per group, all-green grouping); the pipeline runs on `merge_group` (#1193); required checks cover test, lint, build, docs-check, workflow-pins, pr-ratchet, version-check and the five test-windows shards; push-to-main reuses the `merge_group` verdict by sha and tree (#1195); `workspace merge` enqueues bound to the head and `--wait` follows the PR through the queue (lane merge-enqueue, in flight). Reason: strict tree-equal CI reuse made every merge stale the next PR, costing a rebase and a 10–15 min CI round per PR. trellis builds no queue engine of its own.
+- [x] **Host port with GitHub and local adapters (2026-10-03).** One port in `integrate` for PR view, head, checks, open, `Land(pr, head)`, queue state and removal reason, run lookup, issue and release. The GitHub adapter picks the merge queue where the base has one, else the API merge with `sha=head`; the local adapter (`ci = local`, GitHub off) is closure plus `git merge --no-ff`. Adapters are tested on recorded responses. One lane (F21b) added: 67 lanes, F 42.
 - [ ] **How a host is marked production.** Blocks #1102's fix. Proposed: a user-layer key `host.production = true`.
 - [ ] **#999 (first-run setup).** Blocks 1b. Proposed: rescope it to defaults plus `trellis config set`.
 - [ ] **Doc-only writes under `isolation = true`.** Blocks B6.
