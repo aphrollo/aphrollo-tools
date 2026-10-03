@@ -22,7 +22,9 @@ func foldSpeed(s scope) Dist {
 		if e.Lane == "" || e.Detail["by"] == "outside" {
 			continue
 		}
-		if e.Kind != "merge" {
+		// A merge the verb only queued has not landed: the ok event written once the
+		// queue has merged it closes the lane.
+		if e.Kind != "merge" || e.Verdict == "queued" {
 			if _, ok := opened[e.Lane]; !ok {
 				opened[e.Lane] = e.at
 			}
