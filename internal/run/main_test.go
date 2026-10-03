@@ -1,6 +1,7 @@
 package run
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -65,6 +66,26 @@ func helper(mode string, args []string) int {
 		if mode == "chain" {
 			block()
 		}
+	case "parent":
+		// Starts a heavy sleeping child through run, records its pid in the
+		// file args[0] (renamed into place, so a reader never sees half of it),
+		// then holds until a supervisor ends it.
+		area, err := os.MkdirTemp("", "run-parent-")
+		if err != nil {
+			return 4
+		}
+		c, err := StartHeavy(context.Background(), Spec{Name: os.Args[0], Args: []string{noTests}, Env: append(os.Environ(), helperEnv+"=sleep"), Area: area})
+		if err != nil {
+			return 4
+		}
+		tmp := args[0] + ".tmp"
+		if err := os.WriteFile(tmp, []byte(strconv.Itoa(c.Pid())+"\n"), 0o644); err != nil {
+			return 5
+		}
+		if err := os.Rename(tmp, args[0]); err != nil {
+			return 5
+		}
+		block()
 	case "alloc":
 		mb, _ := strconv.Atoi(args[0])
 		block := make([]byte, mb<<20)

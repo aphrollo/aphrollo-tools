@@ -9,7 +9,8 @@ import (
 type hookInput struct {
 	ToolName  string `json:"tool_name"`
 	ToolInput struct {
-		Command string `json:"command"`
+		Command         string `json:"command"`
+		RunInBackground bool   `json:"run_in_background"`
 	} `json:"tool_input"`
 }
 
@@ -19,7 +20,7 @@ func DecideFromHookInput(raw []byte) (Decision, error) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return Decision{}, fmt.Errorf("parse hook input: %w", err)
 	}
-	return Evaluate(in.ToolName, in.ToolInput.Command), nil
+	return evaluate(in.ToolName, in.ToolInput.Command, in.ToolInput.RunInBackground), nil
 }
 
 // hookSpecificOutput mirrors the Claude Code PreToolUse hook output contract.

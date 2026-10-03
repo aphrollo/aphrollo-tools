@@ -64,17 +64,28 @@ var watchRes = []*regexp.Regexp{
 // Evaluate applies the guardrail policy to a tool call. Only Bash commands are
 // inspected; everything else is allowed.
 func Evaluate(toolName, command string) Decision {
+	return evaluate(toolName, command, false)
+}
+
+// evaluate is Evaluate for a call the harness may run in the background
+// (tool_input.run_in_background). A background call returns at once and
+// blocks nothing, so the rules about idling a foreground turn (a long sleep,
+// a watch or follow command) do not apply to it; every other rule still does,
+// since a background python REPL spins at 100% CPU all the same.
+func evaluate(toolName, command string, background bool) Decision {
 	if toolName != "Bash" {
 		return Decision{Action: Allow}
 	}
 	// Match against a masked copy so a tool name or `sleep` inside a quoted
 	// string or comment never triggers the policy.
 	masked := mask(command)
-	if d, hit := checkBlockingWait(masked); hit {
-		return d
-	}
-	if d, hit := checkBlockingWatch(masked); hit {
-		return d
+	if !background {
+		if d, hit := checkBlockingWait(masked); hit {
+			return d
+		}
+		if d, hit := checkBlockingWatch(masked); hit {
+			return d
+		}
 	}
 	if d, hit := checkPythonStdinNull(command); hit {
 		return d
