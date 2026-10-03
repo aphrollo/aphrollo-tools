@@ -57,10 +57,25 @@ func TestLinkRustup_LinksEachToolchainDirectoryOnlyAndSaysHowManyAndWhichFailed(
 	if !strings.Contains(joined, "toolchain nightly could not be linked") {
 		t.Errorf("a toolchain that could not be linked must be named:\n%s", joined)
 	}
-	if !strings.Contains(joined, "1 toolchain(s)") {
+	if !strings.Contains(joined, "rustup: 1 toolchain(s) of ") {
 		t.Errorf("the note must count only the toolchains actually linked (1):\n%s", joined)
 	}
 	if _, err := os.Stat(filepath.Join(rustup, "settings.toml")); !os.IsNotExist(err) {
 		t.Errorf("the box has no settings.toml, so none may be made (stat err %v)", err)
+	}
+}
+
+func TestLinkRustup_ASettingsFileThatCannotBeCopiedIsSaidNotSwallowed(t *testing.T) {
+	host := t.TempDir()
+	writeTo(t, filepath.Join(host, "toolchains", "stable", "bin", "rustc"), "s")
+	writeTo(t, filepath.Join(host, "settings.toml"), "default_toolchain = \"stable\"\n")
+	rustup := filepath.Join(t.TempDir(), "rustup-home")
+	if err := os.MkdirAll(filepath.Join(rustup, "settings.toml"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := &isolation{}
+	s.linkRustup([]string{"RUSTUP_HOME=" + host}, rustup)
+	if joined := strings.Join(s.notes, "\n"); !strings.Contains(joined, "settings.toml could not be copied") {
+		t.Errorf("a settings.toml that could not be written must be said:\n%s", joined)
 	}
 }
