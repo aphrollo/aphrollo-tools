@@ -156,10 +156,14 @@ func TestMeasure_GateLogCarriesTheVerdictAndItsCounts(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		status string
+		block  bool
 		want   string
 	}{
-		{"passed", "caught", "mutants-passed:tested=1,caught=1,unviable=0,missed=0,accepted=0,unmeasured=0,notcovered=0"},
-		{"refused", "missed", "mutants-refused:tested=1,caught=0,unviable=0,missed=1,accepted=0,unmeasured=0,notcovered=0"},
+		{"passed", "caught", false, "mutants-passed:tested=1,caught=1,unviable=0,missed=0,accepted=0,unmeasured=0,notcovered=0"},
+		{"refused when the repo pins block", "missed", true, "mutants-refused:tested=1,caught=0,unviable=0,missed=1,accepted=0,unmeasured=0,notcovered=0"},
+		// A survivor the merge only reports does not refuse it, so the log
+		// must not say it did.
+		{"reported when the repo pins nothing", "missed", false, "mutants-reported:tested=1,caught=0,unviable=0,missed=1,accepted=0,unmeasured=0,notcovered=0"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfgDir := t.TempDir()
@@ -172,7 +176,7 @@ func TestMeasure_GateLogCarriesTheVerdictAndItsCounts(t *testing.T) {
 				return 0, nil
 			})
 
-			if _, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base}); err != nil {
+			if _, err := MeasureLane(root, MutantsConfig{AtMerge: true, AtMergeBlock: tc.block}, MeasureOpts{Base: base}); err != nil {
 				t.Fatalf("MeasureLane: %v", err)
 			}
 

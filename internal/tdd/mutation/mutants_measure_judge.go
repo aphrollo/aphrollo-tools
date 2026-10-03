@@ -25,7 +25,7 @@ import (
 func finishMeasure(root string, cfg MutantsConfig, mutants []MutantOutcome, log io.Writer) Verdict {
 	v := judgeMutants(cfg, mutants)
 	logf(log, "%s", v.Message)
-	AppendGateLog("mutants", measureLogRoot(root), "mutants", measureLogVerdict(v), 0)
+	AppendGateLog("mutants", measureLogRoot(root), "mutants", measureLogVerdict(v, cfg.AtMergeBlock), 0)
 	runMutantsAfter(root, cfg, v, log)
 	return v
 }
@@ -275,8 +275,10 @@ func measureLogRoot(root string) string {
 
 // measureLogVerdict carries criterion 12's counts into the gate log, so
 // `gate stats` can answer how many merges the stage refused and for what
-// without re-running anything.
-func measureLogVerdict(v Verdict) string {
+// without re-running anything. block is the level the repo pinned for the
+// stage that ran: a finding that stage only reports is logged "reported",
+// because the commit or merge went through and "refused" would say it did not.
+func measureLogVerdict(v Verdict, block bool) string {
 	if v.Tested == 0 && !v.Refused {
 		// A run with nothing in the pool is filed as the stand-down it is:
 		// the counted form would add a green to the table that says how often
@@ -284,7 +286,9 @@ func measureLogVerdict(v Verdict) string {
 		return "mutants-skipped:" + zeroTestedToken
 	}
 	state := "passed"
-	if v.Refused {
+	if reportsOnly(v, block) {
+		state = "reported"
+	} else if v.Refused {
 		state = "refused"
 	}
 	return fmt.Sprintf(

@@ -829,7 +829,8 @@ stage refused and for what without re-running anything.
 | token | meaning |
 |---|---|
 | `mutants-passed:tested=…,caught=…,unviable=…,missed=…,accepted=…,unmeasured=…,notcovered=…` | a run that reached a verdict and found nothing unaccepted |
-| `mutants-refused:` + the same counts | a run that reached a verdict and found a survivor or an unmeasured mutant |
+| `mutants-refused:` + the same counts | a run that reached a verdict, found a survivor or an unmeasured mutant, and refused the commit or merge because the repo pins `block` |
+| `mutants-reported:` + the same counts | the same finding where the repo pins nothing: it is named and the commit or merge went through. `gate stats` counts it under the `reported` reason, never as a red |
 | `mutants-refused:disk` | the build drive cannot carry even one shard's copy and build dir |
 | `mutants-refused:tree-changed` | the run left the working tree different from how it found it |
 | `mutants-refused:git-failed` | git could not read the tree, so the tree that was measured cannot be compared with the one the run started from — the refusal carries git's own stderr |

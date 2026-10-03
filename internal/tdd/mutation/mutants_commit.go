@@ -128,7 +128,7 @@ func commitVerdict(displayName, repoRoot string, cfg MutantsConfig, runs []commi
 		fmt.Fprintf(os.Stderr, "gate %s: mutants → NOT MEASURED%s\n", displayName, strings.TrimPrefix(tail, "\nmutants: NOT MEASURED"))
 		return mutantsResult(false, "")
 	}
-	AppendGateLog(displayName, logRoot, "mutants", measureLogVerdict(v), elapsed)
+	AppendGateLog(displayName, logRoot, "mutants", measureLogVerdict(v, cfg.AtCommitBlock), elapsed)
 	timing := fmt.Sprintf("%s, slowest mutant %s", elapsed.Round(100*time.Millisecond), slowestMutant(runs).Round(100*time.Millisecond))
 	if !v.Refused {
 		fmt.Fprintf(os.Stderr, "gate %s: mutants → %d tested, %d caught, %d unviable, %d accepted (%s)%s\n",

@@ -32,7 +32,7 @@ func TestJudgeMutants_AZeroTestedRunNamesItselfInsteadOfPassing(t *testing.T) {
 // often the lane's tests were actually proven against mutants.
 func TestMeasureLogVerdict_ZeroTestedIsNotLoggedAsAGreenMeasurement(t *testing.T) {
 	t.Parallel()
-	line := measureLogVerdict(judgeMutants(MutantsConfig{}, nil))
+	line := measureLogVerdict(judgeMutants(MutantsConfig{}, nil), true)
 	if strings.HasPrefix(line, "mutants-passed:") {
 		t.Fatalf("a run that tested nothing must not be logged as a passed measurement; got %q", line)
 	}
@@ -55,7 +55,7 @@ func TestMeasureLogVerdict_ZeroTestedIsNotLoggedAsAGreenMeasurement(t *testing.T
 func TestStats_ZeroTestedMutationRunIsNotCountedGreen(t *testing.T) {
 	t.Parallel()
 	at := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
-	log := stamp(at, "mutants", "/repo", "mutants", measureLogVerdict(judgeMutants(MutantsConfig{}, nil)), 0)
+	log := stamp(at, "mutants", "/repo", "mutants", measureLogVerdict(judgeMutants(MutantsConfig{}, nil), true), 0)
 
 	s := GateStats(strings.NewReader(log), time.Time{})
 	if got := s.Count("mutants", "green"); got != 0 {
@@ -78,7 +78,7 @@ func TestJudgeMutants_AMeasuredRunStillPasses(t *testing.T) {
 	if v.Refused {
 		t.Fatalf("a caught mutant is a pass: %+v", v)
 	}
-	if got := measureLogVerdict(v); !strings.HasPrefix(got, "mutants-passed:") {
+	if got := measureLogVerdict(v, true); !strings.HasPrefix(got, "mutants-passed:") {
 		t.Fatalf("measureLogVerdict = %q, want the passed measurement form", got)
 	}
 }

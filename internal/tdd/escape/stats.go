@@ -220,6 +220,11 @@ func mutantsOutcome(verdict string) (outcome, reason string, ok bool) {
 		}
 		return "", rest, true
 	}
+	if strings.HasPrefix(verdict, "mutants-reported:") {
+		// A finding the repo only reports: the commit or merge went through,
+		// so it is no red and no refusal. Counted under its own reason.
+		return "", "reported", true
+	}
 	if rest, found := strings.CutPrefix(verdict, "mutants-unmeasured:"); found {
 		// A GAP, kept in its own row: this stage could not measure the tree
 		// at all, which is the opposite fact from "there was nothing to
