@@ -230,6 +230,12 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		}
 	}
 	if err := premergeGate(m.Target, verdict, stderr); err != nil {
+		if _, stale := tdd.AsStaleCIVerdict(err); stale {
+			// CI is green on this head but judged an older base: the refusal is
+			// already the one line that says what to do, and the PR branch is
+			// never updated from here (the lane rules catch up by rebase only).
+			return err
+		}
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method) }

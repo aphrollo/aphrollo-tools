@@ -33,6 +33,10 @@ type MergeQueueRecord = merge.MergeQueueRecord
 
 type PrunedLane = merge.PrunedLane
 
+type StaleCIVerdictError = merge.StaleCIVerdictError
+
+func AsStaleCIVerdict(p0 error) (*StaleCIVerdictError, bool) { return merge.AsStaleCIVerdict(p0) }
+
 func CommitMsg(p0 string, p1 string) GateResult { return merge.CommitMsg(p0, p1) }
 
 func GatePRMerge(p0 string, p1 SuiteRunner, p2 io.Writer) error { return merge.GatePRMerge(p0, p1, p2) }
