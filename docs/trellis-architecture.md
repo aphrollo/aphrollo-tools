@@ -202,7 +202,7 @@ trellis is a gate built around lanes and an event log.
 | Stop, SubagentStop | Blocks once on an unseen red for this actor under enforce, unless `stop_hook_active` is set | 100 ms | `decision: block`, with the red as the reason |
 | TaskCompleted | Exits 2 while the task lane's units are red under enforce. Per the docs, exit 2 prevents completion, and `continue: false` is ignored under TaskUpdate | 100 ms | stderr: the failing test |
 | SessionEnd | Drops this session's actors; kills jobs nobody else waits on | 1.5 s, shared | Nothing |
-| pre-commit | A merge in progress goes to the merge gate; a docs-only commit takes a fast path. Then: baseline guard; laws (`Plan(commit)`); docs; suppressions; vet and lint. The red→green proof comes from the ledger only when the index holds exactly the measured worktree: no unstaged change, and no untracked file the key included (S6). Otherwise it is re-run at HEAD in `wt/<hash>`. Mutation runs report-only, for at most 30 s. Under `CLAUDECODE=1`, a non-merge commit on trunk in the primary checkout is refused | p95 60 s, p50 5 s | `Commit refused: [stage] cause · do: …` |
+| pre-commit | A merge in progress goes to the merge gate; a docs-only commit takes a fast path. Then: baseline guard; laws (`Plan(commit)`); docs; suppressions; vet and lint. The red→green proof comes from the ledger only when the index holds exactly the measured worktree: no unstaged change, and no untracked file the key included (S6). Otherwise it is re-run at HEAD in `wt/<hash>`. Mutation runs report-only, for at most 90 s. Under `CLAUDECODE=1`, a non-merge commit on trunk in the primary checkout is refused | p95 60 s, p50 5 s | `Commit refused: [stage] cause · do: …` |
 | commit-msg | Checks attribution, in an undercover repo | 50 ms | The offending line, quoted |
 | post-commit | Writes a note on `refs/notes/trellis`: `gated v1 tree=<oid> proof=ledger·rerun laws=pass mutation=<k/n, unmeasured n>`; writes a `commit.gated` event | 100 ms | – |
 | pre-push | Checks attribution in commits and ref names. Under `CLAUDECODE=1`, refuses a push to trunk whose first-parent chain adds a non-merge commit (C17) | 200 ms | The commit or ref, named |
@@ -257,8 +257,8 @@ trellis deny [primary-write] Write lands in the main checkout on trunk · do: En
 | Level | Rules |
 |---|---|
 | Block always: real damage, never demoted | **Walls on where and how work happens.** These act only under `CLAUDECODE=1`; a human gets the same line as advice (C6). They cover: a write into the primary checkout on trunk (`isolation = true`); `--no-verify`, `-c core.hooksPath` or a move off trunk there; a push to trunk or a `gh pr merge` that goes around the merge gate; a merge without a green verdict on every declared OS; discarding uncommitted work; attribution in an undercover repo. **Secrets.** A secret in a write or commit blocks for every author. It is a law with fixtures, an escape comment and a fixture-path scope, and its wrong blocks are counted (C14). **The real repo.** A test touching the real repo or the global git config cannot happen in `run`'s sealed environment, and the canary refuses the result |
-| Block, earned: shadowed and demotable | A deny law whose weight in the file rises (at edit) or that regresses (at commit); the commit red→green proof; vet; an outward call that bypasses a verb; red→green under `tdd = enforce`; CI mutation where a repo pins `block` |
-| Guide: `additionalContext`, never a deny | Red→green under `warn` (the default); warn laws; lint; long foreground waits; re-running a suite the run already covered; noisy output; mutation survivors by default; not tested; escape holds |
+| Block, earned: shadowed and demotable | A deny law whose weight in the file rises (at edit) or that regresses (at commit); the commit red→green proof; vet; an outward call that bypasses a verb; red→green under `tdd = enforce`; CI mutation and commit mutation only where a repo pins `block` |
+| Guide: `additionalContext`, never a deny | Red→green under `warn` (the default); warn laws; lint; long foreground waits; re-running a suite the run already covered; noisy output; mutation survivors in a repo that opted in (report by default); not tested; escape holds |
 
 **How an earned block keeps its level** (C7, S10).
 - **The holdout.** 10% of each earned block's fires are shadowed: the rule warns instead of denying, and writes a `shadow` event. A rule whose level is pinned is never shadowed.
@@ -320,9 +320,9 @@ trellis deny [primary-write] Write lands in the main checkout on trunk · do: En
     - the vacuous-test probe.
   - **Merge:** a verdict lookup plus the closure (§8).
 - **Mutation** (C1).
-  - **At commit:** report-only, for at most 30 s. The note lists what it did not reach.
+  - **At commit:** report-only, for at most 90 s. The note lists what it did not reach.
   - **In CI:** gremlins on PR-added lines, posted as a report with a neutral conclusion, outside the required checks. Timeouts and inconclusive results are facts about infrastructure and never block.
-  - **Default level: guide.** There is no recorded product catch, and mutation alone turned 33% of first runs red. A repo pins `[rules] mutation = "block"` to make survivors and not-covered mutants on added lines refuse the merge.
+  - **Opt-in; report by default; block only when pinned** (decided 2026-10-03). A repo that declares no mutation key runs none at commit or merge. Opting in (`mutants-at-commit = true`, `mutants-at-merge = "ci"`) gives a report. There is no recorded product catch, and mutation alone turned 33% of first runs red. A repo pins `[rules] mutation = "block"` to make survivors and not-covered mutants on added lines refuse the merge.
   - **Removed:** the edit-stage mutants and lint jobs (F0b). The brief drops the `mutants prove` quoting and the loop-index rule.
   - **Under `ci = local`:** mutation runs only on a Linux box, because gremlins measures 0% on Windows. Windows reports it as unmeasured, and nightly trunk mutation is the backstop.
 - **trellis's own tests (F.f).**
@@ -359,7 +359,7 @@ trellis deny [primary-write] Write lands in the main checkout on trunk · do: En
 | `isolation` | bool (`true`) | all |
 | `ci` | `auto`, `local`, `github` (`auto`) | all |
 | `ci.os` | list (`["linux"]`; this repo `["linux", "windows"]`) | repo |
-| `mutation` | `guide`, `block`, `off` (`guide`) | repo |
+| `mutation` | `off`, `guide`, `block` (`off`: opt-in; an opted-in repo reports, `guide`; `block` is a separate pin) | repo |
 | `requires`, `undercover`, `trunk` | semver floor; bool (`false`); branch name (detected) | repo |
 | `host.production`, `pin` | bool (`false`); version | user |
 | `budgets` | `foreground_s` per runner (measured, else 20), `commit_s = 60`, `merge_s = 300` | repo |
@@ -594,7 +594,7 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 
 **Open questions**, each with what it blocks
 - **The `tdd` default:** warn, unless enforce wins the A/B on escaped defects at no more than +10% friction. Blocks A1.
-- **This repo's mutation level:** keep it at guide, or pin it to block (survivors and not-covered mutants on added lines)? Taking `mutants-verdict` out of the required checks is the owner's action. Blocks F1's CI half.
+- **This repo's mutation level** (decided 2026-10-03): mutation is opt-in, report by default, block only when pinned. This repo is opted in at the report level; `mutants-verdict` is no longer a required check, and the merge gate waits for it only where block is pinned.
 - **Release cadence:** a tag per green replay, or a daily tag? Blocks F0a.
 - **Doc-only writes under `isolation = true`:** they are denied as drawn; `classify-diff` gives a docs lane a one-minute CI. Blocks B6.
 - **`host.production`:** blocks #1102.

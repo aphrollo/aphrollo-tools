@@ -16,6 +16,7 @@ import (
 func editRepo(t *testing.T) string {
 	t.Helper()
 	_, root := commitStage(t, "")
+	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = \"block\"\n")
 	gitDo(t, root, "reset", "-q", "gate/gate.go")
 	return root
 }

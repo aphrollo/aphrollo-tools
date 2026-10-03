@@ -149,7 +149,7 @@ func TestRenderFeatures_TheCommitTimeRunAndItsBudget(t *testing.T) {
 		atCommit, in string
 	}{
 		"declared":         {declared, "on", "90"},
-		"declares nothing": {t.TempDir(), "off", "60"},
+		"declares nothing": {t.TempDir(), "off", "90"},
 	} {
 		text := RenderFeatures(tc.root)
 		if f := strings.Fields(featureLine(text, "mutants-at-commit")); len(f) < 2 || f[1] != tc.atCommit {
@@ -242,6 +242,28 @@ func TestFeaturesNotYetShown_ConcurrentInstallsLoseNoKey(t *testing.T) {
 		key := fmt.Sprintf("k%02d", i)
 		if !strings.Contains(" "+strings.Join(recorded, " ")+" ", " "+key+" ") {
 			t.Errorf("%s was shown and never recorded; the record holds %v", key, recorded)
+		}
+	}
+}
+
+// A pinned level is shown as block, an unpinned one as the default report.
+func TestRenderFeatures_ThePinnedLevels(t *testing.T) {
+	t.Parallel()
+	pinned := t.TempDir()
+	mustWrite(t, filepath.Join(pinned, "aphrollo.toml"),
+		"[aphrollo]\nmutants-at-commit = \"block\"\nmutants-at-merge = \"ci\"\nmutants-at-merge-level = \"block\"\n")
+	for name, tc := range map[string]struct {
+		root, atCommit, level string
+	}{
+		"pinned":   {pinned, "block", "block"},
+		"unpinned": {t.TempDir(), "off", "report"},
+	} {
+		text := RenderFeatures(tc.root)
+		if f := strings.Fields(featureLine(text, "mutants-at-commit")); len(f) < 2 || f[1] != tc.atCommit {
+			t.Errorf("%s: mutants-at-commit row %q, want %q", name, featureLine(text, "mutants-at-commit"), tc.atCommit)
+		}
+		if f := strings.Fields(featureLine(text, "mutants-at-merge-level")); len(f) < 2 || f[1] != tc.level {
+			t.Errorf("%s: mutants-at-merge-level row %q, want %q", name, featureLine(text, "mutants-at-merge-level"), tc.level)
 		}
 	}
 }

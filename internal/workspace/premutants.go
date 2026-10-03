@@ -77,6 +77,10 @@ func mutantsBeforePR(wt, base string, skip SkipMutants, stdout, stderr io.Writer
 	start := time.Now()
 	v, err := tdd.MeasureLane(wt, cfg, tdd.MeasureOpts{Base: mergeBase, Log: stderr, DeferOnCIBusy: true})
 	took := time.Since(start).Round(time.Second)
+	if judged := tdd.ApplyMergeLevel(cfg, v); v.Refused && !judged.Refused {
+		fmt.Fprintln(stdout, judged.Message)
+		v = judged
+	}
 	switch {
 	case err != nil:
 		deferMutantsToCI(stdout, fmt.Sprintf("the run could not start: %v", err))

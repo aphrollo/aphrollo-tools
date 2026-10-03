@@ -37,6 +37,8 @@ type MutationHold = mutation.MutationHold
 
 type Verdict = mutation.Verdict
 
+func ApplyMergeLevel(p0 MutantsConfig, p1 Verdict) Verdict { return mutation.ApplyMergeLevel(p0, p1) }
+
 func FormatMutantsRunStatus(p0 MutantsRunStatus, p1 time.Time) string {
 	return mutation.FormatMutantsRunStatus(p0, p1)
 }

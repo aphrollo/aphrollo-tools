@@ -12,9 +12,9 @@ import (
 // The commit gate's own mutation stage, declared with `mutants-at-commit`.
 // A commit adds or changes some lines; this stage mutates those lines, runs
 // each mutant against the tests selected for its enclosing function under the
-// gate's memory cap, and refuses the commit when a test suite does not notice
-// one — the same finding CI's mutants-verdict would refuse the PR for, named
-// the way fail-first names a RED.
+// gate's memory cap, and names each one a test suite does not notice, the way
+// fail-first names a RED. The finding is a report: the commit goes through
+// unless the repo pins mutants-at-commit = "block", which refuses it.
 //
 // It never blocks on a slow box. A box with no memory to spare, a box-wide
 // mutation run holding the lock for longer than the budget, or a budget spent
@@ -133,6 +133,11 @@ func commitVerdict(displayName, repoRoot string, cfg MutantsConfig, runs []commi
 	if !v.Refused {
 		fmt.Fprintf(os.Stderr, "gate %s: mutants → %d tested, %d caught, %d unviable, %d accepted (%s)%s\n",
 			displayName, v.Tested, v.Caught, v.Unviable, v.Accepted, timing, tail)
+		return mutantsResult(false, "")
+	}
+	if !cfg.AtCommitBlock {
+		fmt.Fprintf(os.Stderr, "gate %s: mutants → REPORT ONLY — a mutant of a line this commit adds survived its tests (%s); "+
+			"mutants-at-commit = \"block\" would refuse the commit\n%s%s\n", displayName, timing, v.Message, tail)
 		return mutantsResult(false, "")
 	}
 	msg := fmt.Sprintf("gate %s: mutants → REJECTED — a mutant of a line this commit adds survived its tests (%s)\n%s%s",
