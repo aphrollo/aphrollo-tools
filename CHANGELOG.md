@@ -19,6 +19,25 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.6.3 - 2026-10-03
+
+A timed-out or cancelled suite run ends its whole process tree.
+
+### What you will notice
+
+- A suite the gate gives up on at its deadline no longer leaves `<pkg>.test.exe` stuck in kernel exit
+  holding commit charge, nor an MSYS shell's grandchildren that `taskkill /T` could not reach: the
+  runner starts inside a job object that kills on close (a process group on Linux), and the whole tree
+  ends with it. This covers the edit hook's suite, the commit gate's suite and the read-only
+  `git`, `go list`, `cargo metadata` and `gh` calls the suite package makes.
+- Verdicts, output text, timeouts and gate lines are unchanged. The memory cap still reports
+  `OOM-KILLED at <n> GB` as inconclusive. A read-only call that had no time limit now ends after ten
+  minutes instead of hanging.
+- A box that will not give a suite child its job object or process group no longer turns that into a
+  red: the child runs without the guard, keeps its timeout, and the gate says so on stderr.
+- A read-only `git`, `gh`, `go list` or `cargo metadata` call never prompts on a terminal; it fails at
+  once instead of waiting.
+
 ## 1.6.2 - 2026-10-03
 
 A commit through the gate keeps its staged files.

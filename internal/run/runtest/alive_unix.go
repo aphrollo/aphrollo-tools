@@ -1,6 +1,6 @@
 //go:build !windows
 
-package run
+package runtest
 
 import (
 	"os"
@@ -10,8 +10,8 @@ import (
 	"syscall"
 )
 
-// alive reports whether the process pid is still running: a zombie is dead.
-func alive(pid int) bool {
+// Alive reports whether the process pid is still running: a zombie is dead.
+func Alive(pid int) bool {
 	if syscall.Kill(pid, 0) != nil {
 		return false
 	}
@@ -19,11 +19,11 @@ func alive(pid int) bool {
 	return err != nil || !strings.Contains(string(stat), ") Z")
 }
 
-// treePidExpr is the pid of a bash child as the OS knows it.
-const treePidExpr = `echo "$1"`
+// TreePidExpr is the pid of a bash child as the OS knows it.
+const TreePidExpr = `echo "$1"`
 
-// bashCommand is bash; "" when the box has none.
-func bashCommand() string {
+// BashCommand is bash; "" when the box has none.
+func BashCommand() string {
 	p, _ := exec.LookPath("bash")
 	return p
 }

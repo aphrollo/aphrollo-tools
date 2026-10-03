@@ -41,6 +41,7 @@ on:
       - "internal/argvbatch/**"
       - "internal/depinstall/**"
       - "internal/proc/**"
+      - "internal/run/**"
       - "internal/rootseam/**"
       - "internal/tdd/**"
       - "internal/cli/ratchet.go"

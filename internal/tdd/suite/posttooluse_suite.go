@@ -2,7 +2,6 @@ package suite
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -11,7 +10,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // SuiteResult is the outcome of executing a Runner.
@@ -110,8 +109,6 @@ func runSuiteOnce(timeout time.Duration) SuiteRunner {
 				effectiveTimeout = remaining
 			}
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), effectiveTimeout)
-		defer cancel()
 		// Runner.Dir overrides the execution directory when set (a resolved
 		// cargo workspace runner: a checked-in .config/nextest.toml and the
 		// workspace's Cargo.lock live at the workspace root, not a member
@@ -121,41 +118,33 @@ func runSuiteOnce(timeout time.Duration) SuiteRunner {
 		if r.Dir != "" {
 			dir = r.Dir
 		}
+		// The budget starts here, before that wait, so what the wait spends is
+		// spent out of the run's own time and not on top of it.
+		budgetStart := suiteNowFn()
 		// A start waits for the box to have memory to give it, inside its own
 		// budget, and is refused with the reason when it never does: a suite
 		// started into an exhausted box is how a runaway takes sessions with it.
-		if why := WaitForHeadroom(dir, headroomWait(effectiveTimeout)); why != "" {
+		if why := waitForHeadroomFn(dir, headroomWait(effectiveTimeout)); why != "" {
 			why = "SKIPPED — " + why
 			return SuiteResult{TimedOut: true, Inconclusive: why, Err: why, Dir: dir}
 		}
-		cmd := exec.CommandContext(ctx, r.Cmd, goExecArgs(r.Cmd, r.Args)...)
-		cmd.Dir = dir
-		cmd.Env = suiteEnv(r, dir)
-		// The default cancel kills the direct child and nothing else, and
-		// every runner here is a LAUNCHER: `go test` compiles a test binary
-		// and runs it as a grandchild, cargo spawns rustc. Killing the
-		// launcher left those alive for the rest of the session, holding
-		// build outputs and polling — measured as stranded `<pkg>.test.exe`
-		// processes from earlier timed-out runs. proc.KillTree is the same
-		// reach a deferred phase already uses.
-		cmd.SysProcAttr = suiteAttrs()
-		cmd.Cancel = func() error {
-			if cmd.Process == nil {
-				return nil
-			}
-			return proc.KillTree(cmd.Process.Pid)
-		}
-		// Without WaitDelay a killed test runner's surviving children hold the
-		// output pipes open and CombinedOutput blocks long past the deadline
-		// (cmd.exe's children on Windows, orphaned workers elsewhere).
-		cmd.WaitDelay = 2 * time.Second
+		// Every runner here is a LAUNCHER: `go test` compiles a test binary and
+		// runs it as a grandchild, cargo spawns rustc. run ends the whole tree
+		// at the deadline, so none of them is left alive holding build outputs
+		// for the rest of the session (stranded `<pkg>.test.exe` processes
+		// from earlier timed-out runs, and MSYS grandchildren `taskkill /T`
+		// cannot reach). run also gives the output pipes a grace after the exit,
+		// so a killed runner's surviving children cannot hold the read past the
+		// deadline.
 		var buf bytes.Buffer
-		cmd.Stdout, cmd.Stderr = &buf, &buf
 		start := time.Now()
-		capped, err := RunSlotChild(cmd, dir)
+		end := suiteChildFn(run.Spec{
+			Name: r.Cmd, Args: goExecArgs(r.Cmd, r.Args), Dir: dir, Env: suiteEnv(r, dir),
+			Stdout: &buf, Stderr: &buf, Timeout: effectiveTimeout - suiteNowFn().Sub(budgetStart),
+		}, MemCapFor(dir, CapSlot))
+		err, capped, timedOut := end.err, end.capped, end.timedOut
 		out := buf.Bytes()
 		dur := time.Since(start)
-		timedOut := ctx.Err() == context.DeadlineExceeded
 		// ErrWaitDelay means the process EXITED SUCCESSFULLY but an orphaned
 		// child held the I/O pipes past WaitDelay — Go returns it INSTEAD of
 		// nil in that case. The suite's own verdict is green; treating the

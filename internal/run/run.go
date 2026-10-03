@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 var (
@@ -43,6 +44,8 @@ type Spec struct {
 	// child gets it sealed.
 	Env            []string
 	Stdout, Stderr io.Writer
+	// Stdin is what the child reads; nil closes it.
+	Stdin io.Reader
 	// Timeout ends the child and its tree when it elapses. A light child needs
 	// one; for a heavy child zero means none.
 	Timeout time.Duration
@@ -52,6 +55,11 @@ type Spec struct {
 	// Area is the directory the sealed environment points its git config, temp
 	// and state at (gitenv.Sealed).
 	Area string
+	// EnvAsIs takes Env as the child's whole environment, already built by a
+	// caller that has its own rules for it (a runner that needs CI=1, a scratch
+	// directory of its own), instead of sealing it with Area. Such a child
+	// needs no Area.
+	EnvAsIs bool
 	// MemoryMB caps the memory of the whole tree, 0 for no cap. Only the
 	// Windows job enforces it so far; unix leaves it to the systemd scope or
 	// RSS watchdog, which this lane does not build.
@@ -60,17 +68,37 @@ type Spec struct {
 	// request there (see Governor.Acquire).
 	Governor *Governor
 	Key      string
+	// Hook, when set, brackets the child's life (see Hook).
+	Hook Hook
 }
 
-// Child is a running child. Its standard input is closed.
+// Hook lets a caller bracket a child's life with an enforcer of its own, one
+// run does not build itself: a memory cap that rewrites the command into a
+// scope and watches the tree while it runs. A hook that has seen Before sees
+// Ended exactly once, whether or not the child ever ran.
+type Hook interface {
+	// Before may rewrite the command before it starts.
+	Before(cmd *exec.Cmd)
+	// Started is called once the child is running and under its guard.
+	Started(pid int)
+	// Ended is called once the child has exited, before its guard lets go of
+	// what it left behind.
+	Ended()
+}
+
+// Child is a running child. Its standard input is closed unless the spec gave
+// it one.
 type Child struct {
-	cmd      *exec.Cmd
-	tree     tree
-	stop     func() bool // stops the timeout; a no-op where there is none
-	timedOut atomic.Bool
-	release  func()
-	once     sync.Once
-	err      error
+	cmd       *exec.Cmd
+	tree      tree
+	hook      Hook
+	exitErr   error
+	stop      func() bool // stops the timeout; a no-op where there is none
+	timedOut  atomic.Bool
+	unguarded error
+	release   func()
+	once      sync.Once
+	err       error
 }
 
 // tree is the guard over a child's process tree, one implementation per OS.
@@ -81,6 +109,9 @@ type tree interface {
 	kill()
 	// finish ends whatever the child left behind and lets go of the guard.
 	finish()
+	// peak is the most memory the tree committed, in bytes, where the guard
+	// measures it, else 0. It is read once the guard has been finished.
+	peak() uint64
 }
 
 // StartLight starts a light child: a timeout, the plain environment, no slot.
@@ -95,7 +126,7 @@ func StartLight(spec Spec) (*Child, error) {
 // gives it a slot; ctx bounds that wait. The slot is held until Wait or Close
 // has ended the child.
 func StartHeavy(ctx context.Context, spec Spec) (*Child, error) {
-	if spec.Area == "" {
+	if spec.Area == "" && !spec.EnvAsIs {
 		return nil, ErrNoArea
 	}
 	release := func() {}
@@ -106,7 +137,11 @@ func StartHeavy(ctx context.Context, spec Spec) (*Child, error) {
 		}
 		release = r
 	}
-	c, err := start(spec, gitenv.Sealed(baseEnv(spec.Env), spec.Area), true)
+	env := baseEnv(spec.Env)
+	if !spec.EnvAsIs {
+		env = gitenv.Sealed(env, spec.Area)
+	}
+	c, err := start(spec, env, true)
 	if err != nil {
 		release()
 		return nil, err
@@ -124,26 +159,91 @@ func baseEnv(env []string) []string {
 	return env
 }
 
+// prepareGuard builds the guard for a child; a seam for the tests, which
+// make it fail the way a box that refuses a job does.
+var prepareGuard = prepare
+
+// guardError is a guard that could not be set up or joined: a fact about the
+// box that the child never saw, as against a child that failed to start.
+type guardError struct{ err error }
+
+func (g guardError) Error() string { return "run: could not guard the child: " + g.err.Error() }
+func (g guardError) Unwrap() error { return g.err }
+
+// plainTree is what a heavy child runs under when its guard could not be set
+// up: its own tree, ended by walking from its pid, with the timeout still
+// armed. It is the light child's guard, and no job nor group.
+type plainTree struct{ pid int }
+
+func (p *plainTree) attach(child *os.Process) error { p.pid = child.Pid; return nil }
+func (p *plainTree) kill() {
+	if p.pid > 0 {
+		_ = proc.KillTree(p.pid) // the tree may already be gone, which is the goal
+	}
+}
+func (p *plainTree) finish()      {}
+func (p *plainTree) peak() uint64 { return 0 }
+
+// start runs the child under its guard. A guard that cannot be set up never
+// fails a heavy child: the box could not give one, which says nothing about
+// the code the child runs, so the child runs unguarded, with its timeout, and
+// Unguarded says why.
 func start(spec Spec, env []string, heavy bool) (*Child, error) {
+	cmd := command(spec, env)
+	t, err := prepareGuard(cmd, heavy, spec.MemoryMB)
+	if err == nil {
+		c, serr := launch(cmd, t, spec)
+		var ge guardError
+		if serr == nil || !errors.As(serr, &ge) {
+			return c, serr
+		}
+		err = ge.err
+	}
+	if !heavy {
+		return nil, err
+	}
+	cmd = command(spec, env)
+	cmd.SysProcAttr = proc.TreeAttrs()
+	c, serr := launch(cmd, &plainTree{}, spec)
+	if serr != nil {
+		return nil, serr
+	}
+	c.unguarded = err
+	return c, nil
+}
+
+func command(spec Spec, env []string) *exec.Cmd {
 	cmd := exec.Command(spec.Name, spec.Args...)
 	cmd.Dir, cmd.Env = spec.Dir, env
 	cmd.Stdout, cmd.Stderr = spec.Stdout, spec.Stderr
+	if spec.Stdin != nil {
+		cmd.Stdin = spec.Stdin
+	}
 	cmd.WaitDelay = pipeGrace
-	t, err := prepare(cmd, heavy, spec.MemoryMB)
-	if err != nil {
-		return nil, err
+	return cmd
+}
+
+// launch starts cmd under t. An attach that fails is a guardError.
+func launch(cmd *exec.Cmd, t tree, spec Spec) (*Child, error) {
+	if spec.Hook != nil {
+		spec.Hook.Before(cmd)
 	}
 	if err := cmd.Start(); err != nil {
 		t.finish()
+		endHook(spec.Hook)
 		return nil, err
 	}
 	if err := t.attach(cmd.Process); err != nil {
-		_ = cmd.Process.Kill() // the child never joined its guard and must not run unguarded
+		_ = cmd.Process.Kill() // it never ran past its start (suspended where a job is used); start runs it again unguarded
 		_ = cmd.Wait()
 		t.finish()
-		return nil, err
+		endHook(spec.Hook)
+		return nil, guardError{err}
 	}
-	c := &Child{cmd: cmd, tree: t, release: func() {}, stop: func() bool { return false }}
+	if spec.Hook != nil {
+		spec.Hook.Started(cmd.Process.Pid)
+	}
+	c := &Child{cmd: cmd, tree: t, hook: spec.Hook, release: func() {}, stop: func() bool { return false }}
 	if spec.Timeout > 0 {
 		c.stop = time.AfterFunc(spec.Timeout, func() {
 			c.timedOut.Store(true)
@@ -161,7 +261,9 @@ func (c *Child) Pid() int { return c.cmd.Process.Pid }
 // child the timeout ended. It may be called again and returns the same answer.
 func (c *Child) Wait() error {
 	c.once.Do(func() {
-		c.err = c.cmd.Wait()
+		c.exitErr = c.cmd.Wait()
+		c.err = c.exitErr
+		endHook(c.hook)
 		c.stop()
 		c.tree.finish()
 		c.release()
@@ -178,3 +280,28 @@ func (c *Child) Close() {
 	c.tree.kill()
 	_ = c.Wait() // the exit error of a child that was just killed is the kill
 }
+
+func endHook(h Hook) {
+	if h != nil {
+		h.Ended()
+	}
+}
+
+// ExitError waits for the child and reports how it ended, as the OS reported
+// it: the error Wait reports without the timeout joined to it. Nil for a
+// child that exited cleanly.
+func (c *Child) ExitError() error {
+	_ = c.Wait()
+	return c.exitErr
+}
+
+// PeakMemory waits for the child and reports the most memory its tree
+// committed, in bytes, where the guard measures it (the Windows job), else 0.
+func (c *Child) PeakMemory() uint64 {
+	_ = c.Wait()
+	return c.tree.peak()
+}
+
+// Unguarded is why the child runs without its guard: a heavy child whose job
+// object or process group could not be set up. Nil for a child that has one.
+func (c *Child) Unguarded() error { return c.unguarded }

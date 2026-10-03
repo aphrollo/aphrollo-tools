@@ -4,12 +4,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"sort"
 
 	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // The workspace check stage compiles what a change can break. It used to do
@@ -176,9 +176,8 @@ func cargoPackageDeps(ws string) (map[string][]string, error) {
 	if cargo == "" {
 		cargo = "cargo"
 	}
-	cmd := exec.Command(cargo, "metadata", "--no-deps", "--format-version", "1",
-		"--manifest-path", filepath.Join(ws, "Cargo.toml"))
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: cargo, Args: []string{"metadata", "--no-deps", "--format-version", "1",
+		"--manifest-path", filepath.Join(ws, "Cargo.toml")}})
 	if err != nil {
 		return nil, fmt.Errorf("cargo metadata: %w", err)
 	}

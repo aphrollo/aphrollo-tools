@@ -1,10 +1,10 @@
 package suite
 
 import (
-	"os/exec"
 	"path/filepath"
-
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Which packages a change can reach, from the build tool's own answer rather
@@ -73,9 +73,7 @@ func goPackageDirs(root string) (map[string]string, error) {
 // goList runs `go list` over this module with one format, in the module's own
 // directory — the answer is about root, not about wherever the gate ran from.
 func goList(root, format string) (string, error) {
-	cmd := exec.Command("go", "list", "-f", format, "./...")
-	cmd.Dir = root
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: "go", Args: []string{"list", "-f", format, "./..."}, Dir: root})
 	return string(out), err
 }
 

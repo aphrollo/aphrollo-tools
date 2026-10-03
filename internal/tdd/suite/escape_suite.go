@@ -2,11 +2,12 @@ package suite
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // --- the GitHub half -------------------------------------------------------
@@ -30,17 +31,8 @@ func runGh(dir string, args ...string) (string, error) {
 // are typed by a human who can see them run, while the session-start line is
 // on a path nothing is allowed to stall.
 func runGhTimeout(dir string, timeout time.Duration, args ...string) (string, error) {
-	ctx, cancel := context.Background(), context.CancelFunc(func() {})
-	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-	}
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "gh", args...)
-	cmd.Dir = dir
-	cmd.Env = cleanGitEnv()
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: "gh", Args: args, Dir: dir, Env: cleanGitEnv(), Stderr: &stderr, Timeout: timeout})
 	if err != nil {
 		if said := strings.TrimSpace(stderr.String()); said != "" {
 			return string(out), fmt.Errorf("gh %s: %w: %s", args[0], err, fitRunes(said, 400))

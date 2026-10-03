@@ -2,9 +2,10 @@ package suite
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 	"sync/atomic"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // indexTree is the tree the staged index would commit as.
@@ -20,14 +21,11 @@ import (
 // exactly what the commit is about to do anyway, so it adds no garbage a
 // commit would not.
 func indexTree(repoRoot string) string {
-	cmd := exec.Command(gitBinary(), "write-tree")
-	cmd.Dir = repoRoot
 	env := cleanGitEnv()
 	if idx := os.Getenv("GIT_INDEX_FILE"); idx != "" {
 		env = append(env, "GIT_INDEX_FILE="+idx)
 	}
-	cmd.Env = env
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: gitBinary(), Args: []string{"write-tree"}, Dir: repoRoot, Env: env})
 	if err != nil {
 		return ""
 	}

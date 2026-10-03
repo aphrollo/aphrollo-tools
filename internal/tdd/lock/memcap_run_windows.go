@@ -8,6 +8,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/windows"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // jobCapNearPercent is how close to its limit a run's peak commit has to
@@ -86,5 +88,37 @@ func jobCapEnded(job windows.Handle, limit uintptr) bool {
 	var out windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
 	return windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&out)), uint32(unsafe.Sizeof(out)), nil) == nil &&
-		out.PeakJobMemoryUsed*100 >= limit*jobCapNearPercent
+		peakNearLimit(uint64(out.PeakJobMemoryUsed), uint64(limit))
+}
+
+// peakNearLimit reports whether a peak commit came within jobCapNearPercent of
+// the limit, both in bytes.
+func peakNearLimit(peak, limit uint64) bool { return peak*100 >= limit*jobCapNearPercent }
+
+// CapRun holds one run to its cap while internal/run starts and ends it. On
+// Windows the enforcer is run's own job object (Spec.MemoryMB), which refuses
+// an allocation past the cap; what is left to this hook is telling the cap's
+// doing from an ordinary failure once the run is over.
+type CapRun struct{ cap MemCap }
+
+// NewCapRun is the hook that holds a run to c. The caller also sets the
+// child's Spec.MemoryMB to c.MB, which is what enforces it.
+func NewCapRun(c MemCap) *CapRun { return &CapRun{cap: c} }
+
+// Before, Started and Ended have nothing to do: the job needs no wrapper and
+// no watcher.
+func (r *CapRun) Before(*exec.Cmd) {}
+func (r *CapRun) Started(int)      {}
+func (r *CapRun) Ended()           {}
+
+// Result is what became of the run: ended by the cap when it failed with its
+// tree's peak commit within jobCapNearPercent of the limit. A mutation tool's
+// runaway worker dies alone while the run goes on, so only a suite's own death
+// is the whole run's. A child that never started has no result but the cap.
+func (r *CapRun) Result(child *run.Child) CapResult {
+	res := CapResult{Cap: r.cap, Mode: "job"}
+	if child != nil && child.ExitError() != nil && peakNearLimit(child.PeakMemory(), uint64(r.cap.MB)<<20) {
+		res.Killed, res.Kills = !r.cap.KillLargest, 1
+	}
+	return res
 }

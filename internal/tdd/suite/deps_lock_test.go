@@ -11,8 +11,6 @@ const buildSlotsEnv = lock.BuildSlotsEnv
 
 type MemBox = lock.MemBox
 
-type MemCap = lock.MemCap
-
 var futureMtimeChecked = lock.FutureMtimeChecked
 
 func EnvWithBuildJobs(p0 []string, p1 int) []string { return lock.EnvWithBuildJobs(p0, p1) }

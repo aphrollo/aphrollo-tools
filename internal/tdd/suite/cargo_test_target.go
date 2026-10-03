@@ -3,13 +3,13 @@ package suite
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
 	"sync"
 
 	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // A folded test binary broke the path-derived --test guess: cargoTestTarget's
@@ -88,9 +88,8 @@ func cargoMetadataNoDeps(ws string) ([]byte, bool) {
 	if cargo == "" {
 		cargo = "cargo"
 	}
-	cmd := exec.Command(cargo, "metadata", "--no-deps", "--format-version", "1",
-		"--manifest-path", filepath.Join(ws, "Cargo.toml"))
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: cargo, Args: []string{"metadata", "--no-deps", "--format-version", "1",
+		"--manifest-path", filepath.Join(ws, "Cargo.toml")}})
 	if err != nil {
 		return nil, false // absence-ok: no cargo or no workspace; callers fall back to the unscoped run
 	}

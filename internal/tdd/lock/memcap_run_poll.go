@@ -2,10 +2,7 @@
 
 package lock
 
-import (
-	"os/exec"
-	"time"
-)
+import "time"
 
 // The polling half of the watchdog and cgroup enforcers; the Windows job
 // object enforces in the kernel and never polls.
@@ -29,18 +26,4 @@ func (m *capMonitor) run(stop <-chan struct{}, done chan<- struct{}) {
 			m.poll()
 		}
 	}
-}
-
-// waitMonitored watches a started cmd until it exits, then asks final (nil
-// when the enforcer has none) for the kernel's own count of kills.
-func waitMonitored(cmd *exec.Cmd, m *capMonitor, final func() int) (CapResult, error) {
-	stop, done := make(chan struct{}), make(chan struct{})
-	go m.run(stop, done)
-	err := cmd.Wait()
-	close(stop)
-	<-done
-	if final != nil {
-		m.settle(final())
-	}
-	return m.result(), err
 }

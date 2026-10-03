@@ -6,12 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // The mechanical green cache remembers which exact (worktree content, test
@@ -367,12 +368,10 @@ func gitRead(dir string, args ...string) (string, error) {
 }
 
 func gitReadStdin(dir string, stdin *strings.Reader, args ...string) (string, error) {
-	cmd := exec.Command(gitBinary(), args...)
-	cmd.Dir = dir
-	cmd.Env = cleanGitEnvFor(dir, args...)
+	spec := run.Spec{Name: gitBinary(), Args: args, Dir: dir, Env: cleanGitEnvFor(dir, args...)}
 	if stdin != nil {
-		cmd.Stdin = stdin
+		spec.Stdin = stdin
 	}
-	out, err := cmd.Output()
+	out, err := lightOutput(spec)
 	return string(out), err
 }
