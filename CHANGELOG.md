@@ -19,6 +19,16 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.7.1 - 2026-10-03
+
+The guardrail rules now run in the installed PreToolUse hook.
+
+### What you will notice
+
+- `aphrollo gate pretooluse`, the verb every installed PreToolUse hook calls, now evaluates the guardrail rules first: a long foreground wait, a watch or follow command, and `python -` reading a null stdin on Windows are denied, and a noisy command gets its quiet-flag advice. Before, those rules ran only under `aphrollo guardrail pretooluse`, which no installed hook called, so a session could still hang on `python3 - < /dev/null`.
+- A guardrail warning never turns into a deny. When the gate's own checks also say something about the call, the stronger verdict wins and both reasons are shown, the guardrail's first.
+- `aphrollo guardrail pretooluse` still works as a standalone verb for a hook wired by hand. Do not register it beside `gate pretooluse`: both would print the same advice.
+
 ## 1.7.0 - 2026-10-03
 
 `aphrollo why <seq>` explains one event of the event log.

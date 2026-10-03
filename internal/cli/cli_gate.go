@@ -469,14 +469,26 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runStopCheck(args[0], raw, stdout, stderr)
 	}
 
+	// PreToolUse: the guardrail rules come first, then the gate's own checks;
+	// the stronger verdict is rendered with both reasons.
+	guard := guardrailDecision(raw)
+	tdd.LogEditDecision(raw, guard)
+	payload, code := tdd.RenderPreToolUse(mergeGuardrail(guard, gatePreToolUse(raw, stderr)))
+	if len(payload) > 0 {
+		stdout.Write(payload)
+	}
+	return code
+}
+
+// gatePreToolUse is the gate's own PreToolUse judgement of one payload,
+// without the guardrail rules: the walls, the redundant-suite refusal, the
+// shell snapshot, and the edit's smells and laws. It logs what it denies, and
+// returns the decision unrendered so runGate can fold the guardrail's in.
+func gatePreToolUse(raw []byte, stderr io.Writer) tdd.Decision {
 	for _, wall := range preToolUseWalls {
 		if decision := wall(raw); decision.Action == tdd.Block {
-			// A Block always renders a deny envelope, so the payload is
-			// never empty here and is written as is.
 			tdd.LogEditDecision(raw, decision)
-			payload, code := tdd.RenderPreToolUse(decision)
-			stdout.Write(payload)
-			return code
+			return decision
 		}
 	}
 
@@ -489,11 +501,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if bashDecision, judged := tdd.DecideBashSuite(raw); judged {
 		tdd.LogBashSuiteDecision(raw, bashDecision)
 		if bashDecision.Action == tdd.Block {
-			payload, code := tdd.RenderPreToolUse(bashDecision)
-			if len(payload) > 0 {
-				stdout.Write(payload)
-			}
-			return code
+			return bashDecision
 		}
 	}
 
@@ -502,13 +510,13 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// to diff. It never blocks.
 	if tdd.IsBashHook(raw) {
 		tdd.PreBash(raw)
-		return 0
+		return tdd.Decision{}
 	}
 
 	decision, err := tdd.DecidePreEdit(raw)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate: %v (allowing)\n", err)
-		return 0
+		return tdd.Decision{}
 	}
 	// The declared laws judge the content this edit WOULD write. A content
 	// smell already blocking keeps its own reason; otherwise the more severe
@@ -523,11 +531,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		decision = tdd.WorktreeAdvisory(raw)
 	}
 	tdd.LogEditDecision(raw, decision)
-	payload, code := tdd.RenderPreToolUse(decision)
-	if len(payload) > 0 {
-		stdout.Write(payload)
-	}
-	return code
+	return decision
 }
 
 // mergeRatchetAdvisory folds a ratchet-law verdict r into the edit-time

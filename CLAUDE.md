@@ -41,7 +41,7 @@ like `systemctl` (no dry-run, no `--dry`).
   `prune`) + git verbs (`commit`/`push`/`pr`/`ship`/`submit`/`merge`).
 - `dev` — `up`/`down`/`restart`/`status`/`logs` (replaces the retired
   `aphrollo-dev` bash wrapper).
-- `guardrail pretooluse` — Claude PreToolUse policy hook (block long fg waits, warn noisy cmds).
+- `guardrail pretooluse` — Claude PreToolUse policy hook (block long fg waits, warn noisy cmds). Also evaluated in-process by `gate pretooluse`, the verb every installed PreToolUse hook calls; a rule is wired by living in `internal/guardrail`, never by a hook of its own.
 - `ratchet` — the law engine: `check` judges a repo against its declared
   `.ratchet/laws/*.toml` (`--adopt <law>` is the one path that creates or
   raises a baseline row, gated on the law being new or changed since HEAD; a
