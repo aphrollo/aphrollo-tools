@@ -20,6 +20,12 @@
 // its tree, phase and run request are not recorded; the post-edit event that
 // follows records those.
 //
+// A flag goes on the unit's entry when a fact has made one. Otherwise it goes
+// into Record.Guided, never into Units: an entry there would be a unit no fact
+// has named, which a unit-less gated commit would seed with a last real
+// verdict, and a question would have changed what the facts say. The first fact
+// that names the unit moves its flags onto the new entry.
+//
 // # Seen
 //
 // What the agent has been told is kept in the record too (see seen.go): Deliver
@@ -81,12 +87,12 @@ func (e *Engine) Handle(ctx context.Context, ev kernel.Event) (kernel.Decision, 
 		if err != nil {
 			return kernel.Decision{}, fmt.Errorf("engine: load lane %q: %w", ev.Lane, err)
 		}
-		d := kernel.Decide(rec.Lane, rec.Units, ev, e.Config)
+		d := kernel.Decide(rec.Lane, rec.DecideUnits(ev.Unit), ev, e.Config)
 		last = d
-		next, events, save := Record{Lane: d.Lane, Units: d.Units, Delivered: rec.Delivered}, []kernel.Event{ev}, true
+		next, events, save := Record{Lane: d.Lane, Units: d.Units, Guided: rec.Settled(ev.Unit), Delivered: rec.Delivered}, []kernel.Event{ev}, true
 		if question {
-			next, events = Record{Lane: rec.Lane, Delivered: rec.Delivered}, nil
-			next.Units, save = e.guided(rec, ev)
+			events = nil
+			next, save = e.guided(rec, ev)
 		}
 		if !save {
 			return d, nil
@@ -108,27 +114,32 @@ func (e *Engine) Handle(ctx context.Context, ev kernel.Event) (kernel.Decision, 
 	return kernel.Decision{}, fmt.Errorf("%w: lane %q after %d attempts", ErrContended, ev.Lane, attempts)
 }
 
-// guided is the record's units with the guided-once flags a write about to
-// happen earns, and whether that changed anything. Only a tool.pre write
-// announces an edit; every other question earns no flag.
-func (e *Engine) guided(rec Record, ev kernel.Event) (kernel.Units, bool) {
-	if ev.Kind != kernel.KindPreTool || ev.Tool != kernel.ToolWrite {
-		return rec.Units, false
+// guided is the record with the guided-once flag a write about to happen
+// earns, and whether that changed anything. Only a tool.pre write announces an
+// edit; every other question earns no flag. The flag goes on the unit's entry
+// when a fact has made one, and into Guided when none has.
+func (e *Engine) guided(rec Record, ev kernel.Event) (Record, bool) {
+	if ev.Kind != kernel.KindPreTool || ev.Tool != kernel.ToolWrite || ev.Unit == "" {
+		return rec, false
 	}
 	edit := ev
 	edit.Kind = kernel.KindEdit
-	stepped := kernel.Decide(rec.Lane, rec.Units, edit, e.Config).Units
-	out, changed := maps.Clone(rec.Units), false
-	for name, s := range stepped {
-		u := rec.Units[name]
-		if (s.GuidedUntested && !u.GuidedUntested) || (s.GuidedHeld && !u.GuidedHeld) {
-			u.GuidedUntested = u.GuidedUntested || s.GuidedUntested
-			u.GuidedHeld = u.GuidedHeld || s.GuidedHeld
-			if out == nil {
-				out = kernel.Units{}
-			}
-			out[name], changed = u, true
-		}
+	before := rec.DecideUnits(ev.Unit)[ev.Unit]
+	after := kernel.Decide(rec.Lane, rec.DecideUnits(ev.Unit), edit, e.Config).Units[ev.Unit]
+	if (!after.GuidedUntested || before.GuidedUntested) && (!after.GuidedHeld || before.GuidedHeld) {
+		return rec, false
 	}
-	return out, changed
+	f := Flags{Untested: before.GuidedUntested || after.GuidedUntested, Held: before.GuidedHeld || after.GuidedHeld}
+	if u, known := rec.Units[ev.Unit]; known {
+		u.GuidedUntested, u.GuidedHeld = f.Untested, f.Held
+		rec.Units = maps.Clone(rec.Units)
+		rec.Units[ev.Unit] = u
+		return rec, true
+	}
+	rec.Guided = maps.Clone(rec.Guided)
+	if rec.Guided == nil {
+		rec.Guided = map[string]Flags{}
+	}
+	rec.Guided[ev.Unit] = f
+	return rec, true
 }

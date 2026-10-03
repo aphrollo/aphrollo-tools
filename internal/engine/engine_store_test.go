@@ -64,6 +64,8 @@ func TestHandle_runsOverTheOnDiskStoreToo(t *testing.T) {
 		"Guidance_aGuideSeenByThisActorIsNotRepeatedButADenyAlwaysIs": TestGuidance_aGuideSeenByThisActorIsNotRepeatedButADenyAlwaysIs,
 		"Deliver_racingDeliveriesAndFactsLoseNoUpdate":                TestDeliver_racingDeliveriesAndFactsLoseNoUpdate,
 		"Deliver_givesUpOnALaneThatKeepsChanging":                     TestDeliver_givesUpOnALaneThatKeepsChanging,
+		"aQuestionsFlagIsNotAUnitTheNextCommitSeeds":                  TestHandle_aQuestionsFlagIsNotAUnitTheNextCommitSeeds,
+		"aFactAboutAFlaggedUnitMovesTheFlagIntoTheUnit":               TestHandle_aFactAboutAFlaggedUnitMovesTheFlagIntoTheUnit,
 	} {
 		t.Run(name, fn)
 	}

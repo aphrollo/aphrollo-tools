@@ -186,12 +186,11 @@ func TestHandle_untestedCodeEditIsGuidedOnceUnderWarn(t *testing.T) {
 		t.Errorf("second = %s %q, want allow: the line is given once per unit per lane", second.Outcome, second.Rule)
 	}
 	rec, ver := load(t, store, "fix")
-	u := rec.Units["pkg/a"]
-	if !u.GuidedUntested {
-		t.Errorf("unit = %+v, want the guided flag recorded", u)
+	if g := rec.Guided["pkg/a"]; !g.Untested || g.Held {
+		t.Errorf("guided = %+v, want only the untested flag recorded", rec.Guided)
 	}
-	if u.Tree != "" || u.Phase != "" {
-		t.Errorf("unit = %+v, want only the flag: the write has not happened, so no tree and no phase move", u)
+	if len(rec.Units) != 0 {
+		t.Errorf("units = %+v, want none: the write has not happened, so no fact knows the unit", rec.Units)
 	}
 	if ver != 1 {
 		t.Errorf("version = %d, want 1: only the first question saved", ver)
@@ -429,5 +428,42 @@ func TestHandle_oneAttemptIsOneAttemptNotTheDefault(t *testing.T) {
 	}
 	if f.commits != 1 {
 		t.Errorf("commits = %d, want 1: Attempts = 1 is one try, the default only stands for an unset field", f.commits)
+	}
+}
+
+// TestHandle_aQuestionsFlagIsNotAUnitTheNextCommitSeeds is the rapid seed
+// 13519419159619137621: a guided write stores an entry only to hold its flag,
+// and a unit-less gated commit then seeded that entry's last real verdict, so a
+// question had changed what the facts say.
+func TestHandle_aQuestionsFlagIsNotAUnitTheNextCommitSeeds(t *testing.T) {
+	eng, store := newEngine(t, kernel.Config{})
+	if _, err := eng.Handle(bounded(t), untestedWrite(true)); err != nil {
+		t.Fatalf("Handle(question): %v", err)
+	}
+	gated := kernel.Event{Kind: kernel.KindCommitGated, Lane: "fix", At: t0, Worktree: "wt", Base: "main", OS: "linux"}
+	if _, err := eng.Handle(bounded(t), gated); err != nil {
+		t.Fatalf("Handle(commit.gated): %v", err)
+	}
+	rec, _ := load(t, store, "fix")
+	if len(rec.Units) != 0 || !rec.Guided["pkg/a"].Untested {
+		t.Errorf("units = %+v, guided = %+v; want no unit and the flag kept: no fact ever mentioned pkg/a", rec.Units, rec.Guided)
+	}
+}
+
+func TestHandle_aFactAboutAFlaggedUnitMovesTheFlagIntoTheUnit(t *testing.T) {
+	eng, store := newEngine(t, kernel.Config{})
+	if _, err := eng.Handle(bounded(t), untestedWrite(true)); err != nil {
+		t.Fatalf("Handle(question): %v", err)
+	}
+	if _, err := eng.Handle(bounded(t), edit("pkg/a", kernel.ClassCode, "t1")); err != nil {
+		t.Fatalf("Handle(edit): %v", err)
+	}
+	rec, _ := load(t, store, "fix")
+	if !rec.Units["pkg/a"].GuidedUntested || len(rec.Guided) != 0 {
+		t.Errorf("units = %+v, guided = %+v; want the flag on the unit the fact created and none left aside", rec.Units, rec.Guided)
+	}
+	d, err := eng.Handle(bounded(t), untestedWrite(true))
+	if err != nil || d.Outcome != kernel.OutcomeAllow {
+		t.Errorf("second question = %s, %v; want allow: the line was already given", d.Outcome, err)
 	}
 }
