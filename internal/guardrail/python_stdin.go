@@ -260,8 +260,8 @@ func splitRedirects(seg []shellTok) ([]string, stdinKind) {
 }
 
 // isNullDevice names the null device as Git Bash accepts it on Windows.
-func isNullDevice(path string) bool {
-	return path == "/dev/null" || strings.EqualFold(path, "nul")
+func isNullDevice(target string) bool {
+	return target == "/dev/null" || strings.EqualFold(target, "nul")
 }
 
 // runsPythonOnStdin reports whether the words run python with its script
