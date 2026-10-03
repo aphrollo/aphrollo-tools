@@ -39,7 +39,7 @@ func TestUpdate_DryPrintsThePlanAndFetchesBuildsAndSwapsNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0\nstderr: %s", code, errb.String())
 	}
-	for _, want := range []string{"fetch: origin/main in " + clone, "build: ./cmd/aphrollo", "swap:  " + bin} {
+	for _, want := range []string{"fetch: origin tags, newest v<MAJOR.MINOR.PATCH> in " + clone, "build: ./cmd/aphrollo", "swap:  " + bin} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("plan lacks %q:\n%s", want, out.String())
 		}

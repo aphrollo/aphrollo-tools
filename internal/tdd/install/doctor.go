@@ -39,6 +39,7 @@ func Doctor(in DoctorInput) []DoctorCheck {
 		doctorHookBinary(in),
 		doctorHookTargetStable(in),
 		doctorHookTimeouts(in),
+		doctorOneLiveGate(in),
 		doctorShimPath(in),
 		doctorShimResolution(in),
 		doctorShimExes(in),
