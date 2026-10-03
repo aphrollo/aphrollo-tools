@@ -243,7 +243,7 @@ func TestDescribe_PrintsEveryVariableNoteAndTheDirectoriesAheadOnPATH(t *testing
 	s := &isolation{root: "ROOT", vars: []KV{{"A", "1"}, {"B", "2"}}, path: []string{"d1", "d2"}, notes: []string{"a note"}}
 	var out bytes.Buffer
 	s.describe(&out)
-	for _, want := range []string{"under ROOT", "[isolate] a note", "[isolate] A=1", "[isolate] B=2", "PATH first: d1" + string(os.PathListSeparator) + "d2", "[isolate] refused before the step runs"} {
+	for _, want := range []string{"under ROOT", "[isolate] a note", "[isolate] A=1", "[isolate] B=2", "PATH first: d1" + string(os.PathListSeparator) + "d2", "[isolate] skipped, and the run inconclusive"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("describe lacks %q:\n%s", want, out.String())
 		}

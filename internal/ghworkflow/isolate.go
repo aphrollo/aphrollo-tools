@@ -169,7 +169,7 @@ func (s *isolation) describe(out io.Writer) {
 		fmt.Fprintf(out, "  [isolate] %s=%s\n", kv.Key, kv.Val)
 	}
 	fmt.Fprintf(out, "  [isolate] PATH first: %s\n", strings.Join(s.path, string(os.PathListSeparator)))
-	fmt.Fprintf(out, "  [isolate] refused before the step runs: sudo and other privilege changes, system package managers, pip --user and --break-system-packages, uv --system, yarn global, pnpm -g, gem install, corepack enable\n")
+	fmt.Fprintf(out, "  [isolate] skipped, and the run inconclusive: a step using sudo or another privilege change, a system package manager, pip --user or --break-system-packages, uv --system, yarn global, pnpm -g, gem install, corepack enable\n")
 }
 
 // joinPath is dirs followed by the rest of a PATH, with no stray separator
