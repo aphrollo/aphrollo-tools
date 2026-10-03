@@ -124,26 +124,20 @@ func catchUpMergeLine(repoRoot string) (string, bool) {
 	trunk := strings.TrimPrefix(TrunkBranch(repoRoot), "origin/")
 	line := "gate " + premergeDisplayName + ": catch-up merge of " + trunk + " into " +
 		branch + " — suites skipped, CI tests the lane"
-	return line, ok && branch != ""
+	return line, ok
 }
 
 // catchUpMerge judges a catch-up merge by the cheap stages alone: the
 // mutation configuration, the staged-baseline guard, the laws and the doc
 // citations. No build, no suite, no build lock.
 func catchUpMerge(repoRoot, line string) GateResult {
-	notes := []string{line}
 	AppendGateLog(premergeDisplayName, repoRoot, "catch-up", "catchup-laws", 0)
-	for _, stage := range []func(string, string) GateResult{baselineStage, ratchetStage, docsCheckStage} {
-		res := stage(premergeDisplayName, repoRoot)
-		if res.Blocked {
-			return res
-		}
-		if res.Message != "" {
-			notes = append(notes, res.Message)
-		}
+	notes, refused := treeGuards(premergeDisplayName, repoRoot)
+	if refused.Blocked {
+		return refused
 	}
 	var res GateResult
-	res.Message = strings.Join(notes, "\n")
+	res.Message = strings.Join(append([]string{line}, notes...), "\n")
 	return res
 }
 

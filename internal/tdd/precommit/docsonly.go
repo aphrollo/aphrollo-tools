@@ -84,15 +84,9 @@ func buildFreeFastPath(gateName, repoRoot, kind, reason string, runSuppression b
 	fmt.Fprintf(stderrFor(repoRoot), "gate %s: %s → %s fast path (baseline, laws, doc citations; no suite, no build lock)\n", gateName, reason, kind)
 	AppendGateLog(gateName, repoRoot, kind, kind+"-fastpath", 0)
 
-	var notes []string
-	for _, stage := range []func(string, string) GateResult{baselineStage, ratchetStage, docsCheckStage} {
-		res := stage(gateName, repoRoot)
-		if res.Blocked {
-			return res
-		}
-		if res.Message != "" {
-			notes = append(notes, res.Message)
-		}
+	notes, refused := treeGuards(gateName, repoRoot)
+	if refused.Blocked {
+		return refused
 	}
 	if runSuppression {
 		if msg := newSuppression(repoRoot); msg != "" {
@@ -105,6 +99,24 @@ func buildFreeFastPath(gateName, repoRoot, kind, reason string, runSuppression b
 	fmt.Fprintln(stderrFor(repoRoot), line)
 	notes = append(notes, line)
 	return GateResult{Message: strings.Join(notes, "\n")}
+}
+
+// treeGuards runs the three stages that judge the tree and compile nothing,
+// in order: the staged-baseline guard, the laws and the doc citations. The
+// first refusal comes back with Blocked set; otherwise the notes the stages
+// printed, in order.
+func treeGuards(gateName, repoRoot string) ([]string, GateResult) {
+	var notes []string
+	for _, stage := range []func(string, string) GateResult{baselineStage, ratchetStage, docsCheckStage} {
+		res := stage(gateName, repoRoot)
+		if res.Blocked {
+			return nil, res
+		}
+		if res.Message != "" {
+			notes = append(notes, res.Message)
+		}
+	}
+	return notes, GateResult{}
 }
 
 // nothingToTestLine is the one sentence a code-free change gets, in the exact
