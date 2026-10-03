@@ -19,6 +19,21 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.4.6 - 2026-10-03
+
+A PR opened with a body keeps it, and the version check judges a branch by its own change.
+
+### What you will notice
+
+- `aphrollo workspace pr --body "..."` (and `ship`, and `submit` with a summary) opens the PR with
+  the body you gave. Before, a body given without `--title` was replaced by the commit list the
+  title was filled from, so the PR opened without its `version:` line.
+- `aphrollo version check` measures VERSION and the changed files from the merge base of `--base`
+  and HEAD, so a branch that is behind its base is no longer blamed for the base's own version
+  bump. The pipeline's `version-check` job checks out the PR head for the same reason.
+- The `windows-smoke` workflow is gone: `test-windows` runs the full suite on Windows, which
+  covers what the smoke slice ran. Nothing in a consuming repo changes.
+
 ## 1.4.5 - 2026-10-03
 
 Merging trunk into a lane branch no longer runs the full test suite.
