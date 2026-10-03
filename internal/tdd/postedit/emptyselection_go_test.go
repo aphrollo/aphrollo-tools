@@ -32,25 +32,28 @@ func mkGoModule(t *testing.T) string { t.Helper(); return tddtest.MkGoModule(t) 
 // test file that selects nothing is scaffolding, and says so).
 func TestGoWideningSteps_ClimbToTheImportersWhoseTestsReachThePackage(t *testing.T) {
 	cases := []struct {
-		name  string
-		args  []string
-		reach map[string][]string
-		err   error
-		want  string
+		name   string
+		args   []string
+		target string
+		reach  map[string][]string
+		err    error
+		want   string
 	}{
-		{"importers reach it", []string{"test", "./internal/proc"},
+		{"importers reach it", []string{"test", "./internal/proc"}, "/ws/internal/proc/proc.go",
 			map[string][]string{"internal/proc": {"cmd/aphrollo", "internal/proc", "internal/tdd"}}, nil,
 			"test ./cmd/aphrollo ./internal/tdd"},
-		{"nothing else reaches it", []string{"test", "./internal/proc"},
+		{"nothing else reaches it", []string{"test", "./internal/proc"}, "/ws/internal/proc/proc.go",
 			map[string][]string{"internal/proc": {"internal/proc"}}, nil, ""},
-		{"the reach cannot be read", []string{"test", "./internal/proc"}, nil, errors.New("go list failed"), ""},
-		{"a test file's own tree", []string{"test", "./internal/proc/..."},
+		{"the reach cannot be read", []string{"test", "./internal/proc"}, "/ws/internal/proc/proc.go", nil, errors.New("go list failed"), ""},
+		{"a test file's own tree", []string{"test", "./internal/proc/..."}, "/ws/fixtures/case.txt",
+			map[string][]string{"internal/proc": {"internal/proc", "internal/tdd"}}, nil, ""},
+		{"a Go test file's own package", []string{"test", "./internal/proc"}, "/ws/internal/proc/proc_test.go",
 			map[string][]string{"internal/proc": {"internal/proc", "internal/tdd"}}, nil, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			defer stubGoTestReach(t, func(_, dir string) ([]string, error) { return c.reach[dir], c.err })()
-			steps := goWideningSteps(Runner{Cmd: "go", Args: c.args}, "/ws")
+			steps := goWideningSteps(Runner{Cmd: "go", Args: c.args}, c.target, "/ws")
 			got := ""
 			if len(steps) == 1 {
 				got = strings.Join(steps[0].Args, " ")
@@ -93,7 +96,7 @@ func TestPostEdit_DeferredGoEditInATestlessPackage_RunsTheImportersTests(t *test
 }
 
 // TestPostEdit_GoTestFileWithNoTestYet_StaysWritingTest pins the edge of the
-// Go ladder: a TEST edit narrows to its package's tree, and a file that
+// Go ladder: a TEST edit narrows to its package, and a file that
 // declares no test yet selecting nothing is scaffolding, not a missed
 // filter. It must neither climb to the importers nor be called untested.
 func TestPostEdit_GoTestFileWithNoTestYet_StaysWritingTest(t *testing.T) {
@@ -106,7 +109,7 @@ func TestPostEdit_GoTestFileWithNoTestYet_StaysWritingTest(t *testing.T) {
 	})()
 	var seen []string
 	got := PostEdit(postPayload("Edit", root+"/internal/proc/proc_test.go"), scriptedRunner(t, &seen, map[string]SuiteResult{
-		"go test ./internal/proc/...": {Passed: true, Output: "ok  \texample.com/m/internal/proc\t0.002s [no tests to run]\n"},
+		"go test ./internal/proc": {Passed: true, Output: "ok  \texample.com/m/internal/proc\t0.002s [no tests to run]\n"},
 	}))
 
 	if len(seen) != 1 {

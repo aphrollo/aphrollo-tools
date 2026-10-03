@@ -96,13 +96,15 @@ func finishedEditOutcome(j DeferredJob, out PhaseOutcome) deferredEditOutcome {
 }
 
 // phaseStatus is what became of a spawn: finished inside the budget, still
-// running (deferred), or never started.
+// running (deferred), never started, or not started because the identical run
+// was already going (coalesced, deferred_coalesce.go).
 type phaseStatus int
 
 const (
 	phaseFinished phaseStatus = iota
 	phaseRunning
 	phaseFailedToStart
+	phaseCoalesced
 )
 
 // runEditPhases executes the edit's tests as build-then-run inside budget,
@@ -116,8 +118,8 @@ func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, edit
 		if status == phaseFailedToStart {
 			return deferredEditOutcome{spawnFailed: true}
 		}
-		if status == phaseRunning {
-			return deferredEditOutcome{deferred: true, notice: buildingLine(root, "run", 0)}
+		if status == phaseRunning || status == phaseCoalesced {
+			return heldOutcome(root, "run", status, started)
 		}
 		return finishedEditOutcome(started, out)
 	}
@@ -125,8 +127,8 @@ func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, edit
 	if status == phaseFailedToStart {
 		return deferredEditOutcome{spawnFailed: true}
 	}
-	if status == phaseRunning {
-		return deferredEditOutcome{deferred: true, notice: buildingLine(root, "build", 0)}
+	if status == phaseRunning || status == phaseCoalesced {
+		return heldOutcome(root, "build", status, startedBuild)
 	}
 	if out.ExitCode != 0 {
 		// A failed build IS the answer — the same red the foreground run
@@ -142,8 +144,8 @@ func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, edit
 	if status == phaseFailedToStart {
 		return deferredEditOutcome{spawnFailed: true}
 	}
-	if status == phaseRunning {
-		return deferredEditOutcome{deferred: true, notice: buildingLine(root, "run", 0)}
+	if status == phaseRunning || status == phaseCoalesced {
+		return heldOutcome(root, "run", status, startedRun)
 	}
 	return finishedEditOutcome(startedRun, out)
 }
@@ -168,6 +170,9 @@ func firstEditPhase(runner Runner, root, target, headSHA, fileHash, session, edi
 // budget that has already run out still SPAWNS: the point is to keep the
 // work going, not to skip it.
 func startAndWait(j DeferredJob, budget time.Duration) (DeferredJob, PhaseOutcome, phaseStatus) {
+	if twin, ok := liveTwin(j); ok {
+		return twin, PhaseOutcome{}, phaseCoalesced
+	}
 	started, ok := spawnPhaseFn(j)
 	if !ok {
 		clearDeferredJob(j.Session, j.Project)
@@ -240,6 +245,9 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		if status == phaseFailedToStart {
 			AppendGateLog("postedit", root, strings.Join(runPhase.Runner, " "), InfraFailed, 0)
 			return spawnFailedLine(root, "run"), false
+		}
+		if status == phaseCoalesced {
+			return coalescedLine(root, startedRun), false
 		}
 		if status == phaseRunning {
 			return buildingLine(root, "run", 0), false

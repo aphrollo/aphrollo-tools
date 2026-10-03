@@ -48,11 +48,11 @@ type emptySelection struct {
 // start is named as not run; a selection still empty at the top of the
 // ladder — or a run with no ladder at all — reaches the inconclusive verdict
 // rather than a green, and that is what reaches gate.log.
-func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, root, headSHA string, res SuiteResult) emptySelection {
+func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, target, root, headSHA string, res SuiteResult) emptySelection {
 	out := emptySelection{runner: snap.runner, res: res}
 	narrow := snap.runner
 	deadline := time.Now().Add(PostEditBudget() - res.Duration)
-	steps := postEditWideningSteps(narrow, root)
+	steps := postEditWideningSteps(narrow, target, root)
 	for _, step := range steps {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -68,7 +68,7 @@ func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, root, headSHA st
 			return out
 		}
 		out.runner, out.res = step, wres
-		if !postEditSelectedZero(step, wres) {
+		if !postEditSelectedZero(step, target, wres) {
 			out.note = widenedNote(narrow, step)
 			return out
 		}
