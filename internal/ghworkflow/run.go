@@ -470,6 +470,11 @@ func (r *jobRun) exec(ctx context.Context, st *Step, script string, env []string
 	}
 	stepCtx, cancel := context.WithTimeout(ctx, r.opt.StepTimeout)
 	defer cancel()
+	if stepCtx.Err() != nil {
+		// A step never starts once the job's context is over: a command fast
+		// enough would otherwise finish before the cancel is noticed.
+		return r.stopReason(ctx, stepCtx, stepCtx.Err())
+	}
 	err = r.runChild(stepCtx, childrun.Spec{Name: argv[0], Args: argv[1:], Dir: dir, Env: env})
 	if f, ok := r.opt.Out.(interface{ flush() }); ok {
 		f.flush()

@@ -69,8 +69,9 @@ type Verdict struct {
 type Source interface {
 	// Pulls lists the pull requests associated with a commit.
 	Pulls(sha string) ([]Pull, error)
-	// Runs lists the pipeline runs for a pull request's head commit.
-	Runs(headSHA string) ([]Run, error)
+	// Runs lists the pipeline runs of one event (pull_request or merge_group)
+	// whose head commit is headSHA.
+	Runs(event, headSHA string) ([]Run, error)
 	// Jobs lists the jobs of the run's first attempt.
 	Jobs(runID int64) ([]Job, error)
 	// TestedTree is the tree the run's checkout tested, as the run recorded it.
@@ -82,11 +83,25 @@ func no(format string, args ...any) Verdict {
 }
 
 // Decide answers whether the push to trunk of c may skip the suites because
-// the merged pull request's own pipeline run tested this very tree and passed.
-// Every doubt, including a lookup that failed, is a no: the full suite runs.
+// a pipeline run already tested this very tree and passed: the merge queue's
+// own run when the push fast-forwarded main to a merge group's head, else the
+// merged pull request's run. Every doubt, including a lookup that failed, is a
+// no: the full suite runs.
 func Decide(src Source, c Commit, reqs []Requirement) Verdict {
 	if len(reqs) == 0 {
-		return no("no check is required of the pull request's run")
+		return no("no check is required of the run")
+	}
+	// The queue fast-forwards main to the group's head, so the pushed commit is
+	// the head sha of the group's run. A group of several pull requests lands
+	// several commits and only the last is that head; an earlier one has no run
+	// of its own here and falls to the pull request path, whose run tested
+	// another base and so another tree.
+	runs, err := src.Runs("merge_group", c.SHA)
+	if err != nil {
+		return no("the merge group runs of %s could not be read: %v", c.SHA, err)
+	}
+	if run, ok := newestRun(runs, "merge_group", c.SHA, c); ok {
+		return judge(src, c, reqs, run, fmt.Sprintf("the merge group that landed %s", c.SHA))
 	}
 	pulls, err := src.Pulls(c.SHA)
 	if err != nil {
@@ -94,16 +109,24 @@ func Decide(src Source, c Commit, reqs []Requirement) Verdict {
 	}
 	pr, ok := mergedAs(pulls, c.SHA)
 	if !ok {
-		return no("no merged pull request has %s as its merge commit", c.SHA)
+		return no("no merge group run has %s as its head and no merged pull request has it as its merge commit", c.SHA)
 	}
-	runs, err := src.Runs(pr.HeadSHA)
+	runs, err = src.Runs("pull_request", pr.HeadSHA)
 	if err != nil {
 		return no("the pipeline runs of pull request #%d could not be read: %v", pr.Number, err)
 	}
-	run, ok := newestRun(runs, pr, c)
+	run, ok := newestRun(runs, "pull_request", pr.HeadSHA, c)
 	if !ok {
 		return no("no pipeline run of pull request #%d head %s on this repository's %s", pr.Number, pr.HeadSHA, c.Workflow)
 	}
+	return judge(src, c, reqs, run, fmt.Sprintf("pull request #%d", pr.Number))
+}
+
+// judge holds one run to the rules every reused verdict meets: a first
+// attempt, completed green, each required job green with its testing step run,
+// and a recorded tested tree equal to the pushed commit's. who names whose run
+// it is, for the reason.
+func judge(src Source, c Commit, reqs []Requirement, run Run, who string) Verdict {
 	if run.Attempt != 1 {
 		return no("run %s is attempt %d, and a re-run may have tested another merge", run.URL, run.Attempt)
 	}
@@ -124,9 +147,9 @@ func Decide(src Source, c Commit, reqs []Requirement) Verdict {
 		return no("the tree run %s tested could not be read: %v", run.URL, err)
 	}
 	if tree != c.Tree {
-		return no("run %s tested tree %q, which differs from this commit's %s: trunk moved since", run.URL, tree, c.Tree)
+		return no("run %s tested tree %q, which differs from this commit's %s", run.URL, tree, c.Tree)
 	}
-	return Verdict{Reuse: true, Reason: fmt.Sprintf("reusing the verdict of pull request #%d, run %s, which tested tree %s", pr.Number, run.URL, c.Tree)}
+	return Verdict{Reuse: true, Reason: fmt.Sprintf("reusing the verdict of %s, run %s, which tested tree %s", who, run.URL, c.Tree)}
 }
 
 // mergedAs is the merged pull request whose merge commit is sha.
@@ -139,15 +162,15 @@ func mergedAs(pulls []Pull, sha string) (Pull, bool) {
 	return Pull{}, false
 }
 
-// newestRun is the latest pull_request run of the workflow file on the pull
-// request's head, from this repository itself: a fork's run executes the
-// fork's own workflow file.
-func newestRun(runs []Run, pr Pull, c Commit) (Run, bool) {
+// newestRun is the latest run of the event, of the workflow file, on headSHA,
+// from this repository itself: a fork's run executes the fork's own workflow
+// file.
+func newestRun(runs []Run, event, headSHA string, c Commit) (Run, bool) {
 	var best Run
 	found := false
 	for _, r := range runs {
 		path, _, _ := strings.Cut(r.Path, "@")
-		if r.Event != "pull_request" || path != c.Workflow || r.HeadSHA != pr.HeadSHA || r.HeadRepo != c.Repo {
+		if r.Event != event || path != c.Workflow || r.HeadSHA != headSHA || r.HeadRepo != c.Repo {
 			continue
 		}
 		if !found || r.Number > best.Number {
