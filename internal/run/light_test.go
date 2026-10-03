@@ -213,3 +213,47 @@ func TestCommand_PipeGraceIsTheSpecsWhenSetAndTwoSecondsOtherwise(t *testing.T) 
 		t.Errorf("WaitDelay = %s, want the spec's 7s", got)
 	}
 }
+
+func TestKeepWriter_KeepsTheFirstBytesUpToItsLimitAndStillAcceptsEverything(t *testing.T) {
+	k := &keepWriter{limit: 10}
+
+	for _, chunk := range []string{"abcdef", "ghijkl", "mnop"} {
+		if n, err := k.Write([]byte(chunk)); n != len(chunk) || err != nil {
+			t.Fatalf("Write(%q) = %d, %v, want all %d bytes accepted", chunk, n, err, len(chunk))
+		}
+	}
+
+	if got := k.buf.String(); got != "abcdefghij" {
+		t.Errorf("kept %q, want the first 10 bytes %q", got, "abcdefghij")
+	}
+}
+
+func TestHeavyRun_AGuardThatCannotBeSetUpRunsTheChildAndSaysSoOnItsStderr(t *testing.T) {
+	boom := errors.New("no job object for this process")
+	withGuard(t, func(*exec.Cmd, bool, int64) (tree, error) { return nil, boom })
+	var errb bytes.Buffer
+	spec := helperSpec(t, "exit3")
+	spec.Stderr = &errb
+
+	err := HeavyRun(spec)
+
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 3 {
+		t.Fatalf("err = %v, want the child's own exit status 3: it ran", err)
+	}
+	if want := "the child runs unguarded"; !strings.Contains(errb.String(), want) || !strings.Contains(errb.String(), boom.Error()) {
+		t.Errorf("stderr = %q, want a line saying %q and why", errb.String(), want)
+	}
+}
+
+func TestHeavyRun_AGuardedChildSaysNothingAboutAGuard(t *testing.T) {
+	var errb bytes.Buffer
+	spec := helperSpec(t, "exit3")
+	spec.Stderr = &errb
+
+	_ = HeavyRun(spec)
+
+	if errb.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing from a child that ran under its guard", errb.String())
+	}
+}
