@@ -19,6 +19,16 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.4.7 - 2026-10-03
+
+`workspace ship` resumes a lane that is already committed.
+
+### What you will notice
+
+- `aphrollo workspace ship` with nothing to commit prints `[skip] nothing to commit` and goes on to
+  push and open the PR, and no longer needs `-m` then. With changes to commit it still requires a
+  message. `workspace commit` prints the same `[skip]` prefix on a clean tree.
+
 ## 1.4.6 - 2026-10-03
 
 A PR opened with a body keeps it, and the version check judges a branch by its own change.
