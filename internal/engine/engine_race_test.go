@@ -77,7 +77,7 @@ func wait(t *testing.T, jobs []func() error) {
 }
 
 func TestHandle_twoRacingFactsLoseNoUpdate(t *testing.T) {
-	store := NewMemStore()
+	store := newTestStore(t, kernel.Config{})
 	gate := newRendezvous(store, 2)
 	eng := &Engine{Store: gate}
 	entered := func(actor string) kernel.Event {
@@ -101,7 +101,7 @@ func TestHandle_twoRacingFactsLoseNoUpdate(t *testing.T) {
 
 func TestHandle_manyRacingFactsLoseNoUpdate(t *testing.T) {
 	const writers, perWriter = 6, 5
-	store := NewMemStore()
+	store := newTestStore(t, kernel.Config{})
 	eng := &Engine{Store: store, Attempts: writers * perWriter}
 	var jobs []func() error
 	for w := range writers {

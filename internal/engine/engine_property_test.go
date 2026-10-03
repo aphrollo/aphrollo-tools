@@ -111,7 +111,7 @@ func TestHandle_equalsFoldingKernelStepsDirectly(t *testing.T) {
 	ctx := bounded(t)
 	rapid.Check(t, func(rt *rapid.T) {
 		cfg := genConfig().Draw(rt, "config")
-		eng, store := newEngine(cfg)
+		eng, store := newEngine(t, cfg)
 		events := rapid.SliceOfN(genFact(), 1, 30).Draw(rt, "events")
 		ref := map[string]*pair{}
 		for i, e := range events {
@@ -169,7 +169,7 @@ func TestHandle_questionsChangeNothingButTheGuidedFlags(t *testing.T) {
 	ctx := bounded(t)
 	rapid.Check(t, func(rt *rapid.T) {
 		cfg := genConfig().Draw(rt, "config")
-		eng, store := newEngine(cfg)
+		eng, store := newEngine(t, cfg)
 		events := rapid.SliceOfN(rapid.OneOf(genFact(), genQuestion()), 1, 30).Draw(rt, "events")
 		ref := map[string]*pair{}
 		for i, e := range events {

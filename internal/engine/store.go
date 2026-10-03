@@ -5,13 +5,14 @@ import (
 	"errors"
 
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
-	"github.com/aphrollo/aphrollo-tools/internal/render"
+	"github.com/aphrollo/aphrollo-tools/internal/store"
 )
 
 var (
 	// ErrConflict is what a Store answers a Commit whose expected version is no
 	// longer the stored one: someone else saved the lane since it was loaded.
-	ErrConflict = errors.New("engine: lane record changed since it was loaded")
+	// It is the on-disk store's, so that store need not import the engine.
+	ErrConflict = store.ErrConflict
 	// ErrContended is Handle giving up on a fact after its attempts all lost.
 	ErrContended = errors.New("engine: lane record kept changing, gave up")
 	// ErrNoLane is a fact that names no lane: there is no record to keep it in.
@@ -20,14 +21,9 @@ var (
 
 // Record is one lane's checkpoint as far as the kernel is concerned: the lane
 // machine's state and the TDD machine's units (architecture §3 "Lane record").
-type Record struct {
-	Lane  kernel.State
-	Units kernel.Units
-
-	// Delivered is what the agent has been told, oldest first: the lines written
-	// through a hook that reaches it, bounded (see MaxSeenPerActor).
-	Delivered []render.Delivery
-}
+// The store owns the type (it holds what the agent has been told, too, as
+// Delivered), which lets it sit below the engine.
+type Record = store.Record
 
 // Store is what the engine needs of the per-repo store (architecture §8; the
 // real one is F24 to F27). Keys are lane keys: a branch, or kernel.TrunkLane.
