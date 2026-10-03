@@ -35,8 +35,9 @@ var goCIParityFlags = []string{"-count=1", "-shuffle=on"}
 // affordable place to pay for the one expensive flag — precommit, paid on
 // every commit, stays on the cheap two. runCargoLocked additionally routes
 // any go runner carrying this flag through the same build-slot governor a
-// cargo build takes, so concurrent lanes' merges serialize instead of
-// stacking.
+// cargo build takes, so concurrent lanes' merges queue for the capacity the
+// box has instead of stacking. The merge covers only the changed packages
+// with it (groupSuiteStage); their importers run without.
 const goRaceFlag = "-race"
 
 // withGoCIParity inserts goCIParityFlags into a `go test` Runner, right

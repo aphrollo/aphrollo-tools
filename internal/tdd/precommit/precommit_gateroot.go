@@ -97,7 +97,7 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	if refused.Blocked {
 		return refused
 	}
-	return suiteStage(gateName, repoRoot, g.Root, runner, run)
+	return groupSuiteStage(gateName, repoRoot, g, runner, run)
 }
 
 // rootCheck is one toolchain's pre-suite checks for a non-cargo root: CI
@@ -180,7 +180,7 @@ func goDataOnlyRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, fai
 		reportSuitesNotRun(gateName, g.Root, suiteNoun(runner.Cmd), runner, suiteTouchedNames(runner))
 		return res, false
 	}
-	return suiteStage(gateName, repoRoot, g.Root, runner, run), true
+	return groupSuiteStage(gateName, repoRoot, g, runner, run), true
 }
 
 // owedSuite is one root's suite as the commit gate owes it: the root its

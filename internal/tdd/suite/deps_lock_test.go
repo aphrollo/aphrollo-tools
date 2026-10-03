@@ -31,6 +31,8 @@ func SetPostEditLockWaitForTest(p0 time.Duration) func() { return lock.SetPostEd
 
 func SetPrecommitLockWait(p0 time.Duration) func() { return lock.SetPrecommitLockWait(p0) }
 
+func SetRaceMachineForTest(p0 int, p1 int64) func() { return lock.SetRaceMachineForTest(p0, p1) }
+
 func TryAcquireBuildSlot(p0 string, p1 string, p2 string) (BuildSlot, func(), bool) {
 	return lock.TryAcquireBuildSlot(p0, p1, p2)
 }

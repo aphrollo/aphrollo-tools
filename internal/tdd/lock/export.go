@@ -34,6 +34,10 @@ func AcquireQueuedBuildSlot(p0 string, p1 time.Duration, p2 string, p3 string) (
 	return acquireQueuedBuildSlot(p0, p1, p2, p3)
 }
 
+func AcquireRaceSlot(p0 time.Duration, p1 string, p2 string) (BuildSlot, func(), bool) {
+	return acquireRaceSlot(p0, p1, p2)
+}
+
 func BuildSlotCount() int { return buildSlotCount() }
 
 func BuildSlotHolderDescription(p0 string) string { return buildSlotHolderDescription(p0) }

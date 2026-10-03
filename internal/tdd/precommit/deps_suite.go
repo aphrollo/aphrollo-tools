@@ -111,6 +111,10 @@ func runCargoLocked(p0 SuiteRunner, p1 Runner, p2 string, p3 time.Duration, p4 t
 	return suite.RunCargoLocked(p0, p1, p2, p3, p4, p5)
 }
 
+func splitRaceRuns(p0 Runner, p1 string, p2 string, p3 []string) []Runner {
+	return suite.SplitRaceRuns(p0, p1, p2, p3)
+}
+
 func stagedProjectRoots(p0 string, p1 []string) []string { return suite.StagedProjectRoots(p0, p1) }
 
 func suiteNoun(p0 string) string { return suite.SuiteNoun(p0) }

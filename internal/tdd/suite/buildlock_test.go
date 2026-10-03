@@ -198,6 +198,7 @@ func TestRunCargoLocked_DeadlineCarvesLockWaitOutOfStageBudget(t *testing.T) {
 // runCargoLocked's own acquisition is forced to actually wait.
 func TestRunCargoLocked_GoRaceRunnerTakesTheSameGovernorAsCargo(t *testing.T) {
 	withIsolatedBuildLock(t)
+	defer SetRaceMachineForTest(4, 4*1024)() // one race run at a time: what the held key is about
 
 	const holdFor = 80 * time.Millisecond
 	_, release, ok := acquireBuildSlot(goRaceLockKey(), time.Second, "go test -race ./other/...", "/some/other/repo")
@@ -223,12 +224,41 @@ func TestRunCargoLocked_GoRaceRunnerTakesTheSameGovernorAsCargo(t *testing.T) {
 	}
 }
 
+// TestRunCargoLocked_GoRaceRunsGoSideBySideOnABigBox is the capacity half of
+// #1172: with one race run holding the first key, a second race run on a box
+// with room for two does not wait behind it, and one on a box with room for
+// one still does (the test above).
+func TestRunCargoLocked_GoRaceRunsGoSideBySideOnABigBox(t *testing.T) {
+	withIsolatedBuildLock(t)
+	t.Setenv(buildSlotsEnv, "2")
+	defer SetRaceMachineForTest(32, 128*1024)()
+
+	_, release, ok := acquireBuildSlot(goRaceLockKey(), time.Second, "go test -race ./other/...", "/some/other/repo")
+	if !ok {
+		t.Fatal("setup: must be able to take the first go-race key")
+	}
+	defer release()
+
+	res, waited, acquired := runCargoLocked(
+		func(r Runner, root string) SuiteResult { return SuiteResult{Passed: true} },
+		Runner{Cmd: "go", Args: []string{"test", "-race", "-count=1", "-shuffle=on", "./..."}},
+		t.TempDir(), time.Second, 500*time.Millisecond, 0,
+	)
+	if !acquired || !res.Passed {
+		t.Fatalf("the second race run was not admitted on a box with room for two: acquired=%v res=%+v", acquired, res)
+	}
+	if waited > 40*time.Millisecond {
+		t.Fatalf("the second race run waited %s behind the first on a box with room for two", waited)
+	}
+}
+
 // TestRunCargoLocked_PlainGoRunnerStillPassesThroughUnlocked guards the
 // unchanged fast path: a `go test` Runner with NO -race (post-edit's plain
 // command, fail-first, `go vet`) must never contend for the governor, even
 // while its slot is fully held — exactly the pre-#421-review behavior.
 func TestRunCargoLocked_PlainGoRunnerStillPassesThroughUnlocked(t *testing.T) {
 	withIsolatedBuildLock(t)
+	defer SetRaceMachineForTest(4, 4*1024)()
 
 	_, release, ok := acquireBuildSlot(goRaceLockKey(), time.Second, "go test -race ./other/...", "/some/other/repo")
 	if !ok {

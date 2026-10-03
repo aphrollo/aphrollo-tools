@@ -91,6 +91,12 @@ var features = []Feature{
 		Enable: "memory-headroom = <GB>",
 	},
 	{
+		Key: "race-scope", Default: "changed",
+		Effect: "what -race covers in a Go merge: the packages the change touched, with the packages that import them run without it as a second run; all runs -race over every package in one run, as CI does",
+		Cost:   "all pays -race's several-fold build price on every importer of a touched package",
+		Enable: "race-scope = \"all\"",
+	},
+	{
 		Key: "undercover", Default: "off",
 		Effect: "the commit-msg gate refuses AI attribution trailers",
 		Cost:   "none",
