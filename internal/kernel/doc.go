@@ -4,12 +4,13 @@
 // fact about the world arrive in the Event; whatever must run in the world
 // leaves as an Effect, and what comes of it returns as another event.
 //
-// This package holds the lane machine (Step) and the TDD machine of one unit
-// (StepUnit, StepUnits). The rule table (§5) is a later lane and extends Event
-// and Effect; each machine tolerates the events the others add. The TDD
-// machine renders decisions, never denials: a guide effect only says
-// WouldDeny where the §3 table turns it into a deny under tdd = enforce, and
-// the rule table decides.
+// This package holds the lane machine (Step), the TDD machine of one unit
+// (StepUnit, StepUnits) and the rule table (ruleTable, Decide); each tolerates
+// the events the others add. The TDD machine renders decisions, never denials:
+// a guide effect only says WouldDeny where the §3 table turns it into a deny
+// under tdd = enforce, and the rule table decides. Decide is the one pure call
+// that combines the three; nothing here is wired to a hook (the engine, F16,
+// does that).
 //
 // # Where each rule comes from
 //
@@ -72,4 +73,61 @@
 //     there is none.
 //   - tdd = off freezes the machine; an unknown mode reads as warn (§7 "No
 //     silent misreads").
+//
+// # Where each rule comes from
+//
+// Each Rule in ruleTable names its section. The class is the row of the §5
+// level table; the default level is enforce for a deny rule and warn for a
+// guide rule, unless the config key in brackets moves it.
+//
+// Block always (RuleWall; Claude only, a human is advised; never shadowed):
+//
+//   - primary-write (§4 PreToolUse, §5) [isolation]: a Write or Bash write
+//     that lands in the main checkout while the lane is trunk.
+//   - bypass-gate (§4 Shims): --no-verify, -c core.hooksPath.
+//   - trunk-move (§4 Shims): a move off trunk in the primary checkout.
+//   - trunk-commit (§4 pre-commit): a non-merge commit on trunk there.
+//   - trunk-push (§4 pre-push, C17): a push adding a non-merge commit to trunk.
+//   - merge-bypass (§5): a push to trunk or gh pr merge around the merge gate.
+//   - merge-no-green (§4 pre-merge-commit): a merge without a green verdict
+//     for the merged tree on every declared OS.
+//   - discard-work (§5): discarding uncommitted work.
+//   - attribution (§4 commit-msg, pre-push) [undercover]: attribution in an
+//     undercover repo.
+//   - secrets (§5, C14): blocks every author, human included.
+//
+// Block, earned (RuleEarned; shadowed in 10% of lanes unless pinned):
+//
+//   - deny-law-edit (§4 PreToolUse), deny-law-commit (§4 pre-commit): a deny
+//     law's weight rises at edit, or regresses at commit.
+//   - commit-proof, commit-vet (§4 pre-commit): the red→green proof, vet.
+//   - bypass-verb (§5): an outward call that does by hand what a verb does.
+//   - red-green (§3 TDD machine) [tdd]: untested code under enforce; warn is
+//     the default level, so it guides.
+//   - stop-red (§4 Stop, SubagentStop) [tdd]: blocks once on an unseen red,
+//     under enforce only.
+//
+// Block only where pinned (RulePinned; never shadowed):
+//
+//   - mutation (§5, §6) [mutation]: survivors on added lines; off unless the
+//     repo opts in, a guide at warn, a block only at enforce.
+//
+// Guide (RuleGuide; at most additionalContext at any level): warn-law,
+// lint, commit-checks (baseline, docs and suppression: §5 names no level),
+// long-wait, rerun-suite, noisy-output, not-tested, escape-hold (C9) and
+// run-result (bogus, pending, passed at once, flaky, stale).
+//
+// The §5 "real repo" rule is not here: it is the sealed environment's, in run.
+//
+// # How Decide decides
+//
+// The precedence is fixed (see Decide): rows in table order, which is the §4
+// PreToolUse order; a row at off does not fire; a deny row only guides at
+// warn, for a human, for an event that is a fact, or in the holdout arm (all
+// marked WouldDeny, the last also HeldOut); the strongest outcome wins and the
+// earlier row wins a tie. Only a question (tool.pre, commit.pre, push.pre,
+// merge.pre, stop) can be denied, and a question moves no machine. The arm is
+// FNV-1a of the lane id and the rule id, one in ten, so a lane lands in the
+// same arm every time. A deny always carries its rule, cause, next step and
+// override (§1, §4).
 package kernel

@@ -38,7 +38,25 @@ const (
 	// head arrives as the ci.verdict it is; other escape classes hold nothing
 	// and need not reach the machine.
 	KindEscape Kind = "escape"
+
+	// The rule table's questions (§4): an adapter asks the kernel whether a
+	// call, a commit, a push, a merge or a stop may go ahead. A question is
+	// not a fact: it moves no machine, and only a question can be denied.
+	KindPreTool   Kind = "tool.pre"
+	KindPreCommit Kind = "commit.pre"
+	KindPrePush   Kind = "push.pre"
+	KindPreMerge  Kind = "merge.pre"
+	KindStop      Kind = "stop"
 )
+
+// question reports whether the kind asks for a decision rather than states a fact.
+func (k Kind) question() bool {
+	switch k {
+	case KindPreTool, KindPreCommit, KindPrePush, KindPreMerge, KindStop:
+		return true
+	}
+	return false
+}
 
 // FileClass is what the adapter's parser made of an edited file. The zero
 // value means nobody parsed the write (§3 "Writes nobody parsed").
@@ -158,6 +176,24 @@ type Event struct {
 	Stage    string   // escape
 	EscapeID string   // escape: the id a hold is released by
 	Closes   []string // lane.merged: the escapes the merged lane's closes-by names
+
+	// The rule table's facts (§4, §5), read by the adapter from the payload and
+	// the box. Claude is CLAUDECODE=1: a human at a terminal is advised, never
+	// blocked. A fact left at its zero value reads as "no damage".
+	Claude      bool
+	Tool        Tool      // tool.pre
+	Target      PathClass // where the write or command lands
+	Cmds        Cmd       // tool.pre: what the Bash or PowerShell command does
+	NonMerge    bool      // commit.pre, push.pre: a non-merge commit (pushed: one on the first-parent chain)
+	LawHit      string    // tool.pre, commit.pre: the law whose weight rose or regressed
+	LawDeny     bool      // LawHit is a deny law, not a warn law
+	Secret      bool      // tool.pre, commit.pre: a secret in the write or commit
+	Attribution bool      // commit.pre, push.pre: attribution in the message or ref
+	Failed      Check     // commit.pre: the stage that failed
+	Survivors   int       // commit.pre, merge.pre: mutation survivors and not-covered mutants on added lines
+	GreenOS     []string  // merge.pre: the OSes with a green verdict for exactly the merged tree
+	UnseenRed   bool      // stop: this actor has not seen an outstanding red
+	StopActive  bool      // stop: stop_hook_active
 }
 
 // EffectKind names work the engine runs after the lock is released. The
