@@ -185,3 +185,35 @@ func TestPipeline_PullRequestRunPublishesTheTreeItTested(t *testing.T) {
 		t.Errorf("the tree is not recorded on a merge_group run, so the queue's verdict has no tree to match:\n%s", record)
 	}
 }
+
+// gitleaks reads the full-history checkout, which holds every lane branch: a
+// secret in a lane commit since rewritten failed main's push run. The scan is
+// scoped to the range the event adds, with a fallback to HEAD alone.
+func TestPipeline_SecretScanReadsOnlyTheRangeTheEventAdds(t *testing.T) {
+	t.Parallel()
+	job := pipelineJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"), "scan")
+	i := strings.Index(job, "./gitleaks detect")
+	if i < 0 {
+		t.Fatal("scan job has no gitleaks run")
+	}
+	step := job[strings.LastIndex(job[:i], "      - "):]
+	if next := strings.Index(step[1:], "\n      - "); next >= 0 {
+		step = step[:next+1]
+	}
+	for _, want := range []string{
+		`--log-opts="$range"`,
+		"github.event.pull_request.base.sha",
+		"github.event.merge_group.base_sha",
+		"github.event.before",
+		`range="$RANGE_BASE..HEAD"`,
+		"range=HEAD",
+		`git rev-parse --verify --quiet "$RANGE_BASE^{commit}"`,
+	} {
+		if !strings.Contains(step, want) {
+			t.Errorf("the gitleaks step lacks %q:\n%s", want, step)
+		}
+	}
+	if strings.Contains(step, "--all") {
+		t.Errorf("the gitleaks step scans --all, every lane branch:\n%s", step)
+	}
+}

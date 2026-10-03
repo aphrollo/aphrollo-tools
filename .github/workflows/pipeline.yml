@@ -1155,7 +1155,22 @@ jobs:
       - name: gitleaks
         id: secretscan
         continue-on-error: true
-        run: ./gitleaks detect --no-banner --redact -v --exit-code 1
+        # Scans what the event adds, not every branch: the full-history
+        # checkout holds every lane branch, and a secret in a lane commit that
+        # was since rewritten is not in anything this event lands. A base that
+        # is missing (an all-zero `before` of a new branch, a sha a force-push
+        # dropped) falls back to the history of HEAD alone.
+        env:
+          RANGE_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -n "$RANGE_BASE" ] && git rev-parse --verify --quiet "$RANGE_BASE^{commit}" >/dev/null; then
+            range="$RANGE_BASE..HEAD"
+          else
+            range=HEAD
+          fi
+          echo "gitleaks scans: $range"
+          ./gitleaks detect --no-banner --redact -v --exit-code 1 --log-opts="$range"
       - name: Fail if any scan step failed
         # Each check above runs regardless of an earlier one's outcome
         # (continue-on-error), so this is the one place the job's overall
