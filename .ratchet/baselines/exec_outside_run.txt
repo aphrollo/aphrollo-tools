@@ -1,27 +1,20 @@
-internal/workspace/prune.go | _ = exec.Command("git", "-C", repo, "worktree", "remove", wt).Run()
-internal/workspace/escapecheck.go | bod, _ := exec.Command("git", "-C", wt, "log", "-1", "--format=%b", sha).Output()  // stderr-ok: same as above
-internal/workspace/ghrest.go | bod, _ := exec.Command("git", "-C", wt, "log", "-1", "--format=%b", shas[0]).Output()
-internal/workspace/verify.go | c := exec.Command(cmd[0], cmd[1:]...)
 internal/depinstall/junction_windows.go | cmd := exec.Command("cmd.exe")
 internal/ratchet/basetree.go | cmd := exec.Command("git", "-C", g.root, "cat-file", "--batch")
 internal/sqlc/scoped.go | cmd := exec.Command("git", "-C", repo, "cat-file", "-e", fmt.Sprintf("%s:%s", ref, relpath))
 internal/sqlc/scoped.go | cmd := exec.Command("git", "-C", repo, "rev-parse", "--verify", ref+"^{commit}")
 internal/sqlc/scoped.go | cmd := exec.Command("git", "-C", repo, "show", fmt.Sprintf("%s:%s", ref, relpath))
-internal/workspace/mergewait.go | cmd := exec.Command("git", "-C", wt, "rev-parse", "HEAD")
 internal/undercover/commit.go | cmd := exec.Command("git", "config", scope, "--get", key)
 internal/gitiso/verify.go | cmd := exec.Command("git", "for-each-ref", "--format=%(refname) %(objectname)")
 internal/commitrecord/commitrecord.go | cmd := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", "HEAD")
 internal/docs/docs.go | cmd := exec.Command("git", args...)
 internal/gitiso/verify.go | cmd := exec.Command("git", args...)
 internal/gitiso/verify.go | cmd := exec.Command("git", args...)
-internal/workspace/diff.go | cmd := exec.Command("git", args...)
 internal/shfake/shfake.go | cmd := exec.Command("go", "build", "-o", exe, ".")
 internal/tdd/internal/tddtest/gh.go | cmd := exec.Command("go", "build", "-o", filepath.Join(dir, name), ".")
 internal/ratchet/golist_graph.go | cmd := exec.Command("go", append(args, "./...")...)
 internal/tdd/postedit/deferred_unix.go | cmd := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
 internal/dev/dev.go | cmd := exec.Command(argv[0], argv[1:]...)
 internal/tdd/mutation/mutants_measure_judge.go | cmd := exec.Command(argv[0], argv[1:]...)
-internal/workspace/devmigrate.go | cmd := exec.Command(bin, "-dir", migDir, "postgres", devDBURL(), "up")
 internal/sqlc/regen.go | cmd := exec.Command(bin, "-f", cfg.Name, "generate")
 internal/ratchet/wholetree.go | cmd := exec.Command(cargo, args...)
 internal/tdd/internal/tddtest/git.go | cmd := exec.Command(gitBin(), "-c", "core.hooksPath=", "commit", "-q", "-m", "fixture", "--no-verify")
@@ -40,8 +33,6 @@ internal/tdd/merge/commitmsg_identity.go | cmd := exec.Command(gitBinary(), args
 internal/tdd/mutation/mutants_measure_tree.go | cmd := exec.Command(gitBinary(), args...)
 internal/tdd/precommit/precommit_go.go | cmd := exec.Command(golangciLint, "--version")
 internal/tdd/postedit/deferred_run.go | cmd := exec.Command(j.Runner[0], args...)
-internal/workspace/claim.go | cmd := exec.Command(rule.Argv[0], rule.Argv[1:]...)
-internal/workspace/run.go | cmd := exec.Command(s.Cmd[0], s.Cmd[1:]...)
 internal/tdd/merge/postmerge_testmap.go | cmd := exec.Command(self, "gate", "mutants", "testmap")
 internal/tdd/postedit/mutantsedit.go | cmd := exec.Command(self, CmdName, "mutants", "edit", "--file", job.File, "--done", job.Done)
 internal/tdd/postedit/deferred_run.go | cmd := exec.Command(self, CmdName, "runphase", "--job", deferredJobPath(saved.Session, saved.Project))
@@ -56,14 +47,9 @@ internal/tdd/internal/tddtest/main.go | cmd := exec.CommandContext(ctx, cargo, "
 internal/tdd/behind.go | cmd := exec.CommandContext(ctx, gitProgram, "ls-remote", "--heads", binaryBehindRemote, "main")
 internal/refactor/spawn.go | cmd := exec.CommandContext(ctx, lang.Command, lang.Args...)
 internal/tdd/mutation/mutants_measure.go | cmd := exec.CommandContext(ctx, name, args...)
-internal/workspace/netexec.go | cmd := exec.CommandContext(ctx, name, args...)
 internal/gitiso/verify.go | cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^"+probe+"$", "-test.count=1", "-test.v")
 internal/ghworkflow/isolate.go | cmd := exec.CommandContext(ctx, python, "-m", "venv", dir)
 internal/ghworkflow/run.go | cmd := exec.CommandContext(stepCtx, argv[0], argv[1:]...)
-internal/workspace/sync.go | if out, err := exec.Command("git", "-C", holder, "merge", "--ff-only", remote).CombinedOutput(); err != nil {
-internal/workspace/sync.go | if out, err := exec.Command("git", "-C", top, "branch", "--force", "--no-track", def, remote).CombinedOutput(); err != nil {
-internal/workspace/commit.go | if out, err := exec.Command("git", "-C", wt, "add", "-A").CombinedOutput(); err != nil {
-internal/workspace/prune.go | if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
 internal/tdd/install/gitgate.go | if out, err := exec.Command(gitBinary(), "config", "--global", "--unset", key).CombinedOutput(); err != nil {
 internal/tdd/install/gitgate.go | if out, err := exec.Command(gitBinary(), "config", "--global", key, val).CombinedOutput(); err != nil {
 internal/ghworkflow/priority_unix.go | if p, err := exec.LookPath("ionice"); err == nil && exec.Command(p, "-c", "2", "-n", "7", "true").Run() == nil {
@@ -72,53 +58,12 @@ internal/gitiso/gitiso.go | out, _ := exec.Command("go", "env", "-json", "GOPATH
 internal/shfake/shfake.go | out, err := exec.Command("git", "--exec-path").Output() // stderr-ok: a failed lookup means no sh, which Install reports
 internal/ghworkflow/shell_windows.go | out, err := exec.Command("git", "--exec-path").Output() // stderr-ok: a failed probe falls back to the PATH lookup
 internal/docs/docs.go | out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
-internal/workspace/run.go | out, err := exec.Command("git", "-C", p.Worktree, "rev-parse", "--short", "HEAD").Output()
-internal/workspace/workspace.go | out, err := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel").Output()
-internal/workspace/target.go | out, err := exec.Command("git", "-C", path, "worktree", "list", "--porcelain").Output()
-internal/workspace/run.go | out, err := exec.Command("git", "-C", r.top, "branch", "-D", "--", r.branch).CombinedOutput()
-internal/workspace/workspace.go | out, err := exec.Command("git", "-C", repo, "rev-list", "--count", from+".."+to).Output()
-internal/workspace/workspace.go | out, err := exec.Command("git", "-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD").Output()
-internal/workspace/prune.go | out, err := exec.Command("git", "-C", repo, "worktree", "list", "--porcelain").Output()
-internal/workspace/sync.go | out, err := exec.Command("git", "-C", repo, "worktree", "list", "--porcelain").Output()
-internal/workspace/verify.go | out, err := exec.Command("git", "-C", root, "ls-files", "--", "package.json", "*/package.json").Output()
-internal/workspace/target.go | out, err := exec.Command("git", "-C", top, "symbolic-ref", "--short", "-q", "HEAD").Output()
-internal/workspace/run.go | out, err := exec.Command("git", "-C", top, "worktree", "list", "--porcelain").Output()
-internal/workspace/update.go | out, err := exec.Command("git", "-C", wt, "diff", "--name-only", "--diff-filter=U").Output()
-internal/workspace/verify.go | out, err := exec.Command("git", "-C", wt, "diff", "--name-only", baseRef).Output()
-internal/workspace/ghrest.go | out, err := exec.Command("git", "-C", wt, "log", "--reverse", "--format=%H", base+".."+branch).Output()
-internal/workspace/escapecheck.go | out, err := exec.Command("git", "-C", wt, "log", "--reverse", "--format=%H", base+".."+head).Output() // stderr-ok: a failed log here just yields no extra text, same as an empty range
-internal/workspace/prune_stale.go | out, err := exec.Command("git", "-C", wt, "log", "-1", "--format=%ct").Output()
-internal/workspace/prune_stale.go | out, err := exec.Command("git", "-C", wt, "ls-files", "--cached", "--others", "--exclude-standard", "-z").Output()
-internal/workspace/premutants.go | out, err := exec.Command("git", "-C", wt, "merge-base", "HEAD", ref).Output() // stderr-ok: no merge base is the whole signal, and the caller defers to CI saying so
-internal/workspace/update.go | out, err := exec.Command("git", "-C", wt, "rebase", base).CombinedOutput()
-internal/workspace/ghrest.go | out, err := exec.Command("git", "-C", wt, "remote", "get-url", "origin").Output()
-internal/workspace/push.go | out, err := exec.Command("git", "-C", wt, "remote", "get-url", "origin").Output()
-internal/workspace/push.go | out, err := exec.Command("git", "-C", wt, "rev-list", "--count", base+"..HEAD").Output()
-internal/workspace/push.go | out, err := exec.Command("git", "-C", wt, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").Output()
-internal/workspace/commit.go | out, err := exec.Command("git", "-C", wt, "rev-parse", "--short", "HEAD").Output()
-internal/workspace/prune.go | out, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output()
-internal/workspace/commit.go | out, err := exec.Command("git", "-C", wt, "show", "--shortstat", "--oneline", "--no-color", "HEAD").Output()
-internal/workspace/commit.go | out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
-internal/workspace/prune.go | out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
-internal/workspace/prune_stale.go | out, err := exec.Command("git", "-C", wt, "status", "--porcelain").Output()
-internal/workspace/workspace.go | out, err := exec.Command("git", "config", "--file", runtimeGitConfig(), "--get-all", "safe.directory").Output()
-internal/workspace/commit.go | out, err := exec.Command("git", args...).CombinedOutput()
-internal/workspace/run.go | out, err := exec.Command("git", args...).CombinedOutput()
 internal/tdd/lock/mutants_ram_unix.go | out, err := exec.Command("pgrep", "-x", name).Output()
 internal/tdd/lock/mutants_ram_windows.go | out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq "+image, "/NH", "/FO", "CSV").Output()
 internal/tdd/merge/commitmsg_defaults.go | out, err := exec.Command(gitBinary(), "-C", repoRoot, "diff", "--cached", "--shortstat").Output() // stderr-ok: failure silently answers zero, never surfaced
 internal/tdd/failfirst/deferred_edit_failfirst.go | out, err := exec.Command(gitBinary(), "-C", root, "rev-parse", "HEAD").Output()
 internal/tdd/install/gitgate.go | out, err := exec.Command(gitBinary(), "config", "--global", "--get", key).Output()
-internal/workspace/sync.go | return exec.Command("git", "-C", repo, "merge-base", "--is-ancestor", ancestor, descendant).Run() == nil
-internal/workspace/workspace.go | return exec.Command("git", "-C", repo, "rev-parse", "--verify", "--quiet", ref).Run() == nil
-internal/workspace/run.go | return exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
-internal/workspace/workspace.go | return exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
-internal/workspace/commit.go | return exec.Command("git", "-C", wt, "diff", "--cached", "--quiet").Run() != nil
-internal/workspace/push.go | return exec.Command("git", "-C", wt, "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branch).Run() == nil
 internal/proc/killtree_windows.go | return exec.Command(plan[0], plan[1:]...).Run()
 internal/ghtransport/ghtransport.go | return exec.CommandContext(ctx, bin, args...).CombinedOutput()
 internal/tdd/failfirst/failfirst_pytest.go | return exec.CommandContext(ctx, python, "-c", "import pytest").Run()
 internal/ratchet/basetree.go | showCmd := exec.Command("git", "-C", g.root, "show", g.ref+":"+path)
-internal/workspace/ghrest.go | subj, _ := exec.Command("git", "-C", wt, "log", "-1", "--format=%s", sha).Output()
-internal/workspace/escapecheck.go | subj, _ := exec.Command("git", "-C", wt, "log", "-1", "--format=%s", sha).Output() // stderr-ok: a failed subject read just omits it
-internal/workspace/ghrest.go | subj, _ := exec.Command("git", "-C", wt, "log", "-1", "--format=%s", shas[0]).Output()

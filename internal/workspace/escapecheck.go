@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"strconv"
 	"strings"
 
@@ -75,14 +74,14 @@ var verifyClosureLocal = tdd.VerifyClosureLocal
 // wt, oldest first — the same texts GitHub reads a closing keyword out of
 // inside a PR's own commits (readPRMeta, internal/tdd/escape/escape_verify.go).
 func commitMessagesSince(wt, base, head string) []string {
-	out, err := exec.Command("git", "-C", wt, "log", "--reverse", "--format=%H", base+".."+head).Output() // stderr-ok: a failed log here just yields no extra text, same as an empty range
+	out, err := lightGit("-C", wt, "log", "--reverse", "--format=%H", base+".."+head) // stderr-ok: a failed log here just yields no extra text, same as an empty range
 	if err != nil {
 		return nil
 	}
 	var texts []string
 	for _, sha := range strings.Fields(string(out)) {
-		subj, _ := exec.Command("git", "-C", wt, "log", "-1", "--format=%s", sha).Output() // stderr-ok: a failed subject read just omits it
-		bod, _ := exec.Command("git", "-C", wt, "log", "-1", "--format=%b", sha).Output()  // stderr-ok: same as above
+		subj, _ := lightGit("-C", wt, "log", "-1", "--format=%s", sha) // stderr-ok: a failed subject read just omits it
+		bod, _ := lightGit("-C", wt, "log", "-1", "--format=%b", sha)  // stderr-ok: same as above
 		texts = append(texts, strings.TrimSpace(string(subj)), strings.TrimSpace(string(bod)))
 	}
 	return texts

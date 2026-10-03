@@ -19,6 +19,17 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.7.3 - 2026-10-03
+
+The workspace verbs start their child processes through the process runner.
+
+### What you will notice
+
+- A child that `aphrollo workspace` starts (git reads and writes, fetch and push, gh calls, the dependency install of `create` and `claim`, the steps of `verify`, goose in `claim`) is ended with everything it started when its time is up, it is cancelled, or the command exits: a job object on Windows, a process group elsewhere. Before, a hung `npm install` or git could leave its children behind.
+- A git or gh child that had no time limit now has a 10 minute ceiling, and `git commit` (whose pre-commit hook is the gate) an hour; both run with git's and gh's terminal prompts off, so one that would have asked a question fails at once. Fetch, push and gh keep their 120 and 60 second budgets and the "timed out after" message.
+- A dependency install or verify step runs in the environment it had before, with no slot to wait for. A guard that cannot be set up on a box never fails it: the child runs without it and one line on stderr says so.
+- Nothing else changes: the same output, exit codes and merge, CI-wait and stale-CI behaviour.
+
 ## 1.7.2 - 2026-10-03
 
 The guardrail refuses a `python -` that has no stdin on Windows.

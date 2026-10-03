@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/url"
-	"os/exec"
 	"strings"
 )
 
@@ -185,7 +184,7 @@ func (p *Push) state() string {
 // upstreamRef returns the configured upstream (e.g. "origin/feat") or "" if the
 // branch has none.
 func upstreamRef(wt string) string {
-	out, err := exec.Command("git", "-C", wt, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").Output()
+	out, err := lightGit("-C", wt, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 	if err != nil {
 		return ""
 	}
@@ -193,12 +192,12 @@ func upstreamRef(wt string) string {
 }
 
 func remoteBranchExists(wt, branch string) bool {
-	return exec.Command("git", "-C", wt, "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branch).Run() == nil
+	return lightGitOK("-C", wt, "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branch)
 }
 
 // aheadCount returns how many commits HEAD is ahead of base, as a string.
 func aheadCount(wt, base string) string {
-	out, err := exec.Command("git", "-C", wt, "rev-list", "--count", base+"..HEAD").Output()
+	out, err := lightGit("-C", wt, "rev-list", "--count", base+"..HEAD")
 	if err != nil {
 		return ""
 	}
@@ -208,7 +207,7 @@ func aheadCount(wt, base string) string {
 // branchURL turns origin's remote URL into a github tree URL for the branch,
 // normalizing both ssh and https forms. Returns "" for a non-github remote.
 func branchURL(wt, branch string) string {
-	out, err := exec.Command("git", "-C", wt, "remote", "get-url", "origin").Output()
+	out, err := lightGit("-C", wt, "remote", "get-url", "origin")
 	if err != nil {
 		return ""
 	}

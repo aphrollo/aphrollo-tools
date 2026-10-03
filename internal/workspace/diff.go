@@ -3,7 +3,8 @@ package workspace
 import (
 	"fmt"
 	"io"
-	"os/exec"
+
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Diff prints the target branch's PR diff: `git diff <base>...HEAD`, where base
@@ -22,10 +23,7 @@ func Diff(t *Target, stat bool, stdout, stderr io.Writer) error {
 		args = append(args, "--stat")
 	}
 	args = append(args, base+"...HEAD")
-	cmd := exec.Command("git", args...)
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	if err := cmd.Run(); err != nil {
+	if err := lightRun(childrun.Spec{Name: "git", Args: args, Stdout: stdout, Stderr: stderr}); err != nil {
 		return fmt.Errorf("git diff %s...HEAD: %w", base, err)
 	}
 	return nil

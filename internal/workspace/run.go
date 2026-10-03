@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Render returns the human-readable plan. With apply=false it is the dry-run
@@ -99,22 +99,14 @@ func Apply(p *Plan, stdout, stderr io.Writer) error {
 // original unbounded exec.Command — a local `git worktree add` or an
 // `npm install` is not the hang this bounds.
 func runStep(s Step, env []string, stdout, stderr io.Writer) error {
-	if !s.Network {
-		cmd := exec.Command(s.Cmd[0], s.Cmd[1:]...)
-		cmd.Dir = s.Dir
-		cmd.Env = env
-		cmd.Stdout = stdout
-		cmd.Stderr = stderr
-		return cmd.Run()
+	spec := childrun.Spec{Name: s.Cmd[0], Args: s.Cmd[1:], Dir: s.Dir, Env: env, Stdout: stdout, Stderr: stderr}
+	switch {
+	case s.Network:
+		return networkRun(s.Dir, env, gitNetworkTimeout, stdout, stderr, s.Cmd[0], s.Cmd[1:]...)
+	case s.Install:
+		return heavyRun(spec)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), gitNetworkTimeout)
-	defer cancel()
-	cmd := networkCmd(ctx, s.Dir, s.Cmd[0], s.Cmd[1:]...)
-	cmd.Env = append(env, "GIT_TERMINAL_PROMPT=0")
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	err := cmd.Run()
-	return networkTimeoutErr(ctx.Err() == context.DeadlineExceeded, gitNetworkTimeout, s.Cmd[0], s.Cmd[1:], err)
+	return lightRun(spec)
 }
 
 // reportBase prints the worktree's base commit and, when a default remote branch
@@ -124,7 +116,7 @@ func runStep(s Step, env []string, stdout, stderr io.Writer) error {
 // base detail if the worktree or refs can't be read.
 func reportBase(p *Plan, stdout io.Writer) {
 	// stderr-ok: best-effort base detail, the caller reports nothing on failure
-	out, err := exec.Command("git", "-C", p.Worktree, "rev-parse", "--short", "HEAD").Output()
+	out, err := lightGit("-C", p.Worktree, "rev-parse", "--short", "HEAD")
 	if err != nil {
 		return
 	}
@@ -160,7 +152,7 @@ func List(repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := exec.Command("git", "-C", top, "worktree", "list", "--porcelain").Output()
+	out, err := lightGit("-C", top, "worktree", "list", "--porcelain")
 	if err != nil {
 		return "", fmt.Errorf("git worktree list: %w", err)
 	}
@@ -339,7 +331,7 @@ func (r *Removal) removeWorktree(stdout io.Writer) error {
 		args = append(args, "--force")
 	}
 	args = append(args, r.worktree)
-	out, err := exec.Command("git", args...).CombinedOutput()
+	out, err := lightGitCombined(args...)
 	if err != nil {
 		if isNotAWorktree(string(out)) {
 			fmt.Fprintf(stdout, "[skip] worktree %s — already gone\n", r.worktree)
@@ -361,7 +353,7 @@ func (r *Removal) deleteBranch(stdout io.Writer) error {
 	}
 	// "--" guards the branch name as a positional (defense in depth behind Slugify,
 	// which the branch passed at plan time).
-	out, err := exec.Command("git", "-C", r.top, "branch", "-D", "--", r.branch).CombinedOutput()
+	out, err := lightGitCombined("-C", r.top, "branch", "-D", "--", r.branch)
 	if err != nil {
 		return fmt.Errorf("git branch -D %s: %v\n%s", r.branch, err, strings.TrimSpace(string(out)))
 	}
@@ -371,7 +363,7 @@ func (r *Removal) deleteBranch(stdout io.Writer) error {
 
 // localBranchExists reports whether repo has a local branch by this name.
 func localBranchExists(repo, branch string) bool {
-	return exec.Command("git", "-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch).Run() == nil
+	return lightGitOK("-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
 }
 
 // isNotAWorktree reports whether git's output is the benign "the dir is not a
