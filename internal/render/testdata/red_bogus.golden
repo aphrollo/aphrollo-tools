@@ -1,0 +1,1 @@
+trellis: red-bogus internal/store · build failed: store.go:88: undefined: lockPath · fix the setup; this is not a red

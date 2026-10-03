@@ -1,0 +1,3 @@
+trellis: red internal/lane TestOpenOnRed · --- FAIL: TestOpenOnRed (0.00s) · code edits open in internal/lane until it is green
+  lane_test.go:41: want open, got closed
+  FAIL

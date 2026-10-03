@@ -1,0 +1,1 @@
+trellis deny [primary-write] Write lands in the main checkout on trunk · do: EnterWorktree name=fix-parse · override: trellis allow primary-write --once · wrong? trellis feedback d-7f3a
