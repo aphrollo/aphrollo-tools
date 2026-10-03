@@ -250,7 +250,7 @@ func GatePRMergeReusingCI(laneWorktree string, run SuiteRunner, log io.Writer, v
 		return judgeMergedTree(laneWorktree, run, log, &tips)
 	}
 	note := ""
-	if docsOnly(laneWorktree, tips) {
+	if laneChangesOnlyMarkdown(laneWorktree, tips) {
 		// CI's test job concludes success with its steps skipped on a diff
 		// with no code, so its green says nothing was run.
 		note = " — CI ran no tests: non-code diff"
@@ -259,8 +259,8 @@ func GatePRMergeReusingCI(laneWorktree string, run SuiteRunner, log io.Writer, v
 	return judgeMergedTreeWith(laneWorktree, run, log, &tips, MechanicalLaws)
 }
 
-// docsOnly is whether everything the lane changes against trunk is markdown.
-func docsOnly(laneWorktree string, tips prGateTips) bool {
+// laneChangesOnlyMarkdown is whether everything the lane changes against trunk is markdown.
+func laneChangesOnlyMarkdown(laneWorktree string, tips prGateTips) bool {
 	out := strings.TrimSpace(gitOut(laneWorktree, "diff", "--name-only", tips.trunk+"..."+tips.lane))
 	if out == "" {
 		return false
