@@ -16,20 +16,20 @@ func (l Line) Deliver(h Hook, actor string) Delivery {
 	return Delivery{ID: l.ID, Hook: h, Actor: actor}
 }
 
-// Reaches says whether the output of a hook is read by the agent (§12 F3
-// results): PostToolBatch and SubagentStart context are, and so are the lines
-// the gate has always put on PreToolUse, PostToolUse, UserPromptSubmit,
-// SessionStart, and a Stop block's reason. Setup, CwdChanged and
-// DirectoryAdded reach nobody, SessionEnd has nobody left to read it, and a
-// hook this build does not know is not trusted: its deliveries do not count,
-// so a line is said again, never lost.
+// Reaches says whether the output of a hook is known to be read by the agent.
+// Only what F3 recorded counts (§12 F3 results, payloads under
+// internal/tdd/internal/tddtest/testdata/hooks): additionalContext at
+// PostToolBatch ("after every batch, in -p and interactive") and at
+// SubagentStart (verbatim, to the subagent only). PreToolUse, PostToolUse,
+// UserPromptSubmit, SessionStart, Stop and SubagentStop fire in the
+// recordings, but no recording shows what the agent read of their output, so a
+// line delivered through them is not yet seen: it is said again at the next
+// proven hook, which costs a line and loses none. A hook is added here with the
+// recording that proves it. Setup, CwdChanged and DirectoryAdded did not fire,
+// SessionEnd has nobody left to read it, and a hook this build does not know
+// is not trusted.
 func Reaches(h Hook) bool {
-	switch h {
-	case HookPreToolUse, HookPostToolUse, HookPostToolBatch, HookSubagentStart, HookUserPromptSubmit,
-		HookSessionStart, HookStop, HookSubagentStop:
-		return true
-	}
-	return false
+	return h == HookPostToolBatch || h == HookSubagentStart
 }
 
 // Due says whether a line has to be said to actor: it says something, and no

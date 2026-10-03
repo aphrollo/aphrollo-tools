@@ -122,7 +122,7 @@ trellis is a gate built around lanes and an event log.
 
 **Lane record.**
 
-`{f, fold, seq, branch, worktree, base, head, life, actors:{actor: last_seen}, seen:{actor: seq}, deps, tdd:{unit: {state, test, last_real}}, unproven:[unit], holds:[escape]}`
+`{f, fold, seq, branch, worktree, base, head, life, actors:{actor: last_seen}, seen:{actor: [line id, newest last]}, deps, tdd:{unit: {state, test, last_real}}, unproven:[unit], holds:[escape]}`
 
 - `actors` is the session registry that post-merge needs.
 - `base` is recorded at `lane.opened` (C5).

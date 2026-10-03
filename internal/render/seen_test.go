@@ -1,6 +1,8 @@
 package render
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
@@ -8,10 +10,13 @@ import (
 
 func TestReaches_followsWhatTheRecordedHooksDeliver(t *testing.T) {
 	want := map[Hook]bool{
-		// F3, 2026-10-03: PostToolBatch and SubagentStart context reach the agent;
-		// the gate's own PreToolUse, PostToolUse and UserPromptSubmit lines always did.
-		HookPostToolBatch: true, HookSubagentStart: true, HookPostToolUse: true, HookPreToolUse: true,
-		HookUserPromptSubmit: true, HookSessionStart: true, HookStop: true, HookSubagentStop: true,
+		// F3 results, 2026-10-03: additionalContext at these two reached the agent,
+		// recorded with a payload fixture each.
+		HookPostToolBatch: true, HookSubagentStart: true,
+		// Fired in the recordings, but no recording shows what the agent read of
+		// their output: an unproven hook repeats a line rather than lose it.
+		HookPostToolUse: false, HookPreToolUse: false, HookUserPromptSubmit: false, HookSessionStart: false,
+		HookStop: false, HookSubagentStop: false,
 		// Output of these never reaches the agent, or the hook did not fire.
 		HookCwdChanged: false, HookDirectoryAdded: false, HookSetup: false, HookSessionEnd: false,
 		HookTaskCompleted: false, "FromTheFuture": false, "": false,
@@ -19,6 +24,20 @@ func TestReaches_followsWhatTheRecordedHooksDeliver(t *testing.T) {
 	for h, w := range want {
 		if got := Reaches(h); got != w {
 			t.Errorf("Reaches(%q) = %v, want %v", h, got, w)
+		}
+	}
+}
+
+// TestReaches_everyCountedHookHasARecordedPayload ties the list to the
+// evidence: a hook counts only while its recorded payload is committed.
+func TestReaches_everyCountedHookHasARecordedPayload(t *testing.T) {
+	fixtures := map[Hook]string{HookPostToolBatch: "posttoolbatch.json", HookSubagentStart: "subagentstart.json"}
+	for h, file := range fixtures {
+		if !Reaches(h) {
+			t.Errorf("%s has a recorded payload but does not count", h)
+		}
+		if _, err := os.Stat(filepath.Join("..", "tdd", "internal", "tddtest", "testdata", "hooks", file)); err != nil {
+			t.Errorf("%s counts as reaching the agent without its recorded payload: %v", h, err)
 		}
 	}
 }
@@ -39,7 +58,7 @@ func TestDue_aLineIsSeenOnlyAfterADeliveryThatReachedThisActor(t *testing.T) {
 		{"delivered to another actor", []Delivery{line.Deliver(HookSubagentStart, sub)}, me, true},
 		{"the subagent saw it", []Delivery{line.Deliver(HookSubagentStart, sub)}, sub, false},
 		{"another line was delivered", []Delivery{other.Deliver(HookPostToolBatch, me)}, me, true},
-		{"a reaching delivery among useless ones", []Delivery{line.Deliver(HookCwdChanged, me), line.Deliver(HookUserPromptSubmit, me)}, me, false},
+		{"a reaching delivery among useless ones", []Delivery{line.Deliver(HookCwdChanged, me), line.Deliver(HookPostToolBatch, me)}, me, false},
 	}
 	for _, c := range cases {
 		if got := Due(line, c.who, c.log); got != c.want {
