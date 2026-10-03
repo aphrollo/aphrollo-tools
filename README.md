@@ -21,7 +21,7 @@ go build -o aphrollo ./cmd/aphrollo   # then put it on PATH
 aphrollo install                      # session hooks, git gate, skills, agents, queue shims
 aphrollo install --managed-block-only --repo <lane>   # re-render only the CLAUDE.md block (no hooks, no shims)
 aphrollo version                      # semantic version, then the stamped commit and build time
-aphrollo update                       # rebuild from origin/main and swap it in
+aphrollo update                       # build the newest release tag and swap it in
 ```
 
 The version lives in `internal/buildinfo/VERSION`, and `CHANGELOG.md` says per
