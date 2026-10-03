@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/aphrollo/aphrollo-tools/internal/workspace"
 )
@@ -79,23 +80,33 @@ func runWorkspacePR(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pr", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		dry   = fs.Bool("dry", false, "print the plan and stop (default: execute)")
-		base  = fs.String("base", "", "base branch for the PR (default: the repo's resolved default branch)")
-		title = fs.String("title", "", "PR title (default: filled from the commits)")
-		body  = fs.String("body", "", "PR body")
-		ready = fs.Bool("ready", false, "open the PR ready for review instead of as a draft")
-		into  = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
+		dry      = fs.Bool("dry", false, "print the plan and stop (default: execute)")
+		base     = fs.String("base", "", "base branch for the PR (default: the repo's resolved default branch)")
+		title    = fs.String("title", "", "PR title (default: filled from the commits)")
+		body     = fs.String("body", "", "PR body")
+		bodyFile = fs.String("body-file", "", "read the PR body from this file; an unreadable file refuses (never an empty body)")
+		ready    = fs.Bool("ready", false, "open the PR ready for review instead of as a draft")
+		into     = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
 	)
 	skip := skipMutantsFlag(fs)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		return 2
 	}
+	prBody := *body
+	if *bodyFile != "" {
+		data, err := os.ReadFile(*bodyFile)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: --body-file %s: %v\n", *bodyFile, err)
+			return 1
+		}
+		prBody = string(data)
+	}
 	t, ok := resolveVerbTarget(pos, *into, stderr)
 	if !ok {
 		return 2
 	}
-	pr, err := workspace.PRPlan(t, *base, *title, *body, !*ready)
+	pr, err := workspace.PRPlan(t, *base, *title, prBody, !*ready)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
 		return 1
