@@ -344,8 +344,21 @@ func spawnFailedLine(root, phase string) string {
 // those are exactly the changes that make an answer stale without anyone
 // telling the gate. Outside a git repo it falls back to the edited file.
 func sourceIdentity(root, target string) string {
-	if h := worktreeStateHash(root); h != "" {
-		return h
+	return identityOf(worktreeStateHash(root), target)
+}
+
+// sourceIdentityInBatch is sourceIdentity over the dirty set the edit hook's
+// batch has read already, for the one hook that asks it twice in an instant.
+// A caller that waits for the tree to move reads it fresh instead.
+func sourceIdentityInBatch(root, target string) string {
+	return identityOf(worktreeStateHashInBatch(root), target)
+}
+
+// identityOf is the state hash when there is one, the edited file's own hash
+// when git cannot give one.
+func identityOf(stateHash, target string) string {
+	if stateHash != "" {
+		return stateHash
 	}
 	return fileContentHash(target)
 }

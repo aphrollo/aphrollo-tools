@@ -37,11 +37,14 @@ type Branch struct {
 // Entry is one path of a status. XY is the index and worktree state, `.` for
 // unchanged; Sub is the four-character submodule field (`N...` when the path
 // is no submodule); Score ("R100", "C75") and From (the source) are set for a
-// rename or copy. An untracked or ignored path has only Kind and Path.
+// rename or copy. HeadOID is the blob the path has at HEAD, "" for a path HEAD
+// does not hold and for an unmerged path. An untracked or ignored path has only
+// Kind and Path.
 type Entry struct {
 	Kind              Kind
 	XY, Sub           string
 	Score, Path, From string
+	HeadOID           string
 }
 
 // side is the state letter of one side of XY, `.` when the entry has none.
@@ -204,13 +207,13 @@ func parseEntry(rec string) (Entry, error) {
 		if len(f) < ordinaryFields {
 			return Entry{}, fmt.Errorf("git status: record %q has %d fields, want %d", rec, len(f), ordinaryFields)
 		}
-		return Entry{Kind: kind, XY: f[1], Sub: f[2], Path: f[8]}, nil
+		return Entry{Kind: kind, XY: f[1], Sub: f[2], Path: f[8], HeadOID: headOID(f[6])}, nil
 	case Renamed:
 		f := strings.SplitN(rec, " ", renamedFields)
 		if len(f) < renamedFields {
 			return Entry{}, fmt.Errorf("git status: record %q has %d fields, want %d", rec, len(f), renamedFields)
 		}
-		return Entry{Kind: kind, XY: f[1], Sub: f[2], Score: f[8], Path: f[9]}, nil
+		return Entry{Kind: kind, XY: f[1], Sub: f[2], Score: f[8], Path: f[9], HeadOID: headOID(f[6])}, nil
 	case Unmerged:
 		f := strings.SplitN(rec, " ", unmergedFields)
 		if len(f) < unmergedFields {
@@ -219,4 +222,13 @@ func parseEntry(rec string) (Entry, error) {
 		return Entry{Kind: kind, XY: f[1], Sub: f[2], Path: f[10]}, nil
 	}
 	return Entry{}, fmt.Errorf("git status: unrecognised record %q", rec)
+}
+
+// headOID is the object name a status record holds for HEAD's copy of a path:
+// all zeros, git's name for no object, reads as "".
+func headOID(field string) string {
+	if strings.Trim(field, "0") == "" {
+		return ""
+	}
+	return field
 }

@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // The per-file half of PostBash: what an Edit of one file gets, given to each
@@ -82,7 +84,12 @@ func bashSmellLines(root string, changed []string) []string {
 			continue
 		}
 		// absence-ok: a file HEAD does not hold has no old copy, and all of it is added.
-		pre, _ := gitRead(root, "show", "HEAD:"+rel)
+		pre, inHead, known := gitx.HeadCopy(abs)
+		if !known {
+			pre, _ = gitRead(root, "show", "HEAD:"+rel)
+		} else if !inHead {
+			pre = ""
+		}
 		d := decideImages(ClassifyFile(rel), abs, pre, string(data))
 		if d.Action == Allow {
 			continue

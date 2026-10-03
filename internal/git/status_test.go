@@ -140,6 +140,8 @@ func TestParseStatus_ReadsEveryRecordShapeGitPrints(t *testing.T) {
 				t.Fatalf("%d entries, want %d: %+v", len(got.Entries), len(tc.entries), got.Entries)
 			}
 			for i, want := range tc.entries {
+				// HeadOID has a test of its own, below.
+				got.Entries[i].HeadOID = ""
 				if got.Entries[i] != want {
 					t.Errorf("entry %d = %+v, want %+v", i, got.Entries[i], want)
 				}
@@ -258,7 +260,7 @@ func TestParseStatus_KeepsEveryPathVerbatimWhateverItHolds(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []Entry{
-		{Kind: Renamed, XY: "R.", Sub: noSub, Score: "R90", Path: "a b\nc.txt", From: "d e\nf.txt"},
+		{Kind: Renamed, XY: "R.", Sub: noSub, Score: "R90", Path: "a b\nc.txt", From: "d e\nf.txt", HeadOID: "aaaa"},
 		{Kind: Untracked, Path: "x y  z"},
 	}
 	if !reflect.DeepEqual(st.Entries, want) {
@@ -266,5 +268,30 @@ func TestParseStatus_KeepsEveryPathVerbatimWhateverItHolds(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(st.UntrackedPaths(), ""), "\x00") {
 		t.Error("a NUL leaked into a path")
+	}
+}
+
+func TestParseStatus_NamesTheBlobEachPathHasAtHead(t *testing.T) {
+	tests := []struct {
+		fixture, path, want string
+	}{
+		{"ordinary.z", "mod.txt", "78981922613b2afb6025042ff6bd878ac1994e85"},
+		{"ordinary.z", "added.txt", ""},
+		{"rename.z", "new name.txt", "fcd87345e00673ff10adeb5c83e620d50bb0d62a"},
+		{"unmerged.z", "uu.txt", ""},
+		{"ordinary.z", "untracked.txt", ""},
+	}
+	for _, tc := range tests {
+		st, err := ParseStatus(fixture(t, tc.fixture))
+		if err != nil {
+			t.Fatal(err)
+		}
+		e, ok := st.Entry(tc.path)
+		if !ok {
+			t.Fatalf("%s: no entry for %s", tc.fixture, tc.path)
+		}
+		if e.HeadOID != tc.want {
+			t.Errorf("%s %s: HeadOID = %q, want %q", tc.fixture, tc.path, e.HeadOID, tc.want)
+		}
 	}
 }

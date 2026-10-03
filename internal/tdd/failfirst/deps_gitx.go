@@ -10,8 +10,6 @@ func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
 
 func gitApply(p0 string, p1 string) error { return gitx.GitApply(p0, p1) }
 
-func gitBinary() string { return gitx.GitBinary() }
-
 func gitStaged(p0 string, p1 []string) (string, error) { return gitx.GitStaged(p0, p1) }
 
 func stagedFiles(p0 string) []string { return gitx.StagedFiles(p0) }

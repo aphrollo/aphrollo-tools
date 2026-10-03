@@ -6,8 +6,6 @@ import (
 	gitx "github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
-func RepoRoot(p0 string) string { return gitx.RepoRoot(p0) }
-
 func TrunkBranch(p0 string) string { return gitx.TrunkBranch(p0) }
 
 func cleanGitEnv() []string { return gitx.CleanGitEnv() }

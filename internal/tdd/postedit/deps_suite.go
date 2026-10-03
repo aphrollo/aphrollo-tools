@@ -143,4 +143,6 @@ func wholeRunScope() runScope { return suite.WholeRunScope() }
 
 func worktreeStateHash(p0 string) string { return suite.WorktreeStateHash(p0) }
 
+func worktreeStateHashInBatch(p0 string) string { return suite.WorktreeStateHashInBatch(p0) }
+
 func zigTestLines(p0 string) map[int]bool { return suite.ZigTestLines(p0) }

@@ -6,7 +6,9 @@ import (
 	"sort"
 	"strings"
 
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // The post-edit half of the law engine. The pre-edit judge (ratchetgate.go)
@@ -110,7 +112,7 @@ func newEditJudge(root string, rels []string) *editJudge {
 // HEAD does not carry is absent.
 func (j *editJudge) headOf() headFiles {
 	if j.head == nil {
-		j.head = headFiles(gitBatchBlobs(j.root, "HEAD", j.rels))
+		j.head = headFiles(headBlobs(j.root, j.rels))
 	}
 	return j.head
 }
@@ -240,7 +242,7 @@ func (j *editJudge) capturesDropped(law ratchet.Law, re *regexp.Regexp) bool {
 func (j *editJudge) changedSet() ([]string, headFiles) {
 	if j.changed == nil {
 		j.changed = changedFromHead(j.root, j.rels)
-		j.changedHead = headFiles(gitBatchBlobs(j.root, "HEAD", j.changed))
+		j.changedHead = headFiles(headBlobs(j.root, j.changed))
 	}
 	return j.changed, j.changedHead
 }
@@ -286,9 +288,19 @@ func changedFromHead(root string, rels []string) []string {
 	for _, rel := range rels {
 		seen[rel] = true
 	}
-	// A failed read (an unreadable index) leaves the edited files as the
-	// whole set.
-	if status, err := git(root, "status", "--porcelain", "-uall", "-z", "--no-renames"); err == nil {
+	// The hook's one status answers it; a rename is both its paths, as with
+	// renames off. A failed read (an unreadable index) leaves the edited files
+	// as the whole set.
+	if _, st := gitx.HookStatus(root); st != nil {
+		for _, e := range st.Entries {
+			if e.Kind != igit.Ignored {
+				seen[e.Path] = true
+				if e.From != "" {
+					seen[e.From] = true
+				}
+			}
+		}
+	} else if status, err := git(root, "status", "--porcelain", "-uall", "-z", "--no-renames"); err == nil {
 		for _, entry := range strings.Split(status, "\x00") {
 			if m := porcelainEntryRe.FindStringSubmatch(entry); m != nil {
 				seen[m[1]] = true
@@ -332,4 +344,26 @@ func (h headFiles) ReadAll(paths []string) (map[string][]byte, error) {
 		}
 	}
 	return out, nil
+}
+
+// headBlobs is each of rels (repo-relative) as HEAD holds it, a path HEAD does
+// not carry absent. The blobs the hook's one status names are read from the
+// object store without a spawn; the paths only git can place (clean, ignored,
+// in conflict) go to git in one batch.
+func headBlobs(root string, rels []string) map[string]string {
+	out := make(map[string]string, len(rels))
+	var asked []string
+	for _, rel := range rels {
+		text, inHead, ok := gitx.HeadCopy(filepath.Join(root, filepath.FromSlash(rel)))
+		switch {
+		case !ok:
+			asked = append(asked, rel)
+		case inHead:
+			out[rel] = text
+		}
+	}
+	for rel, text := range gitBatchBlobs(root, "HEAD", asked) {
+		out[rel] = text
+	}
+	return out
 }
