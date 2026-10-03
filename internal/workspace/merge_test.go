@@ -19,6 +19,7 @@ func stubMerge(t *testing.T, view func(wt, branch string) (*PRInfo, error), merg
 	t.Helper()
 	ov, om, od := ghViewPR, ghMergePR, ghDeleteRemoteBranch
 	oc, oAt := escapeClosureBeforeMerge, laneAtHead
+	oQ, oEnq := ghHasMergeQueue, ghEnqueuePR
 	// Most merge tests are about something other than the lane/PR-head relation:
 	// the PR reports the lane's own HEAD (a fixed commit where the worktree is
 	// not a real repository) and the lane is at it. A test about that relation
@@ -37,9 +38,17 @@ func stubMerge(t *testing.T, view func(wt, branch string) (*PRInfo, error), merg
 	// pass here — a test proving the refusal (or the recording beside it)
 	// overrides escapeClosureBeforeMerge itself, after calling stubMerge.
 	escapeClosureBeforeMerge = func(wt string, prNumber int, w io.Writer) error { return nil }
+	// No merge queue unless a test says there is one: the merge is direct, and an
+	// enqueue call in a test that did not ask for a queue is a failure.
+	ghHasMergeQueue = func(string, string, string) (bool, error) { return false, nil }
+	ghEnqueuePR = func(_, _ string, pr int, _ string) error {
+		t.Errorf("PR #%d was enqueued in a repo with no merge queue", pr)
+		return nil
+	}
 	t.Cleanup(func() {
 		ghViewPR, ghMergePR, ghDeleteRemoteBranch = ov, om, od
 		escapeClosureBeforeMerge, laneAtHead = oc, oAt
+		ghHasMergeQueue, ghEnqueuePR = oQ, oEnq
 	})
 }
 

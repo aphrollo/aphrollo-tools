@@ -61,6 +61,16 @@ var ghMergePR = func(wt, branch, method, sha string) error {
 	return nil
 }
 
+// undercoverMethod is the method the undercover judgment is made for. A merge
+// queue writes its squash message from the PR's title and body whatever method
+// was asked for, so under one the body is always judged as a squash's would be.
+func undercoverMethod(method string, queued bool) string {
+	if queued {
+		return "squash"
+	}
+	return method
+}
+
 // mergeSubject is the subject every merge this verb makes carries: the PR's
 // title and number, never git's or GitHub's default line naming the branch.
 func mergeSubject(title string, n int) string {
@@ -124,6 +134,7 @@ type Merge struct {
 	Method       string // squash | merge | rebase
 	DeleteBranch bool   // delete the PR branch after merging
 	CI           string // --ci mode (auto | local | github); empty reads the repo's setting
+	MethodSet    bool   // the operator named the method (--squash|--merge|--rebase) rather than taking the default
 }
 
 // MergePlan validates the merge without touching gh; the PR is resolved at Apply
@@ -153,6 +164,9 @@ func (m *Merge) Render(apply bool) string {
 	fmt.Fprintf(&b, "  honors GitHub's gates — a non-mergeable or red-CI PR is refused (no force)\n")
 	fmt.Fprintf(&b, "  a repo declaring mutants-at-merge is judged locally first: the merge is built in a\n"+
 		"  throwaway checkout and run through the pre-merge gate before the PR lands\n")
+	fmt.Fprintf(&b, "  a base branch with a merge queue takes no direct merge: the PR is enqueued instead, bound to\n"+
+		"  the judged head, and a CI verdict for an older base is not refused (the queue tests the\n"+
+		"  current merge itself); --wait then waits until the queue has merged it\n")
 	fmt.Fprintf(&b, "\nrun again without --dry to merge (then: aphrollo workspace prune).\n")
 	return b.String()
 }
@@ -178,30 +192,53 @@ func (m *Merge) Render(apply bool) string {
 // never be treated as clear (the corroborating incident on #385 was exactly a
 // broken read silently parsed as "nothing pending").
 func (m *Merge) Apply(stdout, stderr io.Writer) error {
-	if err := requireGH(); err != nil {
+	q, err := m.land(stdout, stderr)
+	if err != nil || q == nil {
 		return err
+	}
+	// In GitHub's merge queue and not merged yet: the queue merges it when its
+	// checks pass. `merge --wait` is the form that waits for that.
+	m.recordQueued(q)
+	return nil
+}
+
+// land runs everything up to GitHub taking the PR. On a base branch with no merge
+// queue that is the merge itself, with its post-merge steps, and the result is
+// nil. With a merge queue it is the enqueue: the result says the PR is in the
+// queue and has not merged, and the caller waits for it or leaves it.
+func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
+	if err := requireGH(); err != nil {
+		return nil, err
 	}
 	pr, err := ghViewPR(m.Target.Worktree, m.Target.Branch)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if pr == nil {
-		return fmt.Errorf("no open PR for %s — run: aphrollo workspace pr", m.Target.Branch)
+		return nil, fmt.Errorf("no open PR for %s — run: aphrollo workspace pr", m.Target.Branch)
 	}
 	head := pr.HeadSHA
 	if head == "" {
-		return fmt.Errorf("refusing to merge %s: GitHub did not report the PR's head commit, so there is no commit to judge", m.Target.Branch)
+		return nil, fmt.Errorf("refusing to merge %s: GitHub did not report the PR's head commit, so there is no commit to judge", m.Target.Branch)
 	}
 	if err := laneAtHead(m.Target.Worktree, head, pr.Number); err != nil {
-		return err
+		return nil, err
 	}
-	body, prTitle, useBody, err := undercoverMerge(m.Target, m.Method, head)
+	base := pr.BaseRef
+	if base == "" {
+		base = resolveDefaultBranch(m.Target.Worktree)
+	}
+	queued, err := ghHasMergeQueue(m.Target.Worktree, pr.BaseRepo, base)
 	if err != nil {
-		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+		return nil, fmt.Errorf("refusing to merge %s: reading whether %s has a merge queue: %w", m.Target.Branch, base, err)
+	}
+	body, prTitle, useBody, err := undercoverMerge(m.Target, undercoverMethod(m.Method, queued), head)
+	if err != nil {
+		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	choice, err := chooseCI(m.Target.Worktree, m.CI)
 	if err != nil {
-		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	useLocal := choice.mode == tdd.CILocal
 	// verdict is what GitHub's checks said, for the gate to take in place of
@@ -212,7 +249,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	} else {
 		ci, ciErr := ghCIStatus(m.Target.Worktree, head)
 		if ciErr != nil {
-			return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
+			return nil, fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
 		}
 		recordSettledCI(m.Target.Worktree, head, pr.Number, ci.State, ci.Cause)
 		switch {
@@ -223,7 +260,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 			verdict = ciVerdictOf(m.Target.Worktree, pr.Number, head, ci)
 			fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(head))
 		default:
-			return m.refuseGitHubCI(ci, stderr)
+			return nil, m.refuseGitHubCI(ci, stderr)
 		}
 	}
 	// The escape-closure and pr-closes-check judgment `workspace pr`/`submit`/
@@ -231,7 +268,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	// this tool did not itself open (a direct `gh pr create`, a PR from the
 	// web UI), which never went through that local check at all.
 	if err := escapeClosureBeforeMerge(m.Target.Worktree, pr.Number, stderr); err != nil {
-		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	// The local pre-merge gate, on the tree this merge is about to create —
 	// before GitHub creates it. Landing through a PR makes no local merge
@@ -247,17 +284,34 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	// still judges the merge as before, mutation included where declared.
 	if useLocal {
 		if err := runLocalCI(m.Target, head, pr.Number, stdout, stderr); err != nil {
-			return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+			return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 		}
 	}
-	if err := premergeGate(m.Target, head, verdict, stderr); err != nil {
+	// A merge queue tests the PR on the branch as it will be then, so the gate it
+	// gets takes a verdict for an older base instead of refusing it as stale.
+	gate := premergeGate
+	if queued {
+		gate = premergeGateQueued
+	}
+	if err := gate(m.Target, head, verdict, stderr); err != nil {
 		if _, stale := tdd.AsStaleCIVerdict(err); stale {
 			// CI is green on this head but judged an older base: the refusal is
 			// already the one line that says what to do, and the PR branch is
 			// never updated from here (the lane rules catch up by rebase only).
-			return err
+			return nil, err
 		}
-		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+	}
+	if queued {
+		if useBody {
+			if err := m.scrubPRBody(pr.Number, prTitle, body, stdout); err != nil {
+				return nil, err
+			}
+		}
+		if m.MethodSet {
+			fmt.Fprintf(stdout, "note: --%s is ignored: the %s merge queue sets the merge method\n", m.Method, base)
+		}
+		return m.enqueue(pr, head, base, stdout)
 	}
 	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method, head) }
 	if useBody {
@@ -266,14 +320,21 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		}
 	}
 	if err := merge(); err != nil {
-		return err
+		return nil, err
 	}
+	return nil, m.landed(pr.Number, pr.URL, m.Method, stdout, stderr)
+}
+
+// landed is what follows GitHub merging the PR, whether this verb merged it
+// (via is the method) or its merge queue did: the record of the merge, the
+// branch delete, and the post-merge steps.
+func (m *Merge) landed(number int, prURL, via string, stdout, stderr io.Writer) error {
 	// Recorded BEFORE the sync below moves local trunk: the trunk move reads
 	// this record to tell this merge from one made outside the verb, and would
 	// otherwise count it as an outside one (see outsidemerge.go).
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: m.Target.Worktree, Verdict: "ok",
-		Detail: map[string]string{"pr": strconv.Itoa(pr.Number), "method": m.Method}})
-	fmt.Fprintf(stdout, "merged PR #%d (%s): %s\n", pr.Number, m.Method, pr.URL)
+		Detail: map[string]string{"pr": strconv.Itoa(number), "method": via}})
+	fmt.Fprintf(stdout, "merged PR #%d (%s): %s\n", number, via, prURL)
 	if m.DeleteBranch {
 		skipped, err := ghDeleteRemoteBranch(m.Target.Worktree, m.Target.Branch)
 		if err != nil {
@@ -301,7 +362,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		fmt.Fprintf(stderr, "post-merge sync of %s failed (best-effort, merge already landed): %v\n", m.Target.MainRepo, err)
 	}
 
-	postMergeRetro(m.Target.MainRepo, m.Target.Worktree, m.Target.Branch, pr.Number, stderr)
+	postMergeRetro(m.Target.MainRepo, m.Target.Worktree, m.Target.Branch, number, stderr)
 
 	fmt.Fprintf(stdout, "  next: aphrollo workspace prune  (sweep the merged local worktree)\n")
 	return nil

@@ -43,6 +43,10 @@ func GatePRMerge(p0 string, p1 string, p2 SuiteRunner, p3 io.Writer) error {
 	return merge.GatePRMerge(p0, p1, p2, p3)
 }
 
+func GatePRMergeForQueue(p0 string, p1 string, p2 SuiteRunner, p3 io.Writer, p4 CIVerdict) error {
+	return merge.GatePRMergeForQueue(p0, p1, p2, p3, p4)
+}
+
 func GatePRMergeReusingCI(p0 string, p1 string, p2 SuiteRunner, p3 io.Writer, p4 CIVerdict) error {
 	return merge.GatePRMergeReusingCI(p0, p1, p2, p3, p4)
 }

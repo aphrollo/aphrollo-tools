@@ -94,7 +94,13 @@ no edit to a released changelog section or a merged fragment.
 - **Merge:** `workspace merge` runs the suites and the mutation measurement on
   the merged tree, refuses an unaccepted survivor or timeout, and a
   not-covered or inconclusive mutant on a line the lane adds, then prints a
-  retro when the PR's journey had friction. A merge made outside it (the GitHub
+  retro when the PR's journey had friction. On a base branch with a merge queue
+  (a `merge_queue` rule in the branch's rules) GitHub takes no direct merge, so
+  it enqueues the PR bound to the judged head instead: the lane, text, the PR's
+  own checks and the merged tree's laws are judged as before, but a CI verdict for
+  an older base is not refused, since the queue tests the current merge itself;
+  `--wait` waits until GitHub has merged the PR, or reports why the queue removed
+  it, and `--wait <pr>...` enqueues every PR before waiting for any. A merge made outside it (the GitHub
   web UI, `gh pr merge`, a terminal) is recorded once per commit as a `merge`
   event by=outside plus an `escape` event of verdict outside-merge, when local
   trunk takes it in: from `workspace sync`, or the post-merge hook in a repo

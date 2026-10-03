@@ -257,6 +257,20 @@ func ciVerdictTree(laneWorktree string, tips prGateTips, v CIVerdict, spec ciSpe
 // repo that turned reuse off, and a repo measuring mutants locally at the
 // merge, run the full gate exactly as GatePRMerge does.
 func GatePRMergeReusingCI(laneWorktree, head string, run SuiteRunner, log io.Writer, v CIVerdict) error {
+	return gatePRMergeReusingCI(laneWorktree, head, run, log, v, false)
+}
+
+// GatePRMergeForQueue is GatePRMergeReusingCI for a PR a merge queue will land.
+// The queue builds the merge onto the branch as it is then and tests that
+// itself, so a verdict that is green for this head but judged an older base is
+// no reason to refuse: the merged tree still has its laws judged here, and the
+// suites are left to the queue. Every other case is the one GatePRMergeReusingCI
+// answers.
+func GatePRMergeForQueue(laneWorktree, head string, run SuiteRunner, log io.Writer, v CIVerdict) error {
+	return gatePRMergeReusingCI(laneWorktree, head, run, log, v, true)
+}
+
+func gatePRMergeReusingCI(laneWorktree, head string, run SuiteRunner, log io.Writer, v CIVerdict, queued bool) error {
 	if log == nil {
 		log = io.Discard
 	}
@@ -282,6 +296,11 @@ func GatePRMergeReusingCI(laneWorktree, head string, run SuiteRunner, log io.Wri
 		return nil
 	}
 	tree, oses, why, stale := ciVerdictTree(laneWorktree, tips, v, readCISpec(laneWorktree))
+	if stale && queued {
+		fmt.Fprintf(log, "gate %s: CI's verdict is for an older base (%s); the merge queue tests this PR on %s, so only the laws run here\n",
+			premergeDisplayName, why, strings.TrimPrefix(tips.trunkRef, "origin/"))
+		return judgeMergedTreeWith(laneWorktree, head, run, log, &tips, MechanicalLaws)
+	}
 	if stale {
 		base := strings.TrimSpace(gitOut(laneWorktree, "merge-base", tips.lane, tips.trunk))
 		fmt.Fprintf(log, "gate %s: CI's verdict is stale (%s); not running the local suite\n", premergeDisplayName, why)

@@ -313,3 +313,17 @@ func TestText_ListsTheSlowestLanesAndSaysHowManyItLeftOut(t *testing.T) {
 		t.Errorf("want the two unlisted lanes counted:\n%s", text)
 	}
 }
+
+// A merge the verb only queued has not landed: the lane closes at the ok event
+// written once the queue has merged it, so the queue's wait is part of the speed.
+func TestSpeed_AQueuedMergeDoesNotCloseTheLaneUntilTheQueueMergedIt(t *testing.T) {
+	events := []tdd.Event{
+		ev(0, "lane/a", "edit", nil),
+		ev(60, "lane/a", "merge", verdictDetail("queued", "pr", "1")),
+		ev(900, "lane/a", "merge", verdictDetail("ok", "pr", "1")),
+	}
+	got := compute(events, Options{}).Speed
+	if got.N != 1 || got.P50 != 900 {
+		t.Fatalf("speed = %+v, want one lane of 900s (opened to the queue's merge, not to the enqueue)", got)
+	}
+}
