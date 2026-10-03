@@ -6,6 +6,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // The merge verb lands a lane through GitHub, so no local merge commit is
@@ -18,7 +20,7 @@ import (
 
 // stubPremergeGate swaps the local pre-merge gate seam for a test and records
 // each call in order against the other steps of the merge.
-func stubPremergeGate(t *testing.T, fn func(tgt *Target, log io.Writer) error) {
+func stubPremergeGate(t *testing.T, fn func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error) {
 	t.Helper()
 	prev := premergeGate
 	premergeGate = fn
@@ -36,7 +38,7 @@ func TestMerge_GateRefusal_LeavesThePRUnmerged(t *testing.T) {
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error { return nil })
-	stubPremergeGate(t, func(tgt *Target, log io.Writer) error {
+	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error {
 		return fmt.Errorf("gate premerge: mutant survived at src/x.rs:12")
 	})
 
@@ -74,7 +76,7 @@ func TestMerge_GateRunsAfterCIReadAndBeforeTheMerge(t *testing.T) {
 	})
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error { return nil })
 	var gatedWorktree string
-	stubPremergeGate(t, func(tgt *Target, log io.Writer) error {
+	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error {
 		order = append(order, "gate")
 		gatedWorktree = tgt.Worktree
 		return nil
@@ -105,7 +107,7 @@ func TestMerge_RedCIRefusesWithoutRunningTheLocalGate(t *testing.T) {
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "red", Failing: 2}, nil })
 	gated := false
-	stubPremergeGate(t, func(tgt *Target, log io.Writer) error { gated = true; return nil })
+	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error { gated = true; return nil })
 
 	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
 	var out, errb bytes.Buffer
@@ -114,5 +116,60 @@ func TestMerge_RedCIRefusesWithoutRunningTheLocalGate(t *testing.T) {
 	}
 	if gated {
 		t.Error("ran the local gate for a PR the remote read already refused")
+	}
+}
+
+// A merge on GitHub's green hands the gate what each check said about the
+// head, so the gate can tell which OSes CI ran; local CI has no such verdict
+// and hands it nothing.
+func TestMerge_GateIsHandedGitHubsCheckVerdictWhenGitHubJudged(t *testing.T) {
+	stubMerge(t,
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 9, URL: "u"}, nil },
+		func(wt, branch, method string) error { return nil },
+		func(wt, branch string) (bool, error) { return false, nil },
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green", SHA: "abc"}, nil })
+	stubSync(t, func(string, bool, io.Writer, io.Writer) error { return nil })
+	ghVerdictChecks = func(wt, sha string) []CheckRun {
+		return []CheckRun{
+			{Name: "test", SHA: "abc", Status: "completed", Conclusion: "success", StartedAt: "2026-10-03T10:00:00Z"},
+			{Name: "test-windows (cli)", SHA: "abc", Status: "completed", Conclusion: "failure"},
+			{Name: "lint", SHA: "old", Status: "completed", Conclusion: "success"},
+			{Name: "docs", SHA: "abc", Status: "completed", Conclusion: "skipped"},
+		}
+	}
+	var got *tdd.CIVerdict
+	stubPremergeGate(t, func(tgt *Target, v *tdd.CIVerdict, log io.Writer) error { got = v; return nil })
+
+	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
+	var out, errb bytes.Buffer
+	if err := m.Apply(&out, &errb); err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.PR != 9 || got.HeadSHA != "abc" {
+		t.Fatalf("verdict = %+v, want PR 9 on head abc", got)
+	}
+	passed := map[string]bool{}
+	for _, c := range got.Checks {
+		passed[c.Name] = c.Passed
+	}
+	want := map[string]bool{"test": true, "test-windows (cli)": false, "docs": false}
+	if len(passed) != len(want) || passed["test"] != true || passed["test-windows (cli)"] != false || passed["docs"] != false {
+		t.Errorf("checks = %v, want %v (a check on another commit is not this head's, and skipped is not passed)", passed, want)
+	}
+	if got.Checks[0].Started.IsZero() {
+		t.Errorf("the start time of %q was dropped", got.Checks[0].Name)
+	}
+}
+
+func TestMerge_LocalCIHandsTheGateNoGitHubVerdict(t *testing.T) {
+	w := newCIWorld(t, "local", CIStatus{State: "green"})
+	var handed = true
+	premergeGate = func(_ *Target, v *tdd.CIVerdict, _ io.Writer) error { handed = v != nil; w.gateRuns++; return nil }
+	if _, err := applyMerge(t, ""); err != nil {
+		t.Fatal(err)
+	}
+	if w.gateRuns != 1 || handed {
+		t.Fatalf("gate ran %d time(s), handed a verdict = %v; want once with none", w.gateRuns, handed)
 	}
 }

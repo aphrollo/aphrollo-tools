@@ -121,7 +121,7 @@ func TestMergeApply_RecordsTheMergeAndTheCIItRead(t *testing.T) {
 	)
 	stubCI(t, func(wt, sha string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error { return nil })
-	stubPremergeGate(t, func(tgt *Target, log io.Writer) error { return nil })
+	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error { return nil })
 
 	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
 	if err := m.Apply(&bytes.Buffer{}, &bytes.Buffer{}); err != nil {

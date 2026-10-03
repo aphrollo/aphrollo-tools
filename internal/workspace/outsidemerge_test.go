@@ -259,7 +259,7 @@ func verbMergesPR18(t *testing.T, clone string, tgt *Target) {
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, sha string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
-	stubPremergeGate(t, func(tgt *Target, log io.Writer) error { return nil })
+	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error { return nil })
 	stubRetro(t, new([]string))
 	// syncMainClone stays the real Sync: it is what moves local trunk.
 

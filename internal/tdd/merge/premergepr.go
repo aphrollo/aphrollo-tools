@@ -70,6 +70,13 @@ func GatePRMerge(laneWorktree string, run SuiteRunner, log io.Writer) error {
 // merge in a throwaway checkout and hand it to Mechanical. tips, when the
 // caller already resolved them, are not resolved again.
 func judgeMergedTree(laneWorktree string, run SuiteRunner, log io.Writer, tips *prGateTips) error {
+	return judgeMergedTreeWith(laneWorktree, run, log, tips, func(wt string) GateResult { return Mechanical(wt, run) })
+}
+
+// judgeMergedTreeWith is judgeMergedTree with the judgment of the built
+// checkout left to the caller: the whole mechanical stage, or only the part a
+// reused CI verdict leaves owing.
+func judgeMergedTreeWith(laneWorktree string, run SuiteRunner, log io.Writer, tips *prGateTips, judge func(wt string) GateResult) error {
 	if tips == nil {
 		resolved, err := prGateTipsOf(laneWorktree, log)
 		if err != nil {
@@ -115,7 +122,7 @@ func judgeMergedTree(laneWorktree string, run SuiteRunner, log io.Writer, tips *
 		return err
 	}
 	fmt.Fprintf(log, "gate %s: judging %s merged into %s (in %s)\n", premergeDisplayName, tips.lane, tips.trunkRef, wt)
-	if res := Mechanical(wt, run); res.Blocked {
+	if res := judge(wt); res.Blocked {
 		return errors.New(res.Message)
 	}
 	return nil

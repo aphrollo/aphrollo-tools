@@ -34,7 +34,7 @@ func newCIWorld(t *testing.T, declared string, gh CIStatus) *ciWorld {
 	stubSync(t, func(string, bool, io.Writer, io.Writer) error { return nil })
 	stubCI(t, func(wt, branch string) (CIStatus, error) { w.ghReads++; return gh, nil })
 	oGate, oLocal, oRead := premergeGate, localCI, readCIMode
-	premergeGate = func(*Target, io.Writer) error { w.gateRuns++; return nil }
+	premergeGate = func(*Target, *tdd.CIVerdict, io.Writer) error { w.gateRuns++; return nil }
 	localCI = func(*Target, io.Writer) (tdd.LocalCIVerdict, error) {
 		w.localRuns++
 		return tdd.LocalCIVerdict{Tree: "t"}, w.localErr

@@ -19,6 +19,33 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.4.0 - 2026-10-03
+
+The merge gate takes CI's verdict for a tree CI has already tested, instead of
+running the whole suite again on your box.
+
+### What you will notice
+
+- `workspace merge` on GitHub's green no longer re-runs the suites, vet and lint
+  locally when the tree it would test is the tree CI tested: the PR head already
+  holds trunk, or a merge of the head onto trunk gives the same tree as GitHub's
+  merge ref, built no later than the checks began. The gate prints `reused CI
+  verdict for tree <oid> (linux, windows)`, naming each OS whose check passed: the
+  `test` job for Linux, and the `test-windows` shards where the pipeline has them.
+- The merged tree is still judged for its ratchet laws, baselines and doc
+  references; only the suites, vet and lint are taken from CI.
+- Anything short of that runs the full local gate as before: trunk moved on to a
+  different tree, a check missing or not green, checks for another commit than the
+  one being merged, or a repo that measures mutants locally at the merge. The line
+  `CI's verdict is not reused (<why>)` says which.
+- A repo turns this off with `ci-reuse = false` under `[aphrollo]` in
+  `aphrollo.toml`. A value other than `true` or `false` is refused naming the key.
+
+### Known, not fixed
+
+- When trunk has moved, the fallback is the full local run; it is not yet cut down
+  to the packages where trunk's change and the PR's change meet.
+
 ## 1.3.0 - 2026-10-03
 
 Mutation testing is opt-in and reports. A repo that declares nothing runs no

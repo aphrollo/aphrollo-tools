@@ -21,6 +21,10 @@ const MergeQueueRefused = merge.MergeQueueRefused
 
 type CIRunOptions = merge.CIRunOptions
 
+type CIVerdict = merge.CIVerdict
+
+type CIVerdictCheck = merge.CIVerdictCheck
+
 type LocalCIVerdict = merge.LocalCIVerdict
 
 type MergeQueuePR = merge.MergeQueuePR
@@ -32,6 +36,10 @@ type PrunedLane = merge.PrunedLane
 func CommitMsg(p0 string, p1 string) GateResult { return merge.CommitMsg(p0, p1) }
 
 func GatePRMerge(p0 string, p1 SuiteRunner, p2 io.Writer) error { return merge.GatePRMerge(p0, p1, p2) }
+
+func GatePRMergeReusingCI(p0 string, p1 SuiteRunner, p2 io.Writer, p3 CIVerdict) error {
+	return merge.GatePRMergeReusingCI(p0, p1, p2, p3)
+}
 
 func LoadMergeQueueRecord(p0 string) (*MergeQueueRecord, error) {
 	return merge.LoadMergeQueueRecord(p0)

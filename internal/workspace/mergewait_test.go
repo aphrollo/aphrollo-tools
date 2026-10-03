@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // The coordinator used to wait for CI in a hand-rolled shell loop and then run
@@ -122,7 +124,7 @@ func install(t *testing.T, f *fakeCI) {
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error { return nil })
-	stubPremergeGate(t, func(tgt *Target, log io.Writer) error { return nil })
+	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error { return nil })
 }
 
 func run(name, sha, status, conclusion string) CheckRun {

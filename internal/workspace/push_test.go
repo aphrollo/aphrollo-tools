@@ -197,9 +197,10 @@ func TestPush_DetachedHEADRejected(t *testing.T) {
 // stubCI swaps the gh pr checks seam for the duration of a test.
 func stubCI(t *testing.T, ci func(wt, branch string) (CIStatus, error)) {
 	t.Helper()
-	o := ghCIStatus
+	o, oChecks := ghCIStatus, ghVerdictChecks
 	ghCIStatus = ci
-	t.Cleanup(func() { ghCIStatus = o })
+	ghVerdictChecks = func(string, string) []CheckRun { return nil }
+	t.Cleanup(func() { ghCIStatus, ghVerdictChecks = o, oChecks })
 }
 
 // push never opens a PR — submit is the sole opener, so CI fires exactly once

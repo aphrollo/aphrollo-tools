@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // mergeUndercoverRepo is a repo with main on origin and lane/x checked out
@@ -52,7 +54,7 @@ func stubMergeUndercover(t *testing.T, title, body string) (plain *bool, withBod
 	prevText, prevBody, prevGate, prevRetro := ghPRText, ghMergePRBody, premergeGate, postMergeRetro
 	ghPRText = func(wt, branch string) (string, string, error) { return title, body, nil }
 	ghMergePRBody = func(wt, branch, method, subject, b string) error { *withBody = b; return nil }
-	premergeGate = func(*Target, io.Writer) error { return nil }
+	premergeGate = func(*Target, *tdd.CIVerdict, io.Writer) error { return nil }
 	postMergeRetro = func(string, string, string, int, io.Writer) {}
 	t.Cleanup(func() {
 		ghPRText, ghMergePRBody, premergeGate, postMergeRetro = prevText, prevBody, prevGate, prevRetro
