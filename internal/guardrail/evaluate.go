@@ -76,6 +76,9 @@ func Evaluate(toolName, command string) Decision {
 	if d, hit := checkBlockingWatch(masked); hit {
 		return d
 	}
+	if d, hit := checkPythonStdinNull(command); hit {
+		return d
+	}
 	if d, hit := checkUnboundedOutput(masked); hit {
 		return d
 	}

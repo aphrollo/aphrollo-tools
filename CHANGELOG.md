@@ -19,6 +19,18 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.6.4 - 2026-10-03
+
+The guardrail refuses `python -` on a null stdin on Windows.
+
+### What you will notice
+
+- A Bash call that runs `python`, `python3` or `py` with `-` (or no script) as the script while stdin
+  is redirected from `/dev/null` or `NUL` is refused with the rule name `python-stdin-null` and its fix.
+  Git Bash maps `/dev/null` to a console device python takes for a terminal, so the REPL started and
+  spun at 100% CPU until killed. A script file (`python file.py < /dev/null`), `-c`, `-m` and a heredoc
+  without the redirect are unaffected, and so is every call off Windows.
+
 ## 1.6.3 - 2026-10-03
 
 A timed-out or cancelled suite run ends its whole process tree.

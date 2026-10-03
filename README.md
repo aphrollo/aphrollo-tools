@@ -48,7 +48,7 @@ change to the version rule in this repo's CI.
 | `aphrollo show` | one symbol's source |
 | `aphrollo workspace` | lanes (worktrees) and their git verbs: `create`, `commit`, `push`, `pr`, `submit`, `ship`, `merge [--wait <pr>... | --wait --resume]`, `prune`, `diff`, `status` |
 | `aphrollo dev` | dev-tier units: `up`, `down`, `restart`, `status`, `logs` |
-| `aphrollo guardrail` | PreToolUse policy for long foreground waits and noisy commands |
+| `aphrollo guardrail` | PreToolUse policy for long foreground waits, noisy commands and a python REPL on a null stdin (Windows) |
 | `aphrollo gate` | the TDD + law gates: hook entry points, `status`, `stats`, `output`, `allow`/`revoke`, `mutants`, `escape`, `probe discard`, `split-commit`, `gc`, `classify-diff` |
 | `aphrollo ratchet` | the law engine: `check`, `test`, `init`, `presets`; `check --adopt <law>` writes a new or widened law's first baseline |
 | `aphrollo docs` | `docs check`: every repo path a tracked `*.md` cites must resolve |
