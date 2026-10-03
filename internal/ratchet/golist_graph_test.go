@@ -30,16 +30,31 @@ const (
 	aBroken = "package a\n\nimport _ \"example.com/m/b\"\n"
 )
 
+// noInheritedWorkspace keeps the GOWORK of the box or the runner, and any
+// go.work above the temp dir, out of the throwaway modules a test builds: with
+// a workspace in view go refuses a module its go.work does not list.
+func noInheritedWorkspace(t *testing.T) {
+	t.Helper()
+	t.Setenv("GOWORK", "off")
+}
+
 // liveGraphRepo is a real one-module tree for `go list` to read: package a
 // imports only fmt, package b exists, and a law forbids a reaching b.
 func liveGraphRepo(t *testing.T) string {
 	t.Helper()
+	noInheritedWorkspace(t)
 	root := t.TempDir()
+	writeLiveGraphModule(t, root)
+	return root
+}
+
+// writeLiveGraphModule fills root with liveGraphRepo's tree.
+func writeLiveGraphModule(t *testing.T, root string) {
+	t.Helper()
 	writeLaw(t, root, "no_reach_b", liveGraphLaw)
 	write(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.21\n")
 	write(t, filepath.Join(root, "a", "a.go"), aClean)
 	write(t, filepath.Join(root, "b", "b.go"), "package b\n")
-	return root
 }
 
 // goCallLog puts a `go` on PATH that logs each invocation's arguments before
@@ -356,6 +371,7 @@ func TestGoDepGraph_CacheKeyIgnoresDirectoriesGoDoesNotList(t *testing.T) {
 }
 
 func TestGoDepGraph_CachesAModuleWhoseRootDirectoryStartsWithADot(t *testing.T) {
+	noInheritedWorkspace(t)
 	base := t.TempDir()
 	root := filepath.Join(base, ".mod")
 	write(t, filepath.Join(root, ".ratchet", "laws", "no_reach_b.toml"), liveGraphLaw)
@@ -391,9 +407,14 @@ func TestGoDepGraph_CacheKeyMovesWhenTheGoBinaryChanges(t *testing.T) {
 
 func TestGoDepGraph_NeverCachesUnderAGoWorkFile(t *testing.T) {
 	t.Run("named by GOWORK", func(t *testing.T) {
-		root := liveGraphRepo(t)
-		work := filepath.Join(t.TempDir(), "go.work")
-		write(t, work, "go 1.21\n\nuse "+root+"\n")
+		noInheritedWorkspace(t)
+		// The workspace sits beside the module, not above it, and names it
+		// relatively: nothing in its path can differ from the one go resolves.
+		base := t.TempDir()
+		root := filepath.Join(base, "m")
+		writeLiveGraphModule(t, root)
+		work := filepath.Join(base, "ws", "go.work")
+		write(t, work, "go 1.21\n\nuse ../m\n")
 		t.Setenv("GOWORK", work)
 		if !changesCacheKey(t, root, func() {}) {
 			t.Error("a GOWORK workspace was cached, but its other modules are inputs nobody hashed")
@@ -407,6 +428,7 @@ func TestGoDepGraph_NeverCachesUnderAGoWorkFile(t *testing.T) {
 		}
 	})
 	t.Run("in a parent directory", func(t *testing.T) {
+		noInheritedWorkspace(t)
 		parent := t.TempDir()
 		root := filepath.Join(parent, "m")
 		write(t, filepath.Join(root, ".ratchet", "laws", "no_reach_b.toml"), liveGraphLaw)
@@ -456,5 +478,19 @@ func TestGraphCacheRoot_NamesTheCheckoutTheEntryWasMadeFor(t *testing.T) {
 	}
 	if _, ok := GraphCacheRoot(filepath.Join(dir, "absent.json")); ok {
 		t.Error("a missing file named a root")
+	}
+}
+
+// A workspace the box or the runner carries (GOWORK in the environment, or a
+// go.work above the temp dir) must not reach the throwaway modules these tests
+// build: go refuses a module its go.work does not list.
+func TestGoDepGraph_IgnoresAWorkspaceInheritedFromTheEnvironment(t *testing.T) {
+	foreign := filepath.Join(t.TempDir(), "go.work")
+	write(t, foreign, "go 1.21\n\nuse ./elsewhere\n")
+	write(t, filepath.Join(filepath.Dir(foreign), "elsewhere", "go.mod"), "module example.com/elsewhere\n\ngo 1.21\n")
+	t.Setenv("GOWORK", foreign)
+	root := liveGraphRepo(t)
+	if _, err := Check(Options{Root: root}); err != nil {
+		t.Fatalf("Check under an inherited GOWORK: %v", err)
 	}
 }
