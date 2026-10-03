@@ -409,3 +409,15 @@ func TestHandle_heldUnitIsGuidedOnceNotDenied(t *testing.T) {
 		t.Errorf("unit = %+v, want only the held flag", rec.Units["pkg/a"])
 	}
 }
+
+func TestHandle_oneAttemptIsOneAttemptNotTheDefault(t *testing.T) {
+	eng, store := newEngine(kernel.Config{})
+	f := &faulty{Store: store, conflicts: 100}
+	eng.Store, eng.Attempts = f, 1
+	if _, err := eng.Handle(bounded(t), edit("pkg/a", kernel.ClassTest, "t1")); !errors.Is(err, ErrContended) {
+		t.Fatalf("err = %v, want ErrContended", err)
+	}
+	if f.commits != 1 {
+		t.Errorf("commits = %d, want 1: Attempts = 1 is one try, the default only stands for an unset field", f.commits)
+	}
+}
