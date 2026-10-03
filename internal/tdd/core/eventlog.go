@@ -83,6 +83,23 @@ func acquireEventLock(path string) (release func(), ok bool) {
 // as well as after, so a line a crash tore never swallows the next record; the
 // reader skips the torn line and the blank ones.
 func appendEventRecord(path string, e Event) error {
+	return appendEventLine(path, monthOf(e.At), func(seq int64) ([]byte, error) {
+		e.Seq = seq
+		return json.Marshal(e)
+	})
+}
+
+// AppendEventLine appends the record encode builds to the month file of dir
+// that holds at, the way AppendEvent appends its own: under the log's lock,
+// in one write, with the torn-line guard. encode gets the record's sequence
+// number, 0 when the lock was not taken; the record must be one JSON line with
+// "v":1 so every reader of the log reads it. It is how the store writes the
+// events it folds checkpoints from into the same files the gate reads.
+func AppendEventLine(dir string, at time.Time, encode func(seq int64) ([]byte, error)) error {
+	return appendEventLine(eventLogFile(dir, at), at, encode)
+}
+
+func appendEventLine(path string, month time.Time, encode func(seq int64) ([]byte, error)) error {
 	release, locked := acquireEventLock(path)
 	defer release()
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
@@ -90,10 +107,11 @@ func appendEventRecord(path string, e Event) error {
 		return err
 	}
 	defer f.Close()
+	var seq int64
 	if fi, err := f.Stat(); locked && err == nil {
-		e.Seq = eventSeq(monthOf(e.At), fi.Size()+1)
+		seq = eventSeq(month, fi.Size()+1)
 	}
-	line, err := json.Marshal(e)
+	line, err := encode(seq)
 	if err != nil {
 		return err
 	}

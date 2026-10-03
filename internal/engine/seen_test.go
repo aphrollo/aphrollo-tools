@@ -46,7 +46,7 @@ func sameLines(got, want []render.Line) bool {
 func TestDeliver_recordsOnlyADeliveryThroughAHookThatReachesTheAgent(t *testing.T) {
 	line := greenFor("pkg/a", "t1")
 	for _, h := range []render.Hook{render.HookSetup, render.HookCwdChanged, render.HookSessionEnd, "FromTheFuture", ""} {
-		eng, store := newEngine(kernel.Config{})
+		eng, store := newEngine(t, kernel.Config{})
 		if err := eng.Deliver(bounded(t), "fix", parent, h, []render.Line{line}); err != nil {
 			t.Fatalf("Deliver(%q): %v", h, err)
 		}
@@ -58,7 +58,7 @@ func TestDeliver_recordsOnlyADeliveryThroughAHookThatReachesTheAgent(t *testing.
 			t.Errorf("after a delivery through %q Unseen = %v, %v; want the line still due", h, ids(got), err)
 		}
 	}
-	eng, _ := newEngine(kernel.Config{})
+	eng, _ := newEngine(t, kernel.Config{})
 	if err := eng.Deliver(bounded(t), "fix", parent, render.HookPostToolBatch, []render.Line{line}); err != nil {
 		t.Fatalf("Deliver(PostToolBatch): %v", err)
 	}
@@ -69,7 +69,7 @@ func TestDeliver_recordsOnlyADeliveryThroughAHookThatReachesTheAgent(t *testing.
 }
 
 func TestDeliver_neverRecordsALineThatSaysNothingOrTwice(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	line := greenFor("pkg/a", "t1")
 	for range 3 {
 		if err := eng.Deliver(bounded(t), "fix", parent, render.HookPostToolBatch, []render.Line{{}, line, line}); err != nil {
@@ -86,7 +86,7 @@ func TestDeliver_neverRecordsALineThatSaysNothingOrTwice(t *testing.T) {
 }
 
 func TestDeliver_needsALaneAndALiveContext(t *testing.T) {
-	eng, _ := newEngine(kernel.Config{})
+	eng, _ := newEngine(t, kernel.Config{})
 	if err := eng.Deliver(bounded(t), "", parent, render.HookPostToolBatch, []render.Line{greenFor("a", "t")}); !errors.Is(err, ErrNoLane) {
 		t.Errorf("Deliver with no lane = %v, want ErrNoLane", err)
 	}
@@ -98,7 +98,7 @@ func TestDeliver_needsALaneAndALiveContext(t *testing.T) {
 }
 
 func TestUnseen_anUnseenRedIsNeverHiddenBehindALaterSeenGreen(t *testing.T) {
-	eng, _ := newEngine(kernel.Config{})
+	eng, _ := newEngine(t, kernel.Config{})
 	red := redFor("pkg/a", "t1")
 	green := greenFor("pkg/b", "t2")
 	// The green of another unit is delivered after the red was produced; a
@@ -116,7 +116,7 @@ func TestUnseen_anUnseenRedIsNeverHiddenBehindALaterSeenGreen(t *testing.T) {
 }
 
 func TestUnseen_isPerActor(t *testing.T) {
-	eng, _ := newEngine(kernel.Config{})
+	eng, _ := newEngine(t, kernel.Config{})
 	line := greenFor("pkg/a", "t1")
 	if err := eng.Deliver(bounded(t), "fix", child, render.HookSubagentStart, []render.Line{line}); err != nil {
 		t.Fatalf("Deliver: %v", err)
@@ -130,7 +130,7 @@ func TestUnseen_isPerActor(t *testing.T) {
 }
 
 func TestUnseen_dropsARepeatInsideOneCallAndKeepsOrder(t *testing.T) {
-	eng, _ := newEngine(kernel.Config{})
+	eng, _ := newEngine(t, kernel.Config{})
 	a, b := redFor("pkg/a", "t1"), greenFor("pkg/b", "t2")
 	got, err := eng.Unseen(bounded(t), "fix", parent, []render.Line{a, b, a, {}})
 	if err != nil || !sameLines(got, []render.Line{a, b}) {
@@ -139,7 +139,7 @@ func TestUnseen_dropsARepeatInsideOneCallAndKeepsOrder(t *testing.T) {
 }
 
 func TestHandle_keepsDeliveriesAcrossFactsAndQuestions(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	line := greenFor("pkg/a", "t1")
 	if err := eng.Deliver(bounded(t), "fix", parent, render.HookPostToolBatch, []render.Line{line}); err != nil {
 		t.Fatalf("Deliver: %v", err)
@@ -157,7 +157,7 @@ func TestHandle_keepsDeliveriesAcrossFactsAndQuestions(t *testing.T) {
 }
 
 func TestDeliver_keepsTheNewestPerActorAndTheNewestActors(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	var pool []render.Line
 	for i := range MaxSeenPerActor * 3 {
 		pool = append(pool, greenFor("pkg/a", fmt.Sprintf("t%d", i)))
@@ -180,7 +180,7 @@ func TestDeliver_keepsTheNewestPerActorAndTheNewestActors(t *testing.T) {
 	}
 
 	// One actor per delivery, more actors than the bound keeps.
-	eng, store = newEngine(kernel.Config{})
+	eng, store = newEngine(t, kernel.Config{})
 	line := greenFor("pkg/b", "t1")
 	for i := range MaxSeenActors * 2 {
 		if err := eng.Deliver(bounded(t), "fix", fmt.Sprintf("s%d/a", i), render.HookSubagentStart, []render.Line{line}); err != nil {
@@ -205,14 +205,14 @@ func TestDeliver_keepsTheNewestPerActorAndTheNewestActors(t *testing.T) {
 }
 
 func TestGuidance_aGuideSeenByThisActorIsNotRepeatedButADenyAlwaysIs(t *testing.T) {
-	eng, _ := newEngine(kernel.Config{})
+	eng, _ := newEngine(t, kernel.Config{})
 	d, line, err := eng.Guidance(bounded(t), untestedWrite(true), "d-1")
 	if err != nil || d.Outcome != kernel.OutcomeGuide || line.Kind != render.KindGuide || line.Text == "" {
 		t.Fatalf("first Guidance = %s %q %v, want a guide line", d.Outcome, line.Kind, err)
 	}
 	// The kernel's own guided-once flag is cleared by a fresh lane, so the same
 	// decision comes again: only the seen record can stop the repeat.
-	fresh, _ := newEngine(kernel.Config{})
+	fresh, _ := newEngine(t, kernel.Config{})
 	ev := untestedWrite(true)
 	if err := fresh.Deliver(bounded(t), "fix", ev.Actor, render.HookPostToolBatch, []render.Line{line}); err != nil {
 		t.Fatalf("Deliver: %v", err)
@@ -224,7 +224,7 @@ func TestGuidance_aGuideSeenByThisActorIsNotRepeatedButADenyAlwaysIs(t *testing.
 	if again.Text != "" {
 		t.Errorf("a guide this actor already saw was returned again: %q", again.Text)
 	}
-	bystander, _ := newEngine(kernel.Config{})
+	bystander, _ := newEngine(t, kernel.Config{})
 	if err := bystander.Deliver(bounded(t), "fix", child, render.HookPostToolBatch, []render.Line{line}); err != nil {
 		t.Fatalf("Deliver: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestGuidance_aGuideSeenByThisActorIsNotRepeatedButADenyAlwaysIs(t *testing.
 		t.Errorf("a guide delivered to another actor was withheld: line %q, %v", l.Text, err)
 	}
 
-	enforce, _ := newEngine(kernel.Config{Rules: map[string]kernel.Level{"red-green": kernel.LevelEnforce}})
+	enforce, _ := newEngine(t, kernel.Config{Rules: map[string]kernel.Level{"red-green": kernel.LevelEnforce}})
 	for i := range 2 {
 		d, l, err := enforce.Guidance(bounded(t), untestedWrite(true), "d-1")
 		if err != nil || d.Outcome != kernel.OutcomeDeny || l.Kind != render.KindDeny {
@@ -245,7 +245,7 @@ func TestGuidance_aGuideSeenByThisActorIsNotRepeatedButADenyAlwaysIs(t *testing.
 }
 
 func TestDeliver_racingDeliveriesAndFactsLoseNoUpdate(t *testing.T) {
-	store := NewMemStore()
+	store := newTestStore(t, kernel.Config{})
 	gate := newRendezvous(store, 3)
 	eng := &Engine{Store: gate}
 	a, b := greenFor("pkg/a", "t1"), greenFor("pkg/b", "t2")
@@ -271,7 +271,7 @@ func TestDeliver_racingDeliveriesAndFactsLoseNoUpdate(t *testing.T) {
 }
 
 func TestDeliver_givesUpOnALaneThatKeepsChanging(t *testing.T) {
-	store := NewMemStore()
+	store := newTestStore(t, kernel.Config{})
 	eng := &Engine{Store: &alwaysConflicts{Store: store}, Attempts: 3}
 	err := eng.Deliver(bounded(t), "fix", parent, render.HookPostToolBatch, []render.Line{greenFor("pkg/a", "t1")})
 	if !errors.Is(err, ErrContended) {

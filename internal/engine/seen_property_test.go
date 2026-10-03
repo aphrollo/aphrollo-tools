@@ -50,7 +50,7 @@ func drawLines(t *rapid.T, pool []render.Line, label string) []render.Line {
 func TestUnseen_isExactlyWhatNoReachingDeliveryCovered(t *testing.T) {
 	pool := linePool(6)
 	rapid.Check(t, func(rt *rapid.T) {
-		eng, _ := newEngine(kernel.Config{})
+		eng, _ := newEngine(t, kernel.Config{})
 		seen := map[string]map[string]bool{}
 		steps := rapid.IntRange(1, 25).Draw(rt, "steps")
 		for i := range steps {
@@ -107,7 +107,7 @@ func TestDeliver_boundsHoldAndEvictionOnlyRepeats(t *testing.T) {
 		actors[i] = fmt.Sprintf("s%d/a", i)
 	}
 	rapid.Check(t, func(rt *rapid.T) {
-		eng, store := newEngine(kernel.Config{})
+		eng, store := newEngine(t, kernel.Config{})
 		seen := map[string]map[string]bool{}
 		for i := range rapid.IntRange(1, 60).Draw(rt, "steps") {
 			actor := rapid.SampledFrom(actors).Draw(rt, "actor")

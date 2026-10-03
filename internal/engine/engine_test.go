@@ -21,8 +21,18 @@ func bounded(t *testing.T) context.Context {
 	return ctx
 }
 
-func newEngine(cfg kernel.Config) (*Engine, *MemStore) {
-	store := NewMemStore()
+// testStore is a Store the tests can also read the log of.
+type testStore interface {
+	Store
+	Events(lane string) []kernel.Event
+}
+
+// newTestStore makes the store the tests run over. The in-memory one is the
+// default; TestStoreOnDisk swaps in the on-disk one and runs the same tests.
+var newTestStore = func(testing.TB, kernel.Config) testStore { return NewMemStore() }
+
+func newEngine(t testing.TB, cfg kernel.Config) (*Engine, testStore) {
+	store := newTestStore(t, cfg)
 	return &Engine{Store: store, Config: cfg}, store
 }
 
@@ -91,7 +101,7 @@ func TestHandle_factSequencesMoveLaneAndUnit(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			eng, store := newEngine(kernel.Config{})
+			eng, store := newEngine(t, kernel.Config{})
 			for i, e := range c.events {
 				if _, err := eng.Handle(bounded(t), e); err != nil {
 					t.Fatalf("Handle(event %d, %s): %v", i, e.Kind, err)
@@ -113,7 +123,7 @@ func TestHandle_factSequencesMoveLaneAndUnit(t *testing.T) {
 }
 
 func TestHandle_returnsTheEffectsAndDoesNotRunThem(t *testing.T) {
-	eng, _ := newEngine(kernel.Config{})
+	eng, _ := newEngine(t, kernel.Config{})
 	d, err := eng.Handle(bounded(t), edit("pkg/a", kernel.ClassTest, "t1"))
 	if err != nil {
 		t.Fatalf("Handle: %v", err)
@@ -130,7 +140,7 @@ func TestHandle_returnsTheEffectsAndDoesNotRunThem(t *testing.T) {
 }
 
 func TestHandle_logsFactsInOrderAndNoQuestion(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	first := edit("pkg/a", kernel.ClassTest, "t1")
 	second := result("pkg/a", kernel.VerdictRed, "t1", "j1")
 	for _, e := range []kernel.Event{first, {Kind: kernel.KindPreTool, Lane: "fix", Claude: true, Cmds: kernel.CmdBypassGate, Tool: kernel.ToolBash}, second} {
@@ -145,7 +155,7 @@ func TestHandle_logsFactsInOrderAndNoQuestion(t *testing.T) {
 }
 
 func TestHandle_questionMovesAndSavesNothing(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	q := kernel.Event{Kind: kernel.KindPreTool, Lane: "fix", Claude: true, Tool: kernel.ToolBash, Cmds: kernel.CmdBypassGate}
 	d, err := eng.Handle(bounded(t), q)
 	if err != nil {
@@ -160,7 +170,7 @@ func TestHandle_questionMovesAndSavesNothing(t *testing.T) {
 }
 
 func TestHandle_untestedCodeEditIsGuidedOnceUnderWarn(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	first, err := eng.Handle(bounded(t), untestedWrite(true))
 	if err != nil {
 		t.Fatalf("Handle(first): %v", err)
@@ -193,7 +203,7 @@ func TestHandle_untestedCodeEditIsGuidedOnceUnderWarn(t *testing.T) {
 
 func TestHandle_untestedCodeEditDeniesEveryTimeUnderEnforce(t *testing.T) {
 	cfg := kernel.Config{Rules: map[string]kernel.Level{"red-green": kernel.LevelEnforce}}
-	eng, _ := newEngine(cfg)
+	eng, _ := newEngine(t, cfg)
 	for i := range 3 {
 		d, err := eng.Handle(bounded(t), untestedWrite(true))
 		if err != nil {
@@ -206,7 +216,7 @@ func TestHandle_untestedCodeEditDeniesEveryTimeUnderEnforce(t *testing.T) {
 }
 
 func TestHandle_guidedFlagSurvivesLaterFacts(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	if _, err := eng.Handle(bounded(t), untestedWrite(true)); err != nil {
 		t.Fatalf("Handle(question): %v", err)
 	}
@@ -220,7 +230,7 @@ func TestHandle_guidedFlagSurvivesLaterFacts(t *testing.T) {
 }
 
 func TestHandle_noLaneFactIsRefusedAndQuestionIsStillDecided(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	_, err := eng.Handle(bounded(t), kernel.Event{Kind: kernel.KindEdit, At: t0})
 	if !errors.Is(err, ErrNoLane) {
 		t.Errorf("fact with no lane: err = %v, want ErrNoLane", err)
@@ -250,7 +260,7 @@ func (b blind) Commit(_ context.Context, lane string, expect uint64, rec Record,
 }
 
 func TestHandle_cancelledContextTouchesNothing(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	eng.Store = blind{store}
 	ctx, cancel := context.WithCancel(bounded(t))
 	cancel()
@@ -293,15 +303,15 @@ var errDisk = errors.New("disk is gone")
 
 func TestHandle_storeFailuresSurface(t *testing.T) {
 	t.Run("a load failure is returned for a fact", func(t *testing.T) {
-		eng, _ := newEngine(kernel.Config{})
-		eng.Store = &faulty{Store: NewMemStore(), loadErr: errDisk}
+		eng, _ := newEngine(t, kernel.Config{})
+		eng.Store = &faulty{Store: newTestStore(t, kernel.Config{}), loadErr: errDisk}
 		if _, err := eng.Handle(bounded(t), edit("pkg/a", kernel.ClassTest, "t1")); !errors.Is(err, errDisk) {
 			t.Errorf("err = %v, want the store's", err)
 		}
 	})
 	t.Run("a commit failure returns no decision for a fact", func(t *testing.T) {
-		eng, _ := newEngine(kernel.Config{})
-		eng.Store = &faulty{Store: NewMemStore(), commitErr: errDisk}
+		eng, _ := newEngine(t, kernel.Config{})
+		eng.Store = &faulty{Store: newTestStore(t, kernel.Config{}), commitErr: errDisk}
 		d, err := eng.Handle(bounded(t), edit("pkg/a", kernel.ClassTest, "t1"))
 		if !errors.Is(err, errDisk) {
 			t.Fatalf("err = %v, want the store's", err)
@@ -311,8 +321,8 @@ func TestHandle_storeFailuresSurface(t *testing.T) {
 		}
 	})
 	t.Run("a bookkeeping failure still returns the question's decision", func(t *testing.T) {
-		eng, _ := newEngine(kernel.Config{})
-		eng.Store = &faulty{Store: NewMemStore(), commitErr: errDisk}
+		eng, _ := newEngine(t, kernel.Config{})
+		eng.Store = &faulty{Store: newTestStore(t, kernel.Config{}), commitErr: errDisk}
 		d, err := eng.Handle(bounded(t), untestedWrite(true))
 		if !errors.Is(err, errDisk) {
 			t.Fatalf("err = %v, want the store's", err)
@@ -324,7 +334,7 @@ func TestHandle_storeFailuresSurface(t *testing.T) {
 }
 
 func TestHandle_lostUpdateIsRetriedAndLoggedOnce(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	f := &faulty{Store: store, conflicts: 2}
 	eng.Store, eng.Attempts = f, 3
 	if _, err := eng.Handle(bounded(t), edit("pkg/a", kernel.ClassTest, "t1")); err != nil {
@@ -339,7 +349,7 @@ func TestHandle_lostUpdateIsRetriedAndLoggedOnce(t *testing.T) {
 }
 
 func TestHandle_retriesAreBounded(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	f := &faulty{Store: store, conflicts: 100}
 	eng.Store, eng.Attempts = f, 2
 	d, err := eng.Handle(bounded(t), edit("pkg/a", kernel.ClassTest, "t1"))
@@ -355,7 +365,7 @@ func TestHandle_retriesAreBounded(t *testing.T) {
 }
 
 func TestHandle_contendedQuestionStillAnswers(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	f := &faulty{Store: store, conflicts: 100}
 	eng.Store, eng.Attempts = f, 2
 	d, err := eng.Handle(bounded(t), untestedWrite(true))
@@ -368,7 +378,7 @@ func TestHandle_contendedQuestionStillAnswers(t *testing.T) {
 }
 
 func TestHandle_lanesAreSeparateRecords(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	a, b := edit("pkg/a", kernel.ClassTest, "t1"), edit("pkg/a", kernel.ClassCode, "t1")
 	b.Lane = "other"
 	for _, e := range []kernel.Event{a, b} {
@@ -386,7 +396,7 @@ func TestHandle_lanesAreSeparateRecords(t *testing.T) {
 
 func TestHandle_heldUnitIsGuidedOnceNotDenied(t *testing.T) {
 	cfg := kernel.Config{Rules: map[string]kernel.Level{"red-green": kernel.LevelEnforce}}
-	eng, store := newEngine(cfg)
+	eng, store := newEngine(t, cfg)
 	escape := kernel.Event{Kind: kernel.KindEscape, Lane: "fix", At: t0, Unit: "pkg/a", Stage: kernel.StageTrunk, EscapeID: "esc-1", Test: "TestA", Tree: "t1"}
 	if _, err := eng.Handle(bounded(t), escape); err != nil {
 		t.Fatalf("Handle(escape): %v", err)
@@ -411,7 +421,7 @@ func TestHandle_heldUnitIsGuidedOnceNotDenied(t *testing.T) {
 }
 
 func TestHandle_oneAttemptIsOneAttemptNotTheDefault(t *testing.T) {
-	eng, store := newEngine(kernel.Config{})
+	eng, store := newEngine(t, kernel.Config{})
 	f := &faulty{Store: store, conflicts: 100}
 	eng.Store, eng.Attempts = f, 1
 	if _, err := eng.Handle(bounded(t), edit("pkg/a", kernel.ClassTest, "t1")); !errors.Is(err, ErrContended) {
