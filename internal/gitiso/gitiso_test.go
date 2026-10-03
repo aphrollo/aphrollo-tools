@@ -381,3 +381,11 @@ func TestIsolate_SendsHooksAndTheGateStateToTheRunsRoot(t *testing.T) {
 		t.Errorf("core.hooksPath = %q = %q, want an empty dir under the run's root", os.Getenv("GIT_CONFIG_KEY_3"), os.Getenv("GIT_CONFIG_VALUE_3"))
 	}
 }
+
+// A go.work the box or the runner carries must not reach the throwaway modules
+// a test builds or lists: go refuses a module its workspace does not name.
+func TestIsolate_SwitchesTheGoWorkspaceOff(t *testing.T) {
+	if got := os.Getenv("GOWORK"); got != "off" {
+		t.Errorf("GOWORK = %q, want off", got)
+	}
+}
