@@ -39,17 +39,17 @@ func AsStaleCIVerdict(p0 error) (*StaleCIVerdictError, bool) { return merge.AsSt
 
 func CommitMsg(p0 string, p1 string) GateResult { return merge.CommitMsg(p0, p1) }
 
-func GatePRMerge(p0 string, p1 SuiteRunner, p2 io.Writer) error { return merge.GatePRMerge(p0, p1, p2) }
+func GatePRMerge(p0 string, p1 string, p2 SuiteRunner, p3 io.Writer) error {
+	return merge.GatePRMerge(p0, p1, p2, p3)
+}
 
-func GatePRMergeReusingCI(p0 string, p1 SuiteRunner, p2 io.Writer, p3 CIVerdict) error {
-	return merge.GatePRMergeReusingCI(p0, p1, p2, p3)
+func GatePRMergeReusingCI(p0 string, p1 string, p2 SuiteRunner, p3 io.Writer, p4 CIVerdict) error {
+	return merge.GatePRMergeReusingCI(p0, p1, p2, p3, p4)
 }
 
 func LoadMergeQueueRecord(p0 string) (*MergeQueueRecord, error) {
 	return merge.LoadMergeQueueRecord(p0)
 }
-
-func LocalCI(p0 string, p1 io.Writer) (LocalCIVerdict, error) { return merge.LocalCI(p0, p1) }
 
 func LocalCIWith(p0 string, p1 io.Writer, p2 CIRunOptions) (LocalCIVerdict, error) {
 	return merge.LocalCIWith(p0, p1, p2)

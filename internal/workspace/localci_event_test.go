@@ -35,7 +35,7 @@ func TestMergeCI_ALocalGreenEmitsTheSettledCIEventNamingLocal(t *testing.T) {
 func TestMergeCI_ALocalRedEmitsARedEventAndASetupRefusalEmitsNone(t *testing.T) {
 	w := newCIWorld(t, tdd.CILocal, CIStatus{})
 	withHead(t, "sha-red-local")
-	localCI = func(*Target, io.Writer) (tdd.LocalCIVerdict, error) {
+	localCI = func(*Target, string, io.Writer) (tdd.LocalCIVerdict, error) {
 		return tdd.LocalCIVerdict{Red: true}, errors.New("local CI is red: x")
 	}
 	_ = w
@@ -46,7 +46,7 @@ func TestMergeCI_ALocalRedEmitsARedEventAndASetupRefusalEmitsNone(t *testing.T) 
 	if len(cis) != 1 || cis[0].Verdict != "red" || cis[0].Detail["ci"] != "local" {
 		t.Fatalf("ci events = %+v, want one red local event", cis)
 	}
-	localCI = func(*Target, io.Writer) (tdd.LocalCIVerdict, error) {
+	localCI = func(*Target, string, io.Writer) (tdd.LocalCIVerdict, error) {
 		return tdd.LocalCIVerdict{}, errors.New("no workflow to run")
 	}
 	_, _ = applyMerge(t, "")

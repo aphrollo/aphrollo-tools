@@ -255,11 +255,11 @@ func verbMergesPR18(t *testing.T, clone string, tgt *Target) {
 		func(wt, branch string) (*PRInfo, error) {
 			return &PRInfo{Number: 18, URL: "u", State: "OPEN", HeadSHA: "abc123"}, nil
 		},
-		func(wt, branch, method string) error { landOnOrigin(t, clone, "Ship it (#18)"); return nil },
+		func(wt, branch, method, sha string) error { landOnOrigin(t, clone, "Ship it (#18)"); return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, sha string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
-	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error { return nil })
+	stubPremergeGate(t, func(tgt *Target, _ string, _ *tdd.CIVerdict, log io.Writer) error { return nil })
 	stubRetro(t, new([]string))
 	// syncMainClone stays the real Sync: it is what moves local trunk.
 

@@ -20,7 +20,7 @@ import (
 
 // stubPremergeGate swaps the local pre-merge gate seam for a test and records
 // each call in order against the other steps of the merge.
-func stubPremergeGate(t *testing.T, fn func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error) {
+func stubPremergeGate(t *testing.T, fn func(tgt *Target, _ string, _ *tdd.CIVerdict, log io.Writer) error) {
 	t.Helper()
 	prev := premergeGate
 	premergeGate = fn
@@ -33,12 +33,12 @@ func TestMerge_GateRefusal_LeavesThePRUnmerged(t *testing.T) {
 	merged := false
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 4, URL: "u"}, nil },
-		func(wt, branch, method string) error { merged = true; return nil },
+		func(wt, branch, method, sha string) error { merged = true; return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error { return nil })
-	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error {
+	stubPremergeGate(t, func(tgt *Target, _ string, _ *tdd.CIVerdict, log io.Writer) error {
 		return fmt.Errorf("gate premerge: mutant survived at src/x.rs:12")
 	})
 
@@ -67,7 +67,7 @@ func TestMerge_GateRunsAfterCIReadAndBeforeTheMerge(t *testing.T) {
 			order = append(order, "view")
 			return &PRInfo{Number: 5}, nil
 		},
-		func(wt, branch, method string) error { order = append(order, "merge"); return nil },
+		func(wt, branch, method, sha string) error { order = append(order, "merge"); return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) {
@@ -76,7 +76,7 @@ func TestMerge_GateRunsAfterCIReadAndBeforeTheMerge(t *testing.T) {
 	})
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error { return nil })
 	var gatedWorktree string
-	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error {
+	stubPremergeGate(t, func(tgt *Target, _ string, _ *tdd.CIVerdict, log io.Writer) error {
 		order = append(order, "gate")
 		gatedWorktree = tgt.Worktree
 		return nil
@@ -102,12 +102,12 @@ func TestMerge_GateRunsAfterCIReadAndBeforeTheMerge(t *testing.T) {
 func TestMerge_RedCIRefusesWithoutRunningTheLocalGate(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 6}, nil },
-		func(wt, branch, method string) error { t.Fatal("merged a red PR"); return nil },
+		func(wt, branch, method, sha string) error { t.Fatal("merged a red PR"); return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "red", Failing: 2}, nil })
 	gated := false
-	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error { gated = true; return nil })
+	stubPremergeGate(t, func(tgt *Target, _ string, _ *tdd.CIVerdict, log io.Writer) error { gated = true; return nil })
 
 	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
 	var out, errb bytes.Buffer
@@ -124,8 +124,8 @@ func TestMerge_RedCIRefusesWithoutRunningTheLocalGate(t *testing.T) {
 // and hands it nothing.
 func TestMerge_GateIsHandedGitHubsCheckVerdictWhenGitHubJudged(t *testing.T) {
 	stubMerge(t,
-		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 9, URL: "u"}, nil },
-		func(wt, branch, method string) error { return nil },
+		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 9, URL: "u", HeadSHA: "abc"}, nil },
+		func(wt, branch, method, sha string) error { return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green", SHA: "abc"}, nil })
@@ -150,7 +150,7 @@ func TestMerge_GateIsHandedGitHubsCheckVerdictWhenGitHubJudged(t *testing.T) {
 	}
 	t.Cleanup(func() { ghRunInfo = prevRun })
 	var got *tdd.CIVerdict
-	stubPremergeGate(t, func(tgt *Target, v *tdd.CIVerdict, log io.Writer) error { got = v; return nil })
+	stubPremergeGate(t, func(tgt *Target, _ string, v *tdd.CIVerdict, log io.Writer) error { got = v; return nil })
 
 	m, _ := MergePlan(targetFor("/x", "feat/z"), "squash", true)
 	var out, errb bytes.Buffer
@@ -184,7 +184,11 @@ func TestMerge_GateIsHandedGitHubsCheckVerdictWhenGitHubJudged(t *testing.T) {
 func TestMerge_LocalCIHandsTheGateNoGitHubVerdict(t *testing.T) {
 	w := newCIWorld(t, "local", CIStatus{State: "green"})
 	var handed = true
-	premergeGate = func(_ *Target, v *tdd.CIVerdict, _ io.Writer) error { handed = v != nil; w.gateRuns++; return nil }
+	premergeGate = func(_ *Target, _ string, v *tdd.CIVerdict, _ io.Writer) error {
+		handed = v != nil
+		w.gateRuns++
+		return nil
+	}
 	if _, err := applyMerge(t, ""); err != nil {
 		t.Fatal(err)
 	}

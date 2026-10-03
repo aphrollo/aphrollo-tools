@@ -256,7 +256,7 @@ func ciVerdictTree(laneWorktree string, tips prGateTips, v CIVerdict, spec ciSpe
 // StaleCIVerdictError, never answered with the local suites. Any other doubt, a
 // repo that turned reuse off, and a repo measuring mutants locally at the
 // merge, run the full gate exactly as GatePRMerge does.
-func GatePRMergeReusingCI(laneWorktree string, run SuiteRunner, log io.Writer, v CIVerdict) error {
+func GatePRMergeReusingCI(laneWorktree, head string, run SuiteRunner, log io.Writer, v CIVerdict) error {
 	if log == nil {
 		log = io.Discard
 	}
@@ -272,9 +272,9 @@ func GatePRMergeReusingCI(laneWorktree string, run SuiteRunner, log io.Writer, v
 		return prGateRefusal(laneWorktree, "config", "%v", err)
 	}
 	if !reuse || (cfg.AtMerge && !cfg.AtMergeCI) {
-		return judgeMergedTree(laneWorktree, run, log, nil)
+		return judgeMergedTree(laneWorktree, head, run, log, nil)
 	}
-	tips, err := prGateTipsOf(laneWorktree, log)
+	tips, err := prGateTipsOf(laneWorktree, head, log)
 	if err != nil {
 		return err
 	}
@@ -289,7 +289,7 @@ func GatePRMergeReusingCI(laneWorktree string, run SuiteRunner, log io.Writer, v
 	}
 	if why != "" {
 		fmt.Fprintf(log, "gate %s: CI's verdict is not reused (%s); running the local suite\n", premergeDisplayName, why)
-		return judgeMergedTree(laneWorktree, run, log, &tips)
+		return judgeMergedTree(laneWorktree, head, run, log, &tips)
 	}
 	note := ""
 	if laneChangesOnlyMarkdown(laneWorktree, tips) {
@@ -298,7 +298,7 @@ func GatePRMergeReusingCI(laneWorktree string, run SuiteRunner, log io.Writer, v
 		note = " — CI ran no tests: non-code diff"
 	}
 	fmt.Fprintf(log, "gate %s: reused CI verdict for tree %s (%s)%s\n", premergeDisplayName, tree, strings.Join(oses, ", "), note)
-	return judgeMergedTreeWith(laneWorktree, run, log, &tips, MechanicalLaws)
+	return judgeMergedTreeWith(laneWorktree, head, run, log, &tips, MechanicalLaws)
 }
 
 // laneChangesOnlyMarkdown is whether everything the lane changes against trunk is markdown.

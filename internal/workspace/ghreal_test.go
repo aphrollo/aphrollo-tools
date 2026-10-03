@@ -130,7 +130,7 @@ func TestGhMergePR_RealClosureMergesViaREST(t *testing.T) {
 		{"repos/acme/widgets/pulls/12/merge", "", 0},
 		{"repos/acme/widgets/pulls", "12", 0},
 	})
-	if err := ghMergePR(repo, "feat/x", "squash"); err != nil {
+	if err := ghMergePR(repo, "feat/x", "squash", "0123456789abcdef0123456789abcdef01234567"); err != nil {
 		t.Fatalf("ghMergePR: %v", err)
 	}
 }
@@ -142,7 +142,7 @@ func TestGhMergePR_RealClosureRefusesWhenNoPRFound(t *testing.T) {
 	fakeGhAPIByPath(t, []ghAPIRule{
 		{"repos/acme/widgets/pulls", "", 0},
 	})
-	if err := ghMergePR(repo, "feat/x", "squash"); err == nil || !strings.Contains(err.Error(), "no PR found") {
+	if err := ghMergePR(repo, "feat/x", "squash", "0123456789abcdef0123456789abcdef01234567"); err == nil || !strings.Contains(err.Error(), "no PR found") {
 		t.Fatalf("ghMergePR = %v, want a no-PR-found error", err)
 	}
 }
@@ -156,7 +156,7 @@ func TestGhMergePR_RealClosurePropagatesAFailedMerge(t *testing.T) {
 		{"repos/acme/widgets/pulls/12/merge", "gh: not mergeable", 1},
 		{"repos/acme/widgets/pulls", "12", 0},
 	})
-	if err := ghMergePR(repo, "feat/x", "squash"); err == nil {
+	if err := ghMergePR(repo, "feat/x", "squash", "0123456789abcdef0123456789abcdef01234567"); err == nil {
 		t.Fatal("ghMergePR = nil, want an error on a failed merge")
 	}
 }

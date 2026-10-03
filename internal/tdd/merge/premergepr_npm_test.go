@@ -151,7 +151,7 @@ func TestGatePRMerge_NpmRootLinksTheLanesNodeModulesWhenTheLockfileIsUnchanged(t
 	lane := npmPRGateLane(t, false)
 
 	var seen []npmRun
-	if err := GatePRMerge(lane, npmFakeRun(t, &seen, SuiteResult{Passed: true}), io.Discard); err != nil {
+	if err := GatePRMerge(lane, "", npmFakeRun(t, &seen, SuiteResult{Passed: true}), io.Discard); err != nil {
 		t.Fatalf("a green npm merge with an unchanged lockfile must land: %v", err)
 	}
 	for _, r := range seen {
@@ -179,7 +179,7 @@ func TestGatePRMerge_NpmRootInstallsWhenTheMergedLockfileDiffers(t *testing.T) {
 	lane := npmPRGateLane(t, true)
 
 	var seen []npmRun
-	if err := GatePRMerge(lane, npmFakeRun(t, &seen, SuiteResult{Passed: true}), io.Discard); err != nil {
+	if err := GatePRMerge(lane, "", npmFakeRun(t, &seen, SuiteResult{Passed: true}), io.Discard); err != nil {
 		t.Fatalf("a green npm merge whose lockfile moved must land after installing: %v", err)
 	}
 	var installs []npmRun
@@ -213,7 +213,7 @@ func TestGatePRMerge_NpmInstallFailureRefusesNamingTheRootAndTheError(t *testing
 	lane := npmPRGateLane(t, true)
 
 	var seen []npmRun
-	err := GatePRMerge(lane, npmFakeRun(t, &seen, SuiteResult{Output: "npm ERR! 404 Not Found - fakepkg@1.1.0", Err: "exit status 1"}), io.Discard)
+	err := GatePRMerge(lane, "", npmFakeRun(t, &seen, SuiteResult{Output: "npm ERR! 404 Not Found - fakepkg@1.1.0", Err: "exit status 1"}), io.Discard)
 
 	if err == nil {
 		t.Fatal("a failed install must refuse the merge")
@@ -239,7 +239,7 @@ func TestGatePRMerge_NpmInstallTimeoutRefusesAsATimeout(t *testing.T) {
 	lane := npmPRGateLane(t, true)
 
 	var seen []npmRun
-	err := GatePRMerge(lane, npmFakeRun(t, &seen, SuiteResult{TimedOut: true, Output: "fetching fakepkg"}), io.Discard)
+	err := GatePRMerge(lane, "", npmFakeRun(t, &seen, SuiteResult{TimedOut: true, Output: "fetching fakepkg"}), io.Discard)
 
 	if err == nil {
 		t.Fatal("an install that timed out must refuse the merge")
@@ -279,7 +279,7 @@ func TestGatePRMerge_NpmRootOutsideTheSuiteSetIsNotProvisioned(t *testing.T) {
 	gitDo(t, root, "checkout", "-q", "lane")
 
 	var seen []npmRun
-	_ = GatePRMerge(root, npmFakeRun(t, &seen, SuiteResult{Passed: true}), io.Discard)
+	_ = GatePRMerge(root, "", npmFakeRun(t, &seen, SuiteResult{Passed: true}), io.Discard)
 	for _, r := range seen {
 		if r.isInstall() {
 			t.Fatalf("installed an npm root no suite of this merge runs in: %+v", r)
@@ -332,7 +332,7 @@ func TestGatePRMerge_KilledMidNpmSuiteRemovesTheLinkNotTheLanesNodeModules(t *te
 		return res
 	}
 
-	_ = GatePRMerge(lane, run, io.Discard)
+	_ = GatePRMerge(lane, "", run, io.Discard)
 	if linkedDir == "" {
 		t.Fatalf("no suite ran with the lane's node_modules linked in: %+v", seen)
 	}
@@ -367,7 +367,7 @@ func TestGatePRMerge_CheckoutRemovalNeverReachesThroughTheLink(t *testing.T) {
 	t.Cleanup(func() { prGateRemoveCheckout = orig })
 
 	var seen []npmRun
-	if err := GatePRMerge(lane, npmFakeRun(t, &seen, SuiteResult{Passed: true}), io.Discard); err != nil {
+	if err := GatePRMerge(lane, "", npmFakeRun(t, &seen, SuiteResult{Passed: true}), io.Discard); err != nil {
 		t.Fatalf("a green npm merge with an unchanged lockfile must land: %v", err)
 	}
 	linked := false

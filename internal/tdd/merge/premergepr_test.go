@@ -75,7 +75,7 @@ func TestGatePRMerge_UndeclaredRepoRunsNothing(t *testing.T) {
 	t.Cleanup(func() { prGateFetch = orig })
 
 	var seen []gateRun
-	if err := GatePRMerge(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard); err != nil {
+	if err := GatePRMerge(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard); err != nil {
 		t.Fatalf("a repo that declares nothing must merge unchanged: %v", err)
 	}
 	if len(seen) != 0 {
@@ -141,7 +141,7 @@ func TestGatePRMerge_RatchetLawOnlyTheMergedTreeBreaksRefusesWithoutMutantsAtMer
 	gitDo(t, root, "checkout", "-q", "lane")
 
 	var seen []gateRun
-	err := GatePRMerge(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard)
+	err := GatePRMerge(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard)
 
 	if err == nil {
 		t.Fatal("a law only the merged tree breaks must refuse the merge, mutants-at-merge or not")
@@ -170,7 +170,7 @@ func TestGatePRMerge_MutantsStageStaysOffWithoutItsOwnDeclaration(t *testing.T) 
 	gitDo(t, root, "commit", "-qm", "lane adds a small file")
 
 	var seen []gateRun
-	err := GatePRMerge(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard)
+	err := GatePRMerge(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard)
 
 	if err != nil {
 		t.Fatalf("a law-clean merged tree with no mutants-at-merge must land: %v", err)
@@ -190,7 +190,7 @@ func TestGatePRMerge_RefusesRedMergedTreeBeforeItLands(t *testing.T) {
 	declareMutantsAtMergeCommitted(t, root)
 
 	var seen []gateRun
-	err := GatePRMerge(root, recordRuns(&seen, SuiteResult{Passed: false, Output: "merged tree is red"}), io.Discard)
+	err := GatePRMerge(root, "", recordRuns(&seen, SuiteResult{Passed: false, Output: "merged tree is red"}), io.Discard)
 
 	if err == nil {
 		t.Fatal("a red merged tree must refuse the merge")
@@ -218,7 +218,7 @@ func TestGatePRMerge_RefusedMergedTreeLeavesNoThrowawayCheckoutBehind(t *testing
 	declareMutantsAtMergeCommitted(t, root)
 
 	lanes := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root))
-	err := GatePRMerge(root, recordRuns(new([]gateRun), SuiteResult{Passed: false, Output: "merged tree is red"}), io.Discard)
+	err := GatePRMerge(root, "", recordRuns(new([]gateRun), SuiteResult{Passed: false, Output: "merged tree is red"}), io.Discard)
 	if err == nil {
 		t.Fatal("a red merged tree must refuse the merge")
 	}
@@ -240,7 +240,7 @@ func TestGatePRMerge_RefusesWhenTheMergeCannotBeBuilt(t *testing.T) {
 	declareMutantsAtMergeCommitted(t, root)
 
 	var seen []gateRun
-	err := GatePRMerge(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard)
+	err := GatePRMerge(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard)
 
 	if err == nil {
 		t.Fatalf("a merge that could not be built must be refused, not allowed (trunk %s)", trunk)
@@ -263,7 +263,7 @@ func TestGatePRMerge_MergeConflictLeavesNoThrowawayCheckoutBehind(t *testing.T) 
 	declareMutantsAtMergeCommitted(t, root)
 
 	lanes := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root))
-	err := GatePRMerge(root, recordRuns(new([]gateRun), SuiteResult{Passed: true}), io.Discard)
+	err := GatePRMerge(root, "", recordRuns(new([]gateRun), SuiteResult{Passed: true}), io.Discard)
 	if err == nil {
 		t.Fatalf("a merge that could not be built must be refused, not allowed (trunk %s)", trunk)
 	}
@@ -359,7 +359,7 @@ func TestGatePRMerge_KilledMidRunStillRemovesTheThrowawayCheckout(t *testing.T) 
 		return SuiteResult{Passed: true}
 	}
 
-	if err := GatePRMerge(root, run, io.Discard); err != nil {
+	if err := GatePRMerge(root, "", run, io.Discard); err != nil {
 		t.Fatalf("the run completed after the handled signal; want no error: %v", err)
 	}
 	if wt == "" {
@@ -400,7 +400,7 @@ func TestGatePRMerge_GreenMergedTreeLandsAfterOneMeasurement(t *testing.T) {
 	})
 
 	var seen []gateRun
-	if err := GatePRMerge(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard); err != nil {
+	if err := GatePRMerge(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard); err != nil {
 		t.Fatalf("a green merged tree must land: %v", err)
 	}
 	if len(*calls) != 1 {
@@ -438,7 +438,7 @@ func TestGatePRMerge_BuildsTheMergedCheckoutBesideTheLanes(t *testing.T) {
 		return 0, nil
 	})
 
-	if err := GatePRMerge(root, recordRuns(new([]gateRun), SuiteResult{Passed: true}), io.Discard); err != nil {
+	if err := GatePRMerge(root, "", recordRuns(new([]gateRun), SuiteResult{Passed: true}), io.Discard); err != nil {
 		t.Fatalf("a green merged tree must land: %v", err)
 	}
 	if len(*calls) != 1 {
@@ -471,7 +471,7 @@ func TestGatePRMerge_RemovesTheMeasurementAreaWithTheThrowawayCheckout(t *testin
 		return 0, nil
 	})
 
-	if err := GatePRMerge(root, recordRuns(new([]gateRun), SuiteResult{Passed: true}), io.Discard); err != nil {
+	if err := GatePRMerge(root, "", recordRuns(new([]gateRun), SuiteResult{Passed: true}), io.Discard); err != nil {
 		t.Fatalf("a green merged tree must land: %v", err)
 	}
 	if len(*calls) != 1 {

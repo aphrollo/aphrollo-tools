@@ -99,6 +99,9 @@ Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
                             keeps a record while it runs; a session start or
                             status in the repo reports one whose process is
                             gone, and --wait --resume merges the PRs it left.
+                            It judges and merges the PR head GitHub holds; a
+                            lane not at that head, or with uncommitted changes,
+                            exits 2 before judging (push first).
 
 The worktree lands at <repo-parent>/.worktrees/<repo-name>/<branch-slug> — the
 same layout aphrollo-dev uses, so a created worktree can later be claimed. The

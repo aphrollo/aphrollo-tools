@@ -21,6 +21,9 @@ const (
 type CIRunOptions struct {
 	Jobs        int
 	StepTimeout time.Duration
+	// Head is the commit the merge result is built from; "" is the checkout's
+	// own HEAD. A merge passes the PR head it is about to land.
+	Head string
 }
 
 // ReadCIRunOptions is what the repo's aphrollo.toml declares. A value that is

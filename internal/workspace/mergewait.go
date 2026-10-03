@@ -235,6 +235,7 @@ func pollState(head *PRHead, laneSHA string, checks []CheckRun) (line string, do
 func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 	deadline := waitNow().Add(o.Timeout)
 	last := ""
+	apart := 0 // polls in a row the lane has differed from the PR head
 	for {
 		head, err := ghPRHead(t.Worktree, t.Branch)
 		if err != nil {
@@ -245,7 +246,21 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 		}
 		laneSHA, err := laneHeadSHA(t.Worktree)
 		if err != nil {
-			return err
+			return &JudgedHeadError{Msg: fmt.Sprintf("lane %s is not readable (%v) — run the merge from the lane that holds the PR's branch", t.Worktree, err)}
+		}
+		if laneSHA != "" && laneSHA != head.HeadSHA {
+			// A push takes a moment to show as the PR's head, so a lane that
+			// differs for a poll or two is waited for; one that still differs is
+			// holding commits nobody is pushing, and the merge says so rather
+			// than wait out the timeout for a head that will not come.
+			apart++
+			if apart >= laneSyncPolls {
+				if err := laneAtHead(t.Worktree, head.HeadSHA, head.Number); err != nil {
+					return err
+				}
+			}
+		} else {
+			apart = 0
 		}
 		checks, err := ghChecksAt(t.Worktree, head.HeadSHA)
 		if err != nil {
@@ -413,6 +428,17 @@ func RenderMergeQueue(items []QueueItem) string {
 	return b.String()
 }
 
+// queueStopError is the error a stopped queue returns: the whole report, with
+// the refusal that stopped it kept underneath so its kind (a stale CI verdict,
+// a lane that is not the PR head) still decides the exit code.
+type queueStopError struct {
+	msg string
+	err error
+}
+
+func (e *queueStopError) Error() string { return e.msg }
+func (e *queueStopError) Unwrap() error { return e.err }
+
 // RunMergeQueue waits for and merges each PR in order, in one process. A PR
 // refused at planning (no lane) is reported by name and skipped; a PR whose
 // wait fails or whose merge is refused stops the queue, and the error names it
@@ -448,7 +474,7 @@ func runQueue(mainRepo string, prior *tdd.MergeQueueRecord, items []QueueItem, m
 			if len(rest) > 0 {
 				msg += "\nnot attempted: " + strings.Join(rest, " ")
 			}
-			return fmt.Errorf("%s", msg)
+			return &queueStopError{msg: msg, err: err}
 		}
 		settleQueuePR(rec, it.PR, tdd.MergeQueueMerged, stderr)
 	}

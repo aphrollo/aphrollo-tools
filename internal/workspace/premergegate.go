@@ -27,12 +27,15 @@ import (
 // CI stood in for them. When the tree the gate would test is the tree those
 // checks tested, the gate takes their word for the suites (see
 // tdd.GatePRMergeReusingCI) instead of running them again on this box.
-var premergeGate = func(t *Target, verdict *tdd.CIVerdict, log io.Writer) error {
+//
+// head is the PR head the merge judges and then merges: the gate builds the merge
+// from that commit, never from what the lane has checked out.
+var premergeGate = func(t *Target, head string, verdict *tdd.CIVerdict, log io.Writer) error {
 	run := tdd.RunSuite(tdd.DefaultPrecommitTimeout)
 	if verdict == nil {
-		return tdd.GatePRMerge(t.Worktree, run, log)
+		return tdd.GatePRMerge(t.Worktree, head, run, log)
 	}
-	return tdd.GatePRMergeReusingCI(t.Worktree, run, log, *verdict)
+	return tdd.GatePRMergeReusingCI(t.Worktree, head, run, log, *verdict)
 }
 
 // ghVerdictChecks reads the check runs of one commit for the gate to take in
@@ -76,15 +79,16 @@ var ghRunInfo = func(wt string, id int64) (runInfo, error) {
 var actionsRunRe = regexp.MustCompile(`/actions/runs/(\d+)`)
 
 // ciVerdictOf is GitHub's answer for a PR in the form the gate reads: each
-// check on the head, passed only when it concluded `success` (a skipped or
+// check on head (the PR head the merge resolved, never a second lookup), passed
+// only when it concluded `success` (a skipped or
 // neutral check ran nothing worth taking in place of a suite), with the app,
 // workflow file and attempt of the Actions run behind it. A run that cannot be
 // read leaves its workflow and attempt empty, which the gate does not count.
-func ciVerdictOf(wt string, pr int, ci CIStatus) *tdd.CIVerdict {
-	v := &tdd.CIVerdict{PR: pr, HeadSHA: ci.SHA}
+func ciVerdictOf(wt string, pr int, head string, ci CIStatus) *tdd.CIVerdict {
+	v := &tdd.CIVerdict{PR: pr, HeadSHA: head}
 	runs := map[int64]runInfo{}
-	for _, c := range ghVerdictChecks(wt, ci.SHA) {
-		if c.SHA != ci.SHA {
+	for _, c := range ghVerdictChecks(wt, head) {
+		if c.SHA != head {
 			continue
 		}
 		started, _ := time.Parse(time.RFC3339, c.StartedAt)

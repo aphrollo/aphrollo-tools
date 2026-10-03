@@ -57,7 +57,11 @@ func TestMerge_DecidesByWhatTheGateSaysAboutCIsVerdict(t *testing.T) {
 			noVerdictChecks(t)
 			w := newCIWorld(t, tc.mode, CIStatus{State: "green", SHA: "abc"})
 			var handed bool
-			premergeGate = func(_ *Target, v *tdd.CIVerdict, _ io.Writer) error { handed = v != nil; w.gateRuns++; return tc.gate }
+			premergeGate = func(_ *Target, _ string, v *tdd.CIVerdict, _ io.Writer) error {
+				handed = v != nil
+				w.gateRuns++
+				return tc.gate
+			}
 
 			_, err := applyMerge(t, "")
 
@@ -97,7 +101,7 @@ func TestMergeWait_AStaleCIVerdictRefusesWithoutMerging(t *testing.T) {
 	f := &fakeCI{prs: []*fakePR{pr}, laneHead: map[string]string{"/w/s": newSHA}}
 	install(t, f)
 	noVerdictChecks(t)
-	stubPremergeGate(t, func(*Target, *tdd.CIVerdict, io.Writer) error { return staleVerdict() })
+	stubPremergeGate(t, func(*Target, string, *tdd.CIVerdict, io.Writer) error { return staleVerdict() })
 
 	var out, errb bytes.Buffer
 	err := MergeWait(&Target{Worktree: "/w/s", Branch: "lane/stale", MainRepo: "/r", RepoName: "r"}, "squash", true, testWait, &out, &errb)
