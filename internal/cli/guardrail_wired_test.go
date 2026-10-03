@@ -188,3 +188,27 @@ func TestInstalledPreToolUseHooks_EvaluateTheGuardrailRules(t *testing.T) {
 		t.Fatalf("no installed PreToolUse hook matches Bash; settings:\n%s", data)
 	}
 }
+
+// A call the harness runs in the background blocks nothing, so the foreground
+// wait rule must not refuse it through the installed hook (#1170).
+func TestRun_GatePreToolUse_LetsABackgroundWaitThroughAndStillDeniesAForegroundOne(t *testing.T) {
+	dir := guardrailRepo(t)
+	command := "sleep 45; aphrollo workspace merge 1169 --wait"
+	for _, c := range []struct {
+		name       string
+		background string
+		wantCode   int
+	}{
+		{"background true", `"run_in_background":true,`, 0},
+		{"background false", `"run_in_background":false,`, 2},
+	} {
+		payload := strings.Replace(recordedBashPayload(t, dir, command), `"command"`, c.background+`"command"`, 1)
+
+		var out, errb bytes.Buffer
+		code := Run([]string{"gate", "pretooluse"}, strings.NewReader(payload), &out, &errb)
+
+		if code != c.wantCode {
+			t.Errorf("%s: exit %d, want %d\nstdout:%s\nstderr:%s", c.name, code, c.wantCode, out.String(), errb.String())
+		}
+	}
+}
