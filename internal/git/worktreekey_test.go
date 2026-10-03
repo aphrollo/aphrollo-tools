@@ -1,6 +1,8 @@
 package git
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -132,5 +134,39 @@ func TestWorktreeKey_ARepositoryGitCannotReadIsAnError(t *testing.T) {
 	}
 	if k, err := c.WorktreeKey(); err == nil {
 		t.Errorf("a repository with no objects gave key %q, want an error", k)
+	}
+}
+
+func TestWorktreeKey_ARenameIsNotACopy(t *testing.T) {
+	renamed := repoWithCommit(t)
+	gitT(t, renamed, "mv", "a.txt", "b.txt")
+	copied := repoWithCommit(t)
+	write(t, copied, "b.txt", "a\n")
+	gitT(t, copied, "add", "b.txt")
+	if keyOf(t, renamed) == keyOf(t, copied) {
+		t.Error("a worktree that lost a.txt and gained b.txt has the key of one that kept a.txt: the rename's source is part of the tree")
+	}
+}
+
+func TestWorktreeKey_IsTheShaOfTheTreeAndTheBlobsGitNamesInEitherObjectFormat(t *testing.T) {
+	for _, format := range []string{"sha1", "sha256"} {
+		t.Run(format, func(t *testing.T) {
+			dir := t.TempDir()
+			gitT(t, dir, "init", "-q", "-b", "main", "--object-format="+format)
+			write(t, dir, "a.txt", "a\n")
+			gitT(t, dir, "add", "-A")
+			gitT(t, dir, "commit", "-q", "-m", "one")
+			write(t, dir, "new dir/u.txt", "untracked content\n")
+			write(t, dir, "a.txt", "edited\n")
+
+			// The key as the architecture words it, from what git itself names.
+			tree := gitT(t, dir, "rev-parse", "HEAD^{tree}")
+			blobA := gitT(t, dir, "hash-object", "a.txt")
+			blobU := gitT(t, dir, "hash-object", "new dir/u.txt")
+			want := sha256.Sum256([]byte("tree " + tree + "\n" + "a.txt\x00" + blobA + "\n" + "new dir/u.txt\x00" + blobU + "\n"))
+			if got := keyOf(t, dir); got != hex.EncodeToString(want[:]) {
+				t.Errorf("key = %s, want %s: the blob of each path in %s's own object format", got, hex.EncodeToString(want[:]), format)
+			}
+		})
 	}
 }
