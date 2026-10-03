@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // The primary checkout is merge-only. In a repo that has any linked worktree,
@@ -47,22 +49,25 @@ func PrimaryCheckoutState(dir string) (root, branch string, applies bool) {
 	if dir == "" {
 		return "", "", false
 	}
-	gitDir := gitOut(dir, "rev-parse", "--path-format=absolute", "--git-dir")
-	commonDir := gitOut(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if gitDir == "" || commonDir == "" {
-		return "", "", false // not a git repo, or git is missing — say nothing
+	c := gitx.HookClient(dir)
+	if c == nil {
+		return "", "", false // not a git repo — say nothing
 	}
-	if !sameGitDir(dir, gitDir, commonDir) {
+	if c.IsLinkedWorktree() {
 		return "", "", false // a linked worktree: the place work belongs
 	}
-	if !hasLinkedWorktree(resolveDir(dir, commonDir)) {
+	if !hasLinkedWorktree(c.CommonDir()) {
 		return "", "", false // an ordinary clone has no primary/lane split to keep
 	}
-	root = RepoRoot(dir)
-	if root == "" {
+	head, err := c.Head()
+	if err != nil {
 		return "", "", false
 	}
-	return root, gitOut(dir, "rev-parse", "--abbrev-ref", "HEAD"), true
+	branch = head.Branch
+	if head.Detached {
+		branch = "HEAD" // what `rev-parse --abbrev-ref HEAD` prints of a detached HEAD
+	}
+	return gitx.HookRoot(dir), branch, true
 }
 
 // PrimaryMergeOnly reports whether dir sits in a repo's primary checkout that

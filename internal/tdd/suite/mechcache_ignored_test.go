@@ -36,3 +36,7 @@ func TestWorktreeStateHash_SeesIgnoredConfig(t *testing.T) {
 		t.Fatal("build output must not move the state hash")
 	}
 }
+
+// ratchet: test_removed TestSplitNulPaths_DropsOnlyTheTrailingEmptyField: splitNulPaths is gone with the NUL-separated git lists it split; the dirty set is one status read
+// ratchet: test_removed TestSplitNulPaths_KeepsANonEmptyLastFieldIntact: splitNulPaths is gone with the NUL-separated git lists it split; the dirty set is one status read
+// ratchet: test_removed TestSplitNulPaths_SinglePathTerminatedByNulYieldsOneEntry: splitNulPaths is gone with the NUL-separated git lists it split; the dirty set is one status read

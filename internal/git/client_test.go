@@ -402,3 +402,29 @@ func TestIsObjectID_AcceptsOnlyAFullLowercaseHexName(t *testing.T) {
 		}
 	}
 }
+
+func TestStatus_AKeylessReadLeavesTheKeptBatchAnswerAlone(t *testing.T) {
+	dir := repoWithCommit(t)
+	c := mustNew(t, dir)
+	kept, err := c.Status("batch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "later.txt", "l\n")
+
+	fresh, err := c.Status("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := c.Status("batch")
+
+	if got := fresh.UntrackedPaths(); !reflect.DeepEqual(got, []string{"later.txt"}) {
+		t.Errorf("the keyless read saw %q, want the file written since", got)
+	}
+	if err != nil || again != kept {
+		t.Errorf("the batch answer after a keyless read = %p, %v; want the one kept, %p", again, err, kept)
+	}
+	if c.Spawns() != 2 {
+		t.Errorf("Spawns = %d, want 2: the batch's read and the keyless one, none to answer the batch again", c.Spawns())
+	}
+}

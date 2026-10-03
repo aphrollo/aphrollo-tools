@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -12,7 +14,9 @@ import (
 	"sync"
 	"time"
 
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // The mechanical green cache remembers which exact (worktree content, test
@@ -72,23 +76,27 @@ func mechKeyPrefix(root, stateHash string) string {
 // cache stays shared across them. Outside a repo it is "": mechKeyRepo
 // already keys on root itself there.
 func mechKeyRoot(root string) string {
-	out, err := gitRead(root, "rev-parse", "--show-prefix")
-	if err != nil {
+	c := gitx.HookClient(root)
+	if c == nil {
 		return ""
 	}
-	return strings.TrimSpace(out)
+	rel, err := filepath.Rel(c.Root(), root)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	return filepath.ToSlash(rel) + "/"
 }
 
 // mechKeyRepo resolves root to the identity the cache keys on: the repo's
 // git common dir, or root itself when git cannot answer.
 func mechKeyRepo(root string) string {
-	out, err := git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
+	c := gitx.HookClient(root)
+	if c == nil {
 		return root
 	}
-	dir := strings.TrimSpace(out)
-	if dir == "" {
-		return root
+	dir := c.CommonDir()
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
 	}
 	return filepath.Clean(dir)
 }
@@ -213,165 +221,138 @@ func mechCacheAddUnmoved(root, before string, r Runner) {
 }
 
 // worktreeStateHash fingerprints the content the mechanical suite actually
-// sees: HEAD plus the blob content of every tracked file that differs from
-// HEAD and every untracked (non-ignored) file. It hashes path+blob pairs, not
-// diff text, so staging (`git add`) does not move the hash — a green recorded
-// right after an edit is still valid at the commit that follows. Only the
-// delta files are content-hashed, so the cost scales with the change, not the
-// repo. Any git failure returns "", which callers treat as "no caching".
+// sees: HEAD plus the content of every path that differs from HEAD or the
+// index, every untracked (non-ignored) file, and every configuration file the
+// suites read (see configFiles). It hashes path+content pairs, not diff text,
+// so staging (`git add`) does not move the hash: a green recorded right after
+// an edit is still valid at the commit that follows. Only those files are
+// content-hashed, so the cost scales with the change, not the repo. Any git
+// failure returns "", which callers treat as "no caching".
+//
+// The dirty set is one `git status` read fresh now: a caller that asks twice,
+// to learn whether the tree moved between, gets two reads.
 func worktreeStateHash(root string) string {
-	head, err := gitRead(root, "rev-parse", "HEAD")
-	if err != nil {
-		return ""
-	}
-	// `git diff --name-only` prints REPO-ROOT-relative paths by default,
-	// regardless of cwd; `--full-name` makes `ls-files` match that base
-	// instead of its natural cwd-relative one. Both must agree, because
-	// `git hash-object --stdin-paths` below ALSO always resolves its input
-	// relative to the repo root, ignoring cwd entirely (unlike a bare path
-	// argument) — verified empirically, undocumented quirk. root routinely
-	// lands on a Cargo workspace member crate's own subdirectory
-	// (FindProjectRoot finds the nearest Cargo.toml, not the workspace
-	// root), so anchoring the Lstat/hash step at root itself either doubled
-	// a repo-root-relative path into a nonexistent one, or fed a
-	// cwd-relative path to hash-object where it silently resolved against
-	// the wrong file (#175).
-	// -z: git quotes a path containing a byte >= 0x80 (or other "unusual"
-	// bytes) as a C-quoted string by default (core.quotePath defaults to
-	// true, git-config(1)) — e.g. `"caf\303\251.rs"`, surrounding quotes and
-	// octal escapes literal. `-z` makes git emit raw, unquoted, NUL-separated
-	// paths regardless of core.quotePath, so the Lstat/hash-object join below
-	// never has to un-quote. Without it a quoted literal never matches a real
-	// file, os.Lstat fails, and the path is stamped "gone" no matter what its
-	// content changes to — the same cache-poisoning shape #175 fixed, reached
-	// by this route instead (#175).
-	changed, err := gitRead(root, "diff", "HEAD", "--name-only", "--no-color", "-z")
-	if err != nil {
-		return ""
-	}
-	// Every path here is repo-root-relative, so the join and the
-	// hash-object call below anchor there too, not at root.
-	base := RepoRoot(root)
-	if base == "" {
-		base = root
-	}
-	// Untracked and ignored-config files are listed across the WHOLE repo,
-	// like the diff above, and not from root: `ls-files` lists only what
-	// sits under the directory it runs in, and the command this hash keys
-	// reaches past root — a cargo run from the workspace names every crate
-	// downstream of the touched one and compiles their tests/*.rs whether
-	// git tracks them or not (#813).
-	untracked, err := gitRead(base, "ls-files", "--others", "--exclude-standard", "--full-name", "-z")
-	if err != nil {
-		return ""
-	}
+	c, st := gitx.FreshStatus(root)
+	return stateHash(c, st)
+}
 
+// worktreeStateHashInBatch is worktreeStateHash over the dirty set the hook's
+// batch has read already (gitx.BeginHook): the same bytes for the same tree,
+// and no second status for a hook that asks several times in one instant.
+func worktreeStateHashInBatch(root string) string {
+	c, st := gitx.HookStatus(root)
+	return stateHash(c, st)
+}
+
+// stateHash is the hash of the tree c sits in, for the dirty set st read from
+// it; "" when either is missing or the repository has no commit.
+func stateHash(c *igit.Client, st *igit.Status) string {
+	if c == nil || st == nil {
+		return ""
+	}
+	head, err := c.Head()
+	if err != nil || head.SHA == "" {
+		return ""
+	}
+	// Every path here is repo-root-relative, which is what status prints, and
+	// is joined to the worktree's top directory, not to root: root routinely
+	// lands on a Cargo workspace member crate's own subdirectory
+	// (FindProjectRoot finds the nearest Cargo.toml, not the workspace root),
+	// and the command this hash keys reaches past root, naming every crate
+	// downstream of the touched one (#175, #813).
+	base := c.Root()
 	seen := map[string]bool{}
 	var paths []string
-	for _, out := range []string{changed, untracked, ignoredConfig(base)} {
-		for _, p := range splitNulPaths(out) {
-			if !seen[p] {
-				seen[p] = true
-				paths = append(paths, p)
-			}
+	add := func(p string) {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			paths = append(paths, p)
 		}
+	}
+	for _, e := range st.Entries {
+		if e.Kind != igit.Ignored {
+			add(e.Path)
+			add(e.From)
+		}
+	}
+	for _, p := range configFiles(base) {
+		add(p)
 	}
 	sort.Strings(paths)
 
-	// Batch-hash the paths that are regular files; anything else (deleted,
-	// replaced by a directory) is stamped "gone" so its absence still shapes
-	// the hash.
-	var present []string
-	for _, p := range paths {
-		if fi, err := os.Lstat(filepath.Join(base, p)); err == nil && fi.Mode().IsRegular() {
-			present = append(present, p)
-		}
-	}
-	blobs, ok := blobHashes(base, present)
-	if !ok {
-		return ""
-	}
-
 	h := sha256.New()
-	fmt.Fprintf(h, "%s\n", strings.TrimSpace(head))
+	fmt.Fprintf(h, "%s\n", head.SHA)
 	for _, p := range paths {
-		blob, ok := blobs[p]
-		if !ok {
-			blob = "gone"
-		}
-		fmt.Fprintf(h, "%s\x00%s\n", p, blob)
+		fmt.Fprintf(h, "%s\x00%s\n", p, fileContentStamp(filepath.Join(base, filepath.FromSlash(p))))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// ignoredConfig lists the IGNORED files a suite genuinely reads: dotenv
-// files and anything under a config/ directory. The cache is shared across a
-// repo's worktrees, so tracked content alone is not the whole fact — two
-// lanes with the same sources and different .env are not the same proven
-// green. Build output is deliberately excluded: hashing target/ would cost
-// minutes per commit for something that changes on every build.
-// bound: pathspec-limited to dotenv + config/ trees, target/ and
-// node_modules/ excluded.
-func ignoredConfig(root string) string {
-	out, err := gitRead(root, "ls-files", "--others", "--ignored", "--exclude-standard", "--full-name", "-z", "--",
-		":(glob).env*", ":(glob)**/.env*", ":(glob)config/**", ":(glob)**/config/**",
-		":(glob,exclude)**/target/**", ":(glob,exclude)**/node_modules/**")
-	if err != nil {
-		return ""
+// fileContentStamp is the hex SHA-256 of a regular file's bytes; anything else
+// (deleted, replaced by a directory, unreadable) stamps "gone" so its absence
+// still shapes the hash.
+func fileContentStamp(path string) string {
+	fi, err := os.Lstat(path)
+	if err != nil || !fi.Mode().IsRegular() {
+		return "gone"
 	}
-	return out
+	f, err := os.Open(path)
+	if err != nil {
+		return "gone"
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "gone"
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
-// splitNulPaths splits a `-z`-terminated git path list. Each path (including
-// the last) is followed by a trailing NUL, so a naive split on "\x00" leaves
-// one empty trailing field; dropped here rather than left for a caller to
-// forget, since an empty-string path joined against a base directory would
-// Lstat the base itself and stamp IT "gone" in the hash. Empty input yields
-// an empty path set, never a slice holding one empty string.
-func splitNulPaths(s string) []string {
-	if s == "" {
+// configFiles lists, repo-relative and slash-separated, the files a suite
+// genuinely reads that git may not track: dotenv files and anything under a
+// config/ directory. The cache is shared across a repo's worktrees, so tracked
+// content alone is not the whole fact: two lanes with the same sources and
+// different .env are not the same proven green. A tracked one is listed too,
+// which leaves the hash as sensitive and no less stable. Build output is
+// deliberately excluded: hashing target/ would cost minutes per commit for
+// something that changes on every build. A nested repository, which a lane
+// kept under the tree is, has its own state and is not walked.
+// bound: one walk of the worktree, target/, node_modules/ and .git skipped.
+func configFiles(base string) []string {
+	var out []string
+	// absence-ok: an unreadable directory contributes no config file, as git's own listing skips it
+	_ = filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, relErr := filepath.Rel(base, path)
+		if relErr != nil {
+			return nil
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "target", "node_modules":
+				return filepath.SkipDir
+			}
+			if rel != "." {
+				if _, statErr := os.Lstat(filepath.Join(path, ".git")); statErr == nil {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		slash := filepath.ToSlash(rel)
+		if strings.HasPrefix(d.Name(), ".env") || strings.HasPrefix(slash, "config/") || strings.Contains(slash, "/config/") {
+			out = append(out, slash)
+		}
 		return nil
-	}
-	fields := strings.Split(s, "\x00")
-	if n := len(fields); n > 0 && fields[n-1] == "" {
-		fields = fields[:n-1]
-	}
-	return fields
-}
-
-// blobHashes returns the git blob hash of each file via one batched
-// `hash-object --stdin-paths` call. files are root-relative regular files.
-func blobHashes(root string, files []string) (map[string]string, bool) {
-	out := map[string]string{}
-	if len(files) == 0 {
-		return out, true
-	}
-	raw, err := gitReadStdin(root, strings.NewReader(strings.Join(files, "\n")+"\n"),
-		"hash-object", "--stdin-paths")
-	if err != nil {
-		return nil, false
-	}
-	lines := strings.Split(strings.TrimSpace(raw), "\n")
-	if len(lines) != len(files) {
-		return nil, false
-	}
-	for i, f := range files {
-		out[f] = strings.TrimSpace(lines[i])
-	}
-	return out, true
+	})
+	return out
 }
 
 // gitRead runs git in dir with a scrubbed environment and returns STDOUT only
 // — unlike git() it never mixes stderr noise into a value used for hashing.
 func gitRead(dir string, args ...string) (string, error) {
-	return gitReadStdin(dir, nil, args...)
-}
-
-func gitReadStdin(dir string, stdin *strings.Reader, args ...string) (string, error) {
-	spec := run.Spec{Name: gitBinary(), Args: args, Dir: dir, Env: cleanGitEnvFor(dir, args...)}
-	if stdin != nil {
-		spec.Stdin = stdin
-	}
-	out, err := lightOutput(spec)
+	out, err := lightOutput(run.Spec{Name: gitBinary(), Args: args, Dir: dir, Env: cleanGitEnvFor(dir, args...)})
 	return string(out), err
 }

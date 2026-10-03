@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // The edit ledger is the edit hook's memory of what each edit was and what
@@ -242,6 +244,15 @@ func headSplit(root, file, head string) (rustSplit, bool) {
 	if err != nil {
 		// absence-ok: same as fileSplit, the edit records unknown.
 		return rustSplit{}, false
+	}
+	// The hook's one status names the blob HEAD holds for the file, which is read
+	// from the object store without a spawn; only a file git alone can place
+	// (clean, ignored, in conflict) is asked of git.
+	if text, inHead, ok := gitx.HeadCopy(file); ok {
+		if !inHead {
+			text = ""
+		}
+		return fileSplit(root, file, text)
 	}
 	src, err := git(root, "show", head+":./"+filepath.ToSlash(rel))
 	if err == nil {

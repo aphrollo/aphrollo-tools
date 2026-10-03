@@ -121,7 +121,7 @@ func decideNarrowedSuite(root, cmd string) Decision {
 		}
 	}
 	if _, recent := lastSuiteLogEntry(root, bashSuiteVerdictFreshFor); recent {
-		return Decision{Action: Allow, Escapes: []string{"override-bash-narrowed"}}
+		return Decision{Action: Allow, Escapes: []string{rerunBashNarrowed}}
 	}
 	return Decision{Action: Allow}
 }
@@ -372,3 +372,11 @@ func LogBashSuiteDecision(raw []byte, d Decision) {
 		AppendGateLog("preedit", root, cmd, LogToken(esc), 0)
 	}
 }
+
+// rerunBashNarrowed is what a narrowed rerun allowed beside inconclusive
+// activity is counted as. It is an allow, not an override: nothing refused it,
+// and it is the one route to an answer for code that was never tested. Under
+// an "override-" name it was folded into the override count and read as the
+// pass of a wrong block (85 of 87 overrides, and most of the wrong blocks, in
+// the event log, none of them the override of a refusal).
+const rerunBashNarrowed = "rerun-bash-narrowed"

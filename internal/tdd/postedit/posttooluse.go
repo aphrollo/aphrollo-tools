@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // postToolUseInput is the subset of the PostToolUse payload the RED/GREEN
@@ -40,6 +42,7 @@ var gatedPostTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": t
 // raise over the edited file (lawRefusalNote). PostToolUse never blocks and
 // never errors out regardless.
 func PostEdit(raw []byte, run SuiteRunner) string {
+	gitx.BeginHook()
 	var in postToolUseInput
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return ""
@@ -143,7 +146,7 @@ func postEditFileAs(session, target string, run SuiteRunner, editID string, touc
 
 	// The state the run is about to compile: its green is recorded under
 	// this, and only if the tree is still here when it finishes (#813).
-	before := worktreeStateHash(root)
+	before := worktreeStateHashInBatch(root)
 	res, terminal := runPostEditSuite(run, snap, root, headSHA, DefaultPostEditTimeout)
 	if terminal != "" {
 		return terminal, false

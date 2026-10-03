@@ -2,10 +2,12 @@ package postedit
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // A trunk sync into a lane (mergescope.go's trunkSyncTip) is judged on the
@@ -22,6 +24,11 @@ import (
 // and any path trunk does not have. dropped counts what was removed. Outside
 // a trunk sync, or when git cannot answer, changed comes back whole.
 func trunkSyncOwnPaths(root string, changed []string) (own []string, dropped int) {
+	// A trunk sync is a merge, which leaves MERGE_HEAD in the git directory;
+	// with none there is nothing for git to be asked.
+	if c := gitx.HookClient(root); c != nil && c.MergeInProgress() == "" {
+		return changed, 0
+	}
 	tip, ok := trunkSyncTip(root)
 	if !ok || len(changed) == 0 {
 		return changed, 0
@@ -83,20 +90,29 @@ func trunkSyncStandDownLine(root string, dropped int) string {
 // mergeHeadCommit is the commit MERGE_HEAD names, "" when no merge is in
 // progress.
 func mergeHeadCommit(root string) string {
-	out, err := gitRead(root, "rev-parse", "-q", "--verify", "MERGE_HEAD")
+	c := gitx.HookClient(root)
+	if c == nil || c.MergeInProgress() != "MERGE_HEAD" {
+		return ""
+	}
+	raw, err := os.ReadFile(filepath.Join(c.GitDir(), "MERGE_HEAD"))
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(out)
+	sha, _, _ := strings.Cut(strings.TrimSpace(string(raw)), "\n")
+	return strings.TrimSpace(sha)
 }
 
 // headCommit is the commit HEAD names, "" before the first commit.
 func headCommit(root string) string {
-	out, err := gitRead(root, "rev-parse", "-q", "--verify", "HEAD")
+	c := gitx.HookClient(root)
+	if c == nil {
+		return ""
+	}
+	head, err := c.Head()
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(out)
+	return head.SHA
 }
 
 // withoutEndedMergePaths drops, from changed, the paths a command that ended

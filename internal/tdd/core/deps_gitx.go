@@ -7,5 +7,3 @@ import (
 )
 
 func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
-
-func gitOut(p0 string, p1 ...string) string { return gitx.GitOut(p0, p1...) }

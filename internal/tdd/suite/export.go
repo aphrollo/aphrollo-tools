@@ -330,6 +330,8 @@ func WithGateProfile(p0 Runner, p1 string) Runner { return withGateProfile(p0, p
 
 func WorktreeStateHash(p0 string) string { return worktreeStateHash(p0) }
 
+func WorktreeStateHashInBatch(p0 string) string { return worktreeStateHashInBatch(p0) }
+
 func WriteSuiteOutputRecord(p0 suiteOutputRecord) error { return writeSuiteOutputRecord(p0) }
 
 func ZigTestLines(p0 string) map[int]bool { return zigTestLines(p0) }

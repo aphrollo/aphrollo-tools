@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // Session state records, per project root, the outcome of the last test run so
@@ -240,22 +242,29 @@ func fingerprintsMatch(a, b *fingerprint) bool {
 // repo, git missing, detached in an odd way) returns nil, which by the match
 // rule above means "trust no prior state".
 func computeFingerprint(root string) *fingerprint {
-	branch := gitOut(root, "rev-parse", "--abbrev-ref", "HEAD")
-	head := gitOut(root, "rev-parse", "HEAD")
-	if branch == "" || head == "" {
+	c := gitx.HookClient(root)
+	if c == nil {
 		return nil
 	}
-	var mtime int64
-	// `.git` is a file in a linked worktree; git knows where the index is.
-	if idx := gitOut(root, "rev-parse", "--git-path", "index"); idx != "" {
-		if !filepath.IsAbs(idx) {
-			idx = filepath.Join(root, idx)
-		}
-		if fi, err := os.Stat(idx); err == nil {
-			mtime = fi.ModTime().UnixNano()
-		}
+	head, err := c.Head()
+	if err != nil || head.SHA == "" {
+		return nil
 	}
-	return &fingerprint{Branch: branch, HeadSHA: head, IndexMtime: mtime}
+	branch := head.Branch
+	if head.Detached {
+		// What `rev-parse --abbrev-ref HEAD` prints of a detached HEAD.
+		branch = "HEAD"
+	}
+	if branch == "" {
+		return nil
+	}
+	// The index is the worktree's own file: a linked worktree keeps it in its
+	// git directory, which the client found from the `.git` file.
+	var mtime int64
+	if fi, err := os.Stat(filepath.Join(c.GitDir(), "index")); err == nil {
+		mtime = fi.ModTime().UnixNano()
+	}
+	return &fingerprint{Branch: branch, HeadSHA: head.SHA, IndexMtime: mtime}
 }
 
 // Stamp records the outcome of a run for root.

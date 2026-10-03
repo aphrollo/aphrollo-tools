@@ -176,23 +176,32 @@ var statusArgs = []string{"--no-optional-locks", "status", "--porcelain=v2", "-z
 
 // Status is the tree's status for the batch named by key: one spawn the first
 // time, and the same answer for every later call with that key. A different key
-// reads the tree again; an empty key is never kept. A failed call is not kept
-// either.
+// reads the tree again and replaces the kept answer. An empty key is a read of
+// its own, never kept, and leaves the kept answer as it was. A failed call is
+// not kept either.
 func (c *Client) Status(key string) (*Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if key != "" && c.status != nil && key == c.statusKey {
+	if key == "" {
+		return c.readStatus()
+	}
+	if c.status != nil && key == c.statusKey {
 		return c.status, nil
 	}
 	c.status, c.statusKey = nil, ""
-	out, err := c.Output(statusArgs...)
-	if err != nil {
-		return nil, err
-	}
-	st, err := ParseStatus(out)
+	st, err := c.readStatus()
 	if err != nil {
 		return nil, err
 	}
 	c.status, c.statusKey = st, key
 	return st, nil
+}
+
+// readStatus asks git for the status now.
+func (c *Client) readStatus() (*Status, error) {
+	out, err := c.Output(statusArgs...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStatus(out)
 }

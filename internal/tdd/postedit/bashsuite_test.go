@@ -189,7 +189,10 @@ func TestDecideBashSuite_CountsANarrowedRerunBesideAFreshVerdict(t *testing.T) {
 		t.Fatal("a narrowed rerun must be judged")
 	}
 	LogBashSuiteDecision(raw, d)
-	requireLoggedVerdict(t, cfg, "override-bash-narrowed")
+	requireLoggedVerdict(t, cfg, "rerun-bash-narrowed")
+	if strings.Contains(gateLogText(t, cfg), "override-bash-narrowed") {
+		t.Fatal("an allowed rerun after an inconclusive verdict is no override of a refusal and must not be counted as one")
+	}
 }
 
 // An ordinary narrowed rerun with nothing fresh on record is the mundane

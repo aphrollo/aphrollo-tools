@@ -9,7 +9,7 @@ import "time"
 func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string) (advisory string, stillRunning bool) {
 	budget := PostEditBudget()
 	deadline := time.Now().Add(budget)
-	fileHash := sourceIdentity(root, target)
+	fileHash := sourceIdentityInBatch(root, target)
 	carried, fresh := harvestDeferred(root, headSHA, fileHash, session, budget, snap.state, snap.statePath)
 	if !fresh {
 		return carried, false
@@ -21,7 +21,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	defer func() { advisory = joinDeferredAdvisory(carried, advisory) }()
 	// The state the phases are about to compile: their green is recorded
 	// under this, and only if the tree is still here when they finish (#813).
-	before := worktreeStateHash(root)
+	before := worktreeStateHashInBatch(root)
 	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, snap.editID, budget)
 	if out.spawnFailed {
 		AppendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)

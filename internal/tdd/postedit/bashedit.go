@@ -10,6 +10,9 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // A `sed -i`, a heredoc, a `gofmt -w`, a generator — every one of them is an
@@ -82,6 +85,7 @@ func bashKey(in bashInput) string {
 // or a missing session id all mean "no snapshot", and PostBash then says
 // nothing rather than guessing at a diff it cannot compute.
 func PreBash(raw []byte) {
+	gitx.BeginHook()
 	var in bashInput
 	if err := json.Unmarshal(raw, &in); err != nil || in.ToolName != "Bash" {
 		return
@@ -135,7 +139,7 @@ func pruneBashSnapshots(snaps map[string]*bashSnapshot) {
 func bashSnapshotDir(cwd, cmd string) string {
 	dir := commandRunDir(cwd, cmd)
 	primary, ok := PrimaryMergeOnly(dir)
-	if !ok && RepoRoot(dir) != "" {
+	if !ok && gitx.HookRoot(dir) != "" {
 		return dir
 	}
 	if wt := soleRepoWrittenTo(primary, bashWriteTargets(cmd, cwd)); wt != "" {
@@ -160,7 +164,7 @@ func commandRunDir(cwd, cmd string) string {
 		if cur == "" {
 			return cwd
 		}
-		root := RepoRoot(existingAncestorDir(cur))
+		root := gitx.HookRoot(existingAncestorDir(cur))
 		if answer == "" {
 			answer, answerRoot = cur, root
 			continue
@@ -198,30 +202,41 @@ func soleRepoWrittenTo(primary string, targets []string) string {
 	return found
 }
 
-// takeBashSnapshot asks git once what is dirty and stamps the source paths in
-// that answer. nil when there is no repo to snapshot.
+// takeBashSnapshot reads what is dirty from the hook's one status and stamps
+// the source paths in that answer. nil when there is no repo to snapshot.
 func takeBashSnapshot(cwd string) *bashSnapshot {
 	if cwd == "" {
 		return nil
 	}
-	root := RepoRoot(cwd)
+	root := gitx.HookRoot(cwd)
 	if root == "" {
 		return nil
 	}
-	status, err := gitRead(root, "status", "--porcelain", "-uall", "-z")
-	if err != nil {
+	_, st := gitx.HookStatus(cwd)
+	if st == nil {
 		return nil
 	}
-	sum := sha256.Sum256([]byte(status))
+	sum := sha256.New()
+	var paths []string
+	for _, e := range st.Entries {
+		if e.Kind == igit.Ignored {
+			continue
+		}
+		fmt.Fprintf(sum, "%c %s %s\x00%s\x00", e.Kind, e.XY, e.Path, e.From)
+		paths = append(paths, e.Path)
+		if e.From != "" {
+			paths = append(paths, e.From)
+		}
+	}
 	snap := &bashSnapshot{
 		Root:       root,
-		StatusHash: hex.EncodeToString(sum[:]),
+		StatusHash: hex.EncodeToString(sum.Sum(nil)),
 		Dirty:      map[string]string{},
 		MergeHead:  mergeHeadCommit(root),
 		Head:       headCommit(root),
 		At:         time.Now().UTC(),
 	}
-	for _, rel := range porcelainPaths(status) {
+	for _, rel := range paths {
 		if ClassifyFile(rel) == Ignore {
 			continue
 		}
@@ -261,6 +276,7 @@ func selectsARun(target, root string) bool {
 // (withSessionHarvest): a turn whose last tool call is a shell command must
 // not end without the verdict an earlier edit left running.
 func PostBash(raw []byte, run SuiteRunner) string {
+	gitx.BeginHook()
 	var in bashInput
 	if err := json.Unmarshal(raw, &in); err != nil || in.ToolName != "Bash" {
 		return ""
@@ -506,39 +522,4 @@ func changedSince(before *bashSnapshot) ([]string, *bashSnapshot) {
 	}
 	sort.Strings(out)
 	return out, now
-}
-
-// porcelainPaths reads the paths out of `git status --porcelain -z` records.
-// `-z` is what makes a non-ASCII path readable at all: without it git quotes
-// and escapes such a path, and the quoted spelling matches nothing on disk. A
-// rename record carries the destination first and the source in its own
-// following record, and both are paths this cares about.
-func porcelainPaths(status string) []string {
-	var out []string
-	fields := strings.Split(status, "\x00")
-	// A rename/copy record's origin field is consumed by setting skip rather
-	// than by stepping the index inside the loop: an in-loop step is a
-	// mutation site whose decrement never terminates, which a mutation run
-	// can only report as a timeout and never as a caught mutant.
-	skip := false
-	for i, rec := range fields {
-		if skip {
-			skip = false
-			continue
-		}
-		if len(rec) < 4 {
-			continue
-		}
-		xy, rel := rec[:2], rec[3:]
-		out = append(out, rel)
-		// A rename/copy record is followed by a NUL-terminated field holding
-		// the ORIGIN path, which is not a status record of its own.
-		if strings.ContainsAny(xy, "RC") && i+1 < len(fields) {
-			if origin := fields[i+1]; origin != "" {
-				out = append(out, origin)
-			}
-			skip = true
-		}
-	}
-	return out
 }

@@ -3,6 +3,8 @@ package lawgate
 import (
 	"os"
 	"path/filepath"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // existingAncestorDir walks up from dir to the first directory that exists, ""
@@ -29,5 +31,5 @@ func existingAncestorDir(dir string) string {
 // a write would still have to create. RepoRoot itself stays exact: a caller
 // asking about a path on disk must not be answered about its grandparent.
 func repoRootNear(dir string) string {
-	return RepoRoot(existingAncestorDir(dir))
+	return gitx.HookRoot(existingAncestorDir(dir))
 }

@@ -298,6 +298,7 @@ doctor_twogates_test.go                            install
 e2e_zig_test.go                                    suite
 edit_ownership.go                                  suite
 edit_ownership_own_test.go                         suite
+editgit_spawns_test.go                             postedit
 edithook_detached_test.go                          postedit
 editledger.go                                      failfirst
 editledger_batch_test.go                           failfirst
@@ -472,6 +473,7 @@ gotmpdir_own_test.go                               lock
 gotmpdir_test.go                                   suite     # prefix says lock; its test body reaches suite
 gotmpdir_workflow_pin_test.go                      tdd
 greenlabel_outcome_test.go                         precommit
+headcopy.go                                        gitx
 home_test.go                                        tddtest
 hookfixture.go                                     tddtest
 hookfixture_test.go                                tddtest
@@ -479,6 +481,8 @@ hookfixtures_test.go                               lawgate
 hookfixtures_test.go                               postedit
 hookfixtures_test.go                               smell
 hookfixtures_test.go                               tdd
+hookgit.go                                         gitx
+hookgit_test.go                                    gitx
 hostedrunners_workflow_pin_test.go                   tdd
 inconclusive_reject_test.go                        precommit
 init.go                                            install
@@ -531,6 +535,7 @@ mask_test.go                                       core
 mechanical.go                                      precommit
 mechanical_test.go                                 precommit
 mechcache.go                                       suite
+mechcache_batch_test.go                             suite
 mechcache_commita_test.go                          suite
 mechcache_concurrent_test.go                       suite
 mechcache_covers_test.go                           suite
@@ -542,7 +547,6 @@ mechcache_nested_root_test.go                      suite
 mechcache_outside_root_test.go                     suite
 mechcache_projectroot_test.go                      precommit # prefix says suite; its test body reaches precommit
 mechcache_quoted_path_test.go                      suite
-mechcache_split_nul_paths_test.go                  suite
 mechcache_unmoved_test.go                          suite
 mechrun.go                                         precommit
 mechrun_failfirst.go                               failfirst # created by P2
