@@ -20,7 +20,17 @@ import (
 // them makes worktree commands operate on the wrong state) and layers this
 // package's own belt-and-braces marker on top.
 func cleanGitEnv() []string {
-	out := gitenv.Clean()
+	return queuedMarked(gitenv.Clean())
+}
+
+// cleanGitEnvFor is cleanGitEnv for a call made in dir: when dir is the
+// repository a `git commit -a` or `git commit <paths>` is running the hook
+// for, it keeps the index that commit is writing (gitenv.CleanFor).
+func cleanGitEnvFor(dir string) []string {
+	return queuedMarked(gitenv.CleanFor(dir))
+}
+
+func queuedMarked(out []string) []string {
 	// Belt and braces (task A11): mark every git subprocess aphrollo itself
 	// spawns as already-queued, so if one of these (worktree add/remove,
 	// apply, diff --cached, rev-parse, ...) happens to route back through
@@ -45,7 +55,7 @@ func git(dir string, args ...string) (string, error) {
 func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
 	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = dir
-	cmd.Env = cleanGitEnv()
+	cmd.Env = cleanGitEnvFor(dir)
 	cmd.Stdin = stdin
 	out, err := outputGit(cmd)
 	if err != nil {
