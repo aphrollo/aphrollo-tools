@@ -20,8 +20,9 @@ const (
 // bumpValues is the one list a refusal offers.
 const bumpValues = "none, patch, minor or major"
 
-// The two files a version owes: where it lives, named in a refusal so the fix
-// is one edit, and the changelog that has to explain it.
+// The two files the version rule keeps a PR away from: the version file a build
+// no longer reads (a version comes from the release tag), and the changelog,
+// whose released sections are frozen.
 const (
 	VersionFile   = "internal/buildinfo/VERSION"
 	ChangelogFile = "CHANGELOG.md"
@@ -33,7 +34,7 @@ var bumpLine = regexp.MustCompile(`(?mi)^[ \t]*version:[ \t]*(none|patch|minor|m
 // `version: none|patch|minor|major`, in any case and with any reason after it.
 // A change that moves what a consumer sees is a minor bump at least, and a
 // rule that is only a habit gets forgotten: the author says it in the body,
-// and the check below holds the file to it.
+// and the version check holds the PR to it.
 func DeclaredBump(body string) (Bump, error) {
 	var found []Bump
 	for _, m := range bumpLine.FindAllStringSubmatch(body, -1) {
@@ -48,22 +49,6 @@ func DeclaredBump(body string) (Bump, error) {
 		return found[0], nil
 	}
 	return "", fmt.Errorf("the PR body's `version:` lines disagree: it says both %s and %s; keep one (%s)", found[0], found[1], bumpValues)
-}
-
-// BumpBetween names the first number of the version that moved from base to
-// head, and refuses a head older than its base.
-func BumpBetween(base, head Version) (Bump, error) {
-	switch {
-	case head.Less(base):
-		return "", fmt.Errorf("VERSION went backwards: %s -> %s", base, head)
-	case head.Major != base.Major:
-		return BumpMajor, nil
-	case head.Minor != base.Minor:
-		return BumpMinor, nil
-	case head.Patch != base.Patch:
-		return BumpPatch, nil
-	}
-	return BumpNone, nil
 }
 
 // surfacePrefixes are the sources that ARE a verdict a consumer's gate gives:
@@ -87,32 +72,4 @@ func VerdictSurface(file string) bool {
 		}
 	}
 	return false
-}
-
-// JudgeBump holds a PR to the version rule and returns every way it fails it,
-// none when it holds. The body must state its bump, the VERSION file must
-// carry exactly that bump from base to head, and a change to a verdict surface
-// must be a minor bump at least.
-func JudgeBump(base, head Version, body string, changed []string) []string {
-	var problems []string
-	declared, declErr := DeclaredBump(body)
-	if declErr != nil {
-		problems = append(problems, declErr.Error())
-	}
-	actual, actualErr := BumpBetween(base, head)
-	if actualErr != nil {
-		problems = append(problems, actualErr.Error())
-	}
-	if declErr == nil && actualErr == nil && declared != actual {
-		problems = append(problems, fmt.Sprintf("the body says `version: %s` but VERSION went %s -> %s, which is %s: bump %s or change the line", declared, base, head, actual, VersionFile))
-	}
-	if actualErr == nil && (actual == BumpNone || actual == BumpPatch) {
-		for _, p := range changed {
-			if VerdictSurface(p) {
-				problems = append(problems, fmt.Sprintf("%s changes what a consumer's gate says (a law, a language row or a mask), so this is at least a minor bump, and VERSION went %s -> %s (%s)", p, base, head, actual))
-				break
-			}
-		}
-	}
-	return problems
 }

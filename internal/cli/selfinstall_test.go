@@ -379,7 +379,7 @@ func TestSwapBinary_RefusesAndKeepsTheOldBinaryWhenTheCandidateFailsItsOwnSmokeC
 // lane: a binary built with -buildvcs=false otherwise has no idea what it
 // is (see internal/buildinfo).
 func TestBuildArgs_StampsCommitAndBuildTimeThroughLdflags(t *testing.T) {
-	got := buildArgs("/r", "/o", "ca47dba1e9d1b7d8f0c3a2b4c5d6e7f8a9b0c1d2", time.Date(2026, 9, 5, 4, 57, 0, 0, time.FixedZone("CEST", 2*3600)))
+	got := buildArgs("/r", "/o", "ca47dba1e9d1b7d8f0c3a2b4c5d6e7f8a9b0c1d2", "", time.Date(2026, 9, 5, 4, 57, 0, 0, time.FixedZone("CEST", 2*3600)))
 	want := []string{
 		"build", "-buildvcs=false",
 		"-ldflags", "-X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=ca47dba1e9d1b7d8f0c3a2b4c5d6e7f8a9b0c1d2 -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=2026-09-05T02:57:00Z",
@@ -429,4 +429,45 @@ func staleCopies(t *testing.T, dir string) []string {
 		}
 	}
 	return out
+}
+
+// A build at a release tag is told its version: that is how the binary learns
+// it, with no VERSION file in the source.
+func TestBuildArgs_StampsTheReleaseVersionWhenTheBuildIsAtATag(t *testing.T) {
+	got := buildArgs("/r", "/o", "ca47dba1e9d1b7d8f0c3a2b4c5d6e7f8a9b0c1d2", "1.7.0", time.Date(2026, 9, 5, 2, 57, 0, 0, time.UTC))
+	want := []string{
+		"build", "-buildvcs=false",
+		"-ldflags", "-X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=ca47dba1e9d1b7d8f0c3a2b4c5d6e7f8a9b0c1d2 -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=2026-09-05T02:57:00Z -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.version=1.7.0",
+		"-o", "/o",
+		"./cmd/aphrollo",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildArgs = %#v, want %#v", got, want)
+	}
+}
+
+// What a build is told its version is read from the checkout: the release tag
+// at HEAD, the highest when several name it, and none when HEAD is untagged.
+func TestReleaseVersionAt_IsTheHighestReleaseTagAtHead(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+	git := realGitForTest(t)
+	if got, want := releaseVersionAt(clone), "99.0.0"; got != want {
+		t.Fatalf("releaseVersionAt = %q, want %q", got, want)
+	}
+	for _, tag := range []string{"v99.10.0", "v99.9.0", "salvage/x", "v100.0.0-rc1"} {
+		gitOutput(t, git, clone, "tag", tag)
+	}
+	if got, want := releaseVersionAt(clone), "99.10.0"; got != want {
+		t.Fatalf("releaseVersionAt = %q, want %q", got, want)
+	}
+}
+
+func TestReleaseVersionAt_IsEmptyWhenHeadIsNotAtAReleaseTag(t *testing.T) {
+	_, clone, _ := updateFixture(t)
+	git := realGitForTest(t)
+	gitOutput(t, git, clone, "tag", "-d", "v99.0.0")
+	gitOutput(t, git, clone, "tag", "salvage/x")
+	if got := releaseVersionAt(clone); got != "" {
+		t.Fatalf("releaseVersionAt = %q, want none for a checkout at no release tag", got)
+	}
 }

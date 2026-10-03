@@ -100,12 +100,23 @@ func TestParseRequires_RefusesWhatItCannotCompareAndSaysHowToFixIt(t *testing.T)
 	}
 }
 
-// The binary's own version is the one in the VERSION file, parsed once; a
-// version file that does not parse would make every compare answer for a
-// binary that does not exist, so it fails every test and every start instead.
-func TestBinary_IsTheVersionTheSourceCarries(t *testing.T) {
-	if got, want := Binary().String(), buildinfo.Version(); got != want {
-		t.Fatalf("Binary() = %q, want %q", got, want)
+// A build at a release tag is that tag's version; a build that is not at one
+// is a dev build, which carries no version a repo's `requires` can be compared
+// with. Each says which, so a caller never mistakes 0.0.0 for a real version.
+func TestBinary_AReleaseBuildIsTheVersionOfItsTag(t *testing.T) {
+	buildinfo.SetVersionForTest("v1.7.2")
+	t.Cleanup(func() { buildinfo.SetVersionForTest("") })
+	if got, want := Binary(), Release(Version{1, 7, 2}); got != want {
+		t.Fatalf("Binary() = %+v, want %+v", got, want)
+	}
+}
+
+func TestBinary_ABuildNotAtAReleaseTagIsADevBuild(t *testing.T) {
+	buildinfo.SetForTest("ca47dba1e9d1b7d8f0c3a2b4c5d6e7f8a9b0c1d2", "2026-09-05T02:57:00Z")
+	t.Cleanup(func() { buildinfo.SetForTest("", "") })
+	got := Binary()
+	if !got.Dev || got.Label != "0.0.0-dev+ca47dba" {
+		t.Fatalf("Binary() = %+v, want a dev build labelled 0.0.0-dev+ca47dba", got)
 	}
 }
 
@@ -122,3 +133,5 @@ func TestMustParseVersion_PanicsNamingTheVersionItCannotRead(t *testing.T) {
 	MustParseVersion("one point one")
 	t.Fatal("MustParseVersion returned for a string that is not a version")
 }
+
+// ratchet: test_removed TestBinary_IsTheVersionTheSourceCarries: the binary's version is no longer parsed from a source file at start; Binary reads the stamp at call time, which the two tests above pin

@@ -41,6 +41,7 @@ var (
 		"version": true, "update": true, "status": true, "dev": true,
 		"guardrail": true, "refactor": true, "find": true, "outline": true,
 		"show": true, "config": true, "issue": true, "feedback": true, "ci": true, "stats": true, "why": true,
+		"release": true, "changelog": true,
 	}
 	// compatOpenGate holds the gate's session switches, reports and shims. The
 	// cargo, git and lint shims wrap every build and git call on the box and must
@@ -178,6 +179,11 @@ func compatGuard(args []string, stdin io.Reader, stdout, stderr io.Writer) (rest
 		dir = compatHookDir(raw)
 	}
 	verdict := compat.CheckAt(dir, compat.Binary())
+	if verdict.Status == compat.DevBuild {
+		// A dev build is not too old, it is unversioned: say so and let the command run.
+		fmt.Fprintln(stderr, verdict.Line)
+		return stdin, 0, false
+	}
 	if verdict.Status == compat.Satisfied {
 		return stdin, 0, false
 	}

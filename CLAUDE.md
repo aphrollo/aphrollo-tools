@@ -94,13 +94,22 @@ like `systemctl` (no dry-run, no `--dry`).
 - `why <seq>` — read-only: replays one deny or run result of the event log with
   its rule's counts, and the kernel's level, section and holdout arm when the
   rule table holds the rule (`internal/measure`, `internal/kernel`).
+- `release` / `changelog` — read-only. A version is a release tag made on main,
+  never a file a PR bumps: `release plan` prints the tag the `changelog.d`
+  fragments not yet in the newest `v*` tag earn (the highest level among them,
+  bumped from that tag; nothing when none), and `changelog` prints the whole
+  history assembled from the fragments each tag first contains, above the frozen
+  `CHANGELOG.md` (the hand-written releases). The pipeline's `release` job tags, and creates
+  the GitHub Release, from the former (`deploy/tag-release.sh`).
 - `install` / `config` / `check` / `issue` / `update` / `version` — box setup
   (session hooks + git-hook shims in one run, and the opt-in feature table once
   per repo), that table on demand with the repo's values, read-only tree
   judgment (ratchet + docs + sqlc + doctor + the app trio), open an issue
   against the repo's remote, rebuild from `origin/main` and swap it in, and
-  print the semantic version and the build stamp (`version check` holds a PR to
-  the version rule). The table's rows (`internal/tdd/install/features.go`)
+  print the version of the release tag the build was made at (`0.0.0-dev+<sha>`
+  for a build at none) and the build stamp (`version check` holds a PR to
+  the version rule: the PR body's `version:` line and one `changelog.d/<lane>.md`
+  fragment of that level, never a VERSION or CHANGELOG edit). The table's rows (`internal/tdd/install/features.go`)
   are also the README's opt-in configuration rows, kept verbatim by a test.
 
 ## Layout
@@ -114,6 +123,8 @@ internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
 internal/measure/    pure folds of the v1 event log into the pipeline measures, and the brief-length check
 internal/ratchet/    Law engine: .ratchet/laws/*.toml schema, matchers, baselines, fixtures
+internal/release/    version without a PR-borne number: fragments, the version-check rules, the release plan, the assembled changelog (pure; git reads live in internal/cli)
+internal/buildinfo/  the linker stamp: release version, commit, build time (a build at no release tag is 0.0.0-dev+sha)
 internal/lang/       language table: one TOML row per language (comments, strings, suppression directives, test patterns), embedded defaults, per-repo .ratchet/languages rows
 internal/tomlsubset/ the one TOML subset reader: language rows and ratchet laws both parse through it
 internal/mask/       the one lexer, reading a language row: blanks strings and comments, keeps length and newlines

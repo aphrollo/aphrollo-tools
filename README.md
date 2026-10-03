@@ -20,20 +20,34 @@ maps the verbs.
 go build -o aphrollo ./cmd/aphrollo   # then put it on PATH
 aphrollo install                      # session hooks, git gate, skills, agents, queue shims
 aphrollo install --managed-block-only --repo <lane>   # re-render only the CLAUDE.md block (no hooks, no shims)
-aphrollo version                      # semantic version, then the stamped commit and build time
+aphrollo version                      # the release version (0.0.0-dev+sha for a dev build), then the stamped commit and build time
 aphrollo update                       # build the newest release tag and swap it in
 ```
 
-The version lives in `internal/buildinfo/VERSION`, and `CHANGELOG.md` says per
-version what a consumer will notice. A repo declares the oldest binary it
+A version comes from the release tag a binary is built at, never from a file in
+the source: `aphrollo update` and the deploy stamp the tag they build into the
+binary, and a build at no release tag reports `0.0.0-dev+<sha>`. A PR does not
+carry a number. It says `version: none|patch|minor|major` in its body and, when
+it is not `none`, adds one `changelog.d/<lane>.md` fragment (a first line
+`level: patch|minor|major`, then what a consumer will notice, in plain words;
+see `changelog.d/README.md`). When a push to `main` carries fragments the newest
+`v*` tag does not contain, the release job tags the next version (the highest
+level among them, bumped from that tag) and creates a GitHub Release whose notes
+are those fragments; `aphrollo release plan` prints the tag it would make, and
+`aphrollo changelog` prints the whole history, assembled from the fragments each
+tag first contains above `CHANGELOG.md`, which is the frozen record of the hand-written releases.
+A repo declares the oldest binary it
 accepts with `requires = ">=1.4"` under `[aphrollo]` in `aphrollo.toml` (under
 `[workspace.metadata.aphrollo]` in a Cargo workspace's manifest). An older
 binary does not judge that repo: a hook prints one line naming the version
 needed and `aphrollo update`, and lets the edit or commit through; a verb that
 writes repo state or judges the tree by its laws (`ratchet`, `check`, `docs`,
 `sqlc`, `install`, `workspace` bar `list`, and the like) refuses with exit 1 and
-the same line. `aphrollo version check --base <ref> --body-file <file>` holds a
-change to the version rule in this repo's CI.
+the same line. A dev build has no version to compare, so it judges as ever and
+prints one line saying the repo's minimum went unchecked.
+`aphrollo version check --base <ref> --body-file <file>` holds a change to the
+version rule in this repo's CI: the body line, the one fragment and its level,
+no edit to a released changelog section or a merged fragment.
 
 `refactor`, `find`, `outline` and `show` need the language server on PATH:
 `gopls`, `rust-analyzer`, `pyright-langserver` or `typescript-language-server`.
@@ -58,6 +72,8 @@ change to the version rule in this repo's CI.
 | `aphrollo why` | replays one deny or run result of the repo event log by its seq: the rule, cause, override offered, whether an override followed within 10 minutes, this rule's denies, overrides and wrong blocks, and for a run the verdict, cause and edit-to-verdict latency (`<seq>`, `--repo`, `--json`) |
 | `aphrollo ci` | `ci run`: the one CI entry point; runs the repo's own pull_request workflow(s) on this HEAD merged into trunk in a throwaway worktree (run: steps under bash, uses: steps listed and skipped, first matrix combination only, no mutation; installs land in a scratch venv, npm, go, cargo, pipx, uv and rustup directory of the run's own, and a step that would change the box outside them (sudo, a system package manager, pip --user) is listed as skipped by name, which leaves the run inconclusive rather than green); jobs run one at a time in needs order at below-normal priority (`--ci-jobs N`, or `ci-jobs`, runs N at once) and a step is stopped after `--ci-timeout` (`ci-timeout`, 30m by default), naming the step; a green is stored per tree and reused; `ci why [<pr>\|<run-id>\|--main]`: why a pipeline run is red |
 | `aphrollo issue` | open an issue against this repo |
+| `aphrollo release` | `release plan`: the release tag a push to main owes, from the changelog.d fragments not yet in the newest tag (read-only) |
+| `aphrollo changelog` | the full changelog assembled from the fragments each release tag first contains, newest first, above the frozen CHANGELOG.md (read-only); `--tag vX.Y.Z` prints one release's notes |
 | `aphrollo feedback` | file gate feedback with the upstream tracker |
 | `aphrollo status` | one-line gate state for this checkout |
 

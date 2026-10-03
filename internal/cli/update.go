@@ -16,9 +16,10 @@ import (
 )
 
 // aphrollo update is the ONLY way the box binary moves. It follows the newest
-// release TAG (v<MAJOR.MINOR.PATCH>), never the tip of main: a tag is made per
-// merged PR that bumps internal/buildinfo/VERSION, so what a box runs is a
-// version a consumer was told about. The box running it is not necessarily
+// release TAG (v<MAJOR.MINOR.PATCH>), never the tip of main: the release
+// workflow tags a push to main that carries a changelog fragment, so what a
+// box runs is a version a consumer was told about, and the binary built at the
+// tag is stamped with that version. The box running it is not necessarily
 // sitting in a checkout of this repo at the commit it wants, or a clean one,
 // so it fetches the remote's tags and builds from a DETACHED worktree at the
 // tag, never the working tree, which may be behind or carrying an edit of its
@@ -134,7 +135,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	}
 	tag, found := newestReleaseTag(strings.Fields(tagList))
 	if !found {
-		fmt.Fprintf(stderr, "aphrollo update: %s has no release tag (v<MAJOR.MINOR.PATCH>): a tag is made when a PR that bumps internal/buildinfo/VERSION merges; ask for the release to be tagged\n", *remote)
+		fmt.Fprintf(stderr, "aphrollo update: %s has no release tag (v<MAJOR.MINOR.PATCH>): a tag is made on main when a merged PR carries a changelog.d fragment of level patch, minor or major; ask for the release to be tagged\n", *remote)
 		return 1
 	}
 	if tagOlderThanRunning(tag) {

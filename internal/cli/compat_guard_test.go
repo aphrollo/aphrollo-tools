@@ -18,6 +18,10 @@ import (
 // hook that DOES run has something to refuse.
 func requiringRepo(t *testing.T, requires string) string {
 	t.Helper()
+	// The tests here are about a release build meeting or missing a minimum; a
+	// dev build (what a test binary is) meets any, and has its own test below.
+	buildinfo.SetVersionForTest("1.0.0")
+	t.Cleanup(func() { buildinfo.SetVersionForTest("") })
 	repo := t.TempDir()
 	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
 		t.Fatal(err)
@@ -282,6 +286,8 @@ func TestCompatClassOf_SortsEveryVerbIntoOpenHookOrRefuse(t *testing.T) {
 		{[]string{"help"}, open},
 		{[]string{"version"}, open},
 		{[]string{"update"}, open},
+		{[]string{"release", "plan"}, open},
+		{[]string{"changelog"}, open},
 		{[]string{"status"}, open},
 		{[]string{"dev", "up"}, open},
 		{[]string{"guardrail", "pretooluse"}, open},
@@ -421,4 +427,20 @@ func jsonString(t *testing.T, s string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+// A binary built at no release tag has no version to compare with a repo's
+// minimum. It does not stand down (that is for a binary known to be too old):
+// the hook judges as ever, and one line on stderr says the minimum went
+// unchecked.
+func TestCompatGuard_ADevBuildJudgesATooOldRepoAndSaysItDidNotCheckTheMinimum(t *testing.T) {
+	repo := requiringRepo(t, ">=99.0")
+	buildinfo.SetVersionForTest("")
+	msg := commitMessageIn(t, repo)
+
+	code, _, stderr := runCLI([]string{"gate", "commitmsg", msg, "--repo", repo}, "")
+	notice := "aphrollo: dev build " + buildinfo.Version() + " is not at a release tag, so this repo's requires >=99.0 is not checked\n"
+	if code != 1 || !strings.Contains(stderr, "Co-Authored-By") || !strings.Contains(stderr, notice) {
+		t.Fatalf("commitmsg = (%d, %q), want the attribution refused with exit 1 and the line %q", code, stderr, notice)
+	}
 }

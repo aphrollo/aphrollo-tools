@@ -36,11 +36,14 @@ import (
 // wrong revision. The commit and build time are stamped instead through
 // -ldflags -X into internal/buildinfo, which `aphrollo version` reads back —
 // the thing -buildvcs=false took away.
-func buildArgs(repo, out, sha string, now time.Time) []string {
+func buildArgs(repo, out, sha, version string, now time.Time) []string {
 	ldflags := fmt.Sprintf(
 		"-X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=%s -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=%s",
 		sha, now.UTC().Format(time.RFC3339),
 	)
+	if version != "" {
+		ldflags += " -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.version=" + version
+	}
 	return []string{"build", "-buildvcs=false", "-ldflags", ldflags, "-o", out, "./cmd/aphrollo"}
 }
 
@@ -55,11 +58,28 @@ func commitAt(repo string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// releaseVersionAt is the version a build of the checkout at repo is stamped
+// with: the highest release tag (v<MAJOR.MINOR.PATCH>) at its HEAD, without the
+// v, or "" when HEAD is at no release tag. The binary learns its version from
+// the tag it is built at; a source tree carries no version of its own, so a
+// build at no tag is a dev build. A failure to ask git is the same as no tag.
+func releaseVersionAt(repo string) string {
+	out, err := lightOutput(run.Spec{Name: "git", Args: []string{"-C", repo, "tag", "--points-at", "HEAD", "--list", "v*"}})
+	if err != nil {
+		return ""
+	}
+	tag, found := newestReleaseTag(strings.Fields(string(out)))
+	if !found {
+		return ""
+	}
+	return strings.TrimPrefix(tag, "v")
+}
+
 // buildAphrollo compiles the binary to out from the module at repo, returning
 // the command it ran so the step line can name it. A var so a test can state
 // the build's outcome without a toolchain run.
 var buildAphrollo = func(repo, out string) (string, error) {
-	args := buildArgs(repo, out, commitAt(repo), time.Now())
+	args := buildArgs(repo, out, commitAt(repo), releaseVersionAt(repo), time.Now())
 	var stderr bytes.Buffer
 	desc := "go " + strings.Join(args, " ")
 	if err := boundedRun(buildBudget, run.Spec{Name: "go", Args: args, Dir: repo, Stderr: &stderr}, true); err != nil {

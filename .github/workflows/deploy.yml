@@ -33,12 +33,14 @@ jobs:
         with:
           fetch-depth: 0
       # The box runs the newest release tag, not the commit that triggered this
-      # run: a merge that does not bump VERSION redeploys the tag it already ran.
+      # run: a merge that carries no release-worthy fragment redeploys the tag it
+      # already ran.
       - name: Check out the newest release tag
         id: tag
         run: |
           tag=$(bash deploy/newest-tag.sh)
           git checkout --detach "$tag"
+          echo "version=${tag#v}" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
@@ -52,8 +54,10 @@ jobs:
       # buildArgs): without them `aphrollo version` prints unstamped and the
       # hourly behind-origin/main check has nothing to compare, so this box
       # would never notice a stale binary.
+      # The version stamp is the tag being built: a binary carries no version of
+      # its own in the source, so this is where it learns it.
       - name: Build
-        run: go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=${{ steps.tag.outputs.sha }} -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o bin/aphrollo ./cmd/aphrollo
+        run: go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=${{ steps.tag.outputs.sha }} -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.version=${{ steps.tag.outputs.version }}" -o bin/aphrollo ./cmd/aphrollo
       - name: Deploy
         env:
           GITHUB_SHA: ${{ steps.tag.outputs.sha }}

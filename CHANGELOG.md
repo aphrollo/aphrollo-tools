@@ -2,8 +2,13 @@
 
 What changes for a repo that uses aphrollo, release by release: what you will
 notice, and what moves by itself. The commit history is the developer's
-record; this file is yours. Every release owes a section here, newest first,
-and the version in `internal/buildinfo/VERSION` is checked against it.
+record; this file is yours.
+
+This file is the record of the releases written by hand and no longer changes. Releases after them
+are written as `changelog.d/` fragments, one per change, and the release tag
+made when they merge carries them: Releases on GitHub list them per version,
+and `aphrollo changelog` prints the whole history, newest first, with this
+file's sections below the later ones.
 
 A repo names the oldest release it accepts in `aphrollo.toml`:
 

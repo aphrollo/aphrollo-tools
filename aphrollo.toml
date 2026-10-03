@@ -21,15 +21,14 @@ undercover = true
 # (a merge that combined two lanes' manifest.txt rows did). The suite
 # package's tests pin this key in this file. internal/tdd's own tests read
 # README.md and compare CLAUDE.md's managed block with the block this build
-# renders. internal/compat's tests read CHANGELOG.md and check it has a section
-# for the version in internal/buildinfo/VERSION.
+# renders. internal/release's tests read CHANGELOG.md and check it is the frozen
+# record that points at changelog.d.
 go-test-reads = [
   "internal/tdd/ -> tools/tddsplit",
   "aphrollo.toml -> internal/tdd/suite",
   "README.md -> internal/tdd",
   "CLAUDE.md -> internal/tdd",
-  "CHANGELOG.md -> internal/compat",
-  "internal/buildinfo/VERSION -> internal/compat",
+  "CHANGELOG.md -> internal/release",
 ]
 
 # The post-merge retro `aphrollo workspace merge` runs once the PR has landed.

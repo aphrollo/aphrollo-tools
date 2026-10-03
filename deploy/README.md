@@ -1,10 +1,18 @@
 # Deploy — aphrollo dev-env CLI
 
 `/usr/local/bin/aphrollo` deploys **on merge to `main`**, the same way the Go
-services do, but what it ships is the newest release **tag** (`v<VERSION>`),
-not the tip of `main`: the `release` job tags a merge that bumps
-`internal/buildinfo/VERSION` (`deploy/tag-release.sh`; a tag already present is
-`[skip]`), and the `deploy` job of its own workflow (`.github/workflows/deploy.yml`)
+services do, but what it ships is the newest release **tag** (`v<MAJOR.MINOR.PATCH>`),
+not the tip of `main`: no PR carries a version, so the `release` job asks
+`aphrollo release plan` (built from that very commit) which tag the merge
+earns from the `changelog.d` fragments the newest tag does not yet contain,
+tags it and creates a GitHub Release whose notes are those fragments
+(`deploy/tag-release.sh`; a tag already present is `[skip]`, and no commit is
+made to `main`). The binary learns its version from that tag: the build stamps
+`-X .../internal/buildinfo.version=<tag>` (the `Build` step of
+`.github/workflows/deploy.yml`, and `aphrollo update`, which builds a detached
+worktree at the tag), and a test pins that the deploy build carries the stamp.
+A build at no release tag reports `0.0.0-dev+<sha>`. The `deploy`
+job of its own workflow (`.github/workflows/deploy.yml`)
 checks out the newest tag (`deploy/newest-tag.sh`), builds the binary on the self-hosted runner and runs
 `deploy/deploy-prod.sh`, which stages the build and hands it to the root-owned
 installer (`aphrollo-install-release`): it verifies it, installs a release,
