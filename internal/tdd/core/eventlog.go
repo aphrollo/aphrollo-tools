@@ -77,7 +77,7 @@ func acquireEventLock(path string) (release func(), ok bool) {
 
 // appendEventRecord writes e to path in one write. Under the log's lock the
 // record is numbered from the file's size, so the sequence grows with the file;
-// without the lock it still writes, unnumbered. The log is never read here: on
+// without the lock it still writes, unnumbered, and the reader numbers it. The log is never read here: on
 // Windows a read of a file that was just written costs milliseconds, and the
 // whole record budget is two. The record is written with a newline before it
 // as well as after, so a line a crash tore never swallows the next record; the
@@ -127,7 +127,7 @@ func readEventsSince(root string, since time.Time) []Event {
 	if dir := StateDir(); dir != "" {
 		legacy := filepath.Join(dir, "events.jsonl")
 		if fi, err := os.Stat(legacy); err == nil && !fi.ModTime().Before(since) {
-			for _, e := range readEventFile(legacy) {
+			for _, e := range readEventFile(legacy, time.Time{}) {
 				if e.Repo == repo {
 					out = append(out, legacyEvent(e))
 				}
@@ -144,7 +144,7 @@ func readEventsSince(root string, since time.Time) []Event {
 		if !since.IsZero() && eventFileMonth(name).Before(since) {
 			continue
 		}
-		out = append(out, readEventFile(name)...)
+		out = append(out, readEventFile(name, eventFileMonth(name))...)
 	}
 	return out
 }
@@ -170,7 +170,12 @@ func legacyEvent(e Event) Event {
 	return e
 }
 
-func readEventFile(path string) []Event {
+// readEventFile reads the records of one log file. A month is the month the
+// file holds: a record with no number (its writer gave up on the lock) is
+// numbered from the byte offset its line starts at, which is what the writer
+// would have given it, so no two records of a repo share a number. The zero
+// month leaves numbers as written, for the older single-file log.
+func readEventFile(path string, month time.Time) []Event {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
@@ -178,12 +183,17 @@ func readEventFile(path string) []Event {
 	defer f.Close()
 	var out []Event
 	r := bufio.NewReader(f)
+	var offset int64
 	for {
 		line, err := r.ReadBytes('\n')
 		var e Event
 		if json.Unmarshal(bytes.TrimSpace(line), &e) == nil && e.V == EventSchema {
+			if e.Seq == 0 && !month.IsZero() {
+				e.Seq = eventSeq(month, offset)
+			}
 			out = append(out, e)
 		}
+		offset += int64(len(line))
 		if err != nil {
 			return out
 		}

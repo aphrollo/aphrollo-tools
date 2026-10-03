@@ -86,13 +86,13 @@ func TestAppendEvent_AnUnopenableLockCostsOneFastFailureAndNoBuildLockMessage(t 
 	if strings.Contains(stderr, "build lock") {
 		t.Errorf("the event lock printed the build lock's message:\n%s", stderr)
 	}
-	got := ReadEvents(repo)
-	if len(got) != 5 {
-		t.Fatalf("%d events, want 5 written without the lock", len(got))
+	lines := eventsLines(t, repo)
+	if len(lines) != 5 {
+		t.Fatalf("%d events, want 5 written without the lock", len(lines))
 	}
-	for _, e := range got {
-		if e.Seq != 0 {
-			t.Errorf("event %+v is numbered, want seq 0 without the lock", e)
+	for _, l := range lines {
+		if strings.Contains(l, `"seq"`) {
+			t.Errorf("line %s is numbered, want no seq written without the lock", l)
 		}
 	}
 }
@@ -138,8 +138,48 @@ func TestAppendEvent_AnUnopenableLockLatchesTheProcessUnnumbered(t *testing.T) {
 
 	AppendEvent(Event{Kind: "merge", Verdict: "ok", Root: repo})
 
-	got := ReadEvents(repo)
-	if len(got) != 2 || got[1].Seq != 0 {
-		t.Fatalf("ReadEvents = %+v, want two events and the second unnumbered: the latch skips the lock", got)
+	lines := eventsLines(t, repo)
+	if len(lines) != 2 || strings.Contains(lines[1], `"seq"`) {
+		t.Fatalf("lines = %q, want two events and the second written unnumbered: the latch skips the lock", lines)
 	}
+}
+
+// A record whose writer gave up on the lock is written without a number, and
+// the reader numbers it from where it sits in the file: the same number the
+// writer would have given it, so the sequence stays unique and grows with the
+// file however many writers were waiting at once.
+func TestReadEvents_NumbersARecordWrittenPastALockTimeoutFromItsPlaceInTheFile(t *testing.T) {
+	isolateEvents(t)
+	resetEventLockLatchForTest()
+	t.Cleanup(resetEventLockLatchForTest)
+	repo := eventsTestRepo(t)
+	AppendEvent(Event{Kind: "push", Root: repo, Verdict: "ok"})
+	_, _, common := repoIdentity(repo)
+	held, err := openLockFile(eventLogFile(RepoStateDir(common), time.Now()) + ".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tryLockExclusive(held) {
+		t.Fatal("could not take the event lock to hold it")
+	}
+	AppendEvent(Event{Kind: "merge", Root: repo, Verdict: "ok"})
+	AppendEvent(Event{Kind: "ci", Root: repo, Verdict: "ok"})
+	unlockFile(held)
+	_ = held.Close()
+	AppendEvent(Event{Kind: "escape", Root: repo, Verdict: "ok"})
+
+	var unnumbered int
+	for _, l := range eventsLines(t, repo) {
+		if !strings.Contains(l, `"seq"`) {
+			unnumbered++
+		}
+	}
+	if unnumbered != 2 {
+		t.Fatalf("%d records written without a number, want the 2 that waited out the held lock", unnumbered)
+	}
+	got := ReadEvents(repo)
+	if len(got) != 4 {
+		t.Fatalf("%d events read, want 4", len(got))
+	}
+	assertSeqGrowsWithTheFile(t, got)
 }

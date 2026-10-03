@@ -924,6 +924,10 @@ ratchetstage_stagedgraph_test.go                   lawgate
 ratchetstage_stagedview_test.go                    lawgate
 ratchetstage_test.go                               lawgate
 ratchettracked_test.go                             lawgate
+readshared.go                                      core
+readshared_other.go                                core
+readshared_own_test.go                             core
+readshared_windows.go                              core
 redsnippet_test.go                                 postedit
 renameretry.go                                     core
 renameretry_other.go                               core
