@@ -12,9 +12,13 @@ import (
 // no home can be resolved.
 func StateRoot() string {
 	if dir := os.Getenv("TRELLIS_DATA"); dir != "" {
+		// A relative root would follow each hook's working directory.
+		if abs, err := filepath.Abs(dir); err == nil {
+			return abs
+		}
 		return dir
 	}
-	if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
+	if dir := localAppData(); dir != "" {
 		return filepath.Join(dir, "trellis")
 	}
 	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {

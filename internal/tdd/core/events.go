@@ -79,10 +79,11 @@ func AppendEvent(e Event) {
 
 // AppendEventOnce writes e unless a record of the same kind already carries the
 // same Detail[key], and reports whether it wrote. A settled CI result is read
-// by several verbs; the log keeps one record per commit.
+// by several verbs; the log keeps one record per commit. Only the last two
+// months are searched: a commit is not settled again a month later.
 func AppendEventOnce(e Event, key string) bool {
 	want := e.Detail[key]
-	for _, old := range ReadEvents(e.Root) {
+	for _, old := range readEventsRecent(e.Root) {
 		if old.Kind == e.Kind && old.Detail[key] == want {
 			return false
 		}

@@ -19,6 +19,22 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.5.2 - 2026-10-03
+
+The event log can no longer slow a hook down, and no longer loses the record after a torn one.
+
+### What you will notice
+
+- A log whose lock file cannot be opened costs one quick failure per process instead of two
+  seconds per event, and prints nothing about a build lock. Its events are written unnumbered. A
+  wait for a lock another writer holds is capped at 100 ms, down from 2 s.
+- A record written after a line a crash tore starts on a line of its own, so it is read. Every
+  record now has a blank line before it; readers skip blank lines.
+- On Linux and macOS a `LOCALAPPDATA` variable no longer moves the state root, and a relative
+  `TRELLIS_DATA` is taken relative to where the hook ran from, once, as an absolute path.
+- Recording a settled CI result looks for an earlier record in this month's and last month's log
+  only, so a long-lived log does not make each push read its whole history.
+
 ## 1.5.1 - 2026-10-03
 
 A test run no longer sees the CI runner's variables.
