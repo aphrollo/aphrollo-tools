@@ -592,6 +592,27 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 - **The strangler stalls halfway.** The zero-target laws show what is left. No more than 2 spine lanes run at once, and the relative line stop applies.
 - **Uninstall deletes `${CLAUDE_PLUGIN_DATA}`.** Git hooks then exit 0 and commits read as ungated. State survives in the root.
 
+**F3 results (recorded 2026-10-03, Windows 11, Claude Code 2.1.288; payloads committed under `internal/tdd/internal/tddtest/testdata/hooks/`)**
+
+| Question | Result | Consequence |
+|---|---|---|
+| PostToolBatch `additionalContext` reaches the agent | Yes, after every batch, in `-p` and interactive | A delivery path for finished runs |
+| SubagentStart `additionalContext` reaches the subagent | Yes, verbatim; the parent does not see it | Subagent briefs ride SubagentStart, not the first PreToolUse |
+| `CLAUDE_ENV_FILE` from SessionStart reaches Bash | Yes | Shims on PATH work for Bash |
+| `CLAUDE_ENV_FILE` reaches PowerShell | No | PowerShell sessions have no shims; walls there come from hooks only |
+| An agent id in subagent Bash's environment | No; only `CLAUDE_CODE_SESSION_ID` and `CLAUDECODE=1` | Git hooks and shims know the session, not the agent; agents are told apart by the payload's `agent_id` and `cwd` |
+| Extensionless hook command resolves to `.exe` | Yes, in the shell form | The launcher can be named `launch`; the exec (`args`) form is untested |
+| Off-here hook (a repo holding `trellis.toml`) | p50 10.7 ms, p95 16.9 ms (binary start floor 10.4 ms) | Meets the 50 ms budget |
+| Gated PreToolUse (Bash) | p50 364 ms, p95 759 ms | 7x over the 50 ms budget: the spine's hot-path work is required |
+| git shim pass-through | p50 57 ms, p95 314 ms gated; p50 34 ms off-here; raw git p50 21 ms | Over the 15 ms target |
+| Edits per batch (1,292 batches, 7 days of transcripts) | mean 1.26, 15.8% above 1, max 9 | Below 1.5: PostToolBatch does not become the run trigger |
+| Deny then `EnterWorktree name=` (6 headless runs) | 5 of 6 entered the worktree; 1 wrote through Bash straight away; every follower retried Write once first | Above the 80% bar. The deny text must say the write is refused until the worktree is entered; Bash write targets must be gated; lane names must be unique per task, since EnterWorktree reuses an existing name |
+| TaskCompleted | Not recordable: TaskCreate and TaskUpdate do not exist in this harness version, interactive or `-p` | The task check stays on Stop and SubagentStop; TaskCompleted is dropped until the tools ship |
+| CwdChanged, DirectoryAdded, Setup | Did not fire, including EnterWorktree and ExitWorktree in an interactive session | Repo start runs at SessionStart and on the first hook in a new cwd, not on these events |
+| Payload fields | The gate never reads `agent_id`; `tool_response.success` never occurs; failures arrive as PostToolUseFailure, which the gate does not handle | Adapters key subagents by `agent_id` and handle PostToolUseFailure |
+
+Still open: the exec (`args`) hook form, `asyncRewake`, and the same recordings on Linux.
+
 **Open questions**, each with what it blocks
 - **The `tdd` default:** warn, unless enforce wins the A/B on escaped defects at no more than +10% friction. Blocks A1.
 - **This repo's mutation level** (decided 2026-10-03): mutation is opt-in, report by default, block only when pinned. This repo is opted in at the report level; `mutants-verdict` is no longer a required check, and the merge gate waits for it only where block is pinned.
