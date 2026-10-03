@@ -45,6 +45,9 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 	if _, res := mutantsConfigStage(premergeDisplayName, repoRoot); res.Blocked {
 		return res
 	}
+	if line, ok := catchUpMergeLine(repoRoot); ok {
+		return catchUpMerge(repoRoot, line)
+	}
 	if fast := StagedFastPath(repoRoot); fast != DiffCode {
 		var res GateResult
 		if fast == DiffDocsOnly {
@@ -109,6 +112,33 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 		notes = append(notes, res.Message)
 	}
 	return GateResult{Message: strings.Join(notes, "\n")}
+}
+
+// catchUpMergeLine is the line a catch-up merge prints, and whether the merge
+// in progress is one: trunk being merged INTO a named lane branch (the same
+// reading the staged set's base uses). That tree is not what lands on trunk, so
+// the suites are CI's to run on the lane after the push.
+func catchUpMergeLine(repoRoot string) (string, bool) {
+	_, ok := trunkSyncTip(repoRoot)
+	branch := strings.TrimSpace(gitOut(repoRoot, "rev-parse", "--abbrev-ref", "HEAD"))
+	trunk := strings.TrimPrefix(TrunkBranch(repoRoot), "origin/")
+	line := "gate " + premergeDisplayName + ": catch-up merge of " + trunk + " into " +
+		branch + " — suites skipped, CI tests the lane"
+	return line, ok
+}
+
+// catchUpMerge judges a catch-up merge by the cheap stages alone: the
+// mutation configuration, the staged-baseline guard, the laws and the doc
+// citations. No build, no suite, no build lock.
+func catchUpMerge(repoRoot, line string) GateResult {
+	AppendGateLog(premergeDisplayName, repoRoot, "catch-up", "catchup-laws", 0)
+	notes, refused := treeGuards(premergeDisplayName, repoRoot)
+	if refused.Blocked {
+		return refused
+	}
+	var res GateResult
+	res.Message = strings.Join(append([]string{line}, notes...), "\n")
+	return res
 }
 
 // mechanicalRoots is every project root Mechanical groups repoRoot's staged

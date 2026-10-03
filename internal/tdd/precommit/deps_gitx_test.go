@@ -11,5 +11,3 @@ const reflogActionEnv = gitx.ReflogActionEnv
 func RepoRoot(p0 string) string { return gitx.RepoRoot(p0) }
 
 func cleanGitEnv() []string { return gitx.CleanGitEnv() }
-
-func gitOut(p0 string, p1 ...string) string { return gitx.GitOut(p0, p1...) }

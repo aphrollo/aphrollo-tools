@@ -19,6 +19,22 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.4.5 - 2026-10-03
+
+Merging trunk into a lane branch no longer runs the full test suite.
+
+### What you will notice
+
+- A `git merge main` (or `origin/main`) inside a lane is not the tree that lands on trunk, and CI
+  tests the lane after the push, so the pre-merge-commit gate runs only the cheap stages on it:
+  the mutation configuration, the staged-baseline guard, the laws and the doc citations. It prints
+  `gate premerge: catch-up merge of main into lane/x — suites skipped, CI tests the lane`. A merge
+  into trunk, and a merge of one lane into another, run the suites as before.
+- A branch that is merely named `master` beside a trunk of another name is no longer asked about
+  when the gate works out which commit a lane diverged from; the repo's own trunk (the remote's
+  default branch, else `init.defaultBranch`) and its local branch are. A repo whose trunk really is
+  `master` is unchanged.
+
 ## 1.4.4 - 2026-10-03
 
 A push to `main` no longer runs the test suites a second time on a tree the pull

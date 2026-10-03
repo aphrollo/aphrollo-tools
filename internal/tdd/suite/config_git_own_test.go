@@ -277,38 +277,76 @@ func TestIsAncestorCommit_IsStrictAncestry(t *testing.T) {
 	}
 }
 
-// Serial: makeGoRepo sets git's config through the process-wide environment.
-// TestLaneBaseSHA_IsTheNewestMergeBaseAmongTheTrunkCandidates pins the choice:
-// of the trunk refs that exist, the merge-base that is a descendant of the
-// others wins, whichever ref names it.
-func TestLaneBaseSHA_IsTheNewestMergeBaseAmongTheTrunkCandidates(t *testing.T) {
-	repo := makeGoRepo(t)
-	c1 := gitOut(repo, "rev-parse", "HEAD")
-	gitDo(t, repo, "branch", "-m", "lane")
-	c2 := commitOn(t, repo, "two.go")
-	commitOn(t, repo, "three.go")
+// ratchet: test_removed TestLaneBaseSHA_IsTheNewestMergeBaseAmongTheTrunkCandidates: it pinned a stale `master` beside main as a candidate, which is the defect; the trunk's own two refs are proved by TestLaneBaseSHA_ALocalTrunkAheadOfTheRemoteOneIsTheBase
+// ratchet: test_removed TestLaneBaseSHA_AnOlderLaterCandidateDoesNotReplaceANewerBase: same fixture shape over the fixed list; proved by TestLaneBaseSHA_AnOlderLocalTrunkDoesNotReplaceANewerRemoteOne
 
-	gitDo(t, repo, "branch", "main", c1)
-	gitDo(t, repo, "branch", "master", c2)
+// remoteTrunkRepo is a repo whose trunk resolves as origin/main: a lane branch
+// checked out, origin/main at remoteAt, refs/remotes/origin/HEAD naming it, and
+// a local main at localAt. Two more commits sit on the lane after c2.
+func remoteTrunkRepo(t *testing.T, remoteAt, localAt func(c1, c2 string) string) (repo, c1, c2 string) {
+	t.Helper()
+	repo = makeGoRepo(t)
+	c1 = gitOut(repo, "rev-parse", "HEAD")
+	gitDo(t, repo, "branch", "-m", "lane")
+	c2 = commitOn(t, repo, "two.go")
+	commitOn(t, repo, "three.go")
+	gitDo(t, repo, "update-ref", "refs/remotes/origin/main", remoteAt(c1, c2))
+	gitDo(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+	gitDo(t, repo, "branch", "main", localAt(c1, c2))
+	return repo, c1, c2
+}
+
+// Serial: makeGoRepo sets git's config through the process-wide environment.
+// TestLaneBaseSHA_ALocalTrunkAheadOfTheRemoteOneIsTheBase pins the catch-up
+// case: a lane lands on the local trunk before any push, so the local branch
+// holds the newer base while origin/main still names the older.
+func TestLaneBaseSHA_ALocalTrunkAheadOfTheRemoteOneIsTheBase(t *testing.T) {
+	repo, _, c2 := remoteTrunkRepo(t,
+		func(c1, _ string) string { return c1 },
+		func(_, c2 string) string { return c2 })
 	if got := laneBaseSHA(repo); got != c2 {
-		t.Fatalf("laneBaseSHA = %q, want the newer base %q (master)", got, c2)
+		t.Fatalf("laneBaseSHA = %q, want the local trunk's newer base %q", got, c2)
 	}
 }
 
 // Serial: makeGoRepo sets git's config through the process-wide environment.
-// TestLaneBaseSHA_AnOlderLaterCandidateDoesNotReplaceANewerBase pins the other
-// order: main names the newer base and master the older one, and main stays.
-func TestLaneBaseSHA_AnOlderLaterCandidateDoesNotReplaceANewerBase(t *testing.T) {
+// TestLaneBaseSHA_AnOlderLocalTrunkDoesNotReplaceANewerRemoteOne pins the other
+// order: origin/main names the newer base and the local main the older one, and
+// the remote one stays.
+func TestLaneBaseSHA_AnOlderLocalTrunkDoesNotReplaceANewerRemoteOne(t *testing.T) {
+	repo, _, c2 := remoteTrunkRepo(t,
+		func(_, c2 string) string { return c2 },
+		func(c1, _ string) string { return c1 })
+	if got := laneBaseSHA(repo); got != c2 {
+		t.Fatalf("laneBaseSHA = %q, want %q (origin/main's base is the newer one)", got, c2)
+	}
+}
+
+// Serial: makeGoRepo sets git's config through the process-wide environment.
+// TestLaneBaseSHA_AStaleMasterBesideTheRealTrunkIsNotACandidate pins the trunk
+// resolution: a branch merely NAMED master beside a real trunk of another name
+// is not trunk, so the base never takes its merge-base, newer or not.
+func TestLaneBaseSHA_AStaleMasterBesideTheRealTrunkIsNotACandidate(t *testing.T) {
+	repo, c1, c2 := remoteTrunkRepo(t,
+		func(c1, _ string) string { return c1 },
+		func(c1, _ string) string { return c1 })
+	gitDo(t, repo, "branch", "master", c2)
+	if got := laneBaseSHA(repo); got != c1 {
+		t.Fatalf("laneBaseSHA = %q, want %q: a stale master is not trunk", got, c1)
+	}
+}
+
+// Serial: makeGoRepo sets git's config through the process-wide environment.
+// TestLaneBaseSHA_ARepoWhoseTrunkIsMasterTakesItsBase pins the other side: when
+// master really is the trunk (no other trunk resolves), it is the base.
+func TestLaneBaseSHA_ARepoWhoseTrunkIsMasterTakesItsBase(t *testing.T) {
 	repo := makeGoRepo(t)
-	c1 := gitOut(repo, "rev-parse", "HEAD")
 	gitDo(t, repo, "branch", "-m", "lane")
 	c2 := commitOn(t, repo, "two.go")
 	commitOn(t, repo, "three.go")
-
-	gitDo(t, repo, "branch", "main", c2)
-	gitDo(t, repo, "branch", "master", c1)
+	gitDo(t, repo, "branch", "master", c2)
 	if got := laneBaseSHA(repo); got != c2 {
-		t.Fatalf("laneBaseSHA = %q, want %q (main's base is the newer one)", got, c2)
+		t.Fatalf("laneBaseSHA = %q, want %q (master is this repo's trunk)", got, c2)
 	}
 }
 

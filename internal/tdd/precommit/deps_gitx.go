@@ -18,6 +18,8 @@ func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
 
 func gitApplyIndex(p0 string, p1 string) error { return gitx.GitApplyIndex(p0, p1) }
 
+func gitOut(p0 string, p1 ...string) string { return gitx.GitOut(p0, p1...) }
+
 func gitStaged(p0 string, p1 []string) (string, error) { return gitx.GitStaged(p0, p1) }
 
 func mergeInProgressRef(p0 string) string { return gitx.MergeInProgressRef(p0) }
@@ -27,3 +29,5 @@ func stagedBaseRev(p0 string) string { return gitx.StagedBaseRev(p0) }
 func stagedFiles(p0 string) []string { return gitx.StagedFiles(p0) }
 
 func stagedFilesErr(p0 string) ([]string, error) { return gitx.StagedFilesErr(p0) }
+
+func trunkSyncTip(p0 string) (string, bool) { return gitx.TrunkSyncTip(p0) }

@@ -25,6 +25,19 @@ import (
 // pre-merge-commit hook sees.
 func trunkSyncInProgress(t *testing.T, base, lane map[string]string) string {
 	t.Helper()
+	return mergeInProgress(t, base, lane, false)
+}
+
+// laneIntoTrunkInProgress is trunkSyncInProgress's opposite shape: the lane
+// merged INTO main, the merge that lands work on trunk and whose combined tree
+// the gate still tests.
+func laneIntoTrunkInProgress(t *testing.T, base, lane map[string]string) string {
+	t.Helper()
+	return mergeInProgress(t, base, lane, true)
+}
+
+func mergeInProgress(t *testing.T, base, lane map[string]string, intoTrunk bool) string {
+	t.Helper()
 	isolateGit(t)
 	repo := t.TempDir()
 	run := func(args ...string) {
@@ -60,6 +73,11 @@ func trunkSyncInProgress(t *testing.T, base, lane map[string]string) string {
 	run("checkout", "-q", "main")
 	put(map[string]string{"notes.txt": "two\n"})
 	run("commit", "-qam", "Move notes")
+	if intoTrunk {
+		run("merge", "-q", "--no-ff", "--no-commit", "lane")
+		t.Chdir(repo)
+		return repo
+	}
 	run("checkout", "-q", "lane")
 	run("merge", "-q", "--no-ff", "--no-commit", "main")
 	t.Chdir(repo)
@@ -121,7 +139,7 @@ func fakeCleanGolangciLint(t *testing.T) string {
 // whether the real linter ran clean or was never consulted at all.
 func TestCommitMsg_PremergeNeverReachesTheRealGolangciLint(t *testing.T) {
 	gateConfigDir(t)
-	trunkSyncInProgress(t, goModule("x", 1, 1), goModule("x", 2, 2))
+	laneIntoTrunkInProgress(t, goModule("x", 1, 1), goModule("x", 2, 2))
 	marker := fakeCleanGolangciLint(t)
 
 	var errb bytes.Buffer
@@ -135,7 +153,7 @@ func TestCommitMsg_PremergeNeverReachesTheRealGolangciLint(t *testing.T) {
 
 func TestCommitMsg_AnAmendOfAMergeKeepsThePremergeGreenForItsUnchangedTree(t *testing.T) {
 	gateConfigDir(t)
-	repo := trunkSyncInProgress(t, goModule("x", 1, 1), goModule("x", 2, 2))
+	repo := laneIntoTrunkInProgress(t, goModule("x", 1, 1), goModule("x", 2, 2))
 	fakeCleanGolangciLint(t)
 
 	var errb bytes.Buffer
@@ -171,7 +189,7 @@ func TestCommitMsg_ARefusedMergeLeavesNoGreenForItsTree(t *testing.T) {
 	for k, v := range goModule("b", 2, 3) {
 		lane[k] = v
 	}
-	trunkSyncInProgress(t, base, lane)
+	laneIntoTrunkInProgress(t, base, lane)
 	fakeCleanGolangciLint(t)
 
 	var errb bytes.Buffer
@@ -181,5 +199,25 @@ func TestCommitMsg_ARefusedMergeLeavesNoGreenForItsTree(t *testing.T) {
 
 	if code, _ := commitMsgClaims(t); code == 0 {
 		t.Fatal("commit-msg accepted a verification claim about a merged tree the merge gate refused")
+	}
+}
+
+// A catch-up merge (main into the lane) is not the tree that lands on trunk, so
+// the gate runs no suite on it: module b's suite is red here and the merge is
+// still allowed, with the one line that says why. CI tests the lane.
+func TestGatePremerge_ACatchUpMergeRunsNoSuiteAndSaysSo(t *testing.T) {
+	gateConfigDir(t)
+	trunkSyncInProgress(t, goModule("a", 1, 1), goModule("a", 2, 3)) // the lane's suite is red
+	marker := fakeCleanGolangciLint(t)
+
+	var errb bytes.Buffer
+	if code := Run([]string{"gate", "premerge"}, strings.NewReader(""), &bytes.Buffer{}, &errb); code != 0 {
+		t.Fatalf("a catch-up merge must not run the red suite; exit %d\n%s", code, errb.String())
+	}
+	if want := "gate premerge: catch-up merge of main into lane — suites skipped, CI tests the lane"; !strings.Contains(errb.String(), want) {
+		t.Fatalf("stderr = %q, want it to carry %q", errb.String(), want)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the linter ran on a catch-up merge, which builds nothing")
 	}
 }
