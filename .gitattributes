@@ -7,3 +7,5 @@
 *.yaml text eol=lf
 # Golden lines are compared byte for byte, newlines included; a CRLF checkout must never change them.
 internal/render/testdata/*.golden -text
+# Captured `git status -z` output is NUL-separated bytes compared as they are; no checkout may convert it.
+internal/git/testdata/** -text
