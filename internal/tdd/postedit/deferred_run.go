@@ -264,9 +264,12 @@ func stampDeferredStart(session, root string, at time.Time) {
 }
 
 // deferredSlotWait bounds how long a detached phase queues for a build slot:
-// a FRACTION of the phase's own ceiling, so a job that spent its wait in the
-// queue still has most of its life left to build in.
-func deferredSlotWait() time.Duration { return deferredMax() / 4 }
+// its whole life, the same ceiling the next hook abandons it at. A shorter
+// wait ended a phase queued behind a long build as an infra failure the
+// session learned of minutes later, the code untested; queued, the phase
+// shows as BUILDING and, past the ceiling, as an abandoned run the hook says
+// so about.
+func deferredSlotWait() time.Duration { return deferredMax() }
 
 func readJobFile(path string) (DeferredJob, bool) {
 	data, err := os.ReadFile(strings.TrimSpace(path))

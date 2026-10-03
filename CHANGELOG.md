@@ -38,9 +38,28 @@ trellis gates.
   nothing: its editor hooks and git hooks exit 0 silently, and its git and cargo
   queue shims pass straight through. trellis and aphrollo never both gate one repo.
 - `aphrollo gate doctor` has a new row, "one live gate": it fails when the
-  aphrollo hooks and a trellis plugin or hook are wired into the same Claude
+  aphrollo hooks and a trellis plugin or hook are wired into the same editor
   settings, and names the fix (disable the trellis plugin, or run
   `aphrollo gate init --uninstall`).
+
+## 1.1.1 - 2026-10-03
+
+Edits are lighter on the box, and a test run that waits for a build slot is no
+longer lost.
+
+### What you will notice
+
+- An edit now leaves one background job at most, the test build. The background
+  lint and mutation runs that followed every edit are gone: lint and mutation
+  are judged when you commit, and in CI.
+- A test run queued behind another build keeps its place for as long as the run
+  may live, and shows as BUILDING meanwhile. Before, it gave up after a quarter
+  of that time and the next hook reported "the code was NOT tested".
+- The gate's record of where a session stood now follows the lane's own git
+  index, so it notices changes in a linked worktree (before, it read as unchanged
+  in every lane).
+- The law scan skips the `.git` file of a linked worktree and `.claude/worktrees/`,
+  so a nested checkout's files are no longer judged as part of the repo around it.
 
 ## 1.1.0 - 2026-10-02
 
