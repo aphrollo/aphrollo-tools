@@ -94,11 +94,11 @@ func TestPipeline_EachJobKeysOnTheOutputItsClassNeeds(t *testing.T) {
 	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
 	want := map[string][]string{
 		"docs-check":    {"docs"},
-		"test":          {"code", "refactor"},
-		"gate-env":      {"code"},
-		"test-windows":  {"code"},
-		"lint":          {"lint"},
-		"benchmarks":    {"bench"},
+		"test":          {"code", "refactor", "reuse"},
+		"gate-env":      {"code", "reuse"},
+		"test-windows":  {"code", "reuse"},
+		"lint":          {"lint", "reuse"},
+		"benchmarks":    {"bench", "reuse"},
 		"mutants-plan":  {"code"},
 		"scan":          {"code"},
 		"build":         {"code"},

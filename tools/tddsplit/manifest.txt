@@ -745,6 +745,7 @@ pathlock.go                                        core
 payload.go                                         tddtest
 pidrunning_windows_test.go                         postedit
 pipeline_push_test.go                              tdd
+pipeline_reuse_test.go                             tdd
 pkgsecs.go                                         suite
 pkgsecs_test.go                                    suite
 policy.go                                          smell
