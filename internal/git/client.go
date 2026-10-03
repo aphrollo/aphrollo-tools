@@ -62,7 +62,6 @@ type Client struct {
 	mu        sync.Mutex
 	status    *Status
 	statusKey string
-	statusErr error
 	trunk     string
 	trunkDone bool
 }
@@ -80,6 +79,11 @@ func New(dir string, opt Options) (*Client, error) {
 		if c, err := open(root, opt); !errors.Is(err, os.ErrNotExist) {
 			return c, err
 		}
+		// git finds a bare repository by the directory itself holding one, and
+		// answers it has no work tree; it does not walk past it.
+		if looksBare(root) {
+			return nil, ErrNotRepo
+		}
 		parent := filepath.Dir(root)
 		if parent == root {
 			return nil, ErrNotRepo
@@ -96,6 +100,10 @@ func open(root string, opt Options) (*Client, error) {
 	info, err := os.Stat(dotGit)
 	if err != nil {
 		return nil, err
+	}
+	// An empty `.git` directory is not a repository to git: it keeps walking up.
+	if info.IsDir() && !isFile(filepath.Join(dotGit, "HEAD")) {
+		return nil, os.ErrNotExist
 	}
 	c := &Client{root: root, gitDir: dotGit, commonDir: dotGit, opt: opt}
 	if !info.IsDir() {
@@ -179,20 +187,24 @@ var statusArgs = []string{"--no-optional-locks", "status", "--porcelain=v2", "-z
 // time, and the same answer for every later call with that key. A different key
 // reads the tree again and replaces the kept answer. An empty key is a read of
 // its own, never kept, and leaves the kept answer as it was. A failed call is
-// kept as the batch's answer too, as its error: a repository git cannot read
-// costs one call per batch, not one per question.
+// never kept: the next call asks again, and a caller that wants a failure to
+// stand for its batch keeps it itself.
 func (c *Client) Status(key string) (*Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if key == "" {
 		return c.readStatus()
 	}
-	if key == c.statusKey && (c.status != nil || c.statusErr != nil) {
-		return c.status, c.statusErr
+	if key == c.statusKey && c.status != nil {
+		return c.status, nil
 	}
 	st, err := c.readStatus()
-	c.status, c.statusErr, c.statusKey = st, err, key
-	return st, err
+	if err != nil {
+		c.status, c.statusKey = nil, ""
+		return nil, err
+	}
+	c.status, c.statusKey = st, key
+	return st, nil
 }
 
 // readStatus asks git for the status now.
@@ -212,4 +224,20 @@ func Canonical(path string) string {
 		path = real
 	}
 	return filepath.Clean(path)
+}
+
+func isFile(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.Mode().IsRegular()
+}
+
+func isDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// looksBare reports whether dir is itself a git directory, as git's own
+// discovery tests it: a HEAD file, an objects directory and a refs directory.
+func looksBare(dir string) bool {
+	return isFile(filepath.Join(dir, "HEAD")) && isDir(filepath.Join(dir, "objects")) && isDir(filepath.Join(dir, "refs"))
 }

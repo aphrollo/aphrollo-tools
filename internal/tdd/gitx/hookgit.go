@@ -17,7 +17,9 @@ var hookGit = struct {
 	sync.Mutex
 	gen     uint64
 	clients map[string]*igit.Client
-}{clients: map[string]*igit.Client{}}
+	// failed is the batch a worktree's status last failed in, by client key.
+	failed map[string]uint64
+}{clients: map[string]*igit.Client{}, failed: map[string]uint64{}}
 
 // BeginHook starts a new batch of questions: a status read before it is never
 // answered again after it. The edit hooks call it once on entry; a long-lived
@@ -53,17 +55,30 @@ func HookClient(dir string) *igit.Client {
 
 // HookStatus is the dirty set of the worktree dir sits in for the hook's
 // batch: one spawn the first time it is asked in a batch, the same answer
-// after. Both results are nil when dir is in no repository or git cannot say.
+// after. A failure is the answer for the rest of its batch too, never for a later one. Both results are nil when dir is in no repository or git cannot say.
 func HookStatus(dir string) (*igit.Client, *igit.Status) {
 	c := HookClient(dir)
 	if c == nil {
 		return nil, nil
 	}
+	ck := c.Root() + "|" + gitBinary()
 	hookGit.Lock()
-	key := fmt.Sprintf("hook-%d", hookGit.gen)
+	gen := hookGit.gen
+	failedHere := gen > 0 && hookGit.failed[ck] == gen
 	hookGit.Unlock()
-	st, err := c.Status(key)
+	if failedHere {
+		return c, nil
+	}
+	st, err := c.Status(fmt.Sprintf("hook-%d", gen))
 	if err != nil {
+		// A failure stands for the rest of its batch, so a repository git cannot
+		// read costs one call, not one per question. A caller that never began a
+		// batch (gen 0) has no end to it, so asks again each time.
+		if gen > 0 {
+			hookGit.Lock()
+			hookGit.failed[ck] = gen
+			hookGit.Unlock()
+		}
 		return c, nil
 	}
 	return c, st

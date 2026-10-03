@@ -337,7 +337,7 @@ func TestStatus_AnEmptyBatchKeyIsNeverCached(t *testing.T) {
 	}
 }
 
-func TestStatus_AFailedCallIsTheBatchsAnswerAndANewBatchTriesAgain(t *testing.T) {
+func TestStatus_AFailedCallIsNeverKeptSoTheSameBatchAsksAgain(t *testing.T) {
 	dir := repoWithCommit(t)
 	c := mustNew(t, dir)
 	// An index git cannot read makes status fail.
@@ -354,14 +354,11 @@ func TestStatus_AFailedCallIsTheBatchsAnswerAndANewBatchTriesAgain(t *testing.T)
 			t.Fatal("status of a corrupt index succeeded")
 		}
 	}
-	if c.Spawns() != 1 {
-		t.Errorf("a batch of three questions of an unreadable repository spawned git %d times, want 1", c.Spawns())
-	}
 	if err := os.WriteFile(idx, good, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Status("b2"); err != nil {
-		t.Errorf("the repaired repository still fails in a new batch: %v", err)
+	if _, err := c.Status("b"); err != nil {
+		t.Errorf("the repaired repository still fails under the same key: %v", err)
 	}
 }
 
@@ -435,3 +432,14 @@ func TestStatus_AKeylessReadLeavesTheKeptBatchAnswerAlone(t *testing.T) {
 }
 
 // ratchet: test_removed TestStatus_AFailedCallIsNotCachedAsTheBatchsAnswer: a failed status is now the batch's answer; TestStatus_AFailedCallIsTheBatchsAnswerAndANewBatchTriesAgain pins it
+
+// ratchet: test_removed TestStatus_AFailedCallIsTheBatchsAnswerAndANewBatchTriesAgain: a failed status is never kept by the client; TestStatus_AFailedCallIsNeverKeptSoTheSameBatchAsksAgain pins it
+
+func TestMergeInProgress_AnOctopusMergeHoldsOneCommitPerLine(t *testing.T) {
+	dir := repoWithCommit(t)
+	sha := strings.TrimSpace(gitT(t, dir, "rev-parse", "HEAD"))
+	write(t, dir, ".git/MERGE_HEAD", sha+"\n"+sha+"\n")
+	if got := mustNew(t, dir).MergeInProgress(); got != "MERGE_HEAD" {
+		t.Errorf("MergeInProgress = %q, want MERGE_HEAD for a merge of two commits", got)
+	}
+}

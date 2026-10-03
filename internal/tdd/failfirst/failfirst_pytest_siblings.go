@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
@@ -44,7 +45,7 @@ func otherWorktreeRoots(root string) pytestSearch {
 	if top == "" {
 		return search
 	}
-	rel, err := filepath.Rel(top, filepath.Clean(root))
+	rel, err := filepath.Rel(top, igit.Canonical(root))
 	if err != nil {
 		return search
 	}
@@ -55,11 +56,12 @@ func otherWorktreeRoots(root string) pytestSearch {
 	mergeHead, _ := git(root, "rev-parse", "-q", "--verify", "MERGE_HEAD")
 	mergeHead = strings.TrimSpace(mergeHead)
 	for i, w := range parseWorktrees(list) {
-		dir := filepath.Join(filepath.Clean(w.path), rel)
+		path := igit.Canonical(w.path)
+		dir := filepath.Join(path, rel)
 		if i == 0 {
 			search.remedy = dir
 		}
-		if filepath.Clean(w.path) == top || (i > 0 && w.head != mergeHead) {
+		if path == top || (i > 0 && w.head != mergeHead) {
 			continue
 		}
 		search.elsewhere = append(search.elsewhere, dir)

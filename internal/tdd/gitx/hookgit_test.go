@@ -223,3 +223,90 @@ func TestRepoRoot_NamesTheTopFromTheFilesAndRefusesWhatGitRefuses(t *testing.T) 
 		t.Errorf("RepoRoot spawned git %d times, want 0:\n%v", len(spawns), spawns)
 	}
 }
+
+// breakIndex makes git unable to read the worktree's index and answers a
+// function that restores it.
+func breakIndex(t *testing.T, root string) (restore func()) {
+	t.Helper()
+	idx := filepath.Join(root, ".git", "index")
+	good, err := os.ReadFile(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(idx, []byte("garbage"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return func() {
+		if err := os.WriteFile(idx, good, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestHookStatus_AFailureStandsForItsBatchOnlyAndTheCallersJudgeUnknown(t *testing.T) {
+	root := makeGoRepo(t)
+	write(t, root, "doc.go", "package m\n\nfunc Changed() {}\n")
+	BeginHook()
+	restore := breakIndex(t, root)
+	c, st := HookStatus(root)
+	for range 3 {
+		if _, again := HookStatus(root); again != nil {
+			t.Fatal("a status of an unreadable index was answered")
+		}
+		if _, _, ok := HeadCopy(filepath.Join(root, "doc.go")); ok {
+			t.Fatal("HeadCopy claimed a copy while the tree could not be read: it must say it cannot tell")
+		}
+	}
+	if st != nil || c.Spawns() != 1 {
+		t.Fatalf("status = %v, %d spawns for a batch of questions on an unreadable repository, want nil and 1", st, c.Spawns())
+	}
+
+	restore()
+	BeginHook()
+	if _, _, ok := HeadCopy(filepath.Join(root, "doc.go")); !ok {
+		t.Error("the next batch still reads the repaired repository as unknown")
+	}
+}
+
+func TestHookStatus_ACallerThatNeverBeganABatchAsksAgainAfterAFailure(t *testing.T) {
+	root := makeGoRepo(t)
+	hookGit.Lock()
+	saved := hookGit.gen
+	hookGit.gen = 0
+	hookGit.Unlock()
+	t.Cleanup(func() {
+		hookGit.Lock()
+		hookGit.gen = saved
+		hookGit.Unlock()
+	})
+	restore := breakIndex(t, root)
+	if _, st := HookStatus(root); st != nil {
+		t.Fatal("a status of an unreadable index was answered")
+	}
+	restore()
+	if _, st := HookStatus(root); st == nil {
+		t.Error("a caller with no batch kept a failure for good")
+	}
+}
+
+// Where git's own discovery stops, so does RepoRoot: a bare repository inside a
+// worktree is no work tree, and an empty `.git` directory is no repository, so
+// the walk goes on above it.
+func TestRepoRoot_StopsAtABareRepositoryAndWalksPastAnEmptyDotGit(t *testing.T) {
+	root := makeGoRepo(t)
+	gitDo(t, root, "init", "-q", "--bare", filepath.Join(root, "inner.git"))
+	if err := os.MkdirAll(filepath.Join(root, "vendor", "empty", ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "vendor/empty/f.go", "package m\n")
+
+	if got := RepoRoot(filepath.Join(root, "inner.git")); got != "" {
+		t.Errorf("RepoRoot of a bare repository inside the worktree = %q, want none, as git says", got)
+	}
+	if got := RepoRoot(filepath.Join(root, "inner.git", "refs")); got != "" {
+		t.Errorf("RepoRoot below a bare repository's top = %q, want none", got)
+	}
+	if got := RepoRoot(filepath.Join(root, "vendor", "empty")); !sameWorktreeDir(t, got, root) {
+		t.Errorf("RepoRoot beside an empty .git = %q, want the worktree %q git finds", got, root)
+	}
+}

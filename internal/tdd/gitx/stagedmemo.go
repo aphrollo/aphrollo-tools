@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+
+	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 )
 
 // The commit gate asks for the staged set from half a dozen stages, with the
@@ -55,12 +57,9 @@ func indexStamp(repoRoot string) string {
 	if c == nil {
 		return ""
 	}
-	idx := filepath.Join(c.GitDir(), "index")
-	if env := os.Getenv("GIT_INDEX_FILE"); env != "" {
-		idx = env
-		if !filepath.IsAbs(idx) {
-			idx = filepath.Join(repoRoot, idx)
-		}
+	idx := gitenv.HookIndex(repoRoot)
+	if idx == "" {
+		idx = filepath.Join(c.GitDir(), "index")
 	}
 	raw, err := os.ReadFile(idx)
 	if err != nil {
@@ -72,7 +71,9 @@ func indexStamp(repoRoot string) string {
 	}
 	sum := sha256.New()
 	sum.Write(raw)
-	for _, part := range []string{idx, head.SHA, c.MergeInProgress(), os.Getenv(reflogActionEnv)} {
+	merge := c.MergeInProgress()
+	mergeText, _ := os.ReadFile(filepath.Join(c.GitDir(), merge))
+	for _, part := range []string{idx, head.SHA, merge, string(mergeText), os.Getenv(reflogActionEnv)} {
 		sum.Write([]byte{0})
 		sum.Write([]byte(part))
 	}

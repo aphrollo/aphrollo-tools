@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
@@ -215,5 +216,28 @@ func TestParseWorktrees_ReadsPathAndHeadAndIgnoresAHeadBeforeAnyPath(t *testing.
 	want := []worktreeEntry{{path: "/r/main", head: "aaa"}, {path: "/r/lane", head: "bbb"}}
 	if !slices.Equal(got, want) {
 		t.Errorf("got %+v, want %+v", got, want)
+	}
+}
+
+// A root reached through a symbolic link, or spelled in another case, is the
+// same worktree git lists by its own spelling: the search compares and builds
+// paths in one canonical spelling.
+func TestOtherWorktreeRoots_ARootNamedThroughALinkFindsTheSameWorktreesGitLists(t *testing.T) {
+	_, _, merge := pytestWorktrees(t)
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(filepath.Dir(merge), link); err != nil {
+		t.Fatalf("cannot make a symbolic link: %v", err)
+	}
+	backend := filepath.Join(link, filepath.Base(merge), "backend")
+
+	search := otherWorktreeRoots(backend)
+
+	primary := igit.Canonical(filepath.Join(filepath.Dir(merge), "repo", "backend"))
+	if search.remedy != primary {
+		t.Errorf("remedy = %q, want the primary checkout's root %q", search.remedy, primary)
+	}
+	own := igit.Canonical(filepath.Join(merge, "backend"))
+	if slices.Contains(search.elsewhere, own) || !slices.Contains(search.elsewhere, primary) {
+		t.Errorf("elsewhere = %q, want the primary %q and never the root's own %q", search.elsewhere, primary, own)
 	}
 }

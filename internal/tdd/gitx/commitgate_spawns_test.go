@@ -75,3 +75,62 @@ func TestStagedFiles_SeesAChangeToTheIndexAtOnce(t *testing.T) {
 		t.Errorf("after reset, staged = %q, want none", got)
 	}
 }
+
+// A running `git commit -a` names a temporary index in the repository's own git
+// directory, and the gate reads that one; an index of another worktree is not
+// the one git reads for this repository, and a relative name is relative to the
+// hook's working directory, as git reads it.
+func TestIndexStamp_FollowsTheIndexGitReadsForThisRepository(t *testing.T) {
+	main := makeGoRepo(t)
+	lane := filepath.Join(t.TempDir(), "lane")
+	gitDo(t, main, "worktree", "add", "-q", "-b", "lane/x", lane)
+	own := indexStamp(lane)
+	if own == "" {
+		t.Fatal("no stamp for a plain worktree")
+	}
+	laneGit := HookClient(lane).GitDir()
+	tmp := filepath.Join(laneGit, "next-index")
+	if err := os.WriteFile(tmp, []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("a temporary index in the repository's git directory is the one read", func(t *testing.T) {
+		t.Setenv("GIT_INDEX_FILE", tmp)
+		first := indexStamp(lane)
+		if first == "" || first == own {
+			t.Fatalf("stamp = %q, want one of the temporary index (own %q)", first, own)
+		}
+		if err := os.WriteFile(tmp, []byte("two"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if second := indexStamp(lane); second == first {
+			t.Fatal("stamp did not move with the temporary index")
+		}
+	})
+
+	t.Run("an index in another worktree's git directory is not this repository's", func(t *testing.T) {
+		foreign := filepath.Join(HookClient(main).GitDir(), "index")
+		t.Setenv("GIT_INDEX_FILE", foreign)
+		if got := indexStamp(lane); got != own {
+			t.Fatalf("stamp = %q, want the worktree's own %q", got, own)
+		}
+	})
+
+	t.Run("a relative name is read against the working directory, not the repository root", func(t *testing.T) {
+		if err := os.WriteFile(tmp, []byte("three"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Chdir(laneGit)
+		t.Setenv("GIT_INDEX_FILE", "next-index")
+		first := indexStamp(lane)
+		if first == "" || first == own {
+			t.Fatalf("stamp = %q, want one of the temporary index (own %q)", first, own)
+		}
+		if err := os.WriteFile(tmp, []byte("four"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if second := indexStamp(lane); second == first {
+			t.Fatal("stamp did not move with the relative temporary index")
+		}
+	})
+}

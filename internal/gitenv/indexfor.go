@@ -122,3 +122,9 @@ func gitDirOf(dir string) string {
 		dir = parent
 	}
 }
+
+// HookIndex is the index a staged-tree read in dir uses: the process's
+// GIT_INDEX_FILE, absolute against the working directory, when it lies in the
+// git directory of the repository dir is in, and "" otherwise (the repository's
+// own index). It is the rule CleanFor applies to the child it spawns.
+func HookIndex(dir string) string { return hookIndexFor(dir) }
