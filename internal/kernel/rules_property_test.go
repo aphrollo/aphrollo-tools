@@ -196,7 +196,7 @@ func TestDecide_aDenyIsCompleteLiveAndOnlyForWhoMayBeBlocked(t *testing.T) {
 			t.Fatalf("rule %s may not block but denied: %+v", d.Rule, d)
 		case d.Level != LevelEnforce || d.HeldOut || d.WouldDeny:
 			t.Fatalf("a deny at level %q (held out %v, would-deny %v)", d.Level, d.HeldOut, d.WouldDeny)
-		case !in.e.Kind.question():
+		case !in.e.Kind.Question():
 			t.Fatalf("a deny on %q, an event that is a fact and cannot be refused", in.e.Kind)
 		case !in.e.Claude && !r.AllAuthors:
 			t.Fatalf("a deny of a human by %s", d.Rule)

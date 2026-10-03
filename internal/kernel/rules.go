@@ -231,7 +231,7 @@ func Decide(l State, us Units, e Event, c Config) Decision {
 			best = d
 		}
 	}
-	if e.Kind.question() {
+	if e.Kind.Question() {
 		best.Lane, best.Units = l, us
 		return best
 	}
@@ -256,7 +256,7 @@ func judge(r Rule, f Facts) (Decision, bool) {
 		return d, true
 	}
 	switch {
-	case lv != LevelEnforce || !f.Event.Kind.question() || (!f.Event.Claude && !r.AllAuthors):
+	case lv != LevelEnforce || !f.Event.Kind.Question() || (!f.Event.Claude && !r.AllAuthors):
 		d.WouldDeny = true
 	case r.Class == RuleEarned && !pinned && heldOut(f.laneID(), r.ID):
 		d.WouldDeny, d.HeldOut = true, true

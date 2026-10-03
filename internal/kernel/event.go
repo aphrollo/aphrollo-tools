@@ -49,8 +49,9 @@ const (
 	KindStop      Kind = "stop"
 )
 
-// question reports whether the kind asks for a decision rather than states a fact.
-func (k Kind) question() bool {
+// Question reports whether the kind asks for a decision rather than states a
+// fact: a question moves no machine, and only a question can be denied.
+func (k Kind) Question() bool {
 	switch k {
 	case KindPreTool, KindPreCommit, KindPrePush, KindPreMerge, KindStop:
 		return true
