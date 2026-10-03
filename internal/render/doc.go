@@ -61,7 +61,8 @@
 // Line.ID names the fact a line says (its kind, unit, test, tree and job, not
 // its wording); Line.Deliver returns the Delivery record an engine appends once
 // the hook output is written; Reaches says which hooks' output the agent
-// reads; Due says whether a line must be said again to an actor. A delivery to
+// reads (only PostToolBatch and SubagentStart, the two F3 recorded; see
+// Reaches); Due says whether a line must be said again to an actor. A delivery to
 // a hook that reaches nobody, or to another actor (a subagent's context is not
 // the parent's), never counts. No store is read or written here.
 package render

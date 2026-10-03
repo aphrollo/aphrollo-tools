@@ -20,6 +20,12 @@
 // its tree, phase and run request are not recorded; the post-edit event that
 // follows records those.
 //
+// # Seen
+//
+// What the agent has been told is kept in the record too (see seen.go): Deliver
+// records a line written through a hook that reaches the agent, Unseen and
+// Guidance hold back a line this actor already saw, and none of it is an event.
+//
 // # Concurrency
 //
 // Handle never holds a lock across the kernel call. It saves with the version it
@@ -65,10 +71,7 @@ func (e *Engine) Handle(ctx context.Context, ev kernel.Event) (kernel.Decision, 
 		}
 		return kernel.Decide(kernel.State{}, nil, ev, e.Config), nil
 	}
-	attempts := e.Attempts
-	if attempts < 1 {
-		attempts = DefaultAttempts
-	}
+	attempts := e.attempts()
 	var last kernel.Decision
 	for range attempts {
 		if err := ctx.Err(); err != nil {
@@ -80,9 +83,9 @@ func (e *Engine) Handle(ctx context.Context, ev kernel.Event) (kernel.Decision, 
 		}
 		d := kernel.Decide(rec.Lane, rec.Units, ev, e.Config)
 		last = d
-		next, events, save := Record{Lane: d.Lane, Units: d.Units}, []kernel.Event{ev}, true
+		next, events, save := Record{Lane: d.Lane, Units: d.Units, Delivered: rec.Delivered}, []kernel.Event{ev}, true
 		if question {
-			next, events = Record{Lane: rec.Lane}, nil
+			next, events = Record{Lane: rec.Lane, Delivered: rec.Delivered}, nil
 			next.Units, save = e.guided(rec, ev)
 		}
 		if !save {

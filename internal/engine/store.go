@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
+	"github.com/aphrollo/aphrollo-tools/internal/render"
 )
 
 var (
@@ -22,6 +23,10 @@ var (
 type Record struct {
 	Lane  kernel.State
 	Units kernel.Units
+
+	// Delivered is what the agent has been told, oldest first: the lines written
+	// through a hook that reaches it, bounded (see MaxSeenPerActor).
+	Delivered []render.Delivery
 }
 
 // Store is what the engine needs of the per-repo store (architecture §8; the
