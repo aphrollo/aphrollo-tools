@@ -31,13 +31,13 @@ func runs(t *testing.T, path string) int {
 	return strings.Count(string(b), "ran\n")
 }
 
-// clobberHook is a Before hook that replaces the whole SysProcAttr, dropping
-// the creation flags the job guard set (as verbatimCmdLine once did).
-type clobberHook struct{}
+// clobberHook is a Before hook that rewrites the SysProcAttr the job guard
+// set, dropping its creation flags (as verbatimCmdLine once did).
+type clobberHook struct{ attr *syscall.SysProcAttr }
 
-func (clobberHook) Before(cmd *exec.Cmd) { cmd.SysProcAttr = &syscall.SysProcAttr{} }
-func (clobberHook) Started(int)          {}
-func (clobberHook) Ended()               {}
+func (h clobberHook) Before(cmd *exec.Cmd) { cmd.SysProcAttr = h.attr }
+func (clobberHook) Started(int)            {}
+func (clobberHook) Ended()                 {}
 
 // lateAttach is a job guard that lets the child have its way before the join:
 // it waits up to a bound for the child to exit, then joins as the real job
@@ -54,6 +54,16 @@ func (l lateAttach) attach(p *os.Process) error {
 }
 
 func TestHeavy_ABeforeHookThatDropsTheSuspendFlagDoesNotRunTheChildTwice(t *testing.T) {
+	for name, attr := range map[string]*syscall.SysProcAttr{
+		"an empty SysProcAttr": {},
+		"no SysProcAttr":       nil,
+	} {
+		t.Run(name, func(t *testing.T) { neverTwiceUnder(t, attr) })
+	}
+}
+
+func neverTwiceUnder(t *testing.T, attr *syscall.SysProcAttr) {
+	t.Helper()
 	withGuard(t, func(cmd *exec.Cmd, heavy bool, mb int64) (tree, error) {
 		real, err := prepare(cmd, heavy, mb)
 		if err != nil {
@@ -63,7 +73,7 @@ func TestHeavy_ABeforeHookThatDropsTheSuspendFlagDoesNotRunTheChildTwice(t *test
 	})
 	file := t.TempDir() + `\runs`
 	spec := helperSpec(t, "append", file)
-	spec.Hook = clobberHook{}
+	spec.Hook = clobberHook{attr}
 	c, err := StartHeavy(context.Background(), spec)
 	if err != nil {
 		t.Fatal(err)
