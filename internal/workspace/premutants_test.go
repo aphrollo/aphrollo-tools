@@ -61,10 +61,17 @@ func writeRel(t *testing.T, repo, rel, content string) {
 // metadata table.
 func cargoLane(t *testing.T, beforePR bool) string {
 	t.Helper()
+	return cargoLaneLevel(t, beforePR, "mutants-at-merge-level = \"block\"\n")
+}
+
+// cargoLaneLevel is cargoLane with level declared next to mutants-before-pr:
+// the pin that makes a finding refuse, or "" for the default report.
+func cargoLaneLevel(t *testing.T, beforePR bool, level string) string {
+	t.Helper()
 	repo := repoWithRemote(t)
 	manifest := "[workspace]\nmembers = [\"crates/a\"]\n"
 	if beforePR {
-		manifest += "\n[workspace.metadata.aphrollo]\nmutants-before-pr = true\n"
+		manifest += "\n[workspace.metadata.aphrollo]\nmutants-before-pr = true\n" + level
 	}
 	writeRel(t, repo, "Cargo.toml", manifest)
 	writeRel(t, repo, "crates/a/Cargo.toml", "[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
@@ -208,6 +215,29 @@ func TestPR_ACaughtMutantOpensThePR(t *testing.T) {
 	}
 	if !*created {
 		t.Fatal("a lane whose only mutant was caught did not get its PR")
+	}
+}
+
+// Opted in without pinning block, a survivor is reported and the PR opens.
+func TestPR_AnUnpinnedSurvivorIsReportedAndThePROpens(t *testing.T) {
+	isolateMeasurement(t)
+	repo := cargoLaneLevel(t, true, "")
+	stubMutants(t, "MissedMutant")
+	created := noPRYet(t)
+
+	pr, err := PRPlan(targetFor(repo, "lane"), "", "title", "body", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := pr.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply refused over an unpinned survivor: %v\nstdout: %s", err, out.String())
+	}
+	if !*created {
+		t.Error("the PR was not opened over a report-only survivor")
+	}
+	if !strings.Contains(out.String(), "REPORT ONLY") || !strings.Contains(out.String(), "crates/a/src/lib.rs:1:36") {
+		t.Errorf("stdout does not name the survivor under REPORT ONLY:\n%s", out.String())
 	}
 }
 

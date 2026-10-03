@@ -72,7 +72,7 @@ type MutantsConfig struct {
 // defaultCommitBudget is how long the commit-time mutation run may take when
 // the repo declares no budget: the design's own figure for a run that must
 // never make a slow box hold up a commit.
-const defaultCommitBudget = 30 * time.Second
+const defaultCommitBudget = 90 * time.Second
 
 // CommitBudget is the wall-clock the commit-time run may spend.
 func (c MutantsConfig) CommitBudget() time.Duration {

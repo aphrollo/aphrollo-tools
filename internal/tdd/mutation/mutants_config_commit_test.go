@@ -49,7 +49,7 @@ func TestMutantsConfig_AtCommitRefusesAnyOtherValue(t *testing.T) {
 }
 
 // The wall-clock budget is a positive whole number of seconds; absent is a
-// half a minute, and the number is read verbatim at its lowest legal value.
+// ninety seconds, and the number is read verbatim at its lowest legal value.
 func TestMutantsConfig_CommitBudget(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
@@ -57,7 +57,7 @@ func TestMutantsConfig_CommitBudget(t *testing.T) {
 		body string
 		want time.Duration
 	}{
-		{"absent", "mutants-at-commit = true\n", 30 * time.Second},
+		{"absent", "mutants-at-commit = true\n", 90 * time.Second},
 		{"one second, the lowest legal value", "mutants-commit-budget = 1\n", time.Second},
 		{"two seconds", "mutants-commit-budget = 2\n", 2 * time.Second},
 		{"a trailing comment", "mutants-commit-budget = 90 # a slow box\n", 90 * time.Second},
@@ -90,7 +90,7 @@ func TestMutantsConfig_CommitBudgetRefusesWhatIsNotAPositiveNumber(t *testing.T)
 // answers the default rather than a zero budget that would measure nothing.
 func TestMutantsConfig_CommitBudgetOfTheZeroValue(t *testing.T) {
 	t.Parallel()
-	if got := (MutantsConfig{}).CommitBudget(); got != 30*time.Second {
+	if got := (MutantsConfig{}).CommitBudget(); got != 90*time.Second {
 		t.Errorf("CommitBudget() = %s, want 1m0s", got)
 	}
 	if got := (MutantsConfig{CommitBudgetSeconds: 1}).CommitBudget(); got != time.Second {

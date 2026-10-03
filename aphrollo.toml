@@ -86,7 +86,7 @@ mutants-before-pr = "ci"
 # The commit gate mutates the lines a commit adds or changes and runs each
 # mutant against the tests selected for its enclosing function, under the same
 # memory cap and box-wide lock, on bounded workers and inside a wall-clock
-# budget (mutants-commit-budget, seconds, default 30). A survivor is reported and
+# budget (mutants-commit-budget, seconds, default 90). A survivor is reported and
 # never refuses the commit (mutants-at-commit = "block" pins the refusal); a box
 # with no headroom, a lock held past the budget, or a budget spent before every
 # mutant was judged leaves those mutants NOT MEASURED, and CI reports them. The per-function test maps it selects with

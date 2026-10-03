@@ -260,6 +260,22 @@ func TestComputeFingerprint_ReflectsRealGitState(t *testing.T) {
 	}
 }
 
+// In a linked worktree `.git` is a file, so the index is not at .git/index: the
+// fingerprint read 0 there and a staged change never moved it.
+func TestComputeFingerprint_LinkedWorktreeReadsItsOwnIndex(t *testing.T) {
+	root := tddtest.MakeGoRepo(t)
+	lane := filepath.Join(t.TempDir(), "lane")
+	tddtest.GitDo(t, root, "worktree", "add", "-q", "-b", "lane/x", lane)
+
+	fp := computeFingerprint(lane)
+	if fp == nil {
+		t.Fatal("a linked worktree must yield a fingerprint")
+	}
+	if fp.IndexMtime == 0 {
+		t.Fatalf("IndexMtime = 0 in a linked worktree, want its own index's mtime: %+v", fp)
+	}
+}
+
 func TestComputeFingerprint_NilOutsideAGitRepo(t *testing.T) {
 	if fp := computeFingerprint(t.TempDir()); fp != nil {
 		t.Fatalf("computeFingerprint outside a repo = %+v, want nil", fp)

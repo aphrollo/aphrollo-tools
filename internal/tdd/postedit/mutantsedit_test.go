@@ -65,11 +65,12 @@ func finishWith(t *testing.T, status, log string) func(j mutantsEditJob) {
 	}
 }
 
-func TestPostEdit_StartsTheMutationRunAfterAGreenGoEdit(t *testing.T) {
+// ratchet: test_removed TestPostEdit_StartsTheMutationRunAfterAGreenGoEdit: the edit hook starts no run now; this one pins startMutantsEdit itself
+func TestStartMutantsEdit_StartsTheRunAfterAGreenGoEdit(t *testing.T) {
 	root, src := mutantsEditFixture(t, true)
 	jobs := recordEditRunSpawns(t, nil)
 
-	got := PostEdit(postPayload("Write", src), greenRun)
+	got := editStartingMutants(src)
 
 	if !strings.Contains(got, "green") {
 		t.Fatalf("the fixture's edit is not green: %q", got)
@@ -95,25 +96,12 @@ func sameDir(a, b string) bool {
 	return errA == nil && errB == nil && ra == rb
 }
 
-func TestPostEdit_StartsNoMutationRunForATestADocumentOrARedEdit(t *testing.T) {
-	root, src := mutantsEditFixture(t, true)
-	write(t, root, "widget_test.go", "package m\n\nimport \"testing\"\n\nfunc TestWidget_Ok(t *testing.T) {}\n")
-	write(t, root, "notes.md", "# notes\n")
-	jobs := recordEditRunSpawns(t, nil)
-
-	PostEdit(postPayload("Write", filepath.Join(root, "widget_test.go")), greenRun)
-	PostEdit(postPayload("Write", filepath.Join(root, "notes.md")), greenRun)
-	PostEdit(postPayload("Write", src), redRun)
-
-	if len(*jobs) != 0 {
-		t.Errorf("mutation runs started for a test file, a document and a red edit: %+v", *jobs)
-	}
-}
+// ratchet: test_removed TestPostEdit_StartsNoMutationRunForATestADocumentOrARedEdit: the edit hook starts no mutation run at all now; TestPostEdit_StartsNoLintOrMutationRunAfterAGreenEdit holds that
 
 func TestPostEdit_StartsNoMutationRunInARepoThatDeclaresNothing(t *testing.T) {
 	_, src := mutantsEditFixture(t, false)
 	jobs := recordEditRunSpawns(t, nil)
-	PostEdit(postPayload("Write", src), greenRun)
+	editStartingMutants(src)
 	if len(*jobs) != 0 {
 		t.Errorf("mutation runs started in an undeclared repo: %+v", *jobs)
 	}
@@ -124,9 +112,9 @@ func TestPostEdit_StartsNoMutationRunInARepoThatDeclaresNothing(t *testing.T) {
 func TestPostEdit_AnUnfinishedRunIsNotStartedAgain(t *testing.T) {
 	_, src := mutantsEditFixture(t, true)
 	jobs := recordEditRunSpawns(t, nil)
-	PostEdit(postPayload("Write", src), greenRun)
-	PostEdit(postPayload("Write", src), greenRun)
-	PostEdit(postPayload("Write", src), greenRun)
+	editStartingMutants(src)
+	editStartingMutants(src)
+	editStartingMutants(src)
 	if len(*jobs) != 1 {
 		t.Errorf("mutation runs started = %d over three edits with the first unfinished, want 1", len(*jobs))
 	}
@@ -138,11 +126,11 @@ func TestPostEdit_ReportsAFinishedRunAtTheNextHookAndStartsAnother(t *testing.T)
 		"widget.go:3:41: CONDITIONALS_BOUNDARY\nmutants: 2 tested, 1 caught, 0 unviable, 1 missed (0 accepted), 0 unmeasured\n"
 	jobs := recordEditRunSpawns(t, finishWith(t, "refused", log))
 
-	first := PostEdit(postPayload("Write", src), greenRun)
+	first := editStartingMutants(src)
 	if strings.Contains(first, "deferred mutants") {
 		t.Fatalf("the first hook reported a result it could not have: %q", first)
 	}
-	second := PostEdit(postPayload("Write", src), greenRun)
+	second := editStartingMutants(src)
 
 	for _, want := range []string{"gate: deferred mutants", "widget.go", "refused", "widget.go:3:41: CONDITIONALS_BOUNDARY"} {
 		if !strings.Contains(second, want) {
@@ -168,9 +156,9 @@ func TestPostEdit_AResultIsReportedOnce(t *testing.T) {
 			finished(j)
 		}
 	})
-	PostEdit(postPayload("Write", src), greenRun)
-	second := PostEdit(postPayload("Write", src), greenRun)
-	third := PostEdit(postPayload("Write", src), greenRun)
+	editStartingMutants(src)
+	second := editStartingMutants(src)
+	third := editStartingMutants(src)
 	if !strings.Contains(second, "3 tested, 3 caught") {
 		t.Errorf("second hook lacks the result:\n%s", second)
 	}
@@ -186,7 +174,7 @@ func TestPostEdit_AResultIsReportedOnce(t *testing.T) {
 func TestPostEdit_AnotherSessionsResultIsNotReported(t *testing.T) {
 	_, src := mutantsEditFixture(t, true)
 	recordEditRunSpawns(t, finishWith(t, "ok", "gate edit: mutants → 1 tested, 1 caught, 0 unviable, 0 accepted (1.0s, slowest mutant 0.5s)\n"))
-	PostEdit(postPayload("Write", src), greenRun)
+	editStartingMutants(src)
 	if got := promptHarvest("another-session"); strings.Contains(got, "deferred mutants") {
 		t.Errorf("another session was handed this session's result: %q", got)
 	}
@@ -202,7 +190,7 @@ func TestMutantsEditHarvest_ARunPastItsLimitIsReportedNotMeasured(t *testing.T) 
 	jobs := recordEditRunSpawns(t, nil)
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	t.Cleanup(setMutantsEditNowForTest(func() time.Time { return now }))
-	PostEdit(postPayload("Write", src), greenRun)
+	editStartingMutants(src)
 	if len(*jobs) != 1 {
 		t.Fatalf("mutation runs started = %d, want 1", len(*jobs))
 	}
@@ -219,7 +207,7 @@ func TestMutantsEditHarvest_ARunPastItsLimitIsReportedNotMeasured(t *testing.T) 
 	if again := harvestMutantsEdit("sess-post"); len(again) != 0 {
 		t.Errorf("the abandoned run is reported again: %v", again)
 	}
-	PostEdit(postPayload("Write", src), greenRun)
+	editStartingMutants(src)
 	if len(*jobs) != 2 {
 		t.Errorf("mutation runs started = %d, want a fresh one after the abandoned one was dropped", len(*jobs))
 	}
@@ -285,8 +273,8 @@ func TestPostEdit_ARunThatCouldNotStartLeavesNothingToWaitOn(t *testing.T) {
 	_, src := mutantsEditFixture(t, true)
 	calls := 0
 	t.Cleanup(SetMutantsEditSpawnForTest(func(mutantsEditJob) (int, bool) { calls++; return 0, false }))
-	PostEdit(postPayload("Write", src), greenRun)
-	PostEdit(postPayload("Write", src), greenRun)
+	editStartingMutants(src)
+	editStartingMutants(src)
 	if calls != 2 {
 		t.Errorf("spawns attempted = %d, want each edit to try again (2)", calls)
 	}
@@ -316,7 +304,7 @@ func TestStartMutantsEdit_SweepsRecordsOlderThanADay(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	PostEdit(postPayload("Write", src), greenRun)
+	editStartingMutants(src)
 	for name, want := range map[string]bool{"stale.json": false, "edge.json": true, "fresh.json": true} {
 		if _, err := os.Stat(filepath.Join(dir, name)); (err == nil) != want {
 			t.Errorf("%s present = %v, want %v", name, err == nil, want)

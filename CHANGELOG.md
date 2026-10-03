@@ -19,7 +19,7 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
-## 1.2.0 - 2026-10-03
+## 1.3.0 - 2026-10-03
 
 Mutation testing is opt-in and reports. A repo that declares nothing runs no
 mutation at commit or at merge; a repo that opts in gets a report, and a
@@ -33,7 +33,7 @@ survivor refuses a commit or a merge only where the repo pins `block`.
   `mutants-at-merge = "ci"` (or `true`) still mean opted in, and now at the
   report level. `mutants-at-commit = "report"` means the same as `true`.
 - The commit-time run (`mutants-at-commit`) mutates the lines a commit adds
-  inside 30 seconds by default (it was 60; `mutants-commit-budget` still sets
+  inside 90 seconds by default (it was 60; `mutants-commit-budget` still sets
   it), names each survivor and each mutant it did not reach (`NOT MEASURED`), and
   lets the commit through. `mutants-at-commit = "block"` pins the old refusal.
 - Under `mutants-at-merge = "ci"`, CI's `mutants-verdict` check passes and prints
@@ -44,6 +44,9 @@ survivor refuses a commit or a merge only where the repo pins `block`.
   report, an accept-list that cannot be read) still fails the check. GitHub's
   branch protection is not changed by this release; a repo that listed
   `mutants-verdict` as a required check removes it itself.
+- `mutants-before-pr = true` follows the same level: `workspace pr`, `ship` and
+  `submit` print survivors under `REPORT ONLY` and open the PR, unless the repo
+  pins `mutants-at-merge-level = "block"`.
 - A repo that pins neither level no longer gets the "quote one `mutants prove`
   KILLED line per new condition" and loop-index rules in its managed CLAUDE.md
   block; it gets one line saying findings are guidance. A repo that pins `block`
@@ -58,6 +61,25 @@ survivor refuses a commit or a merge only where the repo pins `block`.
   and relied on a survivor being refused now sees it reported instead. Pin
   `block` to keep the refusal.
 - This repo (aphrollo-tools) is opted in at the report level and pins no block.
+
+## 1.1.1 - 2026-10-03
+
+Edits are lighter on the box, and a test run that waits for a build slot is no
+longer lost.
+
+### What you will notice
+
+- An edit now leaves one background job at most, the test build. The background
+  lint and mutation runs that followed every edit are gone: lint and mutation
+  are judged when you commit, and in CI.
+- A test run queued behind another build keeps its place for as long as the run
+  may live, and shows as BUILDING meanwhile. Before, it gave up after a quarter
+  of that time and the next hook reported "the code was NOT tested".
+- The gate's record of where a session stood now follows the lane's own git
+  index, so it notices changes in a linked worktree (before, it read as unchanged
+  in every lane).
+- The law scan skips the `.git` file of a linked worktree and `.claude/worktrees/`,
+  so a nested checkout's files are no longer judged as part of the repo around it.
 
 ## 1.1.0 - 2026-10-02
 

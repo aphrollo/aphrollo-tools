@@ -48,12 +48,13 @@ func TestMutantsConfig_MergeLevelRefusesAnyOtherValue(t *testing.T) {
 	}
 }
 
-// The commit-time run is short by design: thirty seconds unless the repo says
+// ratchet: test_removed TestMutantsConfig_CommitBudgetDefaultsToThirtySeconds: renamed to TestMutantsConfig_CommitBudgetDefaultsToNinetySeconds when the default moved to 90 s
+// The commit-time run is short by design: ninety seconds unless the repo says
 // otherwise.
-func TestMutantsConfig_CommitBudgetDefaultsToThirtySeconds(t *testing.T) {
+func TestMutantsConfig_CommitBudgetDefaultsToNinetySeconds(t *testing.T) {
 	t.Parallel()
-	if got := (MutantsConfig{}).CommitBudget().Seconds(); got != 30 {
-		t.Errorf("default budget = %vs, want 30s", got)
+	if got := (MutantsConfig{}).CommitBudget().Seconds(); got != 90 {
+		t.Errorf("default budget = %vs, want 90s", got)
 	}
 }
 

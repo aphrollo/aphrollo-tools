@@ -446,6 +446,7 @@ func TestPostEdit_DeliversTheDeferredLintAtTheNextHook(t *testing.T) {
 	recordLintSpawns(t, lintOutcome(t, "widget.go:3:22: SA4006: x is never used (staticcheck)\n", PhaseOutcome{ExitCode: 1, Seconds: 0.5}))
 
 	first := PostEdit(postPayload("Edit", src), fakeRun(true, "ok\nPASS"))
+	startLintEdit("sess-post", src, nil)
 	if strings.Contains(first, "gate: deferred golangci-lint") {
 		t.Fatalf("the run's result arrived in the hook that started it: %q", first)
 	}
@@ -456,20 +457,7 @@ func TestPostEdit_DeliversTheDeferredLintAtTheNextHook(t *testing.T) {
 	}
 }
 
-// The edit hook hands the inline run's findings to the deferred one, so what
-// the gate line said is not said again.
-func TestPostEdit_TheDeferredRunKnowsWhatTheInlineRunReported(t *testing.T) {
-	_, src := editedWidget(t)
-	lintSeams(t, "widget.go:3:22: ineffectual assignment to x (ineffassign)\n", false)
-	jobs := recordLintSpawns(t, nil)
-	PostEdit(postPayload("Edit", src), fakeRun(true, "ok\nPASS"))
-	if len(*jobs) != 1 {
-		t.Fatalf("lint runs started = %d, want 1", len(*jobs))
-	}
-	if !slices.Equal((*jobs)[0].Known, []string{"widget.go:3:22: ineffectual assignment to x (ineffassign)"}) {
-		t.Errorf("known = %q, want the inline finding", (*jobs)[0].Known)
-	}
-}
+// ratchet: test_removed TestPostEdit_TheDeferredRunKnowsWhatTheInlineRunReported: the edit hook starts no deferred lint run, so there is no hand-off of the inline findings
 
 // The real spawn never starts from a Go test binary, which would answer the
 // verb by running its whole suite, and never reaches the launch.

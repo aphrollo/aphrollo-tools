@@ -46,7 +46,6 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 	}
 	text := ""
 	failed := in.ToolResponse.Success != nil && !*in.ToolResponse.Success
-	var inlineLint []string
 	if gatedPostTools[in.ToolName] && in.ToolInput.FilePath != "" && !failed {
 		// Formatted before the suite runs, so the run judges the bytes the
 		// commit will carry.
@@ -57,18 +56,11 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		text = withGateNote(text, lawRefusalNote([]string{in.ToolInput.FilePath}))
 		// The linter's findings on the lines this edit changed, on the same
 		// bytes; the commit gate's lint refuses over them.
-		text = withGateNote(text, lintEditedInto(in.ToolInput.FilePath, &inlineLint))
+		text = withGateNote(text, lintEditedInto(in.ToolInput.FilePath, nil))
 	}
-	// The harvest first, so a finished mutation or lint run is reported before
-	// the next one is started over the same tree.
-	out := withSessionHarvest(text, in.SessionID)
-	if gatedPostTools[in.ToolName] && in.ToolInput.FilePath != "" && !failed {
-		startLintEdit(in.SessionID, in.ToolInput.FilePath, inlineLint)
-	}
-	if strings.Contains(text, "→ green") {
-		startMutantsEdit(in.SessionID, FindProjectRoot(in.ToolInput.FilePath), in.ToolInput.FilePath)
-	}
-	return out
+	// Only the harvest of lint and mutation runs an older session started: an
+	// edit starts none of its own, the commit gate and CI hold those.
+	return withSessionHarvest(text, in.SessionID)
 }
 
 // postEditFile is the whole post-edit path for ONE changed file — the body

@@ -149,7 +149,7 @@ func TestRenderFeatures_TheCommitTimeRunAndItsBudget(t *testing.T) {
 		atCommit, in string
 	}{
 		"declared":         {declared, "on", "90"},
-		"declares nothing": {t.TempDir(), "off", "30"},
+		"declares nothing": {t.TempDir(), "off", "90"},
 	} {
 		text := RenderFeatures(tc.root)
 		if f := strings.Fields(featureLine(text, "mutants-at-commit")); len(f) < 2 || f[1] != tc.atCommit {

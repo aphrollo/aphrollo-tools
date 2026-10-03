@@ -49,7 +49,7 @@ var features = []Feature{
 		Enable: "mutants-at-commit = true (report), or \"block\" to refuse a survivor",
 	},
 	{
-		Key: "mutants-commit-budget", Default: "30",
+		Key: "mutants-commit-budget", Default: "90",
 		Effect: "the seconds the commit-time run may spend; mutants it does not reach are reported NOT MEASURED, never refused",
 		Cost:   "a higher figure holds a commit up longer on a slow box",
 		Enable: "mutants-commit-budget = <seconds>",
