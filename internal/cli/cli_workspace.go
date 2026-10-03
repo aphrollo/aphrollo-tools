@@ -343,7 +343,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 	}
 	if err := m.Apply(stdout, stderr); err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
+		return mergeExitCode(err)
 	}
 	// Housekeeping, best-effort: the merge already landed by the time this
 	// runs, so a sweep failure must not fail the merge (issue #144). Every

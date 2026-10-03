@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -172,53 +173,89 @@ func ciOSes(checks []CIVerdictCheck, spec ciSpec) (oses []string, started time.T
 	return oses, started, firstAttempts, ""
 }
 
+// StaleCIVerdictError is the gate's refusal when CI is green on this very head
+// but judged a merge onto an older trunk than the one the PR would land on.
+// Running the suites on this box instead costs the minutes that outlast its
+// cap, so the gate refuses and says what to do: rebase, so that CI judges the
+// merge that will really be made. Base is the trunk commit the PR sits on, Trunk
+// the commit trunk is at now, TrunkName its branch.
+type StaleCIVerdictError struct {
+	Base, Trunk, TrunkName string
+}
+
+func (e *StaleCIVerdictError) Error() string {
+	return fmt.Sprintf("CI verdict is for base %s; %s is now %s — rebase the PR (git rebase origin/%s && git push --force-with-lease) and merge again",
+		shortCommit(e.Base), e.TrunkName, shortCommit(e.Trunk), e.TrunkName)
+}
+
+// AsStaleCIVerdict reads a refusal from the gate as the stale-verdict one, so
+// a caller outside the package can tell it from any other refusal.
+func AsStaleCIVerdict(err error) (*StaleCIVerdictError, bool) {
+	var stale *StaleCIVerdictError
+	if errors.As(err, &stale) {
+		return stale, true
+	}
+	return nil, false
+}
+
+func shortCommit(sha string) string {
+	if len(sha) > 7 {
+		return sha[:7]
+	}
+	return sha
+}
+
 // ciVerdictTree is the tree the verdict covers when it stands for the merge
-// this gate would test, and "" with the reason when it does not.
-func ciVerdictTree(laneWorktree string, tips prGateTips, v CIVerdict, spec ciSpec) (tree string, oses []string, why string) {
+// this gate would test, and "" with the reason when it does not. stale is set
+// when the reason is that trunk moved after CI judged: the verdict is green and
+// for this head, only its merge is not the one that would land now.
+func ciVerdictTree(laneWorktree string, tips prGateTips, v CIVerdict, spec ciSpec) (tree string, oses []string, why string, stale bool) {
 	oses, started, firstAttempts, why := ciOSes(v.Checks, spec)
 	if why != "" {
-		return "", nil, why
+		return "", nil, why, false
 	}
 	if tips.lane != v.HeadSHA {
-		return "", nil, "CI's checks are for " + v.HeadSHA + ", not the " + tips.lane + " being merged"
+		return "", nil, "CI's checks are for " + v.HeadSHA + ", not the " + tips.lane + " being merged", false
 	}
 	if strings.TrimSpace(gitOut(laneWorktree, "merge-base", tips.lane, tips.trunk)) == tips.trunk {
 		// Trunk is already inside the head: the merge is the head's own tree,
 		// whichever trunk commit CI merged it onto.
 		tree, ok := revTree(laneWorktree, tips.lane)
 		if !ok {
-			return "", nil, "the head's tree could not be read"
+			return "", nil, "the head's tree could not be read", false
 		}
-		return tree, oses, ""
+		return tree, oses, "", false
 	}
 	out, err := git(laneWorktree, "merge-tree", "--write-tree", tips.trunk, tips.lane)
 	if err != nil {
-		return "", nil, "the merge does not build cleanly"
+		return "", nil, "the merge does not build cleanly", false
 	}
 	merged := strings.TrimSpace(strings.SplitN(out, "\n", 2)[0])
 	ref, err := ciMergeRef(laneWorktree, v.PR)
 	if err != nil {
-		return "", nil, "CI's merge ref could not be read: " + err.Error()
+		return "", nil, "CI's merge ref could not be read: " + err.Error(), false
 	}
 	if ref.Tree != merged {
-		return "", nil, "trunk moved since CI tested (its merge tree is " + ref.Tree + ", this one " + merged + ")"
+		return "", nil, "trunk moved since CI tested (its merge tree is " + ref.Tree + ", this one " + merged + ")", true
 	}
 	// A re-run keeps the merge commit it first tested but starts later, so
 	// its start time proves nothing about which merge it saw.
 	if !firstAttempts {
-		return "", nil, "a counted check is a re-run, or its attempt is unknown, so which merge it tested cannot be named"
+		return "", nil, "a counted check is a re-run, or its attempt is unknown, so which merge it tested cannot be named", false
 	}
 	if started.IsZero() || ref.Committed.After(started) {
-		return "", nil, "CI's merge ref is newer than its checks, so they may have tested another merge"
+		return "", nil, "CI's merge ref is newer than its checks, so they may have tested another merge", true
 	}
-	return merged, oses, ""
+	return merged, oses, "", false
 }
 
 // GatePRMergeReusingCI is GatePRMerge that takes CI's verdict for the tree
 // when it stands for it (ciVerdictTree): the merged tree still has its laws
-// judged, but the suites, vet and lint are not run again. Any doubt, a repo
-// that turned reuse off, and a repo measuring mutants locally at the merge, run
-// the full gate exactly as GatePRMerge does.
+// judged, but the suites, vet and lint are not run again. A verdict that is
+// green for this head but judged an older trunk is refused as a
+// StaleCIVerdictError, never answered with the local suites. Any other doubt, a
+// repo that turned reuse off, and a repo measuring mutants locally at the
+// merge, run the full gate exactly as GatePRMerge does.
 func GatePRMergeReusingCI(laneWorktree string, run SuiteRunner, log io.Writer, v CIVerdict) error {
 	if log == nil {
 		log = io.Discard
@@ -244,7 +281,12 @@ func GatePRMergeReusingCI(laneWorktree string, run SuiteRunner, log io.Writer, v
 	if tips.landed {
 		return nil
 	}
-	tree, oses, why := ciVerdictTree(laneWorktree, tips, v, readCISpec(laneWorktree))
+	tree, oses, why, stale := ciVerdictTree(laneWorktree, tips, v, readCISpec(laneWorktree))
+	if stale {
+		base := strings.TrimSpace(gitOut(laneWorktree, "merge-base", tips.lane, tips.trunk))
+		fmt.Fprintf(log, "gate %s: CI's verdict is stale (%s); not running the local suite\n", premergeDisplayName, why)
+		return &StaleCIVerdictError{Base: base, Trunk: tips.trunk, TrunkName: strings.TrimPrefix(tips.trunkRef, "origin/")}
+	}
 	if why != "" {
 		fmt.Fprintf(log, "gate %s: CI's verdict is not reused (%s); running the local suite\n", premergeDisplayName, why)
 		return judgeMergedTree(laneWorktree, run, log, &tips)

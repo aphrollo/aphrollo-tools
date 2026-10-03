@@ -19,6 +19,23 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.6.5 - 2026-10-03
+
+A merge no longer runs the full local suites because main moved after CI.
+
+### What you will notice
+
+- When CI is green on a PR's head but judged an older base (another PR merged since, even in
+  unrelated files), `workspace merge` and `workspace merge --wait` refuse in one line instead of
+  falling back to the local suites, which outlast their per-package timeout on Windows:
+  `CI verdict is for base <sha>; main is now <sha> — rebase the PR (git rebase origin/main && git push --force-with-lease) and merge again`.
+  The command exits 2 and merges nothing; after the rebase and push, CI judges the new merge and the
+  merge reuses that verdict. The PR branch is never updated by the merge itself: GitHub's
+  update-branch writes a merge commit onto it, and a lane catches up by rebase only.
+- With no CI verdict at all (`ci = local`, or `auto` when GitHub's jobs never started) the local
+  suites still run as before, and so they do for any other reason the verdict cannot be reused (a red
+  or missing check, a re-run, another workflow). The reuse rules are unchanged.
+
 ## 1.6.4 - 2026-10-03
 
 The guardrail refuses `python -` on a null stdin on Windows.

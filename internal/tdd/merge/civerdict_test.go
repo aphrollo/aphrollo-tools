@@ -116,19 +116,93 @@ func TestGatePRMergeReusingCI_StillJudgesTheMergedTreesDocs(t *testing.T) {
 	}
 }
 
-func TestGatePRMergeReusingCI_RunsTheLocalSuiteWhenCIJudgedADifferentTree(t *testing.T) {
-	root, _ := ciReuseLane(t, mutantsInCI)
-	stubCIMergeRef(t, "0000000000000000000000000000000000000001", ciBefore)
+// ratchet: test_removed TestGatePRMergeReusingCI_RunsTheLocalSuiteWhenCIJudgedADifferentTree: a green verdict for an older base no longer runs the local suites; it refuses as stale (TestGatePRMergeReusingCI_DecidesByWhatCIJudged)
+// ratchet: test_removed TestGatePRMergeReusingCI_RunsTheLocalSuiteWhenTheMergeRefIsNewerThanTheChecks: the same case, now a stale refusal (TestGatePRMergeReusingCI_DecidesByWhatCIJudged)
 
-	var seen []gateRun
-	var log strings.Builder
-	v := ciVerdictOf(t, root, passedCheck("test"), passedCheck("test-windows (cli)"))
-	_ = GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), &log, v)
-	if len(seen) == 0 {
-		t.Fatal("trunk moved past what CI tested, yet no local suite ran")
+// What the gate does with a green CI verdict, by how it relates to the merge
+// the gate would test: the same tree stands in for the suites, an older base is
+// a stale verdict (rebase and let CI judge the new merge, never the 10 minute
+// local run), and a verdict that never stood at all keeps the local path.
+func TestGatePRMergeReusingCI_DecidesByWhatCIJudged(t *testing.T) {
+	const (
+		reuse = "reuse"
+		stale = "stale"
+		local = "local"
+	)
+	otherTree := "0000000000000000000000000000000000000001"
+	cases := []struct {
+		name      string
+		upToDate  bool // the lane already holds trunk
+		refTree   string
+		refTime   time.Time
+		checks    []CIVerdictCheck
+		wantSuite bool
+		want      string
+	}{
+		{name: "verdict of the same merge tree", checks: []CIVerdictCheck{passedCheck("test")}, want: reuse},
+		{name: "lane already holds trunk", upToDate: true, checks: []CIVerdictCheck{passedCheck("test")}, want: reuse},
+		{name: "trunk moved past what CI tested", refTree: otherTree, refTime: ciBefore, checks: []CIVerdictCheck{passedCheck("test"), passedCheck("test-windows (cli)")}, want: stale},
+		{name: "merge ref rebuilt after the checks began", refTime: ciBefore.Add(time.Hour), checks: []CIVerdictCheck{passedCheck("test")}, want: stale},
+		{name: "no linux check on this head", refTime: ciBefore, checks: []CIVerdictCheck{passedCheck("test-windows (cli)")}, want: local},
+		{name: "a windows shard is red", refTime: ciBefore, checks: []CIVerdictCheck{passedCheck("test"), redCheck("test-windows (cli)")}, want: local},
 	}
-	if strings.Contains(log.String(), "reused CI verdict") {
-		t.Errorf("claimed a reuse for a tree CI never saw:\n%s", log.String())
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root, trunk := ciReuseLane(t, mutantsInCI)
+			if tc.upToDate {
+				gitDo(t, root, "merge", "-q", "--no-edit", trunk)
+			}
+			tree := tc.refTree
+			if tree == "" {
+				tree = mergedTreeOf(t, root, trunk)
+			}
+			if tc.upToDate {
+				tree = "unused"
+			}
+			refTime := tc.refTime
+			if refTime.IsZero() {
+				refTime = ciBefore
+			}
+			stubCIMergeRef(t, tree, refTime)
+
+			var seen []gateRun
+			var log strings.Builder
+			err := GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, tc.checks...))
+
+			staleErr, isStale := AsStaleCIVerdict(err)
+			switch tc.want {
+			case reuse:
+				if err != nil || len(seen) != 0 || !strings.Contains(log.String(), "reused CI verdict") {
+					t.Fatalf("want a reuse with no suite; err=%v, suites=%d\n%s", err, len(seen), log.String())
+				}
+			case stale:
+				if !isStale {
+					t.Fatalf("want a stale-verdict refusal, got %v", err)
+				}
+				if len(seen) != 0 {
+					t.Fatalf("a stale verdict ran %d local suite(s); it must refuse instead", len(seen))
+				}
+				base := strings.TrimSpace(gitOutT(t, root, "merge-base", "HEAD", trunk))
+				now := strings.TrimSpace(gitOutT(t, root, "rev-parse", trunk))
+				if staleErr.Base != base || staleErr.Trunk != now {
+					t.Errorf("stale error names base %q and trunk %q, want %q and %q", staleErr.Base, staleErr.Trunk, base, now)
+				}
+				msg := err.Error()
+				for _, want := range []string{"CI verdict is for base " + base[:7], trunk + " is now " + now[:7],
+					"git rebase origin/" + trunk + " && git push --force-with-lease"} {
+					if !strings.Contains(msg, want) {
+						t.Errorf("refusal %q lacks %q", msg, want)
+					}
+				}
+				if strings.Contains(msg, "\n") {
+					t.Errorf("refusal must be one line, got %q", msg)
+				}
+			case local:
+				if isStale || len(seen) == 0 {
+					t.Fatalf("want the local suites (a verdict that never stood), got stale=%v suites=%d", isStale, len(seen))
+				}
+			}
+		})
 	}
 }
 
@@ -148,19 +222,6 @@ func TestGatePRMergeReusingCI_RunsTheLocalSuiteWhenAnOSCheckIsNotGreen(t *testin
 				t.Fatal("a missing or red OS verdict was taken as a pass: no local suite ran")
 			}
 		})
-	}
-}
-
-func TestGatePRMergeReusingCI_RunsTheLocalSuiteWhenTheMergeRefIsNewerThanTheChecks(t *testing.T) {
-	root, trunk := ciReuseLane(t, mutantsInCI)
-	// The merge ref was rebuilt after the checks began, so they may have
-	// tested the previous one even though its tree reads the same today.
-	stubCIMergeRef(t, mergedTreeOf(t, root, trunk), ciBefore.Add(time.Hour))
-
-	var seen []gateRun
-	_ = GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, passedCheck("test")))
-	if len(seen) == 0 {
-		t.Fatal("reused a verdict from checks that began before the merge ref they would have tested")
 	}
 }
 

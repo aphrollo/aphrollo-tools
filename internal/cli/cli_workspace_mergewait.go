@@ -62,7 +62,17 @@ func runWorkspaceMergeWait(pos []string, into, method string, deleteBranch, dry,
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)
-		return 1
+		return mergeExitCode(err)
 	}
 	return 0
+}
+
+// mergeExitCode is the exit code of a merge that did not land: 2 when CI is
+// green on the head but judged an older base, so the operator rebases and runs
+// the merge again, and 1 for any other refusal or failure.
+func mergeExitCode(err error) int {
+	if _, stale := tdd.AsStaleCIVerdict(err); stale {
+		return 2
+	}
+	return 1
 }
