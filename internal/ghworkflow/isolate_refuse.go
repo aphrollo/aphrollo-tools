@@ -54,10 +54,10 @@ var wrappers = map[string]wrapper{
 	"command": {lookup: []string{"-v", "-V"}},
 }
 
-// skip is the index of the word after the wrapper at words[from-1] and its
-// flags, and whether it runs a command at all (command -v only looks one up).
-func (w wrapper) skip(words []string, from int) (next int, runs bool) {
-	rest := words[from:]
+// skip is how many of the words after the wrapper are its own (its flags, their
+// values, its plain words), and whether it runs a command at all (command -v
+// only looks one up).
+func (w wrapper) skip(rest []string) (own int, runs bool) {
 	consumed := 0
 	valueNext := false
 	for _, word := range rest {
@@ -74,11 +74,11 @@ func (w wrapper) skip(words []string, from int) (next int, runs bool) {
 			break
 		}
 		if contains(w.lookup, word) {
-			return from, false
+			return 0, false
 		}
 		valueNext = contains(w.valueFlags, word)
 	}
-	return from + min(consumed+w.positional, len(rest)), true
+	return min(consumed+w.positional, len(rest)), true
 }
 
 // refuseGlobal is why a script is not run: the first command in it that
@@ -212,18 +212,21 @@ func baseName(word string) string {
 // stands before it (a keyword, a wrapper with its flags, a VAR=value) is
 // passed over.
 func commandStart(words []string) []string {
-	for n := 0; n < len(words); {
-		w := words[n]
+	own := 0 // words still to pass over: the flags and plain words of a wrapper
+	for n, w := range words {
+		if own > 0 {
+			own--
+			continue
+		}
 		wrap, isWrapper := wrappers[baseName(w)]
 		switch {
 		case contains(keywords, w), assignRe.MatchString(w):
-			n++
 		case isWrapper:
-			next, runs := wrap.skip(words, n+1)
+			count, runs := wrap.skip(words[n+1:])
 			if !runs {
 				return words[n:]
 			}
-			n = next
+			own = count
 		default:
 			return words[n:]
 		}

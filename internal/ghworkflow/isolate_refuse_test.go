@@ -266,25 +266,24 @@ func TestShellUsage_AStringAFileOrStdinAndNeverARedirectionAsAFile(t *testing.T)
 func TestWrapperSkip_FlagsTheirValuesAndThePositionalsBeforeTheCommand(t *testing.T) {
 	timeout := wrappers["timeout"]
 	for name, tc := range map[string]struct {
-		w     wrapper
-		words []string
-		from  int
-		next  int
-		runs  bool
+		w    wrapper
+		rest []string
+		own  int
+		runs bool
 	}{
-		"no flags":                 {timeout, []string{"timeout", "30", "x"}, 1, 2, true},
-		"a flag with a value":      {timeout, []string{"timeout", "-k", "5", "30", "x"}, 1, 4, true},
-		"a flag without a value":   {timeout, []string{"timeout", "--foreground", "30", "x"}, 1, 3, true},
-		"-- ends the flags":        {wrappers["xargs"], []string{"xargs", "--", "-n", "x"}, 1, 2, true},
-		"a value past the end":     {wrappers["nice"], []string{"nice", "-n"}, 1, 2, true},
-		"positionals past the end": {timeout, []string{"timeout"}, 1, 1, true},
-		"a lookup":                 {wrappers["command"], []string{"command", "-v", "x"}, 1, 1, false},
-		"command runs":             {wrappers["command"], []string{"command", "x"}, 1, 1, true},
-		"a flag after the flags":   {wrappers["nice"], []string{"nice", "x", "-n", "5"}, 1, 1, true},
+		"no flags":                 {timeout, []string{"30", "x"}, 1, true},
+		"a flag with a value":      {timeout, []string{"-k", "5", "30", "x"}, 3, true},
+		"a flag without a value":   {timeout, []string{"--foreground", "30", "x"}, 2, true},
+		"-- ends the flags":        {wrappers["xargs"], []string{"--", "-n", "x"}, 1, true},
+		"a value past the end":     {wrappers["nice"], []string{"-n"}, 1, true},
+		"positionals past the end": {timeout, nil, 0, true},
+		"a lookup":                 {wrappers["command"], []string{"-v", "x"}, 0, false},
+		"command runs":             {wrappers["command"], []string{"x"}, 0, true},
+		"a flag after the command": {wrappers["nice"], []string{"x", "-n", "5"}, 0, true},
 	} {
-		next, runs := tc.w.skip(tc.words, tc.from)
-		if next != tc.next || runs != tc.runs {
-			t.Errorf("%s: skip(%q, %d) = %d, %v, want %d, %v", name, tc.words, tc.from, next, runs, tc.next, tc.runs)
+		own, runs := tc.w.skip(tc.rest)
+		if own != tc.own || runs != tc.runs {
+			t.Errorf("%s: skip(%q) = %d, %v, want %d, %v", name, tc.rest, own, runs, tc.own, tc.runs)
 		}
 	}
 }
