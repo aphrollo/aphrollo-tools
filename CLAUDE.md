@@ -91,6 +91,9 @@ like `systemctl` (no dry-run, no `--dry`).
   (`internal/measure`; `aphrollo gate stats` reads gate.log instead), and with
   `--briefs` the token length of the managed block, the tdd skill and each
   agent brief against the section-5 caps.
+- `why <seq>` — read-only: replays one deny or run result of the event log with
+  its rule's counts, and the kernel's level, section and holdout arm when the
+  rule table holds the rule (`internal/measure`, `internal/kernel`).
 - `install` / `config` / `check` / `issue` / `update` / `version` — box setup
   (session hooks + git-hook shims in one run, and the opt-in feature table once
   per repo), that table on demand with the repo's values, read-only tree

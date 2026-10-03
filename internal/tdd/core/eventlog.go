@@ -207,3 +207,11 @@ func monthOf(at string) time.Time {
 	}
 	return time.Now()
 }
+
+// EventLogDir is the directory that holds the event log of the repository root
+// belongs to: every worktree of a repo shares it. "" when there is no state
+// root.
+func EventLogDir(root string) string {
+	_, _, common := repoIdentity(root)
+	return RepoStateDir(common)
+}
