@@ -204,3 +204,59 @@ func TestMergeWait_AShortGapOutOfTheQueueIsNotARemoval(t *testing.T) {
 		t.Fatalf("a gap shorter than the grace period was read as a removal: %v", err)
 	}
 }
+
+func movedHeadWorld(t *testing.T, viewErrAfter error) *enqueueGH {
+	t.Helper()
+	_, q := newQueueWorld(t, CIStatus{State: "green", SHA: "abc"})
+	reads := 0
+	ghViewPR = func(string, string) (*PRInfo, error) {
+		reads++
+		if reads > 1 {
+			if viewErrAfter != nil {
+				return nil, viewErrAfter
+			}
+			return &PRInfo{Number: 5, URL: "u", HeadSHA: "deadbeef00000000000000000000000000000000"}, nil
+		}
+		return &PRInfo{Number: 5, URL: "u", HeadSHA: queueHead}, nil
+	}
+	return q
+}
+
+// Only a dequeue that happened may be reported as one.
+func TestMergeQueue_AMovedHeadWithAnUnreadableEntryIsNotReportedAsDequeued(t *testing.T) {
+	q := movedHeadWorld(t, nil)
+	q.pre = []*QueueEntry{nil, nil} // the entry cannot be found after the enqueue
+
+	_, err := applyMerge(t, "")
+
+	var judged *JudgedHeadError
+	if !errors.As(err, &judged) || strings.Contains(err.Error(), "was taken out") ||
+		!strings.Contains(err.Error(), "STILL QUEUED") || !strings.Contains(err.Error(), "gh pr merge --disable-auto 5") {
+		t.Fatalf("error = %v, want a head refusal saying it is still queued, with the command to dequeue", err)
+	}
+	if len(q.dequeued) != 0 {
+		t.Errorf("dequeued %v with no entry to dequeue", q.dequeued)
+	}
+}
+
+func TestMergeQueue_AFailedDequeueIsNotReportedAsDequeued(t *testing.T) {
+	q := movedHeadWorld(t, nil)
+	q.pre = []*QueueEntry{nil, {ID: "E1", Position: 1, Total: 1}}
+	ghDequeuePR = func(string, string) error { return errors.New("HTTP 502") }
+
+	_, err := applyMerge(t, "")
+
+	if err == nil || strings.Contains(err.Error(), "was taken out") || !strings.Contains(err.Error(), "STILL QUEUED") {
+		t.Fatalf("error = %v, want one saying the PR is still queued", err)
+	}
+}
+
+func TestMergeQueue_AnUnreadableHeadAfterTheEnqueueIsReported(t *testing.T) {
+	movedHeadWorld(t, errors.New("HTTP 502"))
+
+	_, err := applyMerge(t, "")
+
+	if err == nil || !strings.Contains(err.Error(), "HTTP 502") || !strings.Contains(err.Error(), "unverified head") {
+		t.Fatalf("error = %v, want the read failure and the unverified head named", err)
+	}
+}

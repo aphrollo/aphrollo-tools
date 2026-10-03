@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -70,7 +71,7 @@ var ghHasMergeQueue = ghHasMergeQueueReal
 // rules/branches endpoint answers them, every page. REST rather than GraphQL: a
 // repo with no queue must keep merging where GraphQL is refused.
 var ghBranchRules = func(wt, owner, repo, branch string) ([]byte, error) {
-	out, err := ghCombinedOutput(wt, "api", "--paginate", "--slurp", "repos/"+owner+"/"+repo+"/rules/branches/"+url.PathEscape(branch))
+	out, err := ghCombinedOutput(wt, "api", "--paginate", "repos/"+owner+"/"+repo+"/rules/branches/"+url.PathEscape(branch))
 	return rulesReadResult(branch, out, err)
 }
 
@@ -146,11 +147,20 @@ func ghHasMergeQueueReal(wt, slug, base string) (bool, error) {
 // rulesHaveMergeQueue reads a rules/branches answer, one list or a list of
 // pages, for a merge_queue rule.
 func rulesHaveMergeQueue(out []byte) (bool, error) {
-	var v any
-	if err := json.Unmarshal(out, &v); err != nil {
-		return false, fmt.Errorf("parsing the branch rules: %w", err)
+	// --paginate prints one JSON list per page, back to back.
+	dec := json.NewDecoder(bytes.NewReader(out))
+	found := false
+	for {
+		var v any
+		err := dec.Decode(&v)
+		if err == io.EOF {
+			return found, nil
+		}
+		if err != nil {
+			return false, fmt.Errorf("parsing the branch rules: %w", err)
+		}
+		found = found || hasQueueRule(v)
 	}
-	return hasQueueRule(v), nil
 }
 
 func hasQueueRule(v any) bool {
@@ -286,12 +296,17 @@ func (m *Merge) enqueue(pr *PRInfo, head, base string, stdout io.Writer) (*Enque
 		return nil, err
 	}
 	entry, entryErr := ghQueueEntry(wt, q.Repo, pr.Number)
-	if now, err := ghViewPR(wt, m.Target.Branch); err == nil && now != nil && now.HeadSHA != "" && now.HeadSHA != head {
+	now, viewErr := ghViewPR(wt, m.Target.Branch)
+	if viewErr != nil || now == nil {
+		return nil, fmt.Errorf("PR #%d was enqueued but its head could not be read back (%v), so it is in the queue at an unverified head: check it, and %s", pr.Number, viewErr, dequeueHint(pr.Number))
+	}
+	if now.HeadSHA != "" && now.HeadSHA != head {
 		msg := fmt.Sprintf("PR head moved to %s after it was judged and enqueued at %s", short(now.HeadSHA), short(head))
-		if entryErr == nil && entry != nil {
-			if err := ghDequeuePR(wt, entry.ID); err != nil {
-				return nil, &JudgedHeadError{Msg: msg + fmt.Sprintf("; taking it out of the queue failed (%v) — dequeue it by hand", err)}
-			}
+		switch {
+		case entryErr != nil || entry == nil:
+			return nil, &JudgedHeadError{Msg: msg + fmt.Sprintf("; the queue entry could not be read, so it is STILL QUEUED at an unjudged head — %s", dequeueHint(pr.Number))}
+		case ghDequeuePR(wt, entry.ID) != nil:
+			return nil, &JudgedHeadError{Msg: msg + fmt.Sprintf("; taking it out of the queue failed, so it is STILL QUEUED at an unjudged head — %s", dequeueHint(pr.Number))}
 		}
 		return nil, &JudgedHeadError{Msg: msg + " — it was taken out of the queue; merge again to judge the new head"}
 	}
@@ -301,6 +316,11 @@ func (m *Merge) enqueue(pr *PRInfo, head, base string, stdout io.Writer) (*Enque
 	}
 	fmt.Fprintf(stdout, "queued PR #%d in the %s merge queue at %s: %s\n", pr.Number, base, entry, pr.URL)
 	return q, nil
+}
+
+// dequeueHint names how to take a PR out of the merge queue by hand.
+func dequeueHint(pr int) string {
+	return fmt.Sprintf("dequeue it with `gh pr merge --disable-auto %d`, or the Remove from queue button on the PR page", pr)
 }
 
 // scrubPRBody makes the PR body the one undercover judged, because the queue

@@ -210,3 +210,15 @@ func TestParseQueueRemoval_OnlyTheNewestQueueEventCounts(t *testing.T) {
 		t.Error("an autoMergeRequest was not read as auto-merge on")
 	}
 }
+
+// gh api --paginate (without --slurp, which older gh lacks) prints one JSON
+// list per page, back to back.
+func TestRulesHaveMergeQueue_ReadsConcatenatedPages(t *testing.T) {
+	got, err := rulesHaveMergeQueue([]byte(`[{"type":"deletion"}][{"type":"merge_queue"}]`))
+	if err != nil || !got {
+		t.Errorf("a queue rule on page 2 of concatenated pages: %v, %v", got, err)
+	}
+	if got, err := rulesHaveMergeQueue([]byte(`[{"type":"deletion"}]` + "\n" + `[{"type":"x"}]`)); err != nil || got {
+		t.Errorf("no queue rule: %v, %v", got, err)
+	}
+}
