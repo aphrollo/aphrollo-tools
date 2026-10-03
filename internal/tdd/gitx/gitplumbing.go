@@ -23,11 +23,12 @@ func cleanGitEnv() []string {
 	return queuedMarked(gitenv.Clean())
 }
 
-// cleanGitEnvFor is cleanGitEnv for a call made in dir: when dir is the
-// repository a `git commit -a` or `git commit <paths>` is running the hook
-// for, it keeps the index that commit is writing (gitenv.CleanFor).
-func cleanGitEnvFor(dir string) []string {
-	return queuedMarked(gitenv.CleanFor(dir))
+// cleanGitEnvFor is cleanGitEnv for a call of git with args made in dir: when
+// dir is the repository a `git commit` is running the hook for and the call
+// only reads the staged tree, it keeps the index that commit is writing; a
+// call that writes an index or checks a tree out never does (gitenv.CleanFor).
+func cleanGitEnvFor(dir string, args ...string) []string {
+	return queuedMarked(gitenv.CleanFor(dir, args...))
 }
 
 func queuedMarked(out []string) []string {
@@ -55,7 +56,7 @@ func git(dir string, args ...string) (string, error) {
 func gitStdin(dir string, stdin io.Reader, args ...string) (string, error) {
 	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = dir
-	cmd.Env = cleanGitEnvFor(dir)
+	cmd.Env = cleanGitEnvFor(dir, args...)
 	cmd.Stdin = stdin
 	out, err := outputGit(cmd)
 	if err != nil {

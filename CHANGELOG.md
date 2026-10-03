@@ -19,6 +19,19 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.6.2 - 2026-10-03
+
+A commit through the gate keeps its staged files.
+
+### What you will notice
+
+- A commit in a lane no longer lands empty. Since 1.5.4 the gate's checkout of HEAD for the
+  fail-first proof inherited the index the commit was building and reset it, so git recorded an
+  empty commit and the proof logged `inconclusive (fail-open)`. The gate now hands that index only
+  to the git calls that read the staged tree (`ls-files`, `diff`, `diff-index`, `show`, `cat-file`,
+  `write-tree`); a call that checks a tree out or writes an index never receives it. `git commit -a`
+  and `git commit <paths>` are still judged on the index they build.
+
 ## 1.6.1 - 2026-10-03
 
 Two Windows flakes in the gate's own state writes are fixed at the cause.

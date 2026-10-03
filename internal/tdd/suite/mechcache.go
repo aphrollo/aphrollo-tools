@@ -369,7 +369,7 @@ func gitRead(dir string, args ...string) (string, error) {
 func gitReadStdin(dir string, stdin *strings.Reader, args ...string) (string, error) {
 	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = dir
-	cmd.Env = cleanGitEnvFor(dir)
+	cmd.Env = cleanGitEnvFor(dir, args...)
 	if stdin != nil {
 		cmd.Stdin = stdin
 	}

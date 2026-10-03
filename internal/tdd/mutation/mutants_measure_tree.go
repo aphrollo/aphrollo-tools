@@ -83,7 +83,7 @@ var gitDiffOutFn = gitDiffOut
 func gitDiffOut(dir string, args ...string) (stdout, stderr string, err error) {
 	cmd := exec.Command(gitBinary(), args...)
 	cmd.Dir = dir
-	cmd.Env = cleanGitEnvFor(dir)
+	cmd.Env = cleanGitEnvFor(dir, args...)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errBuf
 	err = cmd.Run()
