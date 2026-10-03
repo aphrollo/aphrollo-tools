@@ -1,0 +1,16 @@
+name        = "exec_outside_run"
+description = "internal/run owns every child process: a light child gets a timeout, a heavy one a governor slot, the sealed environment, and a guard (a Windows job object that kills on close, a unix process group) that ends its whole tree. A child started anywhere else has none of that, and the leaks it let through are the reason the package exists: test binaries stuck in kernel exit holding 6 GB of commit each, MSYS grandchildren that outlived `taskkill /T`, builds still compiling after their parent was killed, and a test that read the CI runner's GITHUB_SHA because its child saw the box's raw environment (#1121). Counts exec.Command, exec.CommandContext and os.StartProcess in non-test Go outside internal/run. Every site today is grandfathered in the baseline, which only ever goes down as call sites move behind run package by package; a new one goes through run, or earns `// exec-ok: <why>` where no child of run could do the job."
+severity    = "deny"
+escape      = "// exec-ok:"
+baseline    = ".ratchet/baselines/exec_outside_run.txt"
+code_only   = true
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/*_test.go", "internal/run/**", "**/testdata/**", ".ratchet/**"]
+min_files = 90
+
+[matcher]
+kind    = "regex-absent"
+pattern = "\b(?:exec\.Command(?:Context)?|os\.StartProcess)\("
+key     = "file:line-content-hash"

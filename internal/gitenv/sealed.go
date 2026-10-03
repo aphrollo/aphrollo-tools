@@ -34,19 +34,30 @@ const (
 	sealedConfigText = "[user]\n\tname = aphrollo-test\n\temail = test@aphrollo.invalid\n[init]\n\tdefaultBranch = main\n"
 )
 
+// ciVariable reports whether the "name=value" entry kv is one only a CI runner
+// sets: CI itself and the GITHUB_, RUNNER_ and ACTIONS_ families. A test that
+// reads one passes in CI and fails on a box that has none (#1121), so a sealed
+// process sees neither. Names compare in upper case, as a Windows environment
+// does not keep their case.
+func ciVariable(kv string) bool {
+	name, _, _ := strings.Cut(kv, "=")
+	name = strings.ToUpper(name)
+	return name == "CI" || strings.HasPrefix(name, "GITHUB_") || strings.HasPrefix(name, "RUNNER_") || strings.HasPrefix(name, "ACTIONS_")
+}
+
 // Sealed returns env cut off from the git world of the box: every GIT_*
 // variable dropped, so a hook's GIT_DIR, GIT_INDEX_FILE or GIT_WORK_TREE cannot
 // redirect a test's git at the repository the hook runs for; GIT_CEILING_DIRECTORIES
 // set to area, so no directory under it, which is where the process's temp dirs
 // are, can find a repository by walking up; the global git config a file in area
 // holding a neutral identity and the default branch, and the system config off, so `git config --global` writes nothing of
-// the operator's; and auto maintenance off. It is what a process the gate starts
+// the operator's; every variable only a CI runner sets dropped; and auto maintenance off. It is what a process the gate starts
 // to run somebody's tests gets, whatever those tests do themselves. The
 // directory and the file are made when they are not there.
 func Sealed(env []string, area string) []string {
 	out := make([]string, 0, len(env)+8)
 	for _, kv := range env {
-		if !strings.HasPrefix(kv, "GIT_") {
+		if !strings.HasPrefix(kv, "GIT_") && !ciVariable(kv) {
 			out = append(out, kv)
 		}
 	}

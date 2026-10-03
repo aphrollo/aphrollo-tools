@@ -68,6 +68,7 @@ var spreadCallSites = map[string]string{
 	"internal/ratchet/golist_graph.go:goListStream":                  "bounded: fixed go list flags, ./... and one overlay file path; the overlay's contents travel in a JSON file",
 	"internal/ratchet/wholetree.go:loadCargoMetadata":                "bounded: fixed cargo metadata flags and one manifest path",
 	"internal/refactor/spawn.go:Spawn":                               "bounded: the language server's fixed arguments",
+	"internal/run/run.go:start":                                      "bounded: a leaf spawn that runs the arguments its caller built; a caller with a path list cuts it with run.Split or run.Batch first",
 	"internal/tdd/escape/issue.go:OpenIssue":                         "bounded: one title, one body and the declared label set",
 	"internal/tdd/escape/issue.go:ensureLabel":                       "bounded: one label",
 	"internal/tdd/gc/gc_session.go:backgroundGCCommand":              "bounded: the fixed gc flags and one repository path",

@@ -184,3 +184,31 @@ func TestSealed_PointsTheGateStateAtTheArea(t *testing.T) {
 		t.Error("Sealed kept the operator's CLAUDE_CONFIG_DIR")
 	}
 }
+
+// A test that reads the runner's GITHUB_SHA passes in CI and fails on a box
+// that has none (#1121): a sealed child sees the same environment on both, so
+// every variable only a CI runner sets is dropped, whatever the case a
+// Windows environment spells it in.
+func TestSealed_DropsEveryVariableOnlyACIRunnerSets(t *testing.T) {
+	area := filepath.Join(t.TempDir(), "area")
+	env := []string{
+		"CI=true", "GITHUB_SHA=abc", "GITHUB_ACTIONS=true", "RUNNER_OS=Linux",
+		"ACTIONS_RUNTIME_TOKEN=t", "Github_Ref=main",
+		"CIRCLE=keep", "CITY=keep", "MY_GITHUB_TOKEN=keep", "PATH=/bin",
+	}
+
+	got := Sealed(env, area)
+
+	for _, kv := range got {
+		name, _, _ := strings.Cut(kv, "=")
+		switch strings.ToUpper(name) {
+		case "CI", "GITHUB_SHA", "GITHUB_ACTIONS", "RUNNER_OS", "ACTIONS_RUNTIME_TOKEN", "GITHUB_REF":
+			t.Errorf("Sealed kept the CI variable %q", kv)
+		}
+	}
+	for _, want := range []string{"CIRCLE=keep", "CITY=keep", "MY_GITHUB_TOKEN=keep", "PATH=/bin"} {
+		if !slices.Contains(got, want) {
+			t.Errorf("Sealed dropped %q, which no CI runner owns", want)
+		}
+	}
+}
