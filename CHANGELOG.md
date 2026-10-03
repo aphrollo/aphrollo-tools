@@ -19,6 +19,47 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.2.1 - 2026-10-03
+
+Local CI runs are safer on a shared box and say more about what they did not run.
+
+### What you will notice
+
+- A step the run refuses to execute (`sudo`, a system package manager,
+  `pip install --user` and the like) is now listed as skipped with the reason, like
+  a `uses:` step, instead of failing the job. It is never tolerated into a green by
+  `continue-on-error`. A run whose only trouble is such a step is neither green nor
+  red: the merge gate records it as inconclusive, names the steps, and stores no
+  green for that tree.
+- The python venv is made whenever python is on PATH, not only when a step names
+  python or pip, so a script such as `./ci.sh` that pip-installs lands in it.
+- `shell: python -u {0}` and other templates that start with python run with the
+  run's venv python and are not scanned as shell.
+- pipx, uv and rustup now install inside the run's scratch too (`PIPX_HOME`,
+  `PIPX_BIN_DIR`, `UV_TOOL_DIR`, `UV_TOOL_BIN_DIR`, `UV_PYTHON_INSTALL_DIR`,
+  `UV_CACHE_DIR`, `RUSTUP_HOME`). The run's `RUSTUP_HOME` links the toolchains the
+  box already has and copies its `settings.toml`, so cargo and rustc keep working;
+  a toolchain or update the run downloads goes with the scratch.
+- Stopping a merge with Ctrl-C or a kill now cancels the run's steps and removes the
+  run's scratch directory; `aphrollo gate gc` sweeps `aphrollo-ci-run-*` left by a
+  run that was killed outright. A read-only module cache no longer keeps a scratch
+  directory from being removed on any platform.
+- The scan for global installs reads more of what a step runs: an escaped quote in a
+  double-quoted string, `timeout`, `nice`, `command`, `stdbuf` and `xargs` with their
+  flags, the script given to `sh -c` or `bash -c`, a here-document fed to a shell,
+  and `py -3 -m pip install --user`.
+- A step's timeout is no longer reported against a later step that fails before it
+  runs.
+
+### Known, not fixed
+
+- A flag or variable a workflow sets itself to point an install at the box
+  (`GOBIN=...`, `--prefix`, `--root`, `pip --isolated`, `npm config set`) is not
+  scanned for, nor are credentials in a cargo config, nor the cost of the per-run
+  caches.
+- A component or target added to a toolchain the box already has writes through the
+  link into the box's copy.
+
 ## 1.2.0 - 2026-10-03
 
 `aphrollo update` follows releases, and aphrollo steps aside in a repo that

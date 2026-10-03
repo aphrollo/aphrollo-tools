@@ -33,10 +33,12 @@ name. --ci-timeout 45m (or ci-timeout) sets how long one step may run, 30m by
 default; a step that reaches it is stopped and named in the job's result.
 
 A run never changes this box's global toolchains: every install lands in a
-scratch directory of its own (a python venv first on PATH, per-run npm, go and
-cargo prefixes and caches), removed when the run ends and printed at its start.
-A step that would change the box outside that (sudo, a system package manager,
-pip install --user) is refused before it runs, naming the step.
+scratch directory of its own (a python venv first on PATH, per-run npm, go, cargo,
+pipx, uv and rustup prefixes and caches), removed when the run ends and printed
+at its start. A step that would change the box outside that (sudo, a system
+package manager, pip install --user) is listed as skipped, naming the step and
+why; a run with such a step is inconclusive, neither green nor red, and no green
+is stored for its tree.
 
 Explains why a pipeline run is red, read-only: one line per failed job, then
 its failing Go tests with their assertion lines, its mutation survivors,

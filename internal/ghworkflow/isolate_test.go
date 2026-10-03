@@ -100,27 +100,50 @@ jobs:
 	}
 }
 
-func TestRun_NoVenvIsMadeWhenNoStepMentionsPython(t *testing.T) {
+func TestRun_AShellPythonTemplateStepIsPythonNotShellAndRunsTheVenvsInterpreter(t *testing.T) {
 	boxBin, log := fakeToolsOnPath(t)
+	useFakePython(t, boxBin)
+	sum, out, _ := runFlow(t, `
+on: pull_request
+jobs:
+  script:
+    steps:
+      - shell: python -u {0}
+        run: sudo apt-get install libfoo
+`)
+	if sum.Failed() || len(sum.Refused()) != 0 {
+		t.Fatalf("a python script is not shell text to scan; refused %q:\n%s", sum.Refused(), out)
+	}
+	venv, _ := isolateValue(out, "VIRTUAL_ENV")
+	calls := fakeLogLines(t, log)
+	if len(calls) != 1 || venv == "" || !under(calls[0][0], venv) {
+		t.Errorf("a python {0} step ran %v, want the interpreter inside the venv %q", calls, venv)
+	}
+}
+
+// ratchet: test_removed TestRun_NoVenvIsMadeWhenNoStepMentionsPython: a script such as ./ci.sh can pip install without any step naming python, so the venv is made whenever python is on PATH; TestRun_AScriptThatPipInstallsGetsAVenvEvenWhenNoStepNamesPython covers it
+func TestRun_AScriptThatPipInstallsGetsAVenvEvenWhenNoStepNamesPython(t *testing.T) {
+	boxBin, _ := fakeToolsOnPath(t)
 	useFakePython(t, boxBin)
 	sum, out, _ := runFlow(t, `
 on: pull_request
 jobs:
   build:
     steps:
-      - run: echo building
+      - run: echo the repo script installs its own tools, this step does not say how
 `)
 	if sum.Failed() {
 		t.Fatalf("run failed:\n%s", out)
 	}
-	if v, ok := isolateValue(out, "VIRTUAL_ENV"); ok {
-		t.Errorf("a venv %s was made for a run that never mentions python", v)
+	venv, ok := isolateValue(out, "VIRTUAL_ENV")
+	if !ok {
+		t.Fatalf("no venv was made for a script that may pip install:\n%s", out)
 	}
-	if got, ok := isolateValue(out, "PIP_REQUIRE_VIRTUALENV"); !ok || got != "true" {
-		t.Errorf("without a venv pip must still refuse a global install: PIP_REQUIRE_VIRTUALENV=%q (printed %v)", got, ok)
+	if got, _ := isolateValue(out, "PIP_REQUIRE_VIRTUALENV"); got != "true" {
+		t.Errorf("PIP_REQUIRE_VIRTUALENV = %q, want true", got)
 	}
-	if _, err := os.Stat(log); err == nil {
-		t.Errorf("the box's python ran for a run that never mentions it:\n%s", readFile(t, log))
+	if _, err := os.Stat(venv); !os.IsNotExist(err) {
+		t.Errorf("the venv %s outlived the run (stat err %v)", venv, err)
 	}
 }
 
@@ -149,7 +172,8 @@ jobs:
 	}
 }
 
-func TestRun_AGlobalInstallIsRefusedNamingItsStepAndNothingAfterItRuns(t *testing.T) {
+// ratchet: test_removed TestRun_AGlobalInstallIsRefusedNamingItsStepAndNothingAfterItRuns: a refused step is now listed as skipped, like a uses: step, not failed; TestRun_AGlobalInstallIsListedAsSkippedNamingItsStepAndTheRestRuns covers it
+func TestRun_AGlobalInstallIsListedAsSkippedNamingItsStepAndTheRestRuns(t *testing.T) {
 	sum, out, dir := runFlow(t, `
 on: pull_request
 jobs:
@@ -158,17 +182,26 @@ jobs:
       - run: echo before >> log.txt
       - name: Install system libs
         run: sudo -n apt-get --version
+      - name: Tolerated install
+        continue-on-error: true
+        run: sudo -n apt-get --version
       - run: echo after >> log.txt
 `)
 	r := result(t, sum, "sys")
-	if r.Result != ResultFailure || !strings.Contains(r.Detail, "Install system libs") {
-		t.Errorf("sys = %+v, want a failure naming the step", r)
+	if r.Result != ResultSuccess || len(r.Refused) != 2 || r.Refused[0] != "Install system libs" || r.Refused[1] != "Tolerated install" {
+		t.Errorf("sys = %+v, want success with both refused steps named, never a failure and never tolerated into a pass", r)
 	}
-	if !strings.Contains(out, "[refuse] Install system libs") || !strings.Contains(out, "sudo") {
-		t.Errorf("the refusal must name the step and the command:\n%s", out)
+	if got := sum.Refused(); len(got) != 2 || !strings.HasPrefix(got[0], "ci.yml: sys: Install system libs") {
+		t.Errorf("Summary.Refused = %q, want each refusal with its workflow and job", got)
 	}
-	if got := readFile(t, filepath.Join(dir, "log.txt")); got != "before\n" {
-		t.Errorf("log = %q, want only the step before the refused one", got)
+	if sum.Failed() {
+		t.Errorf("a refusal is not a failure:\n%s", out)
+	}
+	if !strings.Contains(out, "[skip] Install system libs") || !strings.Contains(out, "refused") || !strings.Contains(out, "sudo") {
+		t.Errorf("the skip must name the step, say it was refused and why:\n%s", out)
+	}
+	if got := readFile(t, filepath.Join(dir, "log.txt")); got != "before\nafter\n" {
+		t.Errorf("log = %q, want the steps around the refused ones to run", got)
 	}
 }
 
@@ -182,12 +215,12 @@ jobs:
   vars:
     steps:
       - run: |
-          for v in GOPATH GOMODCACHE GOBIN CARGO_HOME npm_config_prefix npm_config_cache PIP_CACHE_DIR; do
+          for v in GOPATH GOMODCACHE GOBIN CARGO_HOME npm_config_prefix npm_config_cache PIP_CACHE_DIR PIPX_HOME PIPX_BIN_DIR UV_TOOL_DIR UV_TOOL_BIN_DIR UV_PYTHON_INSTALL_DIR UV_CACHE_DIR RUSTUP_HOME; do
             eval "echo $v=\$$v" >> seen.txt
           done
           echo "PATH=$PATH" >> seen.txt
 `, func(o *Options) {
-		o.Env = append(os.Environ(), "GOPATH="+host, "CARGO_HOME="+host, "npm_config_cache="+host)
+		o.Env = append(os.Environ(), "GOPATH="+host, "CARGO_HOME="+host, "npm_config_cache="+host, "PIPX_HOME="+host, "UV_CACHE_DIR="+host, "RUSTUP_HOME="+host)
 	})
 	if sum.Failed() {
 		t.Fatalf("run failed:\n%s", out)
@@ -197,7 +230,7 @@ jobs:
 		k, v, _ := strings.Cut(l, "=")
 		seen[k] = v
 	}
-	for _, key := range []string{"GOPATH", "GOMODCACHE", "GOBIN", "CARGO_HOME", "npm_config_prefix", "npm_config_cache", "PIP_CACHE_DIR"} {
+	for _, key := range []string{"GOPATH", "GOMODCACHE", "GOBIN", "CARGO_HOME", "npm_config_prefix", "npm_config_cache", "PIP_CACHE_DIR", "PIPX_HOME", "PIPX_BIN_DIR", "UV_TOOL_DIR", "UV_TOOL_BIN_DIR", "UV_PYTHON_INSTALL_DIR", "UV_CACHE_DIR", "RUSTUP_HOME"} {
 		printed, ok := isolateValue(out, key)
 		if !ok {
 			t.Errorf("%s was set for the steps but never printed:\n%s", key, out)
@@ -210,7 +243,7 @@ jobs:
 			t.Errorf("a step saw %s=%q, want the isolated directory the run printed (%s)", key, seen[key], printed)
 		}
 	}
-	for _, bin := range []string{"/isolation/npm-prefix", "/isolation/gopath/bin", "/isolation/cargo-home/bin"} {
+	for _, bin := range []string{"/isolation/npm-prefix", "/isolation/gopath/bin", "/isolation/cargo-home/bin", "/isolation/pipx-bin", "/isolation/uv-tool-bin"} {
 		if !strings.Contains(seen["PATH"], bin) {
 			t.Errorf("PATH %q lacks %s, so what an install puts there would not be found", seen["PATH"], bin)
 		}
@@ -264,5 +297,41 @@ jobs:
 	}
 	if home, _ := isolateValue(out, "CARGO_HOME"); under(home, host) {
 		t.Errorf("CARGO_HOME = %s is the box's own %s", home, host)
+	}
+}
+
+func TestRun_RustupGetsTheBoxsToolchainsLinkedAndSettingsCopiedButNewOnesLandInTheScratch(t *testing.T) {
+	host := t.TempDir()
+	toolchain := filepath.Join(host, "toolchains", "stable-host")
+	writeTo(t, filepath.Join(toolchain, "bin", "rustc"), "compiler")
+	writeTo(t, filepath.Join(host, "settings.toml"), "default_toolchain = \"stable-host\"\n")
+	sum, out, dir := runFlow(t, `
+on: pull_request
+jobs:
+  r:
+    steps:
+      - run: |
+          cat "$RUSTUP_HOME/toolchains/stable-host/bin/rustc" >> seen.txt
+          cat "$RUSTUP_HOME/settings.toml" >> seen.txt
+          mkdir -p "$RUSTUP_HOME/toolchains/nightly-new/bin"
+          echo downloaded > "$RUSTUP_HOME/toolchains/nightly-new/bin/rustc"
+`, func(o *Options) { o.Env = append(os.Environ(), "RUSTUP_HOME="+host) })
+	if sum.Failed() {
+		t.Fatalf("run failed:\n%s", out)
+	}
+	if got := readFile(t, filepath.Join(dir, "seen.txt")); got != "compilerdefault_toolchain = \"stable-host\"\n" {
+		t.Errorf("the step saw %q, want the box's toolchain through the link and its settings copied", got)
+	}
+	if home, _ := isolateValue(out, "RUSTUP_HOME"); under(home, host) || !strings.Contains(filepath.ToSlash(home), "/isolation/") {
+		t.Errorf("RUSTUP_HOME = %s, want a directory of the run's own, not the box's %s", home, host)
+	}
+	if _, err := os.Stat(filepath.Join(host, "toolchains", "nightly-new")); !os.IsNotExist(err) {
+		t.Errorf("a toolchain the run installed landed in the box's rustup home (stat err %v)", err)
+	}
+	if got := readFile(t, filepath.Join(toolchain, "bin", "rustc")); got != "compiler" {
+		t.Errorf("the box's toolchain changed: %q", got)
+	}
+	if !strings.Contains(out, "rustup:") {
+		t.Errorf("what was linked must be said:\n%s", out)
 	}
 }

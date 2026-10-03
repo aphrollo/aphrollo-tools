@@ -106,6 +106,38 @@ jobs:
 	}
 }
 
+func TestLocalCI_ARunWhoseStepWasRefusedIsNeitherGreenNorRedAndStoresNoGreen(t *testing.T) {
+	root, mark := ciLane(t, `on: pull_request
+jobs:
+  sys:
+    steps:
+      - run: echo ran >> "$LOCALCI_MARK"
+      - name: Install system libs
+        run: sudo -n apt-get --version
+`)
+	var log bytes.Buffer
+	v, err := LocalCI(root, &log)
+	if err == nil || !strings.Contains(err.Error(), "Install system libs") || !strings.Contains(err.Error(), "refused") {
+		t.Fatalf("a refused step must make the run an error naming the step, got: %v", err)
+	}
+	if v.Red || v.Reused || v.Tree == "" {
+		t.Errorf("verdict = %+v, want not red, not reused, with the tree", v)
+	}
+	if !strings.Contains(log.String(), "inconclusive") {
+		t.Errorf("the run must say it is inconclusive:\n%s", log.String())
+	}
+	if _, err := LocalCI(root, nil); err == nil {
+		t.Error("the same tree must be judged again: no green was stored for a step that never ran")
+	}
+	if got := marks(t, mark); got != 2 {
+		t.Errorf("the workflow ran %d time(s) over two calls, want 2", got)
+	}
+	data, _ := os.ReadFile(GateLogPath())
+	if strings.Contains(string(data), "local-ci:"+v.Tree+" green") || strings.Contains(string(data), " green ") {
+		t.Errorf("gate.log holds a green for a run with a refused step:\n%s", data)
+	}
+}
+
 func TestLocalCI_AGreenVerdictForTheSameTreeIsReusedNotRerun(t *testing.T) {
 	root, mark := ciLane(t, greenWorkflow)
 	first, err := LocalCI(root, nil)
