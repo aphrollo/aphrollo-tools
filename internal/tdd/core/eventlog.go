@@ -189,10 +189,13 @@ func legacyEvent(e Event) Event {
 }
 
 // readEventFile reads the records of one log file. A month is the month the
-// file holds: a record with no number (its writer gave up on the lock) is
-// numbered from the byte offset its line starts at, which is what the writer
-// would have given it, so no two records of a repo share a number. The zero
-// month leaves numbers as written, for the older single-file log.
+// file holds: every record is numbered from the byte offset its line starts
+// at, which is what its writer gave it when nothing else wrote meanwhile. Two
+// writers can: one that gave up on the lock writes unnumbered, and one that
+// holds it read the size before that write landed, so its number names a place
+// the record is not at. The place in the file is the one number no two records
+// share, and it grows with the file. The zero month leaves numbers as written,
+// for the older single-file log.
 func readEventFile(path string, month time.Time) []Event {
 	f, err := os.Open(path)
 	if err != nil {
@@ -206,7 +209,7 @@ func readEventFile(path string, month time.Time) []Event {
 		line, err := r.ReadBytes('\n')
 		var e Event
 		if json.Unmarshal(bytes.TrimSpace(line), &e) == nil && e.V == EventSchema {
-			if e.Seq == 0 && !month.IsZero() {
+			if !month.IsZero() {
 				e.Seq = eventSeq(month, offset)
 			}
 			out = append(out, e)
