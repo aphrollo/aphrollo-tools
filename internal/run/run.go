@@ -174,6 +174,19 @@ type guardError struct{ err error }
 func (g guardError) Error() string { return "run: could not guard the child: " + g.err.Error() }
 func (g guardError) Unwrap() error { return g.err }
 
+// mayHaveRun is an attach failure after which the child may have run past its
+// start: start never runs the command a second time then, and reports it.
+type mayHaveRun struct{ err error }
+
+func (m mayHaveRun) Error() string {
+	return "run: the child may have run before its guard failed, so it was not started again: " + m.err.Error()
+}
+func (m mayHaveRun) Unwrap() error { return m.err }
+
+// startHolder is a guard that needs the command to start in a state the caller's
+// Before hook may have undone: it puts that state back once the hook has run.
+type startHolder interface{ holdStart(cmd *exec.Cmd) }
+
 // plainTree is what a child runs under when its guard could not be set up:
 // its own tree, ended by walking from its pid, with the timeout still armed.
 // It is no job nor group.
@@ -235,16 +248,23 @@ func launch(cmd *exec.Cmd, t tree, spec Spec) (*Child, error) {
 	if spec.Hook != nil {
 		spec.Hook.Before(cmd)
 	}
+	if h, ok := t.(startHolder); ok {
+		h.holdStart(cmd)
+	}
 	if err := cmd.Start(); err != nil {
 		t.finish()
 		endHook(spec.Hook)
 		return nil, err
 	}
 	if err := t.attach(cmd.Process); err != nil {
-		_ = cmd.Process.Kill() // it never ran past its start (suspended where a job is used); start runs it again unguarded
+		_ = cmd.Process.Kill() // a refusal means it never ran past its start (suspended where a job is used), so start may run it again unguarded; a mayHaveRun refusal is final
 		_ = cmd.Wait()
 		t.finish()
 		endHook(spec.Hook)
+		var ran mayHaveRun
+		if errors.As(err, &ran) {
+			return nil, err
+		}
 		return nil, guardError{err}
 	}
 	if spec.Hook != nil {

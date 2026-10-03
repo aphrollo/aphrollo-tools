@@ -90,6 +90,19 @@ func helper(mode string, args []string) int {
 			return 5
 		}
 		block()
+	case "append":
+		// Appends one line to the file args[0] and exits: the lines in it
+		// count how many times the command ran.
+		f, err := os.OpenFile(args[0], os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		if err != nil {
+			return 4
+		}
+		if _, err := f.WriteString("ran\n"); err != nil {
+			return 5
+		}
+		if err := f.Close(); err != nil {
+			return 6
+		}
 	case "alloc":
 		mb, _ := strconv.Atoi(args[0])
 		block := make([]byte, mb<<20)
