@@ -27,8 +27,10 @@ const EventSchema = 1
 type Event struct {
 	V int `json:"v"`
 	// Seq orders a repo's events: the writer numbers each record under the
-	// log's lock; a record written without the lock carries none on disk, and
-	// ReadEvents numbers it from its place in the file, so a Seq read from a month file is never 0.
+	// log's lock from the file's size, a record written without the lock
+	// carries none on disk, and ReadEvents numbers every record from its place
+	// in the file whatever was written, so a Seq read from a month file is
+	// never 0 and never shared.
 	Seq     int64   `json:"seq,omitempty"`
 	At      string  `json:"at"` // UTC RFC3339, millisecond precision
 	Lane    string  `json:"lane,omitempty"`

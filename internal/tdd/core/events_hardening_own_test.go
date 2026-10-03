@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,4 +183,42 @@ func TestReadEvents_NumbersARecordWrittenPastALockTimeoutFromItsPlaceInTheFile(t
 		t.Fatalf("%d events read, want 4", len(got))
 	}
 	assertSeqGrowsWithTheFile(t, got)
+}
+
+// A writer that gave up on the lock appends while the lock's holder is between
+// reading the file's size and writing its record. The holder's number then
+// names a place its record is not at, and the unnumbered record's place is the
+// one the number names: the reader must still number every record by where it
+// sits, so no two share a number and the numbers grow with the file.
+func TestReadEvents_NumbersByPlaceWhenAnUnlockedWriterSlipsInBesideTheLockHolder(t *testing.T) {
+	isolateEvents(t)
+	repo := eventsTestRepo(t)
+	dir := EventLogDir(repo)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UTC()
+	stamp := at.Format(eventTimeFormat)
+
+	err := AppendEventLine(dir, at, func(seq int64) ([]byte, error) {
+		slipped := `{"v":1,"at":"` + stamp + `","kind":"push","detail":{"who":"unlocked"}}`
+		f, err := os.OpenFile(eventLogFile(dir, at), os.O_APPEND|os.O_WRONLY, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString("\n" + slipped + "\n"); err != nil {
+			t.Fatal(err)
+		}
+		return json.Marshal(Event{V: 1, Seq: seq, At: stamp, Kind: "push", Detail: map[string]string{"who": "locked"}})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	read := ReadEvents(repo)
+	if len(read) != 2 {
+		t.Fatalf("%d records read, want 2", len(read))
+	}
+	assertSeqGrowsWithTheFile(t, read)
 }
