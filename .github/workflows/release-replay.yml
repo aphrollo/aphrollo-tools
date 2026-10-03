@@ -1,0 +1,110 @@
+name: Release replay
+
+# A release must never turn a green consuming repo red on its own. A lexer fix
+# once handed a consumer 947 false hits on a tree nobody had touched (#1023); no
+# test of this repo could have seen it, because none of them reads a tree that
+# large or that varied. This job builds the newest release tag (the previous
+# release) and the candidate (this checkout), has each read two trees that did not
+# change, and fails when the candidate reports a hit the previous release does not:
+#
+#   - this repository at the candidate commit, with its own laws and baselines;
+#   - a synthetic tree generated from a seed to the scale and file mix of a
+#     TypeScript and Python consumer, with the strings, comments and lexing edge
+#     cases such a tree has, and no client code.
+#
+# Each tree is read by `ratchet check --dry` (cold, then warm), `docs check` and
+# the gate's edit-time law and smell judgement of a fixed set of files. The
+# candidate reads first, then the previous release reads on the same state store:
+# it must read what the candidate wrote, and not fail. The failing report prints
+# the differing findings. See tools/replay/main.go.
+#
+# It runs on pull requests that touch what produces a verdict (the paths below
+# are held to `go list -deps` of those packages by
+# TestReplayWorkflow_PathsCoverEveryPackageAVerdictIsReadThrough) and on every
+# push to main, which is where a release is cut. It is not a required check yet,
+# and the release job does not wait for it.
+#
+# The local CI (`aphrollo ci run`) stands this job down: it gives every run the
+# id 1.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "internal/ratchet/**"
+      - "internal/lang/**"
+      - "internal/mask/**"
+      - "internal/docs/**"
+      - "internal/diff/**"
+      - "internal/gitenv/**"
+      - "internal/tomlsubset/**"
+      - "internal/argvbatch/**"
+      - "internal/depinstall/**"
+      - "internal/proc/**"
+      - "internal/rootseam/**"
+      - "internal/tdd/**"
+      - "internal/cli/ratchet.go"
+      - "internal/cli/docs.go"
+      - "cmd/aphrollo/**"
+      - "tools/replay/**"
+      - ".github/workflows/release-replay.yml"
+      - "go.mod"
+      - "go.sum"
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-replay-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  replay:
+    name: replay (${{ matrix.os }})
+    if: github.event.pull_request.draft != true && github.run_id != '1'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            exe: ""
+          - os: windows-latest
+            exe: ".exe"
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The previous release is a tag, and is built from its own commit.
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build the replay tool
+        run: go build -trimpath -buildvcs=false -o "$RUNNER_TEMP/replay${{ matrix.exe }}" ./tools/replay
+      - name: Replay the previous release against the candidate
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/replay${{ matrix.exe }}" -repo . -work "$RUNNER_TEMP/replay-work" | tee "$RUNNER_TEMP/replay-report.txt"
+      - name: Put the report on the run's summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/replay-report.txt" ]; then
+            {
+              echo '### Release replay (${{ matrix.os }})'
+              echo '```'
+              cat "$RUNNER_TEMP/replay-report.txt"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi

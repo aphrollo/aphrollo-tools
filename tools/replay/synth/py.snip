@@ -1,0 +1,65 @@
+def parse___N__(text):
+    """Parse text.  A '#' here is not a comment, nor is "this" one.
+
+    >>> parse___N__("a # b")  # doctest comment
+    """
+    return text.split("#")[0]  # real comment with "quotes"
+%%%
+def label___N__(name, width=10):
+    return f"{name!r:>{width}} # not a comment {'nested'}"  # trailing
+%%%
+PATTERN___N__ = re.compile(r"\d+#\w+")  # hash in a raw string
+BLOB___N__ = b'\x00#\xff'
+PATH___N__ = "/tmp/__W__-__N__"  # a hand-written scratch path
+%%%
+TEXT___N__ = '''
+line with "double" and 'single' and # hash
+and a trailing backslash \\
+'''
+%%%
+@dataclass
+class Item___N__:
+    name: str = "x"  __NOQA__
+    tags: list = None  __TYPEIGNORE__
+    other: dict = None  __TYPEIGNORE_REASONED__
+
+    def total(self) -> int:  __NOCOVER__
+        return 0
+%%%
+MSG___N__ = ("part one # not a comment "
+             'part two ' \
+             "part three")  # one string, three literals
+%%%
+async def load___N__(session, url="http://example.test/__W__#frag"):
+    async with session.get(url) as resp:  # fetch
+        return {"status": resp.status, "tag": "#__W__", 'raw': r'\#'}
+%%%
+def test_parse_handles_hash___N__():
+    assert parse___N__("a#b") == "a"
+    assert parse___N__('# only') == ""  # a string starting with a hash
+%%%
+LOOKUP___N__ = {"a": "#", "b": '"', "c": "'", "d": """x'y"z"""}  # quotes of every kind
+CMP___N__ = [x for x in range(10) if (y := x * 2) > 4]  # walrus
+%%%
+# TODO: __W__ should not rely on the "current directory" or on 'cwd'
+def cwd___N__():
+    import os
+    return os.getcwd() + "/" + "__W__"  # joined
+%%%
+class Config___N__(object):
+    """Holds config.
+
+    Example::
+
+        cfg = Config___N__()  # a comment inside a docstring
+        cfg.url = 'http://example.test'
+    """
+    URL = 'http://example.test/__W__'  # default
+    def __repr__(self):
+        return "<Config url=%r>" % (self.URL,)  # repr
+%%%
+def fmt___N__(rows):
+    out = []
+    for r in rows:
+        out.append("%-10s|%5d" % (r[0], r[1]))  # a pipe, not a comment
+    return "\n".join(out) + '\n'  # newline

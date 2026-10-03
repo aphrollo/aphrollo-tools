@@ -914,6 +914,7 @@ ratchetstage_stagedview_test.go                    lawgate
 ratchetstage_test.go                               lawgate
 ratchettracked_test.go                             lawgate
 redsnippet_test.go                                 postedit
+replayworkflow_pin_test.go                         tdd
 repos.go                                           tddtest
 retro.go                                           merge
 retro_collect.go                                   merge
