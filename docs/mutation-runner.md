@@ -29,8 +29,9 @@ everything else. The Cargo spelling wins when a repo has both.
 |---|---|---|
 | `mutants-at-merge` | `true`, `false` or `"ci"` | `true`: run the measurement at pre-merge-commit. `"ci"`: the measurement is the PR pipeline's `mutants-verdict` check and the local gate measures nothing (see "Measuring in CI" below). Absent or false: the stage logs `mutants-skipped:not-declared` and passes. Any other value is refused |
 | `mutants-before-pr` | `true`, `false` or `"ci"` | `true`: `workspace pr`, `ship` and `submit` measure the lane's diff first. `"ci"`: they skip the run and print `mutants: measured in CI (mutants-verdict)` |
-| `mutants-at-commit` | `true` or `false` | `true`: the commit gate mutates the lines the commit adds and runs each mutant against the tests selected for its function (see "At commit" below). Go repos only. Absent or false: the stage is inert and prints nothing. Any other value is refused |
-| `mutants-commit-budget` | positive integer | the seconds the commit-time run may spend, 60 when absent. A value that is not a positive whole number is refused |
+| `mutants-at-merge-level` | `"report"` or `"block"` | `"block"`: `gate mutants verdict` (CI's `mutants-verdict` check) fails on an unaccepted survivor, a timeout or an unjudged line the diff adds, and under `mutants-at-merge = "ci"` the local merge gate refuses a merge whose check did not pass. Absent or `"report"`: the same findings print under `REPORT ONLY`, the check passes, and the merge gate neither waits for the check nor refuses on it. A measurement that is itself broken (missing shard, unreadable accept-list) fails at either level. Any other value is refused |
+| `mutants-at-commit` | `true`, `false`, `"report"` or `"block"` | `true` or `"report"`: the commit gate mutates the lines the commit adds and runs each mutant against the tests selected for its function (see "At commit" below). Go repos only. `"block"`: a survivor also refuses the commit. Absent or false: the stage is inert and prints nothing. Any other value is refused |
+| `mutants-commit-budget` | positive integer | the seconds the commit-time run may spend, 30 when absent. A value that is not a positive whole number is refused |
 | `mutants-integration-packages` | string array | package directories (for example `"internal/cli"`) whose mutants are settled against the tests of the packages that import them; see "Mutants nothing judged" below. Every package not listed is judged by its own tests alone |
 | `mutants-env` | string array | `NAME=VALUE` switches exported for the run — the suites a mutant's code is only reachable from |
 | `mutation-baseline-exclude` | string array | `"<nextest filter> # why"` entries, folded into one `-E not(...)` for the run's whole test invocation |
@@ -562,7 +563,10 @@ form.
 
 With `mutants-at-merge = "ci"` the measurement is the PR pipeline's
 `mutants-verdict` job, on GitHub-hosted runners, and it is a required check.
-The local merge gate prints `mutants: measured in CI (mutants-verdict)`
+Unless the repo pins `mutants-at-merge-level = "block"`, the local merge gate
+prints `mutants: reported by CI (mutants-verdict), not waited for` and goes on;
+the rest of this paragraph is the pinned case. The pinned gate prints
+`mutants: measured in CI (mutants-verdict)`
 (`internal/tdd/mutation/mutants_ci.go`) and refuses to merge unless that check
 concluded `success` on the PR's head commit: no such check, one still running,
 and one that failed or was skipped are each refused with the reason, and a
@@ -693,7 +697,7 @@ that caused it.
 
 ## At commit
 
-With `mutants-at-commit = true` the commit gate measures the commit itself
+With `mutants-at-commit = true` (or `"report"`) the commit gate measures the commit itself and reports each survivor by name without refusing the commit; `"block"` pins the old behaviour, where a survivor refuses it. The text below describes the measurement
 (`internal/tdd/mutation/mutants_commit.go`), after the root's own checks have
 passed and before the commit lands. The same run is `aphrollo gate mutants
 commit` by hand. It is Go only, and it is a different measurement from the

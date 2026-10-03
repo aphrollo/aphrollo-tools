@@ -24,7 +24,7 @@ func commitMutationRepo(t *testing.T, declare bool) (cfgDir, root string) {
 	linterAbsent(t)
 	root = makeGoRepo(t)
 	if declare {
-		write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = true\n")
+		write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = \"block\"\n")
 	}
 	return cfgDir, root
 }

@@ -90,6 +90,14 @@ func TestGateMutantsVerdict_JudgesTheMergedShardsAndExitsOnTheirVerdict(t *testi
 	out.Reset()
 	errb.Reset()
 	code = Run([]string{"gate", "mutants", "verdict", "--shards", "2", first, dirty}, strings.NewReader(""), &out, &errb)
+	if code != 0 || !strings.Contains(out.String(), "REPORT ONLY") || !strings.HasPrefix(out.String(), "b.go:3:4: CONDITIONALS_BOUNDARY\n") {
+		t.Errorf("a survivor, level unpinned: exit = %d, stdout = %q, want 0 reporting it", code, out.String())
+	}
+
+	writeIn(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-merge = \"ci\"\nmutants-at-merge-level = \"block\"\n")
+	out.Reset()
+	errb.Reset()
+	code = Run([]string{"gate", "mutants", "verdict", "--shards", "2", first, dirty}, strings.NewReader(""), &out, &errb)
 	if code != 1 || !strings.HasPrefix(out.String(), "b.go:3:4: CONDITIONALS_BOUNDARY\n") {
 		t.Errorf("a survivor in shard 1: exit = %d, stdout = %q, want 1 leading with the mutant", code, out.String())
 	}

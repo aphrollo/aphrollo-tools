@@ -67,6 +67,12 @@ func mutantsStage(displayName, repoRoot string) GateResult {
 		AppendGateLog(displayName, repoRoot, "mutants", "mutants-skipped:"+token, 0)
 		return mutantsResult(false, "")
 	}
+	if cfg.AtMergeCI && !cfg.AtMergeBlock {
+		fmt.Fprintf(os.Stderr, "mutants: reported by CI (%s), not waited for: this repo does not pin %s = \"block\"\n",
+			mutantsCICheck, mutantsMergeLevelKey)
+		AppendGateLog(displayName, repoRoot, "mutants", "mutants-ci:reported", 0)
+		return mutantsResult(false, "")
+	}
 	if cfg.AtMergeCI {
 		return mutantsCIStage(displayName, repoRoot)
 	}
@@ -88,7 +94,11 @@ func mutantsStage(displayName, repoRoot string) GateResult {
 		AppendGateLog(displayName, repoRoot, "mutants", "mutants-refused:runner-failed", 0)
 		return mutantsResult(true, msg)
 	}
-	return mutantsResult(v.Refused, v.Message)
+	judged := ApplyMergeLevel(cfg, v)
+	if v.Refused && !judged.Refused {
+		fmt.Fprintln(os.Stderr, judged.Message)
+	}
+	return mutantsResult(judged.Refused, judged.Message)
 }
 
 // mutantsStandDown names what this routine has been handed that is NOT a lane

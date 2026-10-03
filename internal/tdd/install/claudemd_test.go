@@ -264,7 +264,7 @@ func TestWriteClaudeMD_CreatesTheFileInARepoThatMeasuresMutants(t *testing.T) {
 			t.Fatalf("%s: changed=%v err=%v, want the block written", key, changed, err)
 		}
 		data, err := os.ReadFile(filepath.Join(repo, "CLAUDE.md"))
-		if err != nil || !strings.Contains(string(data), "aphrollo gate mutants prove") {
+		if err != nil || !strings.Contains(string(data), "Mutation findings are guidance") {
 			t.Errorf("%s: CLAUDE.md = %q (%v), want the block with the mutation rules", key, data, err)
 		}
 	}
@@ -346,8 +346,8 @@ func TestClaudeMDBlock_StatesTheMutationRulesOnlyWhereTheRepoMeasures(t *testing
 		}
 	}
 	for name, f := range map[string]BlockFlags{
-		"mutants-at-merge":  {MutantsAtMerge: true},
-		"mutants-before-pr": {MutantsBeforePR: true},
+		"mutants-at-merge":  {MutantsAtMerge: true, MutantsAtMergeBlock: true},
+		"mutants-before-pr": {MutantsBeforePR: true, MutantsAtMergeBlock: true},
 	} {
 		block := ClaudeMDBlock(f)
 		for _, rule := range rules {
@@ -363,9 +363,9 @@ func TestClaudeMDBlock_StatesTheMutationRulesOnlyWhereTheRepoMeasures(t *testing
 // repo that does not is told nothing about it.
 func TestClaudeMDBlock_ARepoThatMeasuresAtCommitSaysSo(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(BlockFlags{MutantsAtCommit: true})
+	block := ClaudeMDBlock(BlockFlags{MutantsAtCommit: true, MutantsAtCommitBlock: true})
 	for _, want := range []string{
-		"**A commit is measured:**", "`mutants-at-commit = true`", "refuses a survivor by name", "NOT MEASURED",
+		"**A commit is measured:**", "`mutants-at-commit = \"block\"`", "refuses a survivor by name", "NOT MEASURED",
 		"aphrollo gate mutants commit", "aphrollo gate mutants prove",
 	} {
 		if !strings.Contains(block, want) {
@@ -382,7 +382,7 @@ func TestClaudeMDBlock_ARepoThatMeasuresAtCommitSaysSo(t *testing.T) {
 
 func TestClaudeMDBlock_CIAndCommitBothMeasureAndTheRulesSayWhich(t *testing.T) {
 	t.Parallel()
-	block := ClaudeMDBlock(BlockFlags{MutantsAtMerge: true, MutantsAtMergeCI: true, MutantsAtCommit: true})
+	block := ClaudeMDBlock(BlockFlags{MutantsAtMerge: true, MutantsAtMergeCI: true, MutantsAtCommit: true, MutantsAtMergeBlock: true})
 	want := "CI's `mutants-verdict` measures this repo's mutants, and the commit gate measures the lines a commit adds"
 	if !strings.Contains(block, want) {
 		t.Errorf("the mutation rules do not say both measure:\n%s", block)
@@ -396,7 +396,7 @@ func TestManagedBlockFor_ReadsMutantsAtCommit(t *testing.T) {
 	t.Parallel()
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\nmutants-at-commit = true\n")
-	if block := managedBlockFor(repo); !strings.Contains(block, "**A commit is measured:**") {
+	if block := managedBlockFor(repo); !strings.Contains(block, "**A commit is measured, and reported:**") {
 		t.Errorf("mutants-at-commit = true must render the commit line:\n%s", block)
 	}
 }
@@ -406,7 +406,7 @@ func TestManagedBlockFor_ReadsMutantsBeforePR(t *testing.T) {
 	repo := t.TempDir()
 	mustWrite(t, filepath.Join(repo, "aphrollo.toml"), "[aphrollo]\nmutants-before-pr = true\n")
 
-	if block := managedBlockFor(repo); !strings.Contains(block, "aphrollo gate mutants prove") {
+	if block := managedBlockFor(repo); !strings.Contains(block, "Mutation findings are guidance") {
 		t.Errorf("mutants-before-pr = true must bring the mutation rules into the block:\n%s", block)
 	}
 }
@@ -418,8 +418,8 @@ func TestClaudeMDBlock_ARepoThatMeasuresInCISaysSoAndKeepsTheRules(t *testing.T)
 	t.Parallel()
 	rules := []string{"aphrollo gate mutants prove", "--want-fail", "UNREADABLE", "loop index"}
 	for name, f := range map[string]BlockFlags{
-		"at merge":      {MutantsAtMerge: true, MutantsAtMergeCI: true},
-		"before the PR": {MutantsBeforePR: true, MutantsBeforePRCI: true},
+		"at merge":      {MutantsAtMerge: true, MutantsAtMergeCI: true, MutantsAtMergeBlock: true},
+		"before the PR": {MutantsBeforePR: true, MutantsBeforePRCI: true, MutantsAtMergeBlock: true},
 	} {
 		block := ClaudeMDBlock(f)
 		for _, rule := range rules {
@@ -431,7 +431,7 @@ func TestClaudeMDBlock_ARepoThatMeasuresInCISaysSoAndKeepsTheRules(t *testing.T)
 			t.Errorf("%s: the mutation rules do not say CI measures:\n%s", name, block)
 		}
 	}
-	block := ClaudeMDBlock(BlockFlags{MutantsAtMerge: true, MutantsAtMergeCI: true})
+	block := ClaudeMDBlock(BlockFlags{MutantsAtMerge: true, MutantsAtMergeCI: true, MutantsAtMergeBlock: true})
 	if !strings.Contains(block, "**A merge is measured in CI:**") || !strings.Contains(block, "`mutants-verdict` check passed on the PR head") {
 		t.Errorf("the merge line does not say the merge needs CI's check:\n%s", block)
 	}
@@ -470,4 +470,46 @@ func mergeLineOf(block string) string {
 		}
 	}
 	return "(no merge line)"
+}
+
+// A repo that pinned no block level is told its findings are reports, and is
+// owed none of the proof lines or the loop-index rule.
+func TestClaudeMDBlock_WithoutAPinTheMutationRulesAreGuidance(t *testing.T) {
+	t.Parallel()
+	for name, f := range map[string]BlockFlags{
+		"ci merge":    {MutantsAtMerge: true, MutantsAtMergeCI: true},
+		"commit only": {MutantsAtCommit: true},
+		"before PR":   {MutantsBeforePR: true, MutantsBeforePRCI: true},
+	} {
+		block := ClaudeMDBlock(f)
+		for _, gone := range []string{"aphrollo gate mutants prove", "UNREADABLE", "loop index", "KILLED"} {
+			if strings.Contains(block, gone) {
+				t.Errorf("%s: a repo that pins no block is still told %q", name, gone)
+			}
+		}
+		if !strings.Contains(block, "**Mutation findings are guidance**") {
+			t.Errorf("%s: the block does not say findings are guidance:\n%s", name, block)
+		}
+	}
+	commit := ClaudeMDBlock(BlockFlags{MutantsAtCommit: true})
+	if !strings.Contains(commit, "names each survivor without refusing the commit") || strings.Contains(commit, "refuses a survivor by name") {
+		t.Errorf("the commit line does not say it reports:\n%s", commit)
+	}
+	merge := ClaudeMDBlock(BlockFlags{MutantsAtMerge: true, MutantsAtMergeCI: true})
+	if !strings.Contains(merge, "neither waits for it nor refuses on it") {
+		t.Errorf("the merge line does not say the check reports:\n%s", merge)
+	}
+}
+
+func TestManagedBlockFor_ReadsThePinnedLevels(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	mustWrite(t, filepath.Join(repo, "aphrollo.toml"),
+		"[aphrollo]\nmutants-at-commit = \"block\"\nmutants-at-merge = \"ci\"\nmutants-at-merge-level = \"block\"\n")
+	block := managedBlockFor(repo)
+	for _, want := range []string{"pins `mutants-at-commit = \"block\"`", "pins `mutants-at-merge-level = \"block\"`", "aphrollo gate mutants prove"} {
+		if !strings.Contains(block, want) {
+			t.Errorf("block lacks %q:\n%s", want, block)
+		}
+	}
 }

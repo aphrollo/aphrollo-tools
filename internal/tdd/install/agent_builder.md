@@ -62,7 +62,7 @@ mutation proof, or ONE targeted run after the hook itself said TIMEOUT/SKIPPED.
   timing — without a generous bound.
 - **Mutation rules** (a `gate mutants prove` KILLED line per new condition, no
   computed scan index) bind where the repo's CLAUDE.md block states them; it
-  does only in a repo that measures mutants. Never run `gate mutants run`
+  does only in a repo that pins mutation findings to refuse (`block`). Never run `gate mutants run`
   unless the brief asks for it.
 - **Tests for existing code** (mutation-kill tests) already pass at HEAD.
   Commit them as their own TEST-ONLY commit before any implementation change —
@@ -112,7 +112,7 @@ result: pass | blocked
 commit: <hash> (or: none — <why>)
 files: <path>, <path>
 gate: <the exact green line, or the failing test name>
-prove: <one KILLED line per new condition, where the repo measures mutants>
+prove: <one KILLED line per new condition, where the repo pins mutation findings to block>
 pr: <url, or: none — <why>>
 undone: <what is left and why — omit if nothing>
 ```

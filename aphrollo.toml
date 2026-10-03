@@ -63,31 +63,33 @@ retro-sinks = [
   "slow-merge -> what held the PR open? -> aphrollo issue \"<title>\" --label <theme>",
 ]
 
-# The merge is measured in CI, and the commit gate measures the lines a commit
-# adds (mutants-at-commit, below). The PR pipeline's mutants-verdict check, a
-# required check whose shards run in parallel on GitHub-hosted runners,
-# measures the merged tree and refuses an unaccepted survivor, a timeout, or a
+# Mutation is opted into, and reports: a survivor never refuses a commit or a
+# merge here. The merge is measured in CI, and the commit gate measures the lines
+# a commit adds (mutants-at-commit, below). The PR pipeline's mutants-verdict
+# check, whose shards run in parallel on GitHub-hosted runners, measures the
+# merged tree and reports an unaccepted survivor, a timeout, or a
 # NOT COVERED or inconclusive mutant on a line the diff adds or changes, each
 # named "<file>:<line>:<col> <MUTATOR>". gremlins re-runs only the mutated
 # package's suite per mutant, with coverage gathered across the whole module
 # (--coverpkg ./...). A position Go coverage can never count is exempt, or
 # settled by running that one mutant (docs/mutation-runner.md).
 #
-# "ci" is the value of both keys: the local merge gate prints
-# "mutants: measured in CI (mutants-verdict)" and refuses to merge unless that
-# check passed on the PR head, and `workspace pr`/`ship`/`submit` skip the
-# stage, because measurements stacked on the shared host ran it out of memory
-# (#1005). `aphrollo gate mutants run` still measures a lane by hand.
+# "ci" is the value of both keys: the local merge gate neither waits for the
+# check nor refuses on it (mutants-at-merge-level is not "block"), and
+# `workspace pr`/`ship`/`submit` skip the stage, because measurements stacked on
+# the shared host ran it out of memory (#1005). Pin
+# mutants-at-merge-level = "block" to make a survivor fail the check and hold the
+# merge. `aphrollo gate mutants run` still measures a lane by hand.
 mutants-at-merge = "ci"
 mutants-before-pr = "ci"
 
 # The commit gate mutates the lines a commit adds or changes and runs each
 # mutant against the tests selected for its enclosing function, under the same
 # memory cap and box-wide lock, on bounded workers and inside a wall-clock
-# budget (mutants-commit-budget, seconds, default 60). A survivor refuses the
-# commit; a box with no headroom, a lock held past the budget, or a budget
-# spent before every mutant was judged leaves those mutants NOT MEASURED, and
-# CI's mutants-verdict decides them. The per-function test maps it selects with
+# budget (mutants-commit-budget, seconds, default 30). A survivor is reported and
+# never refuses the commit (mutants-at-commit = "block" pins the refusal); a box
+# with no headroom, a lock held past the budget, or a budget spent before every
+# mutant was judged leaves those mutants NOT MEASURED, and CI reports them. The per-function test maps it selects with
 # are built in the background after a merge (`gate mutants testmap`).
 #
 # On in this repo. Every test process the runner and the map build start runs

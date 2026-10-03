@@ -28,7 +28,7 @@ func steppingClock(t *testing.T, step time.Duration) {
 }
 
 // The run gets the budget less what the stage already spent on the lock and on
-// reading git: with a 60 s budget and 10 s spent, it is given about 50 s and
+// reading git: with a 30 s budget and 10 s spent, it is given about 20 s and
 // never more than the budget.
 func TestMutantsAtCommitStage_TheRunIsGivenTheBudgetLessWhatTheStageSpent(t *testing.T) {
 	_, root := commitStage(t, "")
@@ -52,8 +52,8 @@ func TestMutantsAtCommitStage_TheRunIsGivenTheBudgetLessWhatTheStageSpent(t *tes
 
 	mu.Lock()
 	defer mu.Unlock()
-	if left <= 40*time.Second || left > 50*time.Second {
-		t.Errorf("the run's deadline was %s away, want within (40s, 50s] of a 60s budget with 10s spent", left)
+	if left <= 10*time.Second || left > 20*time.Second {
+		t.Errorf("the run's deadline was %s away, want within (10s, 20s] of a 30s budget with 10s spent", left)
 	}
 }
 

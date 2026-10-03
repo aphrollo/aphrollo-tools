@@ -272,6 +272,7 @@ func TestMutantsStage_NoLaneTipRefusesNamingBothSignals(t *testing.T) {
 func TestMutantsStage_RefusesWithVerdictMessageVerbatim(t *testing.T) {
 	_, root := mergeStageFixture(t)
 	declareMutantsAtMerge(t, root)
+	tddtest.Write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-merge = true\nmutants-at-merge-level = \"block\"\n")
 	survivor := MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36,
 		Mutation: "replace - with +", Package: "a", Status: "missed"}
 	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
@@ -291,6 +292,30 @@ func TestMutantsStage_RefusesWithVerdictMessageVerbatim(t *testing.T) {
 	}
 	if lines[1] != "mutants: 1 tested, 0 caught, 0 unviable, 1 missed (0 accepted), 0 unmeasured" {
 		t.Errorf("second line = %q, want the counts", lines[1])
+	}
+}
+
+// Opted in without pinning block, the same survivor is reported and the merge
+// goes on.
+// Serial: installs a process-wide test override (SetFreeSpaceForTest).
+func TestMutantsStage_AnUnpinnedSurvivorIsReportedAndTheMergeGoesOn(t *testing.T) {
+	_, root := mergeStageFixture(t)
+	declareMutantsAtMerge(t, root)
+	survivor := MutantOutcome{File: "crates/a/src/lib.rs", Line: 1, Col: 36,
+		Mutation: "replace - with +", Package: "a", Status: "missed"}
+	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
+		writeOutcomes(t, root, survivor)
+		return 2, nil
+	})
+
+	var res GateResult
+	stderr := captureStderr(t, func() { res = mutantsStage(premergeDisplayName, root) })
+
+	if res.Blocked {
+		t.Fatalf("an unpinned survivor refused the merge: %+v", res)
+	}
+	if !strings.Contains(stderr, "REPORT ONLY") || !strings.Contains(stderr, mutantLineOf(survivor.File, survivor.Line, survivor.Col, survivor.Mutation)) {
+		t.Errorf("stderr = %q, want the survivor named under REPORT ONLY", stderr)
 	}
 }
 
