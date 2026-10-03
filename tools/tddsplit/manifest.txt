@@ -923,6 +923,12 @@ ratchetstage_stagedview_test.go                    lawgate
 ratchetstage_test.go                               lawgate
 ratchettracked_test.go                             lawgate
 redsnippet_test.go                                 postedit
+renameretry.go                                     core
+renameretry_other.go                               core
+renameretry_other_own_test.go                      core
+renameretry_own_test.go                            core
+renameretry_windows.go                             core
+renameretry_windows_own_test.go                    core
 replayworkflow_pin_test.go                         tdd
 repos.go                                           tddtest
 retro.go                                           merge
@@ -1179,8 +1185,6 @@ Outcome                                       classify.go                  class
 Outcome.IsRed                                 classify.go                  classify_core.go
 normalizeProjectPath                          deferred.go                  deferred_core.go
 projectKey                                    deferred.go                  deferred_core.go
-renameAttempts                                deferred.go                  deferred_core.go
-renameRetryEvery                              deferred.go                  deferred_core.go
 writeFileAtomic                               deferred.go                  deferred_core.go
 InfraFailed                                   deferred_edit.go             deferred_edit_suite.go
 headSHAFor                                    deferred_edit.go             deferred_edit_failfirst.go
