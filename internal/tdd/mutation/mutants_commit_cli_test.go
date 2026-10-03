@@ -157,6 +157,7 @@ func TestRunMutantsCommit_UndeclaredSaysSo(t *testing.T) {
 
 func TestRunMutantsCommit_ASurvivorIsExitOne(t *testing.T) {
 	_, root := commitStage(t, "")
+	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = \"block\"\n")
 	scriptGo(t, func(goCall) (int, string) { return 0, "ok\tgate\n" })
 	var out, errOut bytes.Buffer
 	var code int

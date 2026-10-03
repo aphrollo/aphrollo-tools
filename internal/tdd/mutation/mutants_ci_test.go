@@ -40,9 +40,15 @@ func TestJudgeCICheck_PassesOnlyACompletedSuccess(t *testing.T) {
 // in. It answers the repo and the lane's tip commit.
 func ciMergeInProgress(t *testing.T, mode string) (root, laneTip string) {
 	t.Helper()
+	return ciMergeInProgressWith(t, "mutants-at-merge = "+mode+"\nmutants-at-merge-level = \"block\"\n")
+}
+
+// ciMergeInProgressWith is ciMergeInProgress for a repo declaring exactly body.
+func ciMergeInProgressWith(t *testing.T, body string) (root, laneTip string) {
+	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root, _ = tddtest.MakeForkedRepo(t, git)
-	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-merge = "+mode+"\n")
+	write(t, root, "aphrollo.toml", "[aphrollo]\n"+body)
 	write(t, root, "crates/a/src/other.rs", "pub fn other() -> i32 { 7 }\n")
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "trunk moves on")
@@ -75,6 +81,25 @@ func TestMutantsStage_CIModeSaysSoAndPassesWhenTheCheckPassedOnTheLaneTip(t *tes
 	}
 	if len(*asked) != 1 || (*asked)[0] != tip {
 		t.Errorf("asked about %v, want the lane tip %s alone", *asked, tip)
+	}
+}
+
+// Opted in without pinning block, the check is a report: the merge gate does
+// not read it, wait for it or refuse on it, whatever state it is in.
+func TestMutantsStage_CIModeUnpinnedNeitherWaitsForNorRefusesOnTheCheck(t *testing.T) {
+	for _, state := range []string{"", "in_progress/", "completed/failure"} {
+		root, _ := ciMergeInProgressWith(t, "mutants-at-merge = \"ci\"\n")
+		asked := stubCICheck(t, state, nil)
+
+		var res GateResult
+		stderr := captureStderr(t, func() { res = mutantsStage("premerge", root) })
+
+		if res.Blocked || len(*asked) != 0 {
+			t.Errorf("state %q: blocked=%v asked=%v, want a pass that never read the check", state, res.Blocked, *asked)
+		}
+		if !strings.Contains(stderr, "reported by CI (mutants-verdict), not waited for") {
+			t.Errorf("state %q: stderr = %q, want the line saying the check is only reported", state, stderr)
+		}
 	}
 }
 

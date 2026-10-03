@@ -241,8 +241,9 @@ func runGateMutantsRun(args []string, stdout, stderr io.Writer) int {
 
 // runGateMutantsVerdict is `gate mutants verdict`: judge the reports of the
 // shards of one measurement as a single run, on the tree checked out here.
-// It prints the report on stdout like `run`, and exits 1 when the merged
-// run is refused or the reports are not the whole measurement.
+// It prints the report on stdout like `run`, and exits 1 when the reports are
+// not the whole measurement, or when the merged run is refused and the repo
+// pins mutants-at-merge-level = "block"; otherwise a finding is only reported.
 func runGateMutantsVerdict(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("mutants verdict", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -270,6 +271,7 @@ func runGateMutantsVerdict(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo gate mutants verdict: %v\n", err)
 		return 1
 	}
+	v = tdd.ApplyMergeLevel(cfg, v)
 	fmt.Fprintln(stdout, v.Message)
 	if v.Refused {
 		return 1

@@ -386,6 +386,12 @@ jobs:
     permissions:
       contents: read
     steps:
+      # The checkout would otherwise turn every fixture's line endings into
+      # CRLF (Git for Windows ships core.autocrlf=true), and the fixtures
+      # compare exact bytes.
+      - if: needs.changes.outputs.code == 'true'
+        shell: bash
+        run: git config --global core.autocrlf false
       - if: needs.changes.outputs.code == 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -400,6 +406,12 @@ jobs:
         shell: bash
         env:
           SHARD: ${{ matrix.shard }}
+          # The default temp dir is spelled with the short name RUNNER~1 for
+          # the user directory runneradmin; tests that compare a path they
+          # made with one a tool resolved read the two as different
+          # directories. runner.temp is the long form.
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: |
           set -euo pipefail
           m=$(go list -m)

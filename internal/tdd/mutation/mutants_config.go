@@ -59,12 +59,20 @@ type MutantsConfig struct {
 	// default, which CommitBudget answers.
 	AtCommit            bool
 	CommitBudgetSeconds int
+	// AtCommitBlock is mutants-at-commit = "block": the repo pins the old
+	// behaviour, where a survivor of the commit-time run refuses the commit.
+	// Without it the run only reports.
+	AtCommitBlock bool
+	// AtMergeBlock is mutants-at-merge-level = "block": the repo pins that a
+	// survivor the merge measurement finds refuses the merge. Without it the
+	// measurement reports what it found and the merge goes on.
+	AtMergeBlock bool
 }
 
 // defaultCommitBudget is how long the commit-time mutation run may take when
 // the repo declares no budget: the design's own figure for a run that must
 // never make a slow box hold up a commit.
-const defaultCommitBudget = 60 * time.Second
+const defaultCommitBudget = 90 * time.Second
 
 // CommitBudget is the wall-clock the commit-time run may spend.
 func (c MutantsConfig) CommitBudget() time.Duration {
@@ -88,10 +96,14 @@ const (
 	// mutantsAtCommitKey switches the commit-time run on, and
 	// mutantsCommitBudgetKey sets the seconds it may spend.
 	mutantsAtCommitKey     = "mutants-at-commit"
+	mutantsMergeLevelKey   = "mutants-at-merge-level"
 	mutantsCommitBudgetKey = "mutants-commit-budget"
 	// mutantsCIMode is the value of mutants-at-merge and mutants-before-pr
 	// that hands the measurement to CI's mutants-verdict check.
 	mutantsCIMode = "ci"
+	// The levels a finding may carry: report prints it, block refuses on it.
+	mutantsLevelReport = "report"
+	mutantsLevelBlock  = "block"
 )
 
 // retiredMutantsKeys are the keys that no longer do anything. A repo that
@@ -144,7 +156,10 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 			break
 		}
 	}
-	if cfg.AtCommit, err = firstDeclaredFlag(tables, mutantsAtCommitKey); err != nil {
+	if cfg.AtCommit, cfg.AtCommitBlock, err = firstDeclaredCommitMode(tables); err != nil {
+		return MutantsConfig{}, err
+	}
+	if cfg.AtMergeBlock, err = firstDeclaredBlock(tables, mutantsMergeLevelKey); err != nil {
 		return MutantsConfig{}, err
 	}
 	if cfg.CommitBudgetSeconds, err = firstDeclaredCount(tables, mutantsCommitBudgetKey, "seconds"); err != nil {
@@ -168,23 +183,48 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 	return cfg, nil
 }
 
-// firstDeclaredFlag reads a plain on/off key from the first table that
-// declares it. Anything but true or false is refused: a repo that wrote it
-// believes it is measured.
-func firstDeclaredFlag(tables []mutantsConfigTable, key string) (bool, error) {
+// firstDeclaredCommitMode reads mutants-at-commit: true or "report" is the
+// run that only reports, "block" the run whose survivor refuses the commit,
+// false is off. Anything else is refused: a repo that wrote it believes it is
+// measured.
+func firstDeclaredCommitMode(tables []mutantsConfigTable) (on, block bool, err error) {
+	for _, t := range tables {
+		v, set := tomlStringIn(t.Path, t.Table, mutantsAtCommitKey)
+		if !set {
+			continue
+		}
+		v, _, _ = strings.Cut(v, "#")
+		switch mode := strings.Trim(strings.TrimSpace(v), `"`); mode {
+		case "true", mutantsLevelReport:
+			return true, false, nil
+		case "false":
+			return false, false, nil
+		case mutantsLevelBlock:
+			return true, true, nil
+		default:
+			return false, false, fmt.Errorf("%s must be true, false, %q or %q, got %q",
+				mutantsAtCommitKey, mutantsLevelReport, mutantsLevelBlock, mode)
+		}
+	}
+	return false, false, nil
+}
+
+// firstDeclaredBlock reads a level key: "block" pins refusal, "report" (and
+// absence) leaves the finding a report.
+func firstDeclaredBlock(tables []mutantsConfigTable, key string) (bool, error) {
 	for _, t := range tables {
 		v, set := tomlStringIn(t.Path, t.Table, key)
 		if !set {
 			continue
 		}
 		v, _, _ = strings.Cut(v, "#")
-		switch flag := strings.Trim(strings.TrimSpace(v), `"`); flag {
-		case "true":
+		switch level := strings.Trim(strings.TrimSpace(v), `"`); level {
+		case mutantsLevelBlock:
 			return true, nil
-		case "false":
+		case mutantsLevelReport:
 			return false, nil
 		default:
-			return false, fmt.Errorf("%s must be true or false, got %q", key, flag)
+			return false, fmt.Errorf("%s must be %q or %q, got %q", key, mutantsLevelReport, mutantsLevelBlock, level)
 		}
 	}
 	return false, nil

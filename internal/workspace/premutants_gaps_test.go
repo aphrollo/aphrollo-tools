@@ -23,7 +23,7 @@ func goLane(t *testing.T) string {
 	t.Helper()
 	repo := repoWithRemote(t)
 	writeRel(t, repo, "go.mod", "module example.com/m\n\ngo 1.26\n")
-	writeRel(t, repo, "aphrollo.toml", "[aphrollo]\nmutants-at-merge = true\nmutants-before-pr = true\n")
+	writeRel(t, repo, "aphrollo.toml", "[aphrollo]\nmutants-at-merge = true\nmutants-before-pr = true\nmutants-at-merge-level = \"block\"\n")
 	writeRel(t, repo, "m.go", "package m\n")
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-qm", "trunk")

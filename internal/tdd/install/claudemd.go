@@ -43,6 +43,11 @@ type BlockFlags struct {
 	// MutantsAtCommit is mutants-at-commit: the commit gate mutates the lines
 	// a commit adds and refuses a survivor.
 	MutantsAtCommit bool
+	// MutantsAtCommitBlock and MutantsAtMergeBlock are the pins: the repo
+	// declared mutants-at-commit = "block" or mutants-at-merge-level = "block",
+	// so a survivor refuses the commit or the merge. Without a pin every
+	// finding is a report and the mutation rules are guidance.
+	MutantsAtCommitBlock, MutantsAtMergeBlock bool
 	// Cargo, Go and Npm are the toolchains whose manifests the repo carries;
 	// the block names only their commands and commit stages (#889). Whether
 	// the queue shims are on the agent's PATH is a fact about the box, so the
@@ -54,6 +59,12 @@ type BlockFlags struct {
 // brings the mutation rules into the block.
 func (f BlockFlags) measures() bool {
 	return f.MutantsAtMerge || f.MutantsBeforePR || f.MutantsAtCommit
+}
+
+// blocks reports whether a finding of the mutation run refuses anything in
+// this repo, which is what makes the mutation rules binding.
+func (f BlockFlags) blocks() bool {
+	return f.MutantsAtCommitBlock || f.MutantsAtMergeBlock
 }
 
 // ClaudeMDBlock renders the managed block for a repo declaring f.
@@ -108,20 +119,27 @@ func ClaudeMDBlock(f BlockFlags) string {
 	// ("with `mutants-at-merge = true` ...") makes a reader go and find out
 	// which half applies to them, which is the errand the block exists to
 	// save them.
-	if f.MutantsAtMergeCI {
-		b.WriteString("- **A merge is measured in CI:** this repo declares `mutants-at-merge = \"ci\"`, so the merge gate measures nothing locally and refuses to merge unless CI's `mutants-verdict` check passed on the PR head; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
+	if f.MutantsAtMergeCI && f.MutantsAtMergeBlock {
+		b.WriteString("- **A merge is measured in CI:** this repo declares `mutants-at-merge = \"ci\"` and pins `mutants-at-merge-level = \"block\"`, so the merge gate measures nothing locally and refuses to merge unless CI's `mutants-verdict` check passed on the PR head, which a survivor fails; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
+	} else if f.MutantsAtMergeCI {
+		b.WriteString("- **A merge is measured in CI:** this repo declares `mutants-at-merge = \"ci\"` without pinning `mutants-at-merge-level = \"block\"`, so CI's `mutants-verdict` check reports survivors and the merge gate neither waits for it nor refuses on it, and measures nothing locally; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
 	} else if f.MutantsAtMerge {
 		b.WriteString("- **A merge is measured, not certified:** the pre-merge gate runs this lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.\n")
 	} else {
 		b.WriteString("- **A merge is checked, not measured:** this repo declares no `mutants-at-merge`, so the merge gate runs the mechanical suite and NO mutation measurement; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
 	}
-	if f.MutantsAtCommit {
-		b.WriteString("- **A commit is measured:** this repo declares `mutants-at-commit = true`, so the commit gate mutates the lines the commit adds, runs each mutant against the tests of its own function and refuses a survivor by name; a box with no memory headroom, or a run past its wall-clock budget, prints `NOT MEASURED` for what it did not reach and CI decides; `aphrollo gate mutants commit` runs it by hand.\n")
+	if f.MutantsAtCommit && f.MutantsAtCommitBlock {
+		b.WriteString("- **A commit is measured:** this repo pins `mutants-at-commit = \"block\"`, so the commit gate mutates the lines the commit adds, runs each mutant against the tests of its own function and refuses a survivor by name; a box with no memory headroom, or a run past its wall-clock budget, prints `NOT MEASURED` for what it did not reach and CI decides; `aphrollo gate mutants commit` runs it by hand.\n")
+	} else if f.MutantsAtCommit {
+		b.WriteString("- **A commit is measured, and reported:** this repo declares `mutants-at-commit = true`, so the commit gate mutates the lines the commit adds, runs each mutant against the tests of its own function and names each survivor without refusing the commit; a box with no memory headroom, or a run past its wall-clock budget, prints `NOT MEASURED` for what it did not reach; `aphrollo gate mutants commit` runs it by hand.\n")
 	}
 	// The rules that exist only because this repo measures mutants. The
 	// builder agent is one file per user and reaches every repo, so they live
 	// here, where they reach only a repo that declared the measurement.
-	if f.measures() {
+	if f.measures() && !f.blocks() {
+		b.WriteString("- **Mutation findings are guidance** in this repo: a survivor is reported, never refused, so no `gate mutants prove` line is owed. A survivor on a line you add is still a test worth writing.\n")
+	}
+	if f.measures() && f.blocks() {
 		who := "this repo measures mutants"
 		if f.MutantsAtMergeCI || f.MutantsBeforePRCI {
 			who = "CI's `mutants-verdict` measures this repo's mutants, and the local box does not"
@@ -215,6 +233,9 @@ func blockFlagsFor(repoRoot string) BlockFlags {
 		MutantsAtMerge:  cfg.AtMerge,
 		MutantsBeforePR: cfg.BeforePR,
 		MutantsAtCommit: cfg.AtCommit,
+
+		MutantsAtCommitBlock: cfg.AtCommitBlock,
+		MutantsAtMergeBlock:  cfg.AtMergeBlock,
 
 		MutantsAtMergeCI:  cfg.AtMergeCI,
 		MutantsBeforePRCI: cfg.BeforePRCI,

@@ -98,7 +98,7 @@ Risks and the full cut list are in the architecture (sections 10 and 12). Stays 
 
 ## Open
 
-- [ ] **This repo's CI mutation level.** Keep `mutants-verdict` as a required check or move it to report-only. Taking it out of the required checks is the owner's action. Blocks F1's CI half.
+- [x] **This repo's CI mutation level.** Decided 2026-10-03: mutation is opt-in, report by default, block only when pinned. This repo is opted in at the report level; `mutants-verdict` is no longer a required check, and the merge gate waits for it only where block is pinned.
 - [ ] **How a host is marked production.** Blocks #1102's fix. Proposed: a user-layer key `host.production = true`.
 - [ ] **#999 (first-run setup).** Blocks 1b. Proposed: rescope it to defaults plus `trellis config set`.
 - [ ] **Doc-only writes under `isolation = true`.** Blocks B6.

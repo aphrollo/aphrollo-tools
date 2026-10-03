@@ -44,15 +44,21 @@ var features = []Feature{
 	},
 	{
 		Key: "mutants-at-commit", Default: "off",
-		Effect: "mutation of the lines a commit adds, run against the tests selected for each mutant's function, before the commit lands; a survivor refuses it",
+		Effect: "mutation of the lines a commit adds, run against the tests selected for each mutant's function, before the commit lands; a survivor is reported and never refuses it unless the repo pins \"block\"",
 		Cost:   "up to the budget of wall-clock per commit on bounded workers, under the memory cap; a box with no headroom or a busy mutation lock measures nothing and CI decides",
-		Enable: "mutants-at-commit = true",
+		Enable: "mutants-at-commit = true (report), or \"block\" to refuse a survivor",
 	},
 	{
-		Key: "mutants-commit-budget", Default: "60",
+		Key: "mutants-commit-budget", Default: "90",
 		Effect: "the seconds the commit-time run may spend; mutants it does not reach are reported NOT MEASURED, never refused",
 		Cost:   "a higher figure holds a commit up longer on a slow box",
 		Enable: "mutants-commit-budget = <seconds>",
+	},
+	{
+		Key: "mutants-at-merge-level", Default: "report",
+		Effect: "what CI's mutants-verdict does with a survivor: report it and pass, or (block) fail the check and so the merge",
+		Cost:   "block holds a merge on every unaccepted survivor, timeout or unjudged line the PR adds",
+		Enable: "mutants-at-merge-level = \"block\"",
 	},
 	{
 		Key: "mutants-integration-packages", Default: "none",
@@ -127,13 +133,16 @@ func featureValues(repoRoot string) map[string]string {
 	cfg, err := ReadMutantsConfig(repoRoot)
 	if err != nil {
 		for _, key := range []string{"mutants-at-merge", "mutants-before-pr", "mutants-shards", "mutants-integration-packages",
-			"mutants-at-commit", "mutants-commit-budget"} {
+			"mutants-at-commit", "mutants-commit-budget", "mutants-at-merge-level"} {
 			values[key] = "unreadable"
 		}
 	} else {
 		values["mutants-at-merge"] = modeValue(cfg.AtMerge, cfg.AtMergeCI)
 		values["mutants-before-pr"] = modeValue(cfg.BeforePR, cfg.BeforePRCI)
-		values["mutants-at-commit"] = onOff(cfg.AtCommit)
+		values["mutants-at-commit"] = commitValue(cfg)
+		if cfg.AtMergeBlock {
+			values["mutants-at-merge-level"] = "block"
+		}
 		values["mutants-commit-budget"] = strconv.Itoa(int(cfg.CommitBudget().Seconds()))
 		if n := len(cfg.IntegrationPackages); n > 0 {
 			values["mutants-integration-packages"] = strconv.Itoa(n)
@@ -152,6 +161,14 @@ func modeValue(on, ci bool) string {
 		return "ci"
 	}
 	return onOff(on)
+}
+
+// commitValue renders mutants-at-commit: off, on (reports) or block.
+func commitValue(cfg MutantsConfig) string {
+	if cfg.AtCommitBlock {
+		return "block"
+	}
+	return onOff(cfg.AtCommit)
 }
 
 // onOff renders a switch.

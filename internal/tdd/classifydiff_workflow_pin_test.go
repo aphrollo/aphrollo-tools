@@ -209,6 +209,8 @@ func TestPipeline_TestWindowsRunsTheRaceSuiteInShardsOnAHostedWindowsRunner(t *t
 		"go test -race -count=1 -shuffle=on",
 		"mutation) pkgs=",
 		"cli) pkgs=",
+		"core.autocrlf false",
+		"TEMP: ${{ runner.temp }}",
 	} {
 		if !strings.Contains(job, want) {
 			t.Errorf("test-windows lacks %q:\n%s", want, job)

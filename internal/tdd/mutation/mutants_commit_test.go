@@ -71,6 +71,7 @@ func killsUnderTheMutant(c goCall) (int, string) {
 
 func TestMutantsAtCommitStage_ASurvivorRefusesTheCommitAndIsNamed(t *testing.T) {
 	cfgDir, root := commitStage(t, "")
+	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = \"block\"\n")
 	s := scriptGo(t, func(goCall) (int, string) { return 0, "ok\tgate\n" })
 
 	res := mutantsAtCommitStage("precommit", root)
@@ -91,6 +92,31 @@ func TestMutantsAtCommitStage_ASurvivorRefusesTheCommitAndIsNamed(t *testing.T) 
 	}
 	if log := gateLogText(t, cfgDir); !strings.Contains(log, "mutants-refused:tested=2,caught=0,unviable=0,missed=2") {
 		t.Errorf("gate.log = %q, want a mutants-refused line with the counts", log)
+	}
+}
+
+// The default is a report: the survivors are named and counted in the log, and
+// the commit goes through.
+func TestMutantsAtCommitStage_ASurvivorIsReportedAndTheCommitGoesThrough(t *testing.T) {
+	cfgDir, root := commitStage(t, "")
+	s := scriptGo(t, func(goCall) (int, string) { return 0, "ok\tgate\n" })
+
+	var res GateResult
+	stderr := captureStderr(t, func() { res = mutantsAtCommitStage("precommit", root) })
+
+	if res.Blocked || res.Message != "" {
+		t.Fatalf("a report-only commit run refused the commit: %q", res.Message)
+	}
+	for _, want := range []string{"gate/gate.go:4:7: CONDITIONALS_BOUNDARY", "gate/gate.go:4:7: CONDITIONALS_NEGATION", "REPORT ONLY"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, stderr)
+		}
+	}
+	if s.count() != 2 {
+		t.Errorf("go test ran %d times, want 2", s.count())
+	}
+	if log := gateLogText(t, cfgDir); !strings.Contains(log, "mutants-refused:tested=2,caught=0,unviable=0,missed=2") {
+		t.Errorf("gate.log = %q, want the survivors counted in the log", log)
 	}
 }
 

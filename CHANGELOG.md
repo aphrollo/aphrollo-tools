@@ -19,7 +19,7 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
-## 1.2.2 - 2026-10-03
+## 1.3.1 - 2026-10-03
 
 CI now runs the whole test suite on Windows too.
 
@@ -31,6 +31,49 @@ CI now runs the whole test suite on Windows too.
   no shard holds two of the packages that outrun a single run's time cap.
 - The job is not a required check yet; the repo owner adds it in branch protection.
   Nothing else changes for a repo that uses aphrollo.
+
+## 1.3.0 - 2026-10-03
+
+Mutation testing is opt-in and reports. A repo that declares nothing runs no
+mutation at commit or at merge; a repo that opts in gets a report, and a
+survivor refuses a commit or a merge only where the repo pins `block`.
+
+### What you will notice
+
+- A repo with no mutation key runs no mutation anywhere and is refused nothing.
+  This was already so for the keys below being absent; it is now the stated rule.
+- Opting in keeps its spellings: `mutants-at-commit = true` and
+  `mutants-at-merge = "ci"` (or `true`) still mean opted in, and now at the
+  report level. `mutants-at-commit = "report"` means the same as `true`.
+- The commit-time run (`mutants-at-commit`) mutates the lines a commit adds
+  inside 90 seconds by default (it was 60; `mutants-commit-budget` still sets
+  it), names each survivor and each mutant it did not reach (`NOT MEASURED`), and
+  lets the commit through. `mutants-at-commit = "block"` pins the old refusal.
+- Under `mutants-at-merge = "ci"`, CI's `mutants-verdict` check passes and prints
+  the survivors under `REPORT ONLY`, and the merge gate no longer waits for the
+  check or refuses on it. `mutants-at-merge-level = "block"` pins the old
+  behaviour: a survivor fails the check, and the merge gate refuses a merge whose
+  check did not pass. A measurement that is itself broken (a missing shard
+  report, an accept-list that cannot be read) still fails the check. GitHub's
+  branch protection is not changed by this release; a repo that listed
+  `mutants-verdict` as a required check removes it itself.
+- `mutants-before-pr = true` follows the same level: `workspace pr`, `ship` and
+  `submit` print survivors under `REPORT ONLY` and open the PR, unless the repo
+  pins `mutants-at-merge-level = "block"`.
+- A repo that pins neither level no longer gets the "quote one `mutants prove`
+  KILLED line per new condition" and loop-index rules in its managed CLAUDE.md
+  block; it gets one line saying findings are guidance. A repo that pins `block`
+  keeps both rules. Run `aphrollo install --managed-block-only` to refresh the
+  block.
+- `aphrollo install` and `aphrollo config` list the new `mutants-at-merge-level`
+  key.
+
+### What moves by itself
+
+- A repo that declared `mutants-at-commit = true` or `mutants-at-merge = "ci"`
+  and relied on a survivor being refused now sees it reported instead. Pin
+  `block` to keep the refusal.
+- This repo (aphrollo-tools) is opted in at the report level and pins no block.
 
 ## 1.2.1 - 2026-10-03
 
