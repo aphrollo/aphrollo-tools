@@ -3,6 +3,7 @@ package ghworkflow
 import (
 	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -333,5 +334,8 @@ func TestRun_AJobTimeoutStopsAStepThatOutlastsIt(t *testing.T) {
 	}
 	if r := result(t, sum, "j"); r.Result != ResultFailure {
 		t.Errorf("a step under a finished context must fail, got %+v\n%s", r, out.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "log.txt")); err == nil {
+		t.Error("the step ran under a finished context: it left log.txt behind")
 	}
 }
