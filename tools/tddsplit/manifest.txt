@@ -100,6 +100,8 @@ bashsuite_suite.go                                 suite     # created by P2
 bashsuite_test.go                                  postedit
 behind.go                                          tdd
 behind_test.go                                     tdd
+briefs.go                                          install
+briefs_test.go                                     install
 budgetfloor.go                                     lock
 budgetfloor_core.go                                core      # created by P2
 budgetfloor_own_test.go                            lock

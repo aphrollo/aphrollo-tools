@@ -87,6 +87,10 @@ like `systemctl` (no dry-run, no `--dry`).
   `ci-timeout` sets the per-step limit, and a step that reaches it is named. `workspace merge` runs it when `ci = local` (or `auto` and GitHub's
   jobs never started); the verdict is a gate.log line keyed by the merge result's
   tree, and a stored green for the same tree is reused.
+- `stats` — read-only: the pipeline measures folded from the repo's event log
+  (`internal/measure`; `aphrollo gate stats` reads gate.log instead), and with
+  `--briefs` the token length of the managed block, the tdd skill and each
+  agent brief against the section-5 caps.
 - `install` / `config` / `check` / `issue` / `update` / `version` — box setup
   (session hooks + git-hook shims in one run, and the opt-in feature table once
   per repo), that table on demand with the repo's values, read-only tree
@@ -105,6 +109,7 @@ internal/refactor/   detect lang → spawn server → rename/refs/outline/show
 internal/lsp/        LSP types + JSON-RPC stdio client
 internal/diff/       deterministic unified-diff renderer
 internal/guardrail/  PreToolUse policy
+internal/measure/    pure folds of the v1 event log into the pipeline measures, and the brief-length check
 internal/ratchet/    Law engine: .ratchet/laws/*.toml schema, matchers, baselines, fixtures
 internal/lang/       language table: one TOML row per language (comments, strings, suppression directives, test patterns), embedded defaults, per-repo .ratchet/languages rows
 internal/tomlsubset/ the one TOML subset reader: language rows and ratchet laws both parse through it

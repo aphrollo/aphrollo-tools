@@ -39,6 +39,7 @@ var topLevelVerbTable = []Verb{
 	{Name: "sqlc"},
 	{Name: "docs"},
 	{Name: "ci"},
+	{Name: "stats"},
 	{Name: "check"},
 	{Name: "version"},
 	{Name: "update"},
