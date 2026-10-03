@@ -20,9 +20,11 @@ name: Release replay
 #
 # It runs on pull requests that touch what produces a verdict (the paths below
 # are held to `go list -deps` of those packages by
-# TestReplayWorkflow_PathsCoverEveryPackageAVerdictIsReadThrough) and on every
-# push to main, which is where a release is cut. It is not a required check yet,
-# and the release job does not wait for it.
+# TestReplayWorkflow_PathsCoverEveryPackageAVerdictIsReadThrough) and on demand.
+# It does not run on a push to main: a merge only lands when the merge tree equals
+# the tree the pull request's CI judged, so a push run would repeat a replay that
+# already passed. It is not a required check yet, and the release job does not
+# wait for it.
 #
 # The local CI (`aphrollo ci run`) stands this job down: it gives every run the
 # id 1.
@@ -51,8 +53,6 @@ on:
       - ".github/workflows/release-replay.yml"
       - "go.mod"
       - "go.sum"
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

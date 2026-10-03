@@ -47,15 +47,23 @@ func TestReplayWorkflow_NeverUsesPullRequestTargetOrAWriteToken(t *testing.T) {
 	}
 }
 
-// A release is tagged after a push to main, so the replay has to run on the
-// push, not only on the pull request that led to it.
-func TestReplayWorkflow_RunsOnEveryPushToMain(t *testing.T) {
+// ratchet: test_removed TestReplayWorkflow_RunsOnEveryPushToMain: the replay no longer runs on a push to main; the merge tree is the tree the pull request's replay judged, and the test below pins the trigger set instead
+
+// A merge only lands when the merge tree equals the tree the pull request's CI
+// judged, so a replay on the push to main would repeat a run that already
+// passed. The triggers are the pull request and a manual dispatch, nothing else.
+func TestReplayWorkflow_TriggersAreExactlyPullRequestAndDispatch(t *testing.T) {
 	wf := replayWorkflow(t)
-	if !regexp.MustCompile(`(?m)^  push:\n    branches: \[main\]$`).MatchString(wf) {
-		t.Fatalf("the replay does not run on a push to main:\n%s", wf)
+	m := regexp.MustCompile(`(?ms)^on:\n(.*?)^\S`).FindStringSubmatch(wf)
+	if m == nil {
+		t.Fatalf("the replay has no on: block:\n%s", wf)
 	}
-	if !regexp.MustCompile(`(?m)^  pull_request:\n`).MatchString(wf) {
-		t.Fatal("the replay does not run on pull requests")
+	var events []string
+	for _, e := range regexp.MustCompile(`(?m)^  ([a-z_]+):`).FindAllStringSubmatch(m[1], -1) {
+		events = append(events, e[1])
+	}
+	if strings.Join(events, ",") != "pull_request,workflow_dispatch" {
+		t.Fatalf("replay triggers = %v, want pull_request and workflow_dispatch and nothing else", events)
 	}
 }
 
