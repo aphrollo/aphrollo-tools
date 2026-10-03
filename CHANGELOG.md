@@ -19,6 +19,21 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.7.2 - 2026-10-03
+
+The guardrail refuses a `python -` that has no stdin on Windows.
+
+### What you will notice
+
+- A Bash call that runs `python`, `python3` or `py` with `-` (or no script at all) and gives it no stdin
+  source is refused with the rule name `python-stdin-null` and its fix, the same as one redirected from
+  `/dev/null`. The agent harness runs a command with no stdin attached (NUL), so python took it for a
+  terminal, opened the REPL and spun at 100% CPU. The fix is the one the refusal names: write the script
+  to a file and run `python file.py`.
+- A heredoc with an empty body (`python3 - <<'EOF'` with `EOF` on the next line) is refused too: bash
+  attaches no stdin for it. A heredoc with a body, a here-string, a `< file` redirect and a pipe into
+  `python -` (`cat s.py | python -`) are unaffected, and so is every call off Windows.
+
 ## 1.7.1 - 2026-10-03
 
 The guardrail rules now run in the installed PreToolUse hook.
