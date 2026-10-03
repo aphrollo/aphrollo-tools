@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -98,18 +100,15 @@ func lintAcquiredLine(waited time.Duration, contended bool) string {
 // execGolangciLint runs the wrapped golangci-lint with real stdio, once this
 // process holds the box-wide lint lock, and propagates its exit code.
 func execGolangciLint(binPath string, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	cmd := exec.Command(binPath, args...)
-	cmd.Stdin = stdin
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	capped, err := tdd.RunSlotChild(cmd, ".")
+	capped, err := tdd.RunSlotSpec(run.Spec{Name: binPath, Args: args, Stdin: stdin, Stdout: stdout, Stderr: stderr}, ".")
 	if capped.Killed {
 		// Ended by the memory cap, not by lint: no verdict on the code.
 		fmt.Fprintf(stderr, "gate lint: %s — inconclusive, nothing was linted\n", capped.Line())
 		return exitOOMKilled
 	}
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			return exitErr.ExitCode()
 		}
 		fmt.Fprintf(stderr, "gate lint: %v\n", err)

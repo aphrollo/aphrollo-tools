@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -275,13 +275,9 @@ func probeGit(realGit, root string, args ...string) (string, error) {
 // probeGitStdin is probeGit with stdin fed from in. git's stderr is carried
 // into the error, where it names the path git refused.
 func probeGitStdin(realGit, root string, in io.Reader, args ...string) (string, error) {
-	cmd := exec.Command(realGit, append([]string{"--literal-pathspecs"}, args...)...)
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-	cmd.Stdin = in
 	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: realGit, Args: append([]string{"--literal-pathspecs"}, args...), Dir: root,
+		Env: append(os.Environ(), tdd.GitQueuedEnv+"=1"), Stdin: in, Stderr: &stderr})
 	if err != nil {
 		return string(out), fmt.Errorf("%w: %s", err, strings.TrimSpace(stderr.String()))
 	}

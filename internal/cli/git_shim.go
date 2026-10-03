@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -428,10 +429,7 @@ func gitLockDir(realGit string, args []string, cwd string, scope gitLockScope) (
 func gitRevParseDir(realGit string, args []string, cwd, flag string) (string, bool) {
 	prefix, _ := gitGlobalArgs(args)
 	rpArgs := append(append([]string{}, prefix...), "rev-parse", "--path-format=absolute", flag)
-	cmd := exec.Command(realGit, rpArgs...)
-	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: realGit, Args: rpArgs, Dir: cwd, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1")})
 	if err != nil {
 		return "", false
 	}
@@ -495,6 +493,7 @@ func execGit(realGit string, args []string, stdin io.Reader, stdout, stderr io.W
 	if execGitHookForTest != nil {
 		execGitHookForTest(args)
 	}
+	// exec-ok: this is the user's own git, run with their terminal: an editor, a pager, a credential prompt and a Ctrl-C all reach it, which a guarded child's process group on unix, or a timeout, would not allow.
 	cmd := exec.Command(realGit, args...)
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout

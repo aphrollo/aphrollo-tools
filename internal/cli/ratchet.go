@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -348,8 +348,7 @@ func lawChangedSinceHEAD(root, law string) bool {
 	if err != nil {
 		return true
 	}
-	cmd := exec.Command("git", "-C", root, "show", "HEAD:"+rel)
-	head, err := cmd.Output()
+	head, err := lightOutput(run.Spec{Name: "git", Args: []string{"-C", root, "show", "HEAD:" + rel}})
 	if err != nil {
 		return true
 	}

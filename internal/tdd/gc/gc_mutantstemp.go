@@ -1,6 +1,7 @@
 package gc
 
 import (
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -8,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Category (i): cargo-mutants' own tree COPIES in the OS temp dir. Run bare,
@@ -121,17 +124,18 @@ func mutantsCopyOwner(dir string) (int, bool) {
 // question could not be asked, which every caller treats as "assume live".
 func cargoMutantsPids() ([]int, bool) {
 	if runtime.GOOS == "windows" {
-		out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq cargo-mutants.exe", "/NH", "/FO", "CSV").Output()
+		out, err := gcLightOutput(run.Spec{Name: "tasklist", Args: []string{"/FI", "IMAGENAME eq cargo-mutants.exe", "/NH", "/FO", "CSV"}})
 		if err != nil {
 			return nil, false
 		}
 		return csvPids(string(out)), true
 	}
-	out, err := exec.Command("pgrep", "-x", "cargo-mutants").Output()
+	out, err := gcLightOutput(run.Spec{Name: "pgrep", Args: []string{"-x", "cargo-mutants"}})
 	if err != nil {
 		// pgrep exits 1 with no output when nothing matched, which IS an
 		// answer; any other failure (no pgrep on the box) is not.
-		if ee, isExit := err.(*exec.ExitError); isExit && ee.ExitCode() == 1 {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 {
 			return nil, true
 		}
 		return nil, false

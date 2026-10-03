@@ -8,9 +8,9 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -73,9 +73,8 @@ func runGateClassifyDiff(args []string, stdout, stderr io.Writer) int {
 // resolves its relative paths.
 func classifyFromCheckout(base, head string) (tdd.DiffClass, error) {
 	var errb bytes.Buffer
-	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
-	cmd.Stderr = &errb // quoted in the reason below
-	out, err := cmd.Output()
+	// stderr is quoted in the reason below
+	out, err := lightOutput(run.Spec{Name: "git", Args: []string{"rev-parse", "--show-toplevel"}, Stderr: &errb})
 	if err != nil {
 		return tdd.DiffCode, fmt.Errorf("not inside a git repository: %v: %s", err, strings.TrimSpace(errb.String()))
 	}

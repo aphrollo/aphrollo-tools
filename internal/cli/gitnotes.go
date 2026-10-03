@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"sync/atomic"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -38,10 +38,10 @@ func pushGateNotes(rest []string, cwd, realGit string, code int, stderr io.Write
 	if !hasLocalGateNotes(cwd, realGit) {
 		return
 	}
-	cmd := gateNotesPushCmd(realGit, cwd, remote)
+	push := func() ([]byte, error) { return lightCombined(gateNotesPushCmd(realGit, cwd, remote)) }
 	out, err := pushNotesMerging(
-		cmd.CombinedOutput,
-		func() ([]byte, error) { return gateNotesPushCmd(realGit, cwd, remote).CombinedOutput() },
+		push,
+		push,
 		func() error { return mergeRemoteGateNotes(realGit, cwd, remote) })
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: pushed the branch but not %s (%v: %s) — CI will read this tip as ungated\n",
@@ -93,10 +93,9 @@ func scratchNotesRef() string {
 // were, and the caller reports the rejection.
 func mergeRemoteGateNotes(realGit, dir, remote string) error {
 	git := func(args ...string) error {
-		cmd := exec.Command(realGit, append([]string{"-c", "credential.interactive=false", "-c", "core.askPass="}, args...)...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1", "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")
-		if out, err := cmd.CombinedOutput(); err != nil {
+		out, err := lightCombined(run.Spec{Name: realGit, Args: append([]string{"-c", "credential.interactive=false", "-c", "core.askPass="}, args...), Dir: dir,
+			Env: append(os.Environ(), tdd.GitQueuedEnv+"=1", "GIT_TERMINAL_PROMPT=0", "GIT_ASKPASS=", "SSH_ASKPASS=")})
+		if err != nil {
 			return fmt.Errorf("git %s: %v: %s", args[0], err, strings.Join(strings.Fields(string(out)), " "))
 		}
 		return nil
@@ -148,21 +147,24 @@ var pushValueFlags = map[string]bool{
 // askpass hooks, and the credential helper's own interactive mode. A note
 // that cannot be pushed without credentials is a note that does not get
 // pushed, and says so in one line.
-func gateNotesPushCmd(realGit, dir, remote string) *exec.Cmd {
-	cmd := exec.Command(realGit,
-		"-c", "credential.interactive=false",
-		"-c", "core.askPass=",
-		"push", remote, tdd.GateNotesRefFull)
-	cmd.Dir = dir
-	// Marked as already-queued: this process holds the per-repo lock, and a
-	// child routed back through the shim by PATH would wait on it forever.
-	cmd.Env = append(os.Environ(),
-		tdd.GitQueuedEnv+"=1",
-		"GIT_TERMINAL_PROMPT=0",
-		"GIT_ASKPASS=",
-		"SSH_ASKPASS=",
-	)
-	return cmd
+func gateNotesPushCmd(realGit, dir, remote string) run.Spec {
+	return run.Spec{
+		Name: realGit,
+		Args: []string{
+			"-c", "credential.interactive=false",
+			"-c", "core.askPass=",
+			"push", remote, tdd.GateNotesRefFull,
+		},
+		Dir: dir,
+		// Marked as already-queued: this process holds the per-repo lock, and a
+		// child routed back through the shim by PATH would wait on it forever.
+		Env: append(os.Environ(),
+			tdd.GitQueuedEnv+"=1",
+			"GIT_TERMINAL_PROMPT=0",
+			"GIT_ASKPASS=",
+			"SSH_ASKPASS=",
+		),
+	}
 }
 
 // pushRemote is the remote a push names, "" when the arguments are a shape
@@ -239,8 +241,5 @@ func pushRemote(args []string) string {
 // hasLocalGateNotes reports whether there is a note to send at all, so a repo
 // the gate has never stamped does not spend a git process on every push.
 func hasLocalGateNotes(cwd, realGit string) bool {
-	cmd := exec.Command(realGit, "rev-parse", "--verify", "--quiet", tdd.GateNotesRefFull)
-	cmd.Dir = cwd
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-	return cmd.Run() == nil
+	return lightRun(run.Spec{Name: realGit, Args: []string{"rev-parse", "--verify", "--quiet", tdd.GateNotesRefFull}, Dir: cwd, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1")}) == nil
 }

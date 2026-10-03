@@ -3,12 +3,12 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -488,10 +488,7 @@ func pathArgs(paths []string) []string {
 // already queued so it never contends with a lock this process itself may
 // be holding.
 func runGitCapture(realGit, workDir string, args ...string) (string, error) {
-	cmd := exec.Command(realGit, args...)
-	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: realGit, Args: args, Dir: workDir, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1")})
 	return string(out), err
 }
 

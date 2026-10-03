@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -151,10 +151,7 @@ func freshRejectionMarker(repoRoot string, start time.Time) bool {
 // state a rejected automerge leaves, and the state a real conflict leaves
 // too, which is why this alone never decides recovery.
 func mergeHeadExists(realGit, workDir string) bool {
-	cmd := exec.Command(realGit, "rev-parse", "-q", "--verify", "MERGE_HEAD")
-	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-	return cmd.Run() == nil
+	return lightRun(run.Spec{Name: realGit, Args: []string{"rev-parse", "-q", "--verify", "MERGE_HEAD"}, Dir: workDir, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1")}) == nil
 }
 
 // hasUnmergedPaths reports whether workDir has any path git considers
@@ -163,10 +160,7 @@ func mergeHeadExists(realGit, workDir string) bool {
 // this reads as "conflicts present": an unreadable answer must never license
 // an automatic abort.
 func hasUnmergedPaths(realGit, workDir string) bool {
-	cmd := exec.Command(realGit, "diff", "--name-only", "--diff-filter=U")
-	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: realGit, Args: []string{"diff", "--name-only", "--diff-filter=U"}, Dir: workDir, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1")})
 	if err != nil {
 		return true
 	}
@@ -179,11 +173,7 @@ func hasUnmergedPaths(realGit, workDir string) bool {
 // but when it FAILS its stderr is the one place that names the path git
 // refused to touch, and swallowing it is exactly the defect this fixes.
 func execGitCaptureStderr(realGit, workDir string, args ...string) (string, error) {
-	cmd := exec.Command(realGit, args...)
-	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
 	var stderrBuf bytes.Buffer
-	cmd.Stderr = &stderrBuf
-	err := cmd.Run()
+	err := lightRun(run.Spec{Name: realGit, Args: args, Dir: workDir, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1"), Stderr: &stderrBuf})
 	return stderrBuf.String(), err
 }

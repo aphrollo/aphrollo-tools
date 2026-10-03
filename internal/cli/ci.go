@@ -6,11 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os/exec"
 	"strconv"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ciwhy"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 const ciUsage = `usage: aphrollo ci run [--dry] [--ci-jobs N] [--ci-timeout DURATION]
@@ -69,13 +69,12 @@ var ciGh ciwhy.Gh = execGh
 func execGh(ctx context.Context, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
 	defer cancel()
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "gh", args...)
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	if err := cmd.Run(); err != nil {
-		return append(stdout.Bytes(), stderr.Bytes()...), err
+	var stderr bytes.Buffer
+	stdout, err := lightOutputCtx(ctx, run.Spec{Name: "gh", Args: args, Stderr: &stderr})
+	if err != nil {
+		return append(stdout, stderr.Bytes()...), err
 	}
-	return stdout.Bytes(), nil
+	return stdout, nil
 }
 
 func runCI(args []string, stdout, stderr io.Writer) int {

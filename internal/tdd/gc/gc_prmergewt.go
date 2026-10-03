@@ -3,13 +3,13 @@ package gc
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // gatePRMergeHolderFile matches PRGateHolderFile
@@ -86,11 +86,11 @@ func removeGatePRMergeWorktree(path string) error {
 	if err := depinstall.RemoveLinks(path); err != nil {
 		return err
 	}
-	common, err := exec.Command("git", "-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir").Output() // stderr-ok: a failed lookup is reported by the exit error below
+	common, err := gcLightOutput(run.Spec{Name: "git", Args: []string{"-C", path, "rev-parse", "--path-format=absolute", "--git-common-dir"}}) // stderr-ok: a failed lookup is reported by the exit error below
 	if err != nil {
 		return fmt.Errorf("finding the shared git dir of %s: %w", path, err)
 	}
-	out, err := exec.Command("git", "-C", strings.TrimSpace(string(common)), "worktree", "remove", "--force", path).CombinedOutput()
+	out, err := gcLightCombined(run.Spec{Name: "git", Args: []string{"-C", strings.TrimSpace(string(common)), "worktree", "remove", "--force", path}})
 	if err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}

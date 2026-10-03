@@ -420,6 +420,8 @@ gc_refused_order_test.go                           gc
 gc_render.go                                       gc
 gc_render_core.go                                  core      # created by P2
 gc_render_test.go                                  gc
+gc_run.go                                          gc
+gc_run_test.go                                     gc
 gc_safety_test.go                                  gc
 gc_scratch.go                                      gc
 gc_scratch_test.go                                 gc
@@ -553,7 +555,9 @@ memcap_box_windows.go                              lock
 memcap_own_test.go                                 lock
 memcap_run.go                                      lock
 memcap_run_poll.go                                 lock
+memcap_run_spec.go                                 lock
 memcap_run_own_test.go                             lock
+memcap_run_spec_own_test.go                        lock
 memcap_run_unix.go                                 lock
 memcap_run_unix_own_test.go                        lock
 memcap_run_windows.go                              lock
