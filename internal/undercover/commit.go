@@ -1,10 +1,10 @@
 package undercover
 
 import (
-	"bytes"
-	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // CommitHit names what a commit carries: which field, its value, the tell.
@@ -77,29 +77,22 @@ func (l List) ConfiguredIdentityTell(repo string) (ConfigIdentity, string, bool)
 
 // gitConfigValue is one key at one scope, "" when unset or unreadable.
 func gitConfigValue(dir, scope, key string) string {
-	var stdout bytes.Buffer
-	cmd := exec.Command("git", "config", scope, "--get", key)
-	cmd.Dir = dir
-	cmd.Stdout = &stdout
-	if cmd.Run() != nil {
+	out, err := run.LightOutput(run.Spec{Name: "git", Args: []string{"config", scope, "--get", key}, Dir: dir})
+	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(stdout.String())
+	return strings.TrimSpace(string(out))
 }
 
 // RangeTell runs `git log` over rangeArgs in dir, with env as the child's
 // environment (nil inherits the caller's), and answers the first commit whose
 // identities carry a tell, with its sha.
 func (l List) RangeTell(gitBin, dir string, env []string, rangeArgs ...string) (sha string, h CommitHit, hit bool, err error) {
-	var stdout bytes.Buffer
-	cmd := exec.Command(gitBin, append([]string{"log", "--format=%H%x1f%an <%ae>%x1f%cn <%ce>%x1f%B%x1e"}, rangeArgs...)...)
-	cmd.Dir = dir
-	cmd.Env = env
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
+	stdout, err := run.LightOutput(run.Spec{Name: gitBin, Args: append([]string{"log", "--format=%H%x1f%an <%ae>%x1f%cn <%ce>%x1f%B%x1e"}, rangeArgs...), Dir: dir, Env: env})
+	if err != nil {
 		return "", CommitHit{}, false, err
 	}
-	for _, rec := range strings.Split(stdout.String(), "\x1e") {
+	for _, rec := range strings.Split(string(stdout), "\x1e") {
 		f := strings.Split(strings.TrimLeft(rec, "\n"), "\x1f")
 		if len(f) != 4 {
 			continue

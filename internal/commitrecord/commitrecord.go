@@ -15,10 +15,10 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
 
@@ -26,10 +26,8 @@ import (
 // shared git dir so every worktree of one repository reads and writes one file.
 // head is the sha of dir's HEAD, "" when it has none.
 func fileFor(dir string) (path, head string) {
-	cmd := exec.Command("git", "rev-parse", "--path-format=absolute", "--git-common-dir", "HEAD")
-	cmd.Dir = dir
-	out, err := cmd.Output() // stderr-ok: any failure means no record, and the hook fails open
-	if err != nil {
+	out, err := childrun.LightOutput(childrun.Spec{Name: "git", Args: []string{"rev-parse", "--path-format=absolute", "--git-common-dir", "HEAD"}, Dir: dir})
+	if err != nil { // any failure means no record, and the hook fails open
 		return "", ""
 	}
 	lines := strings.Fields(string(out))

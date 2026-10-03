@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // A test that wants a git repo used to build one: `git init` plus three `git
@@ -124,9 +126,7 @@ func mustInitRepo(dir string) {
 }
 
 func mustGit(dir string, args ...string) {
-	cmd := exec.Command(gitBin(), args...)
-	cmd.Dir = dir
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := run.LightCombined(run.Spec{Name: gitBin(), Args: args, Dir: dir}); err != nil {
 		panic("fixture git " + filepath.Join(args...) + ": " + err.Error() + "\n" + string(out))
 	}
 }

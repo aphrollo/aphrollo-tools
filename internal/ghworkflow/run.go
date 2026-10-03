@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Options is what a run needs besides the workflows themselves. Zero values
@@ -470,13 +470,7 @@ func (r *jobRun) exec(ctx context.Context, st *Step, script string, env []string
 	}
 	stepCtx, cancel := context.WithTimeout(ctx, r.opt.StepTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(stepCtx, argv[0], argv[1:]...)
-	cmd.Dir, cmd.Env = dir, env
-	cmd.Stdout, cmd.Stderr = r.opt.Out, r.opt.Out
-	cmd.SysProcAttr = lowPriorityAttrs(proc.TreeAttrs())
-	cmd.Cancel = func() error { return proc.KillTree(cmd.Process.Pid) }
-	cmd.WaitDelay = waitDelay
-	err = cmd.Run()
+	err = r.runChild(stepCtx, childrun.Spec{Name: argv[0], Args: argv[1:], Dir: dir, Env: env})
 	if f, ok := r.opt.Out.(interface{ flush() }); ok {
 		f.flush()
 	}
@@ -485,6 +479,37 @@ func (r *jobRun) exec(ctx context.Context, st *Step, script string, env []string
 	}
 	return nil
 }
+
+// runChild runs one step's command as a heavy child of run, in the environment
+// the step was given and at below normal priority, and ends its whole process
+// tree when ctx is done: the step's limit, the job's, the run's deadline or a
+// cancel. A guard the box could not give never fails the step: it runs without
+// one and a line says so.
+func (r *jobRun) runChild(ctx context.Context, spec childrun.Spec) error {
+	spec.EnvAsIs = true
+	spec.Stdout, spec.Stderr = r.opt.Out, r.opt.Out
+	spec.PipeGrace = waitDelay
+	spec.Hook = belowNormal{}
+	c, err := childrun.StartHeavy(ctx, spec)
+	if err != nil {
+		return err
+	}
+	stop := c.CloseOnDone(ctx)
+	defer stop()
+	err = c.Wait()
+	if why := c.Unguarded(); why != nil {
+		fmt.Fprintf(r.opt.Out, "  [warn] the step ran unguarded, its process tree is not held in a job (%v)\n", why)
+	}
+	return err
+}
+
+// belowNormal puts the step at below normal priority where that is a creation
+// flag (Windows); where it is in the command (nice, ionice) it changes nothing.
+type belowNormal struct{}
+
+func (belowNormal) Before(cmd *exec.Cmd) { cmd.SysProcAttr = lowPriorityAttrs(cmd.SysProcAttr) }
+func (belowNormal) Started(int)          {}
+func (belowNormal) Ended()               {}
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {

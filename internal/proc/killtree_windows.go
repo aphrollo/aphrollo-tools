@@ -1,6 +1,7 @@
 //go:build windows
 
 // twin: internal/proc/killtree_unix.go
+// twin-diverges-ok: the unix twin signals a process group and starts no process, so a note on this file's one exec site has nothing to mirror.
 package proc
 
 import (
@@ -19,6 +20,7 @@ func killTreePlan(pid int) []string {
 // KillTree runs that plan.
 func KillTree(pid int) error {
 	plan := killTreePlan(pid)
+	// exec-ok: this is the kill run's own guards use, and internal/run imports proc: a child of run here would be an import cycle, and one that needed its own guard to be ended.
 	return exec.Command(plan[0], plan[1:]...).Run()
 }
 

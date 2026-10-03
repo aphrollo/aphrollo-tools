@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // A GitHub runner is thrown away after a job; this box is not. A workflow's
@@ -37,11 +39,8 @@ func lookPython() (string, bool) {
 
 // makeVenv makes dir a venv of python. A variable so a test can watch it.
 var makeVenv = func(ctx context.Context, python, dir string, env []string) error {
-	ctx, cancel := context.WithTimeout(ctx, venvTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, python, "-m", "venv", dir)
-	cmd.Env = env
-	if out, err := cmd.CombinedOutput(); err != nil {
+	out, err := childrun.LightCombinedCtx(ctx, childrun.Spec{Name: python, Args: []string{"-m", "venv", dir}, Env: env, Timeout: venvTimeout})
+	if err != nil {
 		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil

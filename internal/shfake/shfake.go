@@ -8,9 +8,9 @@
 package shfake
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Install writes script as the command name in dir; the caller puts dir on
@@ -56,7 +57,7 @@ func write(t testing.TB, path string, data []byte) {
 // where it lives (--exec-path is <root>\mingw64\libexec\git-core), which survives a
 // git shim on PATH and avoids taking a WSL launcher for an sh.
 func windowsSh() string {
-	out, err := exec.Command("git", "--exec-path").Output() // stderr-ok: a failed lookup means no sh, which Install reports
+	out, err := run.LightOutput(run.Spec{Name: "git", Args: []string{"--exec-path"}})
 	if err != nil {
 		return ""
 	}
@@ -69,37 +70,13 @@ func windowsSh() string {
 	return ""
 }
 
-const trampolineSource = `package main
-
-import (
-	"os"
-	"os/exec"
-	"strings"
-)
-
-func main() {
-	self, err := os.Executable()
-	if err != nil {
-		os.Exit(127)
-	}
-	base := strings.TrimSuffix(self, ".exe")
-	sh, err := os.ReadFile(base + ".shpath")
-	if err != nil {
-		os.Exit(127)
-	}
-	cmd := exec.Command(string(sh), append([]string{base + ".sh"}, os.Args[1:]...)...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	// Without noglob the msys runtime expands the braces of gh's {owner}/{repo}
-	// placeholders away before the script sees its arguments.
-	cmd.Env = append(os.Environ(), "MSYS=noglob")
-	if err := cmd.Run(); err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			os.Exit(ee.ExitCode())
-		}
-		os.Exit(127)
-	}
-}
-`
+// trampolineSource is the trampoline program, a file of its own so it is read
+// as the program it is: it starts the box's sh as a plain child with the
+// terminal handed through, and is built on its own, where it cannot reach
+// internal/run.
+//
+//go:embed testdata/trampoline/main.go
+var trampolineSource string
 
 // trampoline builds the trampoline once per test binary, under the binary's
 // temp root (the package TestMains isolate TMP and remove that root at exit).
@@ -124,12 +101,10 @@ func buildTrampoline(dir string) (string, error) {
 		return "", err
 	}
 	exe := filepath.Join(dir, "shim.exe")
-	cmd := exec.Command("go", "build", "-o", exe, ".")
-	cmd.Dir = dir
 	// The module is a throwaway: a go.work above the temp dir, or one the
 	// environment names, lists other modules and go refuses this one.
-	cmd.Env = append(os.Environ(), "GOWORK=off")
-	if out, err := cmd.CombinedOutput(); err != nil {
+	spec := run.Spec{Name: "go", Args: []string{"build", "-o", exe, "."}, Dir: dir, Env: append(os.Environ(), "GOWORK=off")}
+	if out, err := run.LightCombined(spec); err != nil {
 		return "", fmt.Errorf("building the sh trampoline: %v\n%s", err, out)
 	}
 	return exe, nil

@@ -3,11 +3,12 @@ package tddtest
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // The stub is a compiled binary, not a shell script: Windows cannot exec a
@@ -119,9 +120,7 @@ var GhStubDir = sync.OnceValues(func() (string, error) {
 	if hostGOOS == "windows" {
 		name = "gh.exe"
 	}
-	cmd := exec.Command("go", "build", "-o", filepath.Join(dir, name), ".")
-	cmd.Dir = src
-	if out, err := cmd.CombinedOutput(); err != nil {
+	if out, err := run.LightCombined(run.Spec{Name: "go", Args: []string{"build", "-o", filepath.Join(dir, name), "."}, Dir: src}); err != nil {
 		return "", fmt.Errorf("building the gh stub: %v\n%s", err, out)
 	}
 	return dir, nil

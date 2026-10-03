@@ -3,16 +3,17 @@
 package ghworkflow
 
 import (
-	"os/exec"
 	"path/filepath"
 	"strings"
+
+	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // gitForWindowsBash is the bash.exe that ships with Git for Windows, found
 // from git's own exec path. A bare PATH lookup finds the WSL launcher in
 // System32 first, which runs scripts in a different filesystem.
 func gitForWindowsBash() (string, bool) {
-	out, err := exec.Command("git", "--exec-path").Output() // stderr-ok: a failed probe falls back to the PATH lookup
+	out, err := childrun.LightOutput(childrun.Spec{Name: "git", Args: []string{"--exec-path"}})
 	if err != nil {
 		// absence-ok: no git on PATH means no Git for Windows to find; the PATH lookup decides
 		return "", false

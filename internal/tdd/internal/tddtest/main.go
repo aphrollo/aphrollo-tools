@@ -5,7 +5,6 @@
 package tddtest
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/gitiso"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Seams is what Main needs from the package whose tests it runs. A package
@@ -321,11 +321,7 @@ func realCargoAvailable(env []string) (ok bool, detail string) {
 	if err != nil {
 		return false, fmt.Sprintf("cargo: %v", err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), realCargoProbeTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, cargo, "--version")
-	cmd.Env = env
-	out, err := cmd.CombinedOutput()
+	out, err := run.LightCombined(run.Spec{Name: cargo, Args: []string{"--version"}, Env: env, Timeout: realCargoProbeTimeout})
 	if err != nil {
 		return false, fmt.Sprintf("cargo --version failed (%v): %s", err, strings.TrimSpace(string(out)))
 	}

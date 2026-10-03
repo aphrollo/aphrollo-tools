@@ -159,6 +159,7 @@ func rlndxCacheDirs() []string {
 // --- runners ----------------------------------------------------------------
 
 func runArgv(argv []string, stdout, stderr io.Writer) error {
+	// exec-ok: sudo may ask for the user's password on their terminal, which a guarded child's own process group on unix could not read.
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	return cmd.Run()
