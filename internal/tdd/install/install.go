@@ -133,11 +133,10 @@ func repoHooksDir(repoRoot string) (string, error) {
 	if fi.IsDir() {
 		return filepath.Join(repoRoot, ".git", "hooks"), nil
 	}
-	out, gitErr := gitRead(repoRoot, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	common := strings.TrimSpace(out)
-	if gitErr != nil || common == "" {
-		return "", fmt.Errorf("%s has a .git file (a linked worktree) whose common git directory git could not "+
-			"resolve: %v", repoRoot, gitErr)
+	common := gitCommonDir(repoRoot)
+	if common == "" {
+		return "", fmt.Errorf("%s has a .git file (a linked worktree) whose common git directory could not be "+
+			"resolved", repoRoot)
 	}
 	return filepath.Join(filepath.FromSlash(common), "hooks"), nil
 }

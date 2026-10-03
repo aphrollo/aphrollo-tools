@@ -8,8 +8,6 @@ import (
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
-
-	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // testBin stands in for the resolved aphrollo binary path the hooks should exec.
@@ -243,33 +241,42 @@ func TestBuildInstallPlan_AcceptsALinkedWorktree(t *testing.T) {
 // (CombinedOutput) turns the warning into part of the value, and here the value
 // is a DIRECTORY PATH that `install --apply` then MkdirAlls: a warning line
 // would be created on disk as a directory, and every hook written under it.
-func TestBuildInstallPlan_IgnoresGitWarningsOnStderr(t *testing.T) {
+func TestBuildInstallPlan_PutsALinkedWorktreesHooksInTheCommonGitDirectoryWithoutAskingGit(t *testing.T) {
 	main := makeGoRepo(t)
 	lane := filepath.Join(t.TempDir(), "lane")
-	gitDo(t, main, "worktree", "add", "-q", "-b", "lane/warning-probe", lane)
-
-	// Only now stand this binary in as git — the fixture above needs the real
-	// one. It prints a warning on stderr and fakeGitCommonDir on stdout.
-	t.Setenv(realGitEnv, os.Args[0])
+	gitDo(t, main, "worktree", "add", "-q", "-b", "lane/hooks-probe", lane)
+	// No git at all: the common directory is read from the lane's .git files,
+	// so nothing git prints on stderr can become part of the path.
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv(realGitEnv, filepath.Join(t.TempDir(), "no-git"))
 
 	plan, err := BuildInstallPlan(lane, testBin)
 
 	if err != nil {
-		t.Fatalf("a git that warns must still resolve: %v", err)
+		t.Fatalf("a linked worktree must resolve its common directory from files: %v", err)
 	}
 	if len(plan.Hooks) == 0 {
 		t.Fatal("the plan carries no hooks at all")
 	}
-	want := filepath.Join(filepath.FromSlash(fakeGitCommonDir), "hooks")
+	want := filepath.Join(main, ".git", "hooks")
 	for _, h := range plan.Hooks {
-		if got := filepath.Dir(h.Path); got != want {
-			t.Fatalf("hook %q sits in %q, want %q — git's stderr became part of the path install would create",
-				filepath.Base(h.Path), got, want)
+		if got := filepath.Dir(h.Path); !sameDirPath(t, got, want) {
+			t.Fatalf("hook %q sits in %q, want %q", filepath.Base(h.Path), got, want)
 		}
 	}
 }
 
-// fakeGitCommonDir is what this binary prints on STDOUT when it is standing in
-// as `git` (see tddtest.Main). A fixed sentinel, so the test asserting on the
-// hooks path built from it needs nothing from the real git.
-const fakeGitCommonDir = tddtest.FakeGitCommonDir
+func sameDirPath(t *testing.T, got, want string) bool {
+	t.Helper()
+	g, err := os.Stat(got)
+	if err != nil {
+		return false
+	}
+	w, err := os.Stat(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return os.SameFile(g, w)
+}
+
+// ratchet: test_removed TestBuildInstallPlan_IgnoresGitWarningsOnStderr: the common git directory is read from the .git files, so there is no git answer for a warning to corrupt; the test above pins the files route

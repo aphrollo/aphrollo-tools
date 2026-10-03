@@ -68,8 +68,7 @@ func ClassifyDiff(repoRoot, base, head string) (DiffClass, error) {
 	if err != nil {
 		return DiffCode, fmt.Errorf("head %q does not resolve to a commit in this clone", head)
 	}
-	checkout, err := git(repoRoot, "rev-parse", "--verify", "HEAD")
-	if err != nil || strings.TrimSpace(checkout) != strings.TrimSpace(headID) {
+	if checkout := checkedOutSHA(repoRoot); checkout == "" || checkout != strings.TrimSpace(headID) {
 		return DiffCode, fmt.Errorf("head %q is not the checked-out commit, and the embed rule reads the checkout", head)
 	}
 	baseID, headID = strings.TrimSpace(baseID), strings.TrimSpace(headID)

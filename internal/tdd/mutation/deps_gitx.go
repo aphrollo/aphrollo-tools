@@ -17,11 +17,17 @@ func TrunkBranch(p0 string) string { return gitx.TrunkBranch(p0) }
 
 func branchIsTrunk(p0 string, p1 string) bool { return gitx.BranchIsTrunk(p0, p1) }
 
+func checkedOutBranch(p0 string) string { return gitx.CheckedOutBranch(p0) }
+
+func checkedOutSHA(p0 string) string { return gitx.CheckedOutSHA(p0) }
+
 func cleanGitEnvFor(p0 string, p1 ...string) []string { return gitx.CleanGitEnvFor(p0, p1...) }
 
 func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
 
 func gitBinary() string { return gitx.GitBinary() }
+
+func gitCommonDir(p0 string) string { return gitx.GitCommonDir(p0) }
 
 func gitOut(p0 string, p1 ...string) string { return gitx.GitOut(p0, p1...) }
 

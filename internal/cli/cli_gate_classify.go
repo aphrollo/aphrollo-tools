@@ -1,16 +1,14 @@
 package cli
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
-	"github.com/aphrollo/aphrollo-tools/internal/run"
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -72,13 +70,11 @@ func runGateClassifyDiff(args []string, stdout, stderr io.Writer) int {
 // and classifies from its root, which is where ClassifyFile's embed rule
 // resolves its relative paths.
 func classifyFromCheckout(base, head string) (tdd.DiffClass, error) {
-	var errb bytes.Buffer
-	// stderr is quoted in the reason below
-	out, err := lightOutput(run.Spec{Name: "git", Args: []string{"rev-parse", "--show-toplevel"}, Stderr: &errb})
+	c, err := igit.New(".", igit.Options{})
 	if err != nil {
-		return tdd.DiffCode, fmt.Errorf("not inside a git repository: %v: %s", err, strings.TrimSpace(errb.String()))
+		return tdd.DiffCode, fmt.Errorf("not inside a git repository: %v", err)
 	}
-	root := strings.TrimSpace(string(out))
+	root := igit.Canonical(c.Root())
 	if err := os.Chdir(root); err != nil {
 		return tdd.DiffCode, fmt.Errorf("cannot enter the repository root %s: %v", root, err)
 	}

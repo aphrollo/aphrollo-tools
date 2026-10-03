@@ -10,9 +10,9 @@ type mergeTip = gitx.MergeTip
 
 func RepoRoot(p0 string) string { return gitx.RepoRoot(p0) }
 
-func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
+func checkedOutSHA(p0 string) string { return gitx.CheckedOutSHA(p0) }
 
-func gitOut(p0 string, p1 ...string) string { return gitx.GitOut(p0, p1...) }
+func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
 
 func lastNonEmptyLine(p0 string) string { return gitx.LastNonEmptyLine(p0) }
 

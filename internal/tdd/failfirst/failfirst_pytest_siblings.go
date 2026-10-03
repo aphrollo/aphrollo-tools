@@ -3,6 +3,8 @@ package failfirst
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // A gate runs a pytest root in a throwaway worktree (the merged tree, the
@@ -38,11 +40,10 @@ func parseWorktrees(porcelain string) []worktreeEntry {
 // is the merge being judged. A root outside any worktree searches only itself.
 func otherWorktreeRoots(root string) pytestSearch {
 	search := pytestSearch{root: root}
-	top, err := git(root, "rev-parse", "--show-toplevel")
-	if err != nil {
+	top := gitx.RepoRoot(root)
+	if top == "" {
 		return search
 	}
-	top = filepath.Clean(strings.TrimSpace(top))
 	rel, err := filepath.Rel(top, filepath.Clean(root))
 	if err != nil {
 		return search

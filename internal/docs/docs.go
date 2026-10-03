@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
@@ -185,9 +186,9 @@ func Check(root string, paths []string, w io.Writer) (bool, error) {
 }
 
 func gitTopLevel(dir string) (string, error) {
-	out, err := childrun.LightOutput(childrun.Spec{Name: "git", Args: []string{"-C", dir, "rev-parse", "--show-toplevel"}})
+	c, err := igit.New(dir, igit.Options{})
 	if err != nil {
 		return "", fmt.Errorf("not a git repository: %s", dir)
 	}
-	return strings.TrimSpace(string(out)), nil
+	return igit.Canonical(c.Root()), nil
 }

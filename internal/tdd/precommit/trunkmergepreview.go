@@ -58,11 +58,7 @@ func trunkMergePreviewStage(gateName, repoRoot string, run SuiteRunner) GateResu
 	if trunk == "" {
 		return GateResult{}
 	}
-	branch, err := git(repoRoot, "rev-parse", "--abbrev-ref", "HEAD")
-	if err != nil {
-		return GateResult{}
-	}
-	branch = strings.TrimSpace(branch)
+	branch := checkedOutBranch(repoRoot)
 	if branch == "" || branch == "HEAD" || branchIsTrunk(branch, trunk) {
 		return GateResult{} // this checkout IS trunk: nothing to preview against
 	}

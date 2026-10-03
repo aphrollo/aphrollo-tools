@@ -9,22 +9,9 @@ package gitx
 // check, internal/cli) that needs the SAME trunk resolution every law already
 // uses rather than re-deriving its own — one producer per derived datum.
 func TrunkBranch(repoRoot string) string {
-	if out, err := git(repoRoot, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
-		if ref := lastNonEmptyLine(out); ref != "" {
-			return ref
-		}
+	c := HookClient(repoRoot)
+	if c == nil {
+		return ""
 	}
-	if out, err := git(repoRoot, "config", "--get", "init.defaultBranch"); err == nil {
-		if name := lastNonEmptyLine(out); name != "" {
-			if _, err := git(repoRoot, "rev-parse", "--verify", "--quiet", name); err == nil {
-				return name
-			}
-		}
-	}
-	for _, name := range []string{"main", "master"} {
-		if _, err := git(repoRoot, "rev-parse", "--verify", "--quiet", name); err == nil {
-			return name
-		}
-	}
-	return ""
+	return c.Trunk()
 }

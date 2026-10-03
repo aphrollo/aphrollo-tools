@@ -1,6 +1,9 @@
 package gitx
 
-import "strings"
+import (
+	"path/filepath"
+	"strings"
+)
 
 // The staged set a gate judges is the index against a base commit, and for an
 // ordinary commit or a lane landing on trunk that base is HEAD: everything the
@@ -55,7 +58,7 @@ func trunkSyncTip(repoRoot string) (string, bool) {
 		return "", false
 	}
 	trunk := TrunkBranch(repoRoot)
-	branch := gitOut(repoRoot, "rev-parse", "--abbrev-ref", "HEAD")
+	branch := checkedOutBranch(repoRoot)
 	if trunk == "" || branch == "" || branch == "HEAD" || branchIsTrunk(branch, trunk) {
 		return "", false
 	}
@@ -75,4 +78,46 @@ func trunkRefs(trunk string) []string {
 		refs = append(refs, local)
 	}
 	return refs
+}
+
+// headBranch is the branch HEAD is on, "HEAD" when detached (what
+// `rev-parse --abbrev-ref HEAD` prints), "" in no repository or before the
+// first commit: read from the git directory, with no spawn.
+func checkedOutBranch(repoRoot string) string {
+	c := HookClient(repoRoot)
+	if c == nil {
+		return ""
+	}
+	head, err := c.Head()
+	if err != nil || head.SHA == "" {
+		return ""
+	}
+	if head.Detached {
+		return "HEAD"
+	}
+	return head.Branch
+}
+
+// headSHA is the commit HEAD names, "" in no repository or before the first
+// commit: read from the git directory, with no spawn.
+func checkedOutSHA(repoRoot string) string {
+	c := HookClient(repoRoot)
+	if c == nil {
+		return ""
+	}
+	head, err := c.Head()
+	if err != nil {
+		return ""
+	}
+	return head.SHA
+}
+
+// commonDir is the git directory that holds the repository's objects and refs,
+// absolute, "" in no repository.
+func gitCommonDir(repoRoot string) string {
+	c := HookClient(repoRoot)
+	if c == nil {
+		return ""
+	}
+	return filepath.Clean(c.CommonDir())
 }

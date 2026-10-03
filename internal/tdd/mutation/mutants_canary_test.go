@@ -518,3 +518,17 @@ func TestGlobalGitConfigs_FollowGitsOwnSearch(t *testing.T) {
 
 // ratchet: test_removed TestGitWorldWatch_ALeakIsPrintedAndRecordedOnce: renamed TestGitWorldWatch_ALeakIsRecordedOnceAndPrintsNothing, since the refusal is one line the caller prints
 // ratchet: test_removed TestGitWorldRefusal_NamesTheRunnerTheRepoAndTheChanges: replaced by TestGitWorldRefusal_IsOneLineNamingTheRunnerWhatChangedAndWhere
+
+// The trunk is resolved, never assumed to be called main.
+func TestLocalTrunk_IsTheResolvedTrunkWhateverItIsCalled(t *testing.T) {
+	root := makeGoRepo(t)
+	gitDo(t, root, "branch", "-M", "trunk")
+	gitDo(t, root, "config", "init.defaultBranch", "trunk")
+
+	if got := localTrunk(root); got != "trunk" {
+		t.Errorf("localTrunk = %q, want trunk", got)
+	}
+	if got := localTrunk(t.TempDir()); got != "" {
+		t.Errorf("localTrunk outside a repository = %q, want none", got)
+	}
+}

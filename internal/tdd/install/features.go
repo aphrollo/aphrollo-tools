@@ -200,10 +200,9 @@ func FeaturesNotYetShown(repoRoot string) (string, error) {
 func featuresNotYetShown(repoRoot string, table []Feature) (string, error) {
 	// git answers on stdout only when it resolved the dir, so an empty
 	// answer is the one refusal to check.
-	out, err := gitRead(repoRoot, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	common := strings.TrimSpace(out)
+	common := gitCommonDir(repoRoot)
 	if common == "" {
-		return "", fmt.Errorf("%s: no git dir to record the shown features in: %v", repoRoot, err)
+		return "", fmt.Errorf("%s: no git dir to record the shown features in", repoRoot)
 	}
 	path := filepath.Join(filepath.FromSlash(common), "aphrollo", "features-shown")
 	shown := readShownFeatures(path)

@@ -120,7 +120,7 @@ func Mechanical(repoRoot string, run SuiteRunner) GateResult {
 // the suites are CI's to run on the lane after the push.
 func catchUpMergeLine(repoRoot string) (string, bool) {
 	_, ok := trunkSyncTip(repoRoot)
-	branch := strings.TrimSpace(gitOut(repoRoot, "rev-parse", "--abbrev-ref", "HEAD"))
+	branch := checkedOutBranch(repoRoot)
 	trunk := strings.TrimPrefix(TrunkBranch(repoRoot), "origin/")
 	line := "gate " + premergeDisplayName + ": catch-up merge of " + trunk + " into " +
 		branch + " — suites skipped, CI tests the lane"

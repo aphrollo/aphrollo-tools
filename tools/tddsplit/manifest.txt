@@ -200,6 +200,7 @@ commentonly.go                                     precommit
 commentonly_go.go                                  precommit
 commentonly_go_test.go                             precommit
 commit_index_hook_test.go                          precommit
+commitgate_spawns_test.go                          gitx
 commitmsg.go                                       merge
 commitmsg_claimwords_test.go                       merge
 commitmsg_defaults.go                              merge
@@ -1057,6 +1058,7 @@ splitplan_test.go                                  suite
 splitrun.go                                        suite
 splitrun_test.go                                   suite
 stagedfiles_test.go                                tdd
+stagedmemo.go                                      gitx
 staleartifact.go                                   suite
 staleartifact_hint_test.go                         suite
 staleartifact_test.go                              postedit  # prefix says suite; its test body reaches postedit

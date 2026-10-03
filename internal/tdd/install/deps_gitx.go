@@ -6,4 +6,8 @@ import (
 	gitx "github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
+func RepoRoot(p0 string) string { return gitx.RepoRoot(p0) }
+
 func gitBinary() string { return gitx.GitBinary() }
+
+func gitCommonDir(p0 string) string { return gitx.GitCommonDir(p0) }

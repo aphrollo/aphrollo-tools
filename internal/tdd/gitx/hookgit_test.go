@@ -199,3 +199,27 @@ func swapCase(s string) string {
 	}
 	return string(out)
 }
+
+func TestRepoRoot_NamesTheTopFromTheFilesAndRefusesWhatGitRefuses(t *testing.T) {
+	root := makeGoRepo(t)
+	write(t, root, "deep/er/f.go", "package m\n")
+	calls := gitxSpawnLog(t)
+
+	if got := RepoRoot(filepath.Join(root, "deep", "er")); !sameWorktreeDir(t, got, root) {
+		t.Errorf("RepoRoot below the top = %q, want %q", got, root)
+	}
+	for name, dir := range map[string]string{
+		"a directory that is gone":   filepath.Join(root, "gone"),
+		"a file":                     filepath.Join(root, "go.mod"),
+		"the git directory itself":   filepath.Join(root, ".git"),
+		"a directory in no worktree": t.TempDir(),
+		"a directory in the git dir": filepath.Join(root, ".git", "refs"),
+	} {
+		if got := RepoRoot(dir); got != "" {
+			t.Errorf("RepoRoot of %s = %q, want none", name, got)
+		}
+	}
+	if spawns := calls(); len(spawns) != 0 {
+		t.Errorf("RepoRoot spawned git %d times, want 0:\n%v", len(spawns), spawns)
+	}
+}
