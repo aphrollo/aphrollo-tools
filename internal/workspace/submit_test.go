@@ -141,6 +141,9 @@ func TestSubmit_CreatesReadyPRWhenNoneExists(t *testing.T) {
 	if gotBody != "summary" {
 		t.Errorf("PR body = %q, want the summary", gotBody)
 	}
+	if created.Body != "summary" {
+		t.Errorf("created PR body = %q, want the summary so CI's first run reads it", created.Body)
+	}
 	o := out.String()
 	if !strings.Contains(o, "opened PR #55") || !strings.Contains(o, "ready for review") {
 		t.Errorf("receipt should report the freshly opened ready PR:\n%s", o)

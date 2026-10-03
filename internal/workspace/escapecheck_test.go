@@ -61,6 +61,42 @@ func TestPR_ACleanBodyStillOpens(t *testing.T) {
 	}
 }
 
+// A body given with no --title is still the PR's body: the title is filled
+// from the commits, the body is the one the caller wrote. PR #1132 opened
+// without its "version:" line because the filled commit list replaced it.
+func TestPR_AGivenBodyWithNoTitleIsKeptAsTheBody(t *testing.T) {
+	repo := repoWithRemote(t)
+	if out, err := exec.Command("git", "-C", repo, "commit", "-q", "--allow-empty", "-m", "first change").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	if out, err := exec.Command("git", "-C", repo, "commit", "-q", "--allow-empty", "-m", "second change").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v\n%s", err, out)
+	}
+	var created *PRCreate
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) { return nil, nil },
+		func(wt string, req PRCreate) (*PRInfo, error) {
+			created = &req
+			return &PRInfo{Number: 1, URL: "u", State: "OPEN"}, nil
+		},
+	)
+
+	pr, err := PRPlan(targetFor(repo, "main"), "", "", "version: patch", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := pr.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if created == nil {
+		t.Fatal("the PR was never created")
+	}
+	if !strings.HasPrefix(created.Body, "version: patch") {
+		t.Errorf("PR body = %q, want it to start with the given %q", created.Body, "version: patch")
+	}
+}
+
 // closureChecksBeforePR refuses to open the PR when the content check (the
 // branch's own diff against the merge base) says an escape it closes changes
 // no check — the pre-PR half of CI's escape-closure job.
