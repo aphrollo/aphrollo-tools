@@ -37,7 +37,7 @@ var silenceHooks = append(slices.Clone(compatGitHooks), "sessionstart", "pretool
 func silenceGuard(args []string, stdin io.Reader) (rest io.Reader, handled bool) {
 	sub := compatGateSub(args)
 	payloadHook := slices.Contains(compatClaudeHooks, sub) || sub == "stop" || sub == "subagentstop" || sub == "taskcompleted" ||
-		(args[0] == "guardrail" && len(args) > 1 && args[1] == "pretooluse")
+		slices.Equal(args[:min(len(args), 2)], []string{"guardrail", "pretooluse"})
 	dir := compatRepoFlag(args)
 	if payloadHook {
 		raw, err := io.ReadAll(stdin)
