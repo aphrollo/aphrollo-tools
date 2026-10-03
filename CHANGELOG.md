@@ -19,6 +19,17 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.6.6 - 2026-10-03
+
+The cli and gc packages start their child processes through the process runner.
+
+### What you will notice
+
+- A child that `aphrollo update`, the cargo and lint shims, `gate classify-diff`, `ci why`, `gate probe discard`, the git shim's own lookups or the gc sweep starts is ended with everything it started when its time is up, it is cancelled, or the command exits: a job object on Windows, a process group elsewhere. Before, a hung git, `go build` or `cargo metadata` could leave its children behind.
+- A read-only child that had no time limit now has a 10 minute ceiling, and runs with git's and gh's terminal prompts off, so one that would have asked a question fails at once. `aphrollo update` and its self-check and init steps keep their 15, 1 and 5 minute budgets and the "no answer within" message.
+- A guard that cannot be set up on a box never fails a build or a lint: the child runs without it and one line on stderr says so.
+- Unchanged on purpose: the git shim's pass-through to the real git, the application `cargo run` starts, and the detached session sweep still run as plain children, because each needs the user's terminal and signals or has to outlive its parent.
+
 ## 1.6.5 - 2026-10-03
 
 A merge no longer runs the full local suites because main moved after CI.
