@@ -158,6 +158,8 @@ cargo_uncompiled_test.go                           postedit  # prefix says suite
 cargo_workspace_root_test.go                       precommit
 cargoshim_install.go                               install
 cargoshim_install_test.go                          install
+civerdict.go                                       merge
+civerdict_test.go                                  merge
 classify.go                                        suite
 classify_assertion_test.go                            suite
 classify_attribution.go                            suite

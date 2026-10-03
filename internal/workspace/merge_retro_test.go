@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // stubRetro swaps the post-merge retro seam and records each call, so a test
@@ -27,7 +29,7 @@ func TestMerge_RunsTheRetroOnceTheMergeHasLanded(t *testing.T) {
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error { return nil })
-	stubPremergeGate(t, func(tgt *Target, log io.Writer) error { return nil })
+	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error { return nil })
 	stubRetro(t, &calls)
 
 	tgt := &Target{Worktree: "/x/.worktrees/feat", Branch: "lane/feat", MainRepo: "/x/main-clone", RepoName: "r"}

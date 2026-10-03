@@ -56,6 +56,7 @@ type CheckRun struct {
 	SHA        string `json:"head_sha"`
 	Status     string `json:"status"`     // queued | in_progress | completed
 	Conclusion string `json:"conclusion"` // success | failure | … once completed
+	StartedAt  string `json:"started_at"` // RFC 3339; empty for a commit status
 	URL        string `json:"html_url"`
 }
 
@@ -77,7 +78,7 @@ var ghPRHead = func(dir, ref string) (*PRHead, error) {
 // Each record is one JSON object per line, so a name with spaces stays whole.
 var ghChecksAt = func(dir, sha string) ([]CheckRun, error) {
 	runs, err := ghJSONLines(dir, "api", "--paginate", "repos/{owner}/{repo}/commits/"+sha+"/check-runs",
-		"--jq", `.check_runs[] | {id, name, head_sha, status, conclusion, html_url, app: .app.slug}`)
+		"--jq", `.check_runs[] | {id, name, head_sha, status, conclusion, html_url, started_at, app: .app.slug}`)
 	if err != nil {
 		return nil, err
 	}

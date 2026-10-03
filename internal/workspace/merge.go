@@ -183,6 +183,9 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	useLocal := choice.mode == tdd.CILocal
+	// verdict is what GitHub's checks said, for the gate to take in place of
+	// re-running them; local CI leaves it nil, as it has no GitHub verdict.
+	var verdict *tdd.CIVerdict
 	if useLocal {
 		fmt.Fprintf(stdout, "ci: local (%s) — GitHub's checks are not read\n", choice.source)
 	} else {
@@ -196,6 +199,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 			useLocal = true
 			fmt.Fprintf(stdout, "ci: local (%s) — GitHub's CI is unavailable: %s\n", choice.source, ci.Word())
 		case ci.State == "green":
+			verdict = ciVerdictOf(m.Target.Worktree, pr.Number, ci)
 			fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(ci.SHA))
 		default:
 			return m.refuseGitHubCI(ci, stderr)
@@ -225,7 +229,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 			return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 		}
 	}
-	if err := premergeGate(m.Target, stderr); err != nil {
+	if err := premergeGate(m.Target, verdict, stderr); err != nil {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method) }

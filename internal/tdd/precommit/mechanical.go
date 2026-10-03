@@ -5,6 +5,24 @@ import (
 	"strings"
 )
 
+// MechanicalLaws is what a merge still owes when CI has already run the
+// suites, vet and lint on this very tree: the merged tree's own laws, baseline
+// and doc references, which CI's per-PR jobs judge the PR's diff against, not
+// the merge. The repo's mutation configuration is checked first, as Mechanical
+// does, so a retired key is corrected at the same point on either path.
+func MechanicalLaws(repoRoot string) GateResult {
+	if _, res := mutantsConfigStage(premergeDisplayName, repoRoot); res.Blocked {
+		return res
+	}
+	if res := baselineStage(premergeDisplayName, repoRoot); res.Blocked {
+		return res
+	}
+	if res := ratchetStage(premergeDisplayName, repoRoot); res.Blocked {
+		return res
+	}
+	return docsCheckStage(premergeDisplayName, repoRoot)
+}
+
 // Mechanical runs ONLY the mechanical stage of the commit-time TDD wall,
 // grouped by project root exactly like Precommit — but with NO fail-first (a
 // fresh test's RED/GREEN belongs to the AUTHORING commit, already proven
