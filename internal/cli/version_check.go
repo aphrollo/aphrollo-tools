@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/compat"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 const versionCheckUsage = `usage: aphrollo version check --base <ref> --body-file <file> [--repo <dir>]
@@ -140,10 +140,8 @@ func versionAtRef(root, ref string) (compat.Version, error) {
 // gitStdoutIn runs git in dir and returns its stdout; a failure carries git's own
 // stderr, so the one line a caller prints says why.
 func gitStdoutIn(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	var errb bytes.Buffer
-	cmd.Stderr = &errb
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: "git", Args: append([]string{"-C", dir}, args...), Stderr: &errb})
 	if err != nil {
 		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(errb.String()))
 	}

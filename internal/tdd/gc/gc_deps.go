@@ -3,12 +3,13 @@ package gc
 import (
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Cargo never deletes a SUPERSEDED artifact: every worktree path and every
@@ -166,13 +167,13 @@ var mutantsRunningFn = cargoMutantsRunning
 
 func cargoMutantsRunning() bool {
 	if runtime.GOOS == "windows" {
-		out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq cargo-mutants.exe", "/FO", "CSV").Output()
+		out, err := gcLightOutput(run.Spec{Name: "tasklist", Args: []string{"/FI", "IMAGENAME eq cargo-mutants.exe", "/FO", "CSV"}})
 		if err != nil {
 			return true // cannot tell: assume it IS running, and delete nothing
 		}
 		return strings.Contains(strings.ToLower(string(out)), "cargo-mutants")
 	}
-	if err := exec.Command("pgrep", "-x", "cargo-mutants").Run(); err == nil {
+	if err := gcLightRun(run.Spec{Name: "pgrep", Args: []string{"-x", "cargo-mutants"}}); err == nil {
 		return true
 	}
 	return false
@@ -182,9 +183,7 @@ func cargoMutantsRunning() bool {
 // appear in artifact file names (cargo replaces '-' with '_'). An empty
 // result means "treat everything as third-party", the conservative tier.
 func workspaceMemberCrates(repo string) map[string]bool {
-	cmd := exec.Command("cargo", "metadata", "--no-deps", "--format-version", "1")
-	cmd.Dir = repo
-	out, err := cmd.Output()
+	out, err := gcLightOutput(run.Spec{Name: "cargo", Args: []string{"metadata", "--no-deps", "--format-version", "1"}, Dir: repo})
 	if err != nil {
 		return nil
 	}

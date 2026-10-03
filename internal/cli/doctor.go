@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -124,7 +124,7 @@ func userPathDirs() []string {
 // query fails so the caller can fall back rather than judging a half-read
 // scope as empty.
 func regPathDirs(key string) []string {
-	out, err := exec.Command("reg", "query", key, "/v", "Path").Output()
+	out, err := lightOutput(run.Spec{Name: "reg", Args: []string{"query", key, "/v", "Path"}})
 	if err != nil {
 		return nil
 	}

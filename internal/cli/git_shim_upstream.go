@@ -2,9 +2,9 @@ package cli
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -59,10 +59,7 @@ func onlyNamesUpstream(realGit, workDir string, args []string) bool {
 // gitShimOut asks the real git a question, with the queue bypass set so the
 // shim's own classification never waits on a build slot.
 func gitShimOut(realGit, workDir string, args ...string) string {
-	cmd := exec.Command(realGit, args...)
-	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: realGit, Args: args, Dir: workDir, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1")})
 	if err != nil {
 		return ""
 	}

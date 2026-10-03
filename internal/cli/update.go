@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -112,11 +112,8 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	runGit := func(args ...string) (string, error) {
-		cmd := exec.Command(git, append([]string{"-C", *repo}, args...)...)
 		var out, errb bytes.Buffer
-		cmd.Stdout = &out
-		cmd.Stderr = &errb
-		if err := cmd.Run(); err != nil {
+		if err := lightRun(run.Spec{Name: git, Args: append([]string{"-C", *repo}, args...), Stdout: &out, Stderr: &errb}); err != nil {
 			said := strings.TrimSpace(errb.String())
 			if said == "" {
 				said = err.Error()

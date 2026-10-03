@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -89,19 +88,7 @@ func TestRunInstalledInit_KillsAnInitThatNeverReturns(t *testing.T) {
 	}
 }
 
-func TestBoundedCommand_LeavesTheCommandsOwnErrorAloneBeforeTheDeadline(t *testing.T) {
-	cmd, finish := boundedCommand(time.Minute, "x")
-	if cmd.WaitDelay <= 0 {
-		t.Fatalf("WaitDelay = %v: a killed shell's orphaned child would hold the pipes open", cmd.WaitDelay)
-	}
-	want := errors.New("plain failure")
-	if got := finish(want); got != want {
-		t.Fatalf("finish rewrote an error that was not a timeout: %v", got)
-	}
-	if finish(nil) != nil {
-		t.Fatal("finish invented an error")
-	}
-}
+// ratchet: test_removed TestBoundedCommand_LeavesTheCommandsOwnErrorAloneBeforeTheDeadline: boundedCommand is gone, replaced by boundedRun over internal/run, whose pipe grace and error handling TestBoundedRun_AFailingChildIsNotCalledATimeout and run's own tests prove.
 
 // A budget that parsed to zero would kill every subprocess the update starts at
 // once; one that grew without bound is no budget. Each sits between "seconds"
@@ -109,8 +96,5 @@ func TestBoundedCommand_LeavesTheCommandsOwnErrorAloneBeforeTheDeadline(t *testi
 func TestUpdateBudgets_AreBoundedAndOrdered(t *testing.T) {
 	if smokeCheckBudget < 10*time.Second || smokeCheckBudget >= initBudget || initBudget >= buildBudget || buildBudget > time.Hour {
 		t.Fatalf("smoke=%s init=%s build=%s: want 10s <= smoke < init < build <= 1h", smokeCheckBudget, initBudget, buildBudget)
-	}
-	if killGrace < time.Second || killGrace > 10*time.Second {
-		t.Fatalf("killGrace = %s, want 1s..10s", killGrace)
 	}
 }

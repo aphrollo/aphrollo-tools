@@ -2,9 +2,9 @@ package cli
 
 import (
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -179,10 +179,7 @@ func leavesMainBranch(realGit, workDir string, args []string, pathsPossible bool
 // `git checkout README.md`.
 func namesABranch(realGit, workDir, ref string) bool {
 	for _, full := range []string{"refs/heads/" + ref, "refs/remotes/" + ref} {
-		cmd := exec.Command(realGit, "show-ref", "--verify", "--quiet", full)
-		cmd.Dir = workDir
-		cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-		if cmd.Run() == nil {
+		if lightRun(run.Spec{Name: realGit, Args: []string{"show-ref", "--verify", "--quiet", full}, Dir: workDir, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1")}) == nil {
 			return true
 		}
 	}
@@ -209,10 +206,7 @@ func concludingAMerge(realGit, workDir string) bool {
 // refResolves reports whether ref both exists and names a valid object in
 // workDir -- git's own answer, which is what `-q --verify` is for.
 func refResolves(realGit, workDir, ref string) bool {
-	cmd := exec.Command(realGit, "rev-parse", "-q", "--verify", ref)
-	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-	return cmd.Run() == nil
+	return lightRun(run.Spec{Name: realGit, Args: []string{"rev-parse", "-q", "--verify", ref}, Dir: workDir, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1")}) == nil
 }
 
 // resolveAlias expands rest[0] once, via `git config --get alias.<verb>`, so

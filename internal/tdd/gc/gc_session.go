@@ -218,6 +218,7 @@ func BackgroundGCArgs(cwd string) []string {
 // carries one more generation of spawn depth (see proc.SpawnableSelf, which
 // decides whether exe may be started at all).
 func backgroundGCCommand(exe string, parentEnv []string, cwd string) *exec.Cmd {
+	// exec-ok: the sweep is detached on purpose and must outlive the hook that starts it; a guarded child of run ends with its guard, which is the opposite.
 	cmd := exec.Command(exe, append([]string{CmdName}, BackgroundGCArgs(cwd)...)...)
 	cmd.Dir = cwd
 	cmd.Env = proc.ChildEnv(parentEnv, cleanGitEnv())

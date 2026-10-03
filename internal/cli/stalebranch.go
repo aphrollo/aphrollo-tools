@@ -3,9 +3,9 @@ package cli
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -99,10 +99,7 @@ func staleBranchRefusalLine(realGit string, rest []string, workDir string) strin
 // one call whose whole job is proving safety, so its own failure proves
 // nothing.
 func staleBranchMergeIsClean(realGit, workDir, trunk, branch string) bool {
-	cmd := exec.Command(realGit, "merge-tree", "--write-tree", trunk, branch)
-	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-	return cmd.Run() == nil
+	return lightRun(run.Spec{Name: realGit, Args: []string{"merge-tree", "--write-tree", trunk, branch}, Dir: workDir, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1")}) == nil
 }
 
 // staleBranchDeletions is the evidence staleBranchRefusalLine names: paths
@@ -152,10 +149,7 @@ func nonEmptyLines(s string) []string {
 // already-queued so it never waits on the per-repo lock this invocation may
 // itself be holding.
 func staleBranchGit(realGit, workDir string, args ...string) (string, error) {
-	cmd := exec.Command(realGit, args...)
-	cmd.Dir = workDir
-	cmd.Env = append(os.Environ(), tdd.GitQueuedEnv+"=1")
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: realGit, Args: args, Dir: workDir, Env: append(os.Environ(), tdd.GitQueuedEnv+"=1")})
 	return string(out), err
 }
 

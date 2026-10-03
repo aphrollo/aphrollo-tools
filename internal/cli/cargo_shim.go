@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -488,23 +489,24 @@ func execCargoEnv(realCargo string, args []string, stdin io.Reader, stdout, stde
 	if execCargoHookForTest != nil {
 		execCargoHookForTest(args)
 	}
-	cmd := exec.Command(realCargo, args...)
-	cmd.Stdin = stdin
-	cmd.Stdout = stdout
-	cmd.Stderr = stderr
-	cmd.Env = env
 	if jobs > 0 {
 		// A slot is 1/N of the box: cap the child so N concurrent builds
 		// into one target dir cost about what one uncapped build did. The
 		// STRICTER of the slot's cap and a caller's own value wins.
-		cmd.Env = tdd.EnvWithBuildJobs(cmd.Env, jobs)
+		env = tdd.EnvWithBuildJobs(env, jobs)
 	}
 	if cargoRunsAnApp(args) {
 		// `cargo run` is the application itself, which may honestly hold more
-		// than a build; the cap is for what the gate builds and tests.
+		// than a build; the cap is for what the gate builds and tests. It also
+		// owns the user's terminal: a child that internal/run puts in a process
+		// group of its own is a background job of that terminal on unix, stopped
+		// on its first read and deaf to a Ctrl-C.
+		// exec-ok: the application cargo runs reads the user's terminal and takes its signals, which a guarded child's own process group would not.
+		cmd := exec.Command(realCargo, args...)
+		cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.Env = stdin, stdout, stderr, env
 		return cargoExit(stderr, cmd.Run())
 	}
-	capped, err := tdd.RunSlotChild(cmd, ".")
+	capped, err := tdd.RunSlotSpec(run.Spec{Name: realCargo, Args: args, Env: env, Stdin: stdin, Stdout: stdout, Stderr: stderr}, ".")
 	if capped.Killed {
 		fmt.Fprintf(stderr, "cargo: %s — inconclusive, nothing was built or tested\n", capped.Line())
 		return exitOOMKilled

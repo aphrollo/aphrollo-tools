@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -121,9 +121,7 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 // headSHA is the commit root has checked out, "" when it cannot be read: the
 // push event names the commit the CI events that follow it are about.
 func headSHA(root string) string {
-	cmd := exec.Command("git", "-C", root, "rev-parse", "HEAD")
-	cmd.Stderr = io.Discard
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: "git", Args: []string{"-C", root, "rev-parse", "HEAD"}, Stderr: io.Discard})
 	if err != nil {
 		return ""
 	}
