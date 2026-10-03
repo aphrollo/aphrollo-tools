@@ -257,14 +257,14 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 			last = state
 		}
 		if len(failed) > 0 {
-			recordSettledCI(t.Worktree, head.HeadSHA, head.Number, "red")
+			recordSettledCI(t.Worktree, head.HeadSHA, head.Number, "red", ciCause(checkNames(failed)))
 			return failedChecksError(t.Branch, head, failed)
 		}
 		if len(notStarted) > 0 {
 			return notStartedError(t.Branch, head, notStarted)
 		}
 		if done {
-			recordSettledCI(t.Worktree, head.HeadSHA, head.Number, "green")
+			recordSettledCI(t.Worktree, head.HeadSHA, head.Number, "green", "")
 			return nil
 		}
 		if !waitNow().Add(o.Interval).Before(deadline) {

@@ -193,7 +193,7 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		if ciErr != nil {
 			return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
 		}
-		recordSettledCI(m.Target.Worktree, pr.HeadSHA, pr.Number, ci.State)
+		recordSettledCI(m.Target.Worktree, pr.HeadSHA, pr.Number, ci.State, ci.Cause)
 		switch {
 		case ci.State == "unavailable" && choice.mode == tdd.CIAuto:
 			useLocal = true

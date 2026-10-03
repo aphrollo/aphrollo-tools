@@ -3,6 +3,7 @@ package postedit
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 )
 
 // An escape hatch nobody counts is an escape hatch nobody manages. The gate
@@ -25,7 +26,7 @@ func LogEditDecision(raw []byte, d Decision) {
 	}
 	root, rel := logPlace(editLogPath(in))
 	if d.Action == Block {
-		AppendGateLog("preedit", root, rel, "pretooluse-denied:"+LogToken(policyName(d)), 0)
+		AppendGateLogDetail("preedit", root, rel, "pretooluse-denied:"+LogToken(policyName(d)), 0, denyDetail(d))
 	}
 	for _, esc := range d.Escapes {
 		AppendGateLog("preedit", root, rel, LogToken(esc), 0)
@@ -78,4 +79,28 @@ func logPlace(path string) (root, rel string) {
 		rel = r
 	}
 	return root, LogToken(rel)
+}
+
+// wallPolicies are the policies that judge where or how a write lands, not what
+// it says: a deny from one of them is a wall, not a smell.
+var wallPolicies = map[string]bool{
+	primaryCheckoutPolicy: true, discardBashPolicy: true, directPROpenPolicy: true, undercoverBashPolicy: true,
+}
+
+// denyDetail is what a deny event carries beside the rule the verdict names:
+// the family the rule belongs to (law, wall or smell) and the override the
+// decision offered, "none" when it offered none.
+func denyDetail(d Decision) map[string]string {
+	cause := "smell"
+	switch {
+	case strings.HasPrefix(d.Policy, "ratchet:"):
+		cause = "law"
+	case strings.HasPrefix(d.Policy, "bash-"), wallPolicies[d.Policy]:
+		cause = "wall"
+	}
+	override := d.Override
+	if override == "" {
+		override = "none"
+	}
+	return map[string]string{"cause": cause, "override": override}
 }

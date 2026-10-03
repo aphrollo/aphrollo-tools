@@ -48,4 +48,8 @@ type Decision struct {
 	// Escapes names every waiver this edit claimed ("smell-escape:<policy>"),
 	// so an escape hatch is counted rather than assumed rare.
 	Escapes []string
+	// Override names the waiver a blocking verdict offers (a smell's escape
+	// marker, a law's escape comment, a wall's switch), "" when it offers
+	// none. It rides on the deny event so "overrides offered" is a count.
+	Override string
 }

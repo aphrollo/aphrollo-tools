@@ -152,7 +152,7 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 		if info != nil {
 			prNumber = info.Number
 		}
-		recordSettledCI(wt, sha, prNumber, ci.State)
+		recordSettledCI(wt, sha, prNumber, ci.State, ci.Cause)
 		fmt.Fprintf(stdout, "ci %s\n", ci.Word())
 	}
 	return nil

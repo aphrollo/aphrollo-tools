@@ -2,31 +2,24 @@ package cli
 
 import (
 	"bytes"
-	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// loggedEvents is every record of the test's own events.jsonl, in file order.
+// loggedEvents is every event of the repository the test is running in, in log
+// order.
 func loggedEvents(t *testing.T) []tdd.Event {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(tdd.StateDir(), "events.jsonl"))
+	wd, err := os.Getwd()
 	if err != nil {
-		return nil
+		t.Fatal(err)
 	}
-	var out []tdd.Event
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		var e tdd.Event
-		if json.Unmarshal([]byte(line), &e) == nil {
-			out = append(out, e)
-		}
-	}
-	return out
+	return tdd.ReadEvents(wd)
 }
 
 func eventsOfKind(evs []tdd.Event, kind string) []tdd.Event {
@@ -112,12 +105,12 @@ func TestGateFeedback_EmitsAFeedbackEventWithoutTheText(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 
-	got := eventsOfKind(loggedEvents(t), "feedback")
+	all := tdd.ReadEvents(repo)
+	got := eventsOfKind(all, "feedback")
 	if len(got) != 1 || got[0].Verdict != "recorded" || got[0].Detail["tracker"] != "o/tools" {
 		t.Fatalf("feedback events = %+v, want one recorded for o/tools", got)
 	}
-	data, _ := os.ReadFile(filepath.Join(tdd.StateDir(), "events.jsonl"))
-	if strings.Contains(string(data), "SECRET99") {
-		t.Fatalf("report text leaked into the event log: %s", data)
+	if text := fmt.Sprintf("%+v", all); strings.Contains(text, "SECRET99") {
+		t.Fatalf("report text leaked into the event log: %s", text)
 	}
 }

@@ -19,6 +19,29 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.5.0 - 2026-10-03
+
+The gate keeps its event log per repository, outside the plugin, and records what the pipeline
+measures itself by.
+
+### What you will notice
+
+- Events now go to `<state root>/state/<repo>/events-YYYY-MM.jsonl`, one file per repository and
+  month. The state root is `$TRELLIS_DATA`, else `%LOCALAPPDATA%\trellis` on Windows, else
+  `${XDG_STATE_HOME:-~/.local/state}/trellis`. A repo and all its worktrees share one log. The
+  older `events.jsonl` beside `gate.log` is no longer written; what it holds is still read.
+- Each record carries a format version and a sequence number that grows with the file, and a reader
+  skips a record of a version it does not know, so two binaries of different ages can share a log.
+  Two processes appending at once never lose or tear a record.
+- New in the log: how long each hook took (`hook.timing`, which also marks where each message
+  begins), every edit, every refused edit with the rule, its family (smell, law or wall) and the
+  override it offered, every override used, every run that proved nothing with its cause (timeout,
+  skipped, queued, deferred, infra), and how long after an edit its verdict arrived. An escape
+  records whether it was a product escape, the gate disagreeing with itself, or a canary firing,
+  and a first CI run that went red records whether a test, the mutation check or something else
+  failed.
+- Nothing needs doing. Nothing in a repo changes; the log is local and holds no file contents.
+
 ## 1.4.7 - 2026-10-03
 
 `workspace ship` resumes a lane that is already committed.
@@ -28,6 +51,7 @@ the form that works.
 - `aphrollo workspace ship` with nothing to commit prints `[skip] nothing to commit` and goes on to
   push and open the PR, and no longer needs `-m` then. With changes to commit it still requires a
   message. `workspace commit` prints the same `[skip]` prefix on a clean tree.
+
 
 ## 1.4.6 - 2026-10-03
 

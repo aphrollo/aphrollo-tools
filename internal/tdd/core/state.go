@@ -343,6 +343,13 @@ func quoteVerdict(verdict string) string {
 // no longer silent, see warnGateLogUnwritable. Exported for the shims, which
 // live in another package and still have to record a decision they made.
 func AppendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
+	AppendGateLogDetail(stage, root, cmd, verdict, dur, nil)
+}
+
+// AppendGateLogDetail is AppendGateLog for a site that knows more about the
+// line than its verdict says: detail rides on the line's event (a deny's rule
+// family and the override it offered).
+func AppendGateLogDetail(stage, root, cmd, verdict string, dur time.Duration, detail map[string]string) {
 	dir := StateDir()
 	if dir == "" {
 		warnGateLogUnwritable("no state directory (CLAUDE_CONFIG_DIR unset and no resolvable home)")
@@ -374,7 +381,8 @@ func AppendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	// quotedVerdict unwraps byte-for-byte (issue #467).
 	fmt.Fprintf(f, "%s %s %s %s %s %.1fs\n",
 		time.Now().UTC().Format(time.RFC3339), stage, LogToken(root), cmd, quoteVerdict(verdict), dur.Seconds())
-	AppendEvent(Event{Kind: eventKind(stage, verdict), Root: root, Stage: stage, Verdict: verdict, Secs: dur.Seconds()})
+	kind := eventKind(stage, verdict)
+	AppendEvent(Event{Kind: kind, Root: root, Stage: stage, Verdict: verdict, Secs: dur.Seconds(), Detail: lineEventDetail(kind, verdict, detail)})
 }
 
 // setOff persists the per-session enforcement override (the `/tdd off|on`

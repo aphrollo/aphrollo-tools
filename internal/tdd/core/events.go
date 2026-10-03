@@ -1,9 +1,8 @@
 package core
 
 import (
-	"bufio"
-	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,21 +10,30 @@ import (
 	"time"
 )
 
-// EventSchema is the version every record of events.jsonl carries. The log is
-// append-only and read by binaries of different ages, so the version rides in
-// each line, and a reader skips a line whose version it does not know.
+// EventSchema is the version every record of the event logs carries. The logs
+// are append-only and read by binaries of different ages, so the version rides
+// in each line, and a reader skips a line whose version it does not know.
 const EventSchema = 1
 
-// Event is one line of <stateDir>/events.jsonl, the machine-readable trail the
-// targets (escapes per merged PR, pushes per PR, CI green on first run, wrong
-// denies) are measured from. It carries metadata only: never file contents,
-// never a tool's input text, and never the command line gate.log records.
+// Event is one line of <StateRoot>/state/<repo>/events-YYYY-MM.jsonl, the
+// machine-readable trail the targets (escapes per merged PR, pushes per PR, CI
+// green on first run, wrong denies, not-tested runs, edit-to-verdict latency)
+// are measured from. It carries metadata only: never file contents, never a
+// tool's input text, and never the command line gate.log records.
+//
+// Kinds in use: stage lines by stage (commit_gate, merge_gate, commit_msg,
+// mutants, stage.timing, gate and the *_result of a whole run), deny, override,
+// run.result, edit, hook.timing, feedback, escape, ci, merge, pr_opened, push.
 type Event struct {
-	V       int     `json:"v"`
-	At      string  `json:"at"` // UTC RFC3339
+	V int `json:"v"`
+	// Seq orders a repo's events: the writer numbers each record under the
+	// log's lock. 0 (absent) when the lock was not obtained in time.
+	Seq     int64   `json:"seq,omitempty"`
+	At      string  `json:"at"` // UTC RFC3339, millisecond precision
+	Lane    string  `json:"lane,omitempty"`
+	Actor   string  `json:"actor,omitempty"` // session id, or session/agent id
 	Kind    string  `json:"kind"`
 	Repo    string  `json:"repo,omitempty"`
-	Lane    string  `json:"lane,omitempty"`
 	Stage   string  `json:"stage,omitempty"`
 	Verdict string  `json:"verdict,omitempty"`
 	Secs    float64 `json:"secs,omitempty"`
@@ -38,47 +46,35 @@ type Event struct {
 	Root string `json:"-"`
 }
 
-// EventLogPath is events.jsonl beside gate.log, "" when there is no state dir.
-func EventLogPath() string {
-	dir := StateDir()
-	if dir == "" {
-		return ""
-	}
-	return filepath.Join(dir, "events.jsonl")
-}
-
-// AppendEvent writes one record. The line goes out in a single write on an
-// O_APPEND handle, so concurrent hooks never interleave. Best-effort like
-// gate.log: a failure never affects a gate decision, but it is said once.
+// AppendEvent writes one record to the log of the repository Root belongs to.
+// The line goes out in a single write under the log's lock, so concurrent hooks
+// never interleave. Best-effort like gate.log: a failure never affects a gate
+// decision, but it is said once.
 func AppendEvent(e Event) {
-	path := EventLogPath()
-	if path == "" {
-		return
-	}
 	e.V = EventSchema
 	if e.At == "" {
-		e.At = time.Now().UTC().Format(time.RFC3339)
+		e.At = time.Now().UTC().Format(eventTimeFormat)
 	}
-	repo, lane := repoAndLane(e.Root)
+	repo, lane, common := repoIdentity(e.Root)
 	e.Repo = repo
 	if e.Lane == "" {
 		e.Lane = lane
 	}
-	data, err := json.Marshal(e)
-	if err != nil {
+	if e.Actor == "" {
+		e.Actor = SessionID()
+	}
+	dir := RepoStateDir(common)
+	if dir == "" {
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		warnEventLogUnwritable(fmt.Sprintf("could not create %s: %v", filepath.Dir(path), err))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		warnEventLogUnwritable(fmt.Sprintf("could not create %s: %v", dir, err))
 		return
 	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		warnEventLogUnwritable(fmt.Sprintf("could not open %s: %v", path, err))
-		return
+	path := eventLogFile(dir, monthOf(e.At))
+	if err := appendEventRecord(path, e); err != nil {
+		warnEventLogUnwritable(fmt.Sprintf("could not write %s: %v", path, err))
 	}
-	defer f.Close()
-	_, _ = f.Write(append(data, '\n'))
 }
 
 // AppendEventOnce writes e unless a record of the same kind already carries the
@@ -86,7 +82,7 @@ func AppendEvent(e Event) {
 // by several verbs; the log keeps one record per commit.
 func AppendEventOnce(e Event, key string) bool {
 	want := e.Detail[key]
-	for _, old := range ReadEvents() {
+	for _, old := range ReadEvents(e.Root) {
 		if old.Kind == e.Kind && old.Detail[key] == want {
 			return false
 		}
@@ -100,43 +96,26 @@ var eventLogWarnOnce sync.Once
 func resetEventLogWarnForTest() { eventLogWarnOnce = sync.Once{} }
 
 // warnEventLogUnwritable is the one place a lost event becomes visible, once
-// per process: every target is computed from this file, so a log that quietly
+// per process: every target is computed from these files, so a log that quietly
 // stops growing would read as a quiet week.
 func warnEventLogUnwritable(reason string) {
 	eventLogWarnOnce.Do(func() {
-		fmt.Fprintf(os.Stderr, "aphrollo gate: events.jsonl is not being written: %s\n", reason)
+		fmt.Fprintf(os.Stderr, "aphrollo gate: the event log is not being written: %s\n", reason)
 	})
 }
 
-// ReadEvents returns every record this binary understands, in file order. A
-// line of another version, or one that does not parse, is skipped: the file
-// is append-only and shared with other binaries.
-func ReadEvents() []Event {
-	path := EventLogPath()
-	if path == "" {
-		return nil
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
-	var out []Event
-	r := bufio.NewReader(f)
-	for {
-		line, err := r.ReadBytes('\n')
-		var e Event
-		if json.Unmarshal(line, &e) == nil && e.V == EventSchema {
-			out = append(out, e)
-		}
-		if err != nil {
-			return out
-		}
-	}
-}
-
-// eventKind names what a gate.log line was, from its stage and verdict.
+// eventKind names what a gate.log line was, from its stage and verdict. A
+// refusal, a waiver and a run that proved nothing outrank the stage: they are
+// what the measures count, and the line's stage and seconds stay on the event.
 func eventKind(stage, verdict string) string {
+	switch {
+	case isDenyLine(stage, verdict):
+		return "deny"
+	case isOverrideVerdict(verdict):
+		return "override"
+	case notTestedCause(verdict) != "":
+		return "run.result"
+	}
 	switch stage {
 	case "precommit":
 		return "commit_gate"
@@ -146,56 +125,109 @@ func eventKind(stage, verdict string) string {
 		return "commit_msg"
 	case "mutants":
 		return "mutants"
-	}
-	if strings.HasPrefix(verdict, "pretooluse-denied") || (stage == "git" && strings.Contains(verdict, "-refused")) {
-		return "deny"
-	}
-	if stage == "postedit" || stage == "preedit" {
-		return "edit"
+	case "postedit", "preedit":
+		return "stage.timing"
 	}
 	return "gate"
 }
 
-// repoAndLane resolves the main checkout and the branch of root by reading
-// .git directly: a gate line is logged on every edit, too often to spawn git.
-// Both are "" for a root that is not a path inside a repo.
-func repoAndLane(root string) (repo, lane string) {
+func isDenyLine(stage, verdict string) bool {
+	return strings.HasPrefix(verdict, "pretooluse-denied") || (stage == "git" && strings.Contains(verdict, "-refused"))
+}
+
+func isOverrideVerdict(verdict string) bool {
+	return strings.HasPrefix(verdict, "override-") || strings.HasPrefix(verdict, "smell-escape:")
+}
+
+// notTestedCause says why a run proved nothing, "" when the verdict is not one
+// of the not-tested ones. The causes are the ones the gate line already names:
+// timeout, skipped, queued, deferred, infra, no-tests.
+func notTestedCause(verdict string) string {
+	switch {
+	case strings.HasPrefix(verdict, "timeout"), verdict == "lint-timeout":
+		return "timeout"
+	case strings.HasPrefix(verdict, "skipped"):
+		return "skipped"
+	case strings.HasPrefix(verdict, "queued-"):
+		return "queued"
+	case strings.HasPrefix(verdict, "deferred"):
+		return "deferred"
+	case verdict == "infra-failed":
+		return "infra"
+	case verdict == "no-tests-selected":
+		return "no-tests"
+	}
+	return ""
+}
+
+// lineEventDetail is what an event of kind carries beyond its stage, verdict
+// and seconds: the rule a deny came from, the waiver an override used, the
+// cause of a not-tested run. A site that knows more (a deny's cause and the
+// override it offered) passes it and wins.
+func lineEventDetail(kind, verdict string, site map[string]string) map[string]string {
+	detail := map[string]string{}
+	switch kind {
+	case "deny":
+		rule, ok := strings.CutPrefix(verdict, "pretooluse-denied:")
+		if !ok {
+			rule = verdict
+		}
+		detail["rule"] = rule
+	case "override":
+		detail["override"] = verdict
+	case "run.result":
+		detail["result"] = "not-tested"
+		detail["cause"] = notTestedCause(verdict)
+	}
+	maps.Copy(detail, site)
+	if len(detail) == 0 {
+		return nil
+	}
+	return detail
+}
+
+// repoIdentity resolves the main checkout, the branch and the git common dir
+// of root by reading .git directly: a gate line is logged on every edit, too
+// often to spawn git. repo and lane are "" for a root that is not a path inside
+// a repo, and common is "" for any root that is no repository.
+func repoIdentity(root string) (repo, lane, common string) {
 	if root == "" || root == "-" {
-		return "", ""
+		return "", "", ""
 	}
 	dir := filepath.FromSlash(root)
 	for {
 		gitPath := filepath.Join(dir, ".git")
 		if fi, err := os.Stat(gitPath); err == nil {
 			if fi.IsDir() {
-				return filepath.ToSlash(dir), headBranch(gitPath)
+				return filepath.ToSlash(dir), headBranch(gitPath), gitPath
 			}
-			return linkedRepoAndLane(dir, gitPath)
+			return linkedRepoIdentity(dir, gitPath)
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return root, ""
+			return root, "", ""
 		}
 		dir = parent
 	}
 }
 
-func linkedRepoAndLane(dir, gitFile string) (string, string) {
+func linkedRepoIdentity(dir, gitFile string) (repo, lane, common string) {
 	data, err := os.ReadFile(gitFile)
 	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
 	if err != nil || !ok {
-		return filepath.ToSlash(dir), ""
+		return filepath.ToSlash(dir), "", ""
 	}
 	gitdir = filepath.FromSlash(strings.TrimSpace(gitdir))
 	if !filepath.IsAbs(gitdir) {
 		gitdir = filepath.Join(dir, gitdir)
 	}
-	lane := headBranch(gitdir)
-	common := gitdir
+	lane = headBranch(gitdir)
+	common = gitdir
 	if rel, err := os.ReadFile(filepath.Join(gitdir, "commondir")); err == nil {
 		common = filepath.Join(gitdir, strings.TrimSpace(string(rel)))
 	}
-	return filepath.ToSlash(filepath.Dir(filepath.Clean(common))), lane
+	common = filepath.Clean(common)
+	return filepath.ToSlash(filepath.Dir(common)), lane, common
 }
 
 func headBranch(gitdir string) string {

@@ -168,7 +168,8 @@ func evaluateCovered(post string, lines, covered map[int]bool, l lang, policies 
 			continue
 		}
 		if a := actionFor(pol.category, p); a > best.Action {
-			best = Decision{Action: a, Reason: pol.reason, Policy: pol.name}
+			// The escape marker is the override the refusal offers.
+			best = Decision{Action: a, Reason: pol.reason, Policy: pol.name, Override: pol.escape}
 		}
 	}
 	best.Escapes = escapes

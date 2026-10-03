@@ -26,7 +26,7 @@ import (
 // shard count and the drive budget.
 func isolateMeasurement(t *testing.T) string {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	lockDir := t.TempDir()
 	t.Cleanup(tdd.SetLockDirForTest(lockDir))
 	t.Cleanup(tdd.SetCIRunnerJobsForTest(func() []int { return nil }))

@@ -121,6 +121,8 @@ func RatchetAdvisory(raw []byte) Decision {
 		// running them together on one line is where that remedy scrolls off.
 		Reason: "ratchet: " + strings.Join(res.Lines(), "\nratchet: "),
 		Policy: "ratchet:" + res.Findings[0].Law,
+		// The refusal names the law's escape comment as the way to admit a hit.
+		Override: "law-escape-comment",
 	}
 }
 

@@ -11,6 +11,8 @@ const Source = core.Source
 
 const Test = core.Test
 
+type Event = core.Event
+
 type GateResult = core.GateResult
 
 type Kind = core.Kind
@@ -20,6 +22,8 @@ type Outcome = core.Outcome
 type Runner = core.Runner
 
 var sourceExts = core.SourceExts
+
+func AppendEvent(p0 Event) { core.AppendEvent(p0) }
 
 func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration) {
 	core.AppendGateLog(p0, p1, p2, p3, p4)

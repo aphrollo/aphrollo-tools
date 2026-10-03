@@ -299,6 +299,7 @@ edit_ownership_own_test.go                         suite
 edithook_detached_test.go                          postedit
 editledger.go                                      failfirst
 editledger_batch_test.go                           failfirst
+editledger_event_test.go                           failfirst
 editledger_suite.go                                suite     # created by P2
 editledger_test.go                                 postedit  # prefix says failfirst; its test body reaches postedit
 editrun_scope_test.go                              postedit
@@ -335,6 +336,7 @@ escape_verify_localdiff_test.go                    escape
 escape_verify_suite.go                             suite     # created by P2
 escape_verify_suite_test.go                        suite
 escape_verify_test.go                              escape
+eventlog.go                                       core
 events.go                                          core
 events_own_test.go                                 core
 failfirst_env.go                                   failfirst
@@ -766,6 +768,7 @@ postmerge_testmap_test.go                          tdd       # prefix says merge
 posttooluse.go                                     postedit
 posttooluse_advisory.go                            postedit
 posttooluse_advisory_test.go                       postedit
+posttooluse_events_test.go                         postedit
 posttooluse_failfirst.go                           failfirst # created by P2
 posttooluse_gofmt.go                               postedit
 posttooluse_gofmt_test.go                          postedit
@@ -1026,6 +1029,7 @@ state.go                                           core
 state_gitx.go                                      gitx      # created by P2
 state_misc_own_test.go                             suite
 state_test.go                                      core
+stateroot.go                                      core
 stateschema.go                                     core
 stateschema_own_test.go                            core
 stateschema_test.go                                postedit  # prefix says core; its test body reaches postedit

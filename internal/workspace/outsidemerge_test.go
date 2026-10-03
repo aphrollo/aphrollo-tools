@@ -83,7 +83,7 @@ func outsideMerges(t *testing.T) []tdd.Event {
 }
 
 func TestSync_RecordsAnOutsideMergeOncePerCommit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	first := landOnOrigin(t, clone, "Add the frobnicator (#1089)")
 	if err := Sync(clone, false, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
@@ -118,7 +118,7 @@ func TestSync_RecordsAnOutsideMergeOncePerCommit(t *testing.T) {
 // The event is stamped with the commit's own time, so a backfill lands in the
 // week the merge happened rather than the week it was found.
 func TestSync_StampsAnOutsideMergeWithTheCommitTime(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	tmp := originCheckout(t, clone)
 	writeFile(t, tmp, "late.txt", "late\n")
@@ -143,7 +143,7 @@ func TestSync_StampsAnOutsideMergeWithTheCommitTime(t *testing.T) {
 // A merge commit made without a PR (a hand `git merge --no-ff`) is a merge too;
 // it carries no PR number. A plain commit pushed straight to trunk is not one.
 func TestSync_RecordsAMergeCommitWithNoPRAndIgnoresAPlainCommit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	landOnOrigin(t, clone, "Direct commit to trunk")
 	merge := landMergeOnOrigin(t, clone, "merge topic by hand")
@@ -169,7 +169,7 @@ func TestSync_RecordsAMergeCommitWithNoPRAndIgnoresAPlainCommit(t *testing.T) {
 // the next run finishes the pair instead of skipping the commit or doubling the
 // merge.
 func TestSync_FinishesAPairAnEarlierRunLeftHalfWritten(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	sha := landOnOrigin(t, clone, "Add the frobnicator (#1089)")
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: clone, Verdict: "ok",
@@ -192,7 +192,7 @@ func TestSync_FinishesAPairAnEarlierRunLeftHalfWritten(t *testing.T) {
 }
 
 func TestSync_ReadsThePRFromGitHubsMergeCommitSubject(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	landMergeOnOrigin(t, clone, "Merge pull request #12 from o/topic")
 
@@ -229,7 +229,7 @@ func TestPRNumber_ReadsTheSubjectsAMergeCarries(t *testing.T) {
 // finds the record and writes nothing of its own: the verb's merges never count
 // as outside ones.
 func TestMergeApply_OwnMergeIsNotRecordedAsOutside(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 
 	verbMergesPR18(t, clone, targetFor(clone, "lane/z"))
@@ -238,7 +238,7 @@ func TestMergeApply_OwnMergeIsNotRecordedAsOutside(t *testing.T) {
 // The verb really runs in a lane worktree, and its record then names the repo
 // through that worktree's link; the trunk move must still recognise it.
 func TestMergeApply_OwnMergeFromALaneWorktreeIsNotRecordedAsOutside(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	lane := filepath.Join(t.TempDir(), "lane-z")
 	gitRun(t, clone, "worktree", "add", "-q", "-b", "lane/z", lane)
@@ -286,7 +286,7 @@ func verbMergesPR18(t *testing.T, clone string, tgt *Target) {
 // PR numbers repeat across repositories, so the verb's record of PR 18 in one
 // repository says nothing about a merge of PR 18 in another.
 func TestSync_AVerbRecordOfTheSamePRInAnotherRepoDoesNotHideAnOutsideMerge(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	elsewhere := t.TempDir()
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: elsewhere, Verdict: "ok",
 		Detail: map[string]string{"pr": "18", "method": "squash"}})
@@ -303,7 +303,7 @@ func TestSync_AVerbRecordOfTheSamePRInAnotherRepoDoesNotHideAnOutsideMerge(t *te
 }
 
 func TestSync_DryRunRecordsNothing(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	landOnOrigin(t, clone, "Add the frobnicator (#1089)")
 
@@ -334,7 +334,7 @@ func pullFastForward(t *testing.T, clone string) {
 }
 
 func TestPostMergeRecord_RecordsWhatThePullBroughtInOnceAndSaysSo(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := gatedClone(t)
 	sha := landOnOrigin(t, clone, "Add the frobnicator (#1089)")
 	pullFastForward(t, clone)
@@ -358,7 +358,7 @@ func TestPostMergeRecord_RecordsWhatThePullBroughtInOnceAndSaysSo(t *testing.T) 
 // Only what the merge that fired the hook brought in is looked at: a merge
 // already on trunk before ORIG_HEAD is the backfill's business, not the hook's.
 func TestPostMergeRecord_LooksOnlyAtWhatTheLastMergeBroughtIn(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := gatedClone(t)
 	landOnOrigin(t, clone, "Older (#1)")
 	pullFastForward(t, clone) // no hook ran for this one
@@ -375,7 +375,7 @@ func TestPostMergeRecord_LooksOnlyAtWhatTheLastMergeBroughtIn(t *testing.T) {
 // Merging trunk into a lane fires the same hook; the lane is not trunk, so
 // nothing the merge brought in landed on trunk just now.
 func TestPostMergeRecord_IgnoresAMergeIntoALane(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := gatedClone(t)
 	gitRun(t, clone, "switch", "-q", "-c", "lane/x")
 	landOnOrigin(t, clone, "Add the frobnicator (#1089)")
@@ -392,7 +392,7 @@ func TestPostMergeRecord_IgnoresAMergeIntoALane(t *testing.T) {
 // core.hooksPath is machine-wide, so the hook fires in every repo on the box;
 // a repo that never declared itself aphrollo's is left alone.
 func TestPostMergeRecord_LeavesARepoWithoutAnAphrolloFootprintAlone(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	landOnOrigin(t, clone, "Add the frobnicator (#1089)")
 	pullFastForward(t, clone)
@@ -425,7 +425,7 @@ func TestPostMergeRecord_RecognisesEachWayARepoDeclaresItself(t *testing.T) {
 		}, 0},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			gateState(t)
 			clone := repoWithOrigin(t)
 			c.declare(t, clone)
 			landOnOrigin(t, clone, "Add the frobnicator (#1089)")
@@ -460,7 +460,7 @@ func TestSameDir_RecognisesOneDirectoryUnderTwoSpellings(t *testing.T) {
 }
 
 func TestPostMergeRecord_IsSilentOutsideARepo(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	var errb bytes.Buffer
 	PostMergeRecord(t.TempDir(), &errb)
 	if evs := emitted(t); len(evs) != 0 || errb.Len() != 0 {
@@ -471,7 +471,7 @@ func TestPostMergeRecord_IsSilentOutsideARepo(t *testing.T) {
 // SyncSince is the one-time backfill: it records the merges in <ref>..trunk the
 // log never saw, previews them with --dry, and never records a sha twice.
 func TestSyncSince_BackfillsARangeOnceAndDryRunWritesNothing(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	seed := revOf(t, clone, "HEAD")
 	landOnOrigin(t, clone, "First (#1089)")
@@ -513,7 +513,7 @@ func TestSyncSince_BackfillsARangeOnceAndDryRunWritesNothing(t *testing.T) {
 
 // A merge the verb recorded stays out of the backfill's range too.
 func TestSyncSince_SkipsAMergeTheVerbRecorded(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	seed := revOf(t, clone, "HEAD")
 	landOnOrigin(t, clone, "By the verb (#1091)")
@@ -534,7 +534,7 @@ func TestSyncSince_SkipsAMergeTheVerbRecorded(t *testing.T) {
 // A repository with no remote has no origin tip to scan to; the backfill reads
 // local trunk instead.
 func TestSyncSince_ReadsLocalTrunkWhenThereIsNoRemote(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	repo := initRepo(t)
 	seed := revOf(t, repo, "HEAD")
 	gitRun(t, repo, "switch", "-q", "-c", "topic")
@@ -555,7 +555,7 @@ func TestSyncSince_ReadsLocalTrunkWhenThereIsNoRemote(t *testing.T) {
 }
 
 func TestSyncSince_RefusesARefThatDoesNotResolve(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	clone := repoWithOrigin(t)
 	err := SyncSince(clone, "no-such-ref", false, &bytes.Buffer{}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "no-such-ref") {

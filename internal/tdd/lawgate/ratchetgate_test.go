@@ -33,6 +33,9 @@ func TestRatchetAdvisoryDeniesAWriteThatIntroducesANewHit(t *testing.T) {
 			t.Errorf("reason %q does not carry %q", d.Reason, want)
 		}
 	}
+	if d.Override != "law-escape-comment" {
+		t.Errorf("override = %q, want law-escape-comment: the refusal offers the law's escape comment", d.Override)
+	}
 }
 
 func TestRatchetAdvisoryAllowsAWriteThatAddsNothingNew(t *testing.T) {

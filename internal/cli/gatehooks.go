@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -134,4 +136,24 @@ func gateVerdictWord(code int) string {
 		return "pass"
 	}
 	return "blocked"
+}
+
+// recordHookTiming writes the hook.timing event of one Claude hook run: which
+// hook, how long it took, and the actor (session, and agent when a subagent
+// made the call). The userpromptsubmit ones are the message boundaries edits
+// per message are counted between. An unreadable payload still gets its timing,
+// with no actor and no repo.
+func recordHookTiming(hook string, raw []byte, start time.Time) {
+	var in struct {
+		SessionID string `json:"session_id"`
+		AgentID   string `json:"agent_id"`
+		Cwd       string `json:"cwd"`
+	}
+	_ = json.Unmarshal(raw, &in)
+	actor := in.SessionID
+	if in.AgentID != "" {
+		actor += "/" + in.AgentID
+	}
+	tdd.AppendEvent(tdd.Event{Kind: "hook.timing", Root: in.Cwd, Actor: actor, Secs: time.Since(start).Seconds(),
+		Detail: map[string]string{"hook": hook}})
 }

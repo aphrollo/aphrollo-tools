@@ -147,7 +147,7 @@ func outsideMergesIn(repo, rng string) ([]OutsideMerge, error) {
 	}
 	merged, escaped := map[string]bool{}, map[string]bool{}
 	byVerb := map[int]bool{}
-	for _, e := range core.ReadEvents() {
+	for _, e := range core.ReadEvents(repo) {
 		switch {
 		case e.Kind == "merge" && e.Detail["by"] == mergeByOutside:
 			merged[e.Detail["sha"]] = true
