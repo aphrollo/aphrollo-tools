@@ -51,9 +51,10 @@ func writeFileAtomic(path string, data []byte) error {
 		os.Remove(name)
 		return err
 	}
-	// Windows refuses to replace a file another process has open, and the
-	// harvest polls this very path — so retry briefly before giving up.
-	err = retryRename(func() error { return os.Rename(name, path) }, renameRetryable, renameBound)
+	// replaceFile gets past readers that opened the file with readFileShared;
+	// Windows still refuses it while a plain open is held, and the harvest
+	// polls this very path — so retry briefly before giving up.
+	err = retryRename(func() error { return replaceFile(name, path) }, renameRetryable, renameBound)
 	if err != nil {
 		os.Remove(name)
 	}

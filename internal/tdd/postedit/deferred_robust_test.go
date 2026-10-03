@@ -122,7 +122,7 @@ func TestWriteFileAtomic_ReadersNeverSeeAPartialFile(t *testing.T) {
 			}
 			return
 		default:
-			if data, err := os.ReadFile(path); err == nil && len(data) != len(payload) {
+			if data, err := readFileShared(path); err == nil && len(data) != len(payload) {
 				select {
 				case bad <- len(data):
 				default:

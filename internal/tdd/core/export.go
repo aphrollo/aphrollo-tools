@@ -117,6 +117,8 @@ func ProjectKey(p0 string) string { return projectKey(p0) }
 
 func QuotedWords(p0 string) []string { return quotedWords(p0) }
 
+func ReadFileShared(p0 string) ([]byte, error) { return readFileShared(p0) }
+
 func ReadStagedTree(p0 string, p1 string) (string, error) { return readStagedTree(p0, p1) }
 
 func ReadStateJSON(p0 string, p1 any) (bool, bool) { return readStateJSON(p0, p1) }

@@ -19,6 +19,20 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.6.1 - 2026-10-03
+
+Two Windows flakes in the gate's own state writes are fixed at the cause.
+
+### What you will notice
+
+- A state file the gate publishes by rename (a deferred job's result, the session state) is read
+  with delete sharing on Windows and replaced with a POSIX-semantics rename, so a reader that
+  polls the file no longer holds the writer off until it fails with `Access is denied`. A reader
+  that opens the file without delete sharing is still waited out for up to a second.
+- An event written without a sequence number because another writer held the log's lock past
+  100 ms is numbered when the log is read, from its place in the file, so `ReadEvents` never
+  returns two records of a month log with one sequence number, or a zero.
+
 ## 1.6.0 - 2026-10-03
 
 `aphrollo stats` reports how the pipeline is doing, from the event log it already keeps.

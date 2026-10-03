@@ -48,7 +48,7 @@ func noteStateOnce(verdict, path string) {
 // false for the newer case only, telling the caller its own writes would
 // clobber a file it cannot read.
 func readStateJSON(path string, v any) (ok, usable bool) {
-	data, err := os.ReadFile(path)
+	data, err := readFileShared(path)
 	if err != nil {
 		return false, true
 	}
