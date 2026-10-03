@@ -38,7 +38,7 @@ func ShipPlan(t *Target, req ShipRequest) (*Ship, error) {
 	if err := req.SkipMutants.validate(); err != nil {
 		return nil, err
 	}
-	c, err := CommitPlan(t, req.Message, req.StageAll, req.NoVerify, req.Reason)
+	c, err := commitPlan(t, req.Message, req.StageAll, req.NoVerify, req.Reason, true)
 	if err != nil {
 		return nil, err
 	}
