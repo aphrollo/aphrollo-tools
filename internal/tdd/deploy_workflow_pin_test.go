@@ -69,3 +69,43 @@ func TestDeployWorkflow_IsDispatchOnlyAndSupersedable(t *testing.T) {
 		t.Error("deploy job must check out the newest tag and run deploy-prod.sh")
 	}
 }
+
+// A release tag is made from the changelog fragments, by the binary built from
+// the very commit being released, and never by a bot committing to main. Two
+// pushes in quick succession must queue behind each other, not race for the
+// same tag, and not cancel a tag in flight.
+func TestPipeline_ReleaseJobTagsFromTheFragmentsOfTheCommitItBuilds(t *testing.T) {
+	t.Parallel()
+	rel := jobNamed(t, "pipeline.yml", "release").text
+	build, tag := strings.Index(rel, "go build"), strings.Index(rel, "tag-release.sh")
+	if build < 0 || tag < 0 || build > tag {
+		t.Error("release job must build aphrollo from this checkout before tag-release.sh, which asks it for the plan")
+	}
+	for _, want := range []struct{ text, why string }{
+		{"fetch-depth: 0", "the plan reads every tag and the history behind it"},
+		{"group: release-tag-aphrollo-cli", "two pushes in quick succession serialize on one group"},
+		{"cancel-in-progress: false", "a tag in flight is never cancelled by the next push"},
+		{"contents: write", "pushing the tag and creating the Release need it"},
+		{"GH_TOKEN: ${{ github.token }}", "tag-release.sh calls gh for the Release"},
+	} {
+		if !strings.Contains(rel, want.text) {
+			t.Errorf("release job lacks %q: %s", want.text, want.why)
+		}
+	}
+	if strings.Contains(rel, "git commit") || strings.Contains(rel, "git push origin main") {
+		t.Error("release job must not commit to main: a version is a tag, not a commit")
+	}
+}
+
+// The release job pushes a real version tag, and deploy.yml ships the newest
+// tag. A manual dispatch from a lane branch would find that branch's pending
+// fragment and tag an unmerged commit, so both arms of the trigger are held to
+// main.
+func TestPipeline_ReleaseJobRunsOnlyOnMainWhateverTheTrigger(t *testing.T) {
+	t.Parallel()
+	rel := jobNamed(t, "pipeline.yml", "release").text
+	want := "((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main')"
+	if !strings.Contains(rel, want) {
+		t.Errorf("the release job's `if` must hold push and workflow_dispatch alike to main, as %q:\n%s", want, rel)
+	}
+}

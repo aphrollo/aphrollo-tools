@@ -68,12 +68,15 @@ func gitOutput(t *testing.T, git, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// A release build at the tag's commit has nothing to do.
 func TestUpdate_SkipsWhenTheBinaryIsAlreadyAtOriginMain(t *testing.T) {
 	origin, clone, _ := updateFixture(t)
 	git := realGitForTest(t)
 	head := gitOutput(t, git, origin, "rev-parse", "main")
 	buildinfo.SetForTest(head, "2026-01-01T00:00:00Z")
 	t.Cleanup(func() { buildinfo.SetForTest("", "") })
+	buildinfo.SetVersionForTest("99.0.0")
+	t.Cleanup(func() { buildinfo.SetVersionForTest("") })
 
 	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
 	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
@@ -518,5 +521,35 @@ func TestUpdate_RefusesARepoThatIsNotAphrolloTools(t *testing.T) {
 	}
 	if !strings.Contains(errb.String(), "--repo") {
 		t.Fatalf("stderr does not name --repo: %q", errb.String())
+	}
+}
+
+// A box on an older release runs its OLD update to build the new tag: that
+// binary carries no version flag, so the result is a dev build whose commit is
+// the tag's commit. It is not at the release, and the next update must replace
+// it instead of skipping on the matching commit.
+func TestUpdate_ADevBuildAtTheTagsCommitIsStillReplaced(t *testing.T) {
+	origin, clone, _ := updateFixture(t)
+	git := realGitForTest(t)
+	head := gitOutput(t, git, origin, "rev-parse", "main")
+	buildinfo.SetForTest(head, "2026-01-01T00:00:00Z")
+	t.Cleanup(func() { buildinfo.SetForTest("", "") })
+
+	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
+	if err := os.WriteFile(bin, []byte("OLD"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var built string
+	stubBuild(t, &built)
+
+	var out, errb bytes.Buffer
+	if code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb); code != 0 {
+		t.Fatalf("update exit = %d, want 0\nstderr: %s", code, errb.String())
+	}
+	if built != head {
+		t.Fatalf("built %q, want the tag's commit %s: a dev build at that commit is not the release", built, head)
+	}
+	if strings.Contains(out.String(), "[skip]") {
+		t.Fatalf("stdout = %q, want no skip", out.String())
 	}
 }

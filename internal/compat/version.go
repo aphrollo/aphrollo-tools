@@ -66,10 +66,26 @@ func (v Version) Less(o Version) bool {
 	) < 0
 }
 
-var binary = MustParseVersion(buildinfo.Version())
+// Build is what this binary is: the release version it was built at, or a dev
+// build, which was built at no release tag and has no version to compare. Label
+// is the version string the build reports (buildinfo.Version).
+type Build struct {
+	Version Version
+	Dev     bool
+	Label   string
+}
 
-// Binary is the version this build carries.
-func Binary() Version { return binary }
+// Release is the build of a release at version v.
+func Release(v Version) Build { return Build{Version: v, Label: v.String()} }
+
+// Binary is the build this process runs. It is read from the stamp at each
+// call: a build at a release tag is that release, any other is a dev build.
+func Binary() Build {
+	if !buildinfo.Released() {
+		return Build{Dev: true, Label: buildinfo.Version()}
+	}
+	return Release(MustParseVersion(buildinfo.Version()))
+}
 
 // Requirement is a repo's declared oldest acceptable binary.
 type Requirement struct {

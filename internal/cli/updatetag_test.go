@@ -30,6 +30,14 @@ func TestNewestReleaseTag_ReportsNoneWhenThereAreNoReleaseTags(t *testing.T) {
 	}
 }
 
+// releaseBuild makes the running binary a build at release version v for the
+// test, as the linker stamps it at a release tag.
+func releaseBuild(t *testing.T, v string) {
+	t.Helper()
+	buildinfo.SetVersionForTest(v)
+	t.Cleanup(func() { buildinfo.SetVersionForTest("") })
+}
+
 func stubBuild(t *testing.T, record *string) {
 	t.Helper()
 	git := realGitForTest(t)
@@ -66,6 +74,7 @@ func TestUpdate_BuildsTheNewestTagNotMainWhenMainIsAhead(t *testing.T) {
 }
 
 func TestUpdate_NamesTheTagItMovedFromAndTo(t *testing.T) {
+	releaseBuild(t, "1.5.0")
 	_, clone, _ := updateFixture(t)
 	var built string
 	stubBuild(t, &built)
@@ -105,6 +114,7 @@ func TestUpdate_RefusesWithAFixWhenTheRemoteHasNoReleaseTag(t *testing.T) {
 // A remote that only holds tags older than the running binary (v0.2.0 beside a
 // 1.x box) must never downgrade it.
 func TestUpdate_SkipsWhenTheNewestTagIsOlderThanTheRunningBinary(t *testing.T) {
+	releaseBuild(t, "1.5.0")
 	_, clone, seed := updateFixture(t)
 	git := realGitForTest(t)
 	gitOutput(t, git, seed, "push", "-q", "origin", ":refs/tags/v99.0.0")
@@ -133,11 +143,12 @@ func TestUpdate_SkipsWhenTheNewestTagIsOlderThanTheRunningBinary(t *testing.T) {
 // The running version's own tag is not a downgrade: a binary built from main
 // ahead of its release still moves onto the tag.
 func TestUpdate_BuildsATagThatEqualsTheRunningVersion(t *testing.T) {
+	releaseBuild(t, "1.5.0")
 	_, clone, seed := updateFixture(t)
 	git := realGitForTest(t)
 	gitOutput(t, git, seed, "push", "-q", "origin", ":refs/tags/v99.0.0")
 	gitOutput(t, git, clone, "tag", "-d", "v99.0.0")
-	same := "v" + buildinfo.Version()
+	same := "v1.5.0"
 	gitOutput(t, git, seed, "tag", same)
 	gitOutput(t, git, seed, "push", "-q", "origin", same)
 	var built string
@@ -151,5 +162,28 @@ func TestUpdate_BuildsATagThatEqualsTheRunningVersion(t *testing.T) {
 	}
 	if built == "" {
 		t.Fatalf("the tag %s equals the running version and must still be built; stdout %q", same, out.String())
+	}
+}
+
+// A dev build has no version, so no tag is older than it: it moves onto the
+// newest tag instead of skipping as a downgrade.
+func TestUpdate_ADevBuildMovesOntoAnOldTag(t *testing.T) {
+	_, clone, seed := updateFixture(t)
+	git := realGitForTest(t)
+	gitOutput(t, git, seed, "push", "-q", "origin", ":refs/tags/v99.0.0")
+	gitOutput(t, git, clone, "tag", "-d", "v99.0.0")
+	gitOutput(t, git, seed, "tag", "v0.2.0")
+	gitOutput(t, git, seed, "push", "-q", "origin", "v0.2.0")
+	var built string
+	stubBuild(t, &built)
+	bin := filepath.Join(t.TempDir(), "aphrollo.exe")
+	mustWriteFile(t, bin, "OLD")
+
+	var out, errb bytes.Buffer
+	if code := runUpdate([]string{"--repo", clone, "--bin", bin, "--no-init"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d\n%s", code, errb.String())
+	}
+	if built == "" {
+		t.Fatalf("a dev build skipped the update:\n%s", out.String())
 	}
 }

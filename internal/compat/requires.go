@@ -19,6 +19,10 @@ const (
 	TooOld
 	// Malformed: a declaration this binary cannot read, so it can decide nothing.
 	Malformed
+	// DevBuild: the repo declares a minimum and this binary is a dev build, built
+	// at no release tag, so it has no version to compare. It runs unjudged by the
+	// minimum and says so.
+	DevBuild
 )
 
 // Verdict is a Status and the one line that says it; Line is empty for
@@ -36,10 +40,11 @@ var declarations = []struct{ file, table string }{
 	{"Cargo.toml", "[workspace.metadata.aphrollo]"},
 }
 
-// Check judges root against the binary version have. The stricter of two
-// declarations wins; one that cannot be read beats a minimum, because a
-// constraint nobody could compare says nothing about what is safe.
-func Check(root string, have Version) Verdict {
+// Check judges root against the binary have. The stricter of two declarations
+// wins; one that cannot be read beats a minimum, because a constraint nobody
+// could compare says nothing about what is safe. A dev build satisfies any
+// minimum it can read, with a notice.
+func Check(root string, have Build) Verdict {
 	var strictest Requirement
 	declared := false
 	for _, d := range declarations {
@@ -55,10 +60,16 @@ func Check(root string, have Version) Verdict {
 			strictest, declared = req, true
 		}
 	}
-	if !declared || !have.Less(strictest.Min) {
+	if !declared {
 		return Verdict{}
 	}
-	return Verdict{TooOld, fmt.Sprintf("aphrollo too old here: this repo requires %s, this is %s; run aphrollo update", strictest, have)}
+	if have.Dev {
+		return Verdict{DevBuild, fmt.Sprintf("aphrollo: dev build %s is not at a release tag, so this repo's requires %s is not checked", have.Label, strictest)}
+	}
+	if !have.Version.Less(strictest.Min) {
+		return Verdict{}
+	}
+	return Verdict{TooOld, fmt.Sprintf("aphrollo too old here: this repo requires %s, this is %s; run aphrollo update", strictest, have.Version)}
 }
 
 // beforeComment cuts what the line reader leaves after a quoted value: it
@@ -91,7 +102,7 @@ func RepoRoot(dir string) string {
 
 // CheckAt is Check for the repo dir sits in; outside any repo there is
 // nothing to be too old for.
-func CheckAt(dir string, have Version) Verdict {
+func CheckAt(dir string, have Build) Verdict {
 	root := RepoRoot(dir)
 	if root == "" {
 		return Verdict{}

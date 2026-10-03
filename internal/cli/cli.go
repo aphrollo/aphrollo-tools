@@ -47,7 +47,9 @@ Commands:
   why         Replay one deny or run result of the event log by its seq, with its rule's counts
   check       Judge the tree: ratchet laws, docs, sqlc drift, the install doctor,
               and (if declared) the app trio — one line per guard
-  version     Print the commit and build time this binary was stamped with
+  release     Read-only release plan: the tag a push to main owes from the changelog.d fragments (release plan)
+  changelog   Print the full changelog, assembled from the changelog.d fragments each release tag first contains
+  version     Print the version, commit and build time this binary was stamped with; version check holds a PR to the version rule
   update      Fetch, build ./cmd/aphrollo from origin/main in a temporary worktree, swap it in, sweep stale copies, re-run init (--repo, --bin, --no-init)
 `
 
@@ -142,6 +144,10 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runWhy(args[1:], stdout, stderr)
 	case "check":
 		return runCheck(args[1:], stdout, stderr)
+	case "release":
+		return runRelease(args[1:], stdout, stderr)
+	case "changelog":
+		return runChangelog(args[1:], stdout, stderr)
 	case "version":
 		return runVersion(args[1:], stdout, stderr)
 	case "update":

@@ -7,24 +7,29 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/compat"
+	"github.com/aphrollo/aphrollo-tools/internal/release"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 const versionCheckUsage = `usage: aphrollo version check --base <ref> --body-file <file> [--repo <dir>]
 
-Hold a change to the version rule, in the checkout of this repo. The PR body
-(--body-file) must carry one line, "version: none|patch|minor|major"; the
-VERSION file must have moved from the merge base of <ref> and HEAD to HEAD by
-exactly that much (a base that moved on since the branch forked is not the
-branch's change); a change
-to a law preset, a language row or a mask must be a minor bump at least; and
-CHANGELOG.md must have a section for the version in VERSION. Every failure is
-printed on its own line and the exit is 1. A <ref> with no VERSION file counts
-as 0.0.0, so a repo's first version is a major bump.
+Hold a change to the version rule, in the checkout of this repo. A PR carries
+the level of release it asks for, never a version number: the PR body
+(--body-file) must carry one line, "version: none|patch|minor|major", and a PR
+that is not "none" adds exactly one changelog.d/<slug>.md fragment, whose first
+line "level: patch|minor|major" agrees with it; a "none" PR adds none. The
+change is what the branch did since it left the merge base of <ref> and HEAD (a
+base that moved on since the branch forked is not the branch's change). The PR
+must not add or edit internal/buildinfo/VERSION (deleting it is fine), must not
+change a released section of CHANGELOG.md, and must not edit or delete a
+fragment the newest release tag contains (a fragment merged since
+is still the PR's own, as a revert needs). A change to a law preset, a language row or a mask
+must be a minor change at least. Every failure is printed on its own line and
+the exit is 1. The release tag itself is made on main from the fragments
+merged: see aphrollo release plan.
 `
 
 func runVersionCheck(args []string, stdout, stderr io.Writer) int {
@@ -59,9 +64,9 @@ func runVersionCheck(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// judgeVersionChange gathers what the rule judges: the body, the version at
-// base and in the checkout, the files the change touches, and the changelog.
-// An error is a check that could not be made, never a verdict.
+// judgeVersionChange gathers what the rule judges: the body, the files the
+// branch touched since it forked, the fragments it added and the changelog on
+// both sides. An error is a check that could not be made, never a verdict.
 func judgeVersionChange(repo, base, bodyFile string) (problems []string, summary string, err error) {
 	root := compat.RepoRoot(repo)
 	if root == "" {
@@ -71,12 +76,8 @@ func judgeVersionChange(repo, base, bodyFile string) (problems []string, summary
 	if err != nil {
 		return nil, "", err
 	}
-	head, err := readVersionFile(filepath.Join(root, filepath.FromSlash(compat.VersionFile)))
-	if err != nil {
-		return nil, "", err
-	}
-	if _, err := versionAtRef(root, base); err != nil {
-		return nil, "", err
+	if _, err := gitStdoutIn(root, "rev-parse", "--verify", "--quiet", base+"^{commit}"); err != nil {
+		return nil, "", fmt.Errorf("%q is not a commit in this repository: %w", base, err)
 	}
 	// The change is what the branch did since it left base, not what base did
 	// since: a branch behind its base is measured from the merge base.
@@ -85,56 +86,82 @@ func judgeVersionChange(repo, base, bodyFile string) (problems []string, summary
 		return nil, "", fmt.Errorf("no merge base between %q and HEAD: %w", base, err)
 	}
 	fork := strings.TrimSpace(forkOut)
-	was, err := versionAtRef(root, fork)
+	changed, err := gitStdoutIn(root, "diff", "--name-status", "-z", "--no-renames", fork, "HEAD")
 	if err != nil {
 		return nil, "", err
 	}
-	changed, err := gitStdoutIn(root, "diff", "--name-only", "-z", fork, "HEAD")
+	files, err := parseNameStatus(changed)
 	if err != nil {
 		return nil, "", err
 	}
-	problems = compat.JudgeBump(was, head, string(body), strings.FieldsFunc(changed, func(r rune) bool { return r == 0 }))
-	changelog, _ := os.ReadFile(filepath.Join(root, compat.ChangelogFile)) // a missing file is the missing section the problem below names
-	if !compat.ChangelogHas(string(changelog), head) {
-		problems = append(problems, fmt.Sprintf("%s has no section for %s: add a `## %s` heading with what a consumer will notice and what migrates by itself", compat.ChangelogFile, head, head))
+	change := release.Change{Body: string(body), Files: files, Fragments: map[string]string{}}
+	// What the newest release tag contains is history; the fork's tree is not
+	// consulted, so a fragment merged since that tag stays the PR's to edit.
+	fr := fragmentRepo{root: root}
+	tags, err := fr.tags()
+	if err != nil {
+		return nil, "", err
 	}
-	return problems, fmt.Sprintf("%s -> %s", was, head), nil
+	if newest, _, found := release.NewestRelease(tags); found {
+		names, err := fr.names(newest)
+		if err != nil {
+			return nil, "", err
+		}
+		for _, name := range names {
+			change.ReleasedFragments = append(change.ReleasedFragments, release.FragmentPath(name))
+		}
+	}
+	var added []string
+	for _, f := range files {
+		if _, isFragment := release.FragmentName(f.File); f.Status == 'A' && isFragment {
+			text, err := gitStdoutIn(root, "show", "HEAD:"+f.File)
+			if err != nil {
+				return nil, "", err
+			}
+			change.Fragments[f.File] = text
+			added = append(added, f.File)
+		}
+	}
+	if change.BaseChangelog, err = fileAtRef(root, fork, compat.ChangelogFile); err != nil {
+		return nil, "", err
+	}
+	if change.HeadChangelog, err = fileAtRef(root, "HEAD", compat.ChangelogFile); err != nil {
+		return nil, "", err
+	}
+	problems = release.JudgeChange(change)
+	declared, _ := compat.DeclaredBump(string(body)) // a body with no decision is a problem above, and no summary is printed
+	return problems, release.Summary(declared, added), nil
 }
 
-func readVersionFile(file string) (compat.Version, error) {
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return compat.Version{}, err
+// parseNameStatus reads `git diff --name-status -z --no-renames`: a status
+// letter and a path, each NUL-terminated.
+func parseNameStatus(out string) ([]release.FileChange, error) {
+	fields := strings.FieldsFunc(out, func(r rune) bool { return r == 0 })
+	if len(fields)%2 != 0 {
+		return nil, fmt.Errorf("git diff --name-status gave %d fields, want status and file pairs", len(fields))
 	}
-	v, err := compat.ParseVersion(strings.TrimSpace(string(data)))
-	if err != nil {
-		return compat.Version{}, fmt.Errorf("%s: %w", compat.VersionFile, err)
+	var files []release.FileChange
+	for i := 0; i < len(fields); i += 2 {
+		status := fields[i]
+		if len(status) != 1 {
+			return nil, fmt.Errorf("git diff --name-status gave status %q for %s", status, fields[i+1])
+		}
+		files = append(files, release.FileChange{Status: status[0], File: fields[i+1]})
 	}
-	return v, nil
+	return files, nil
 }
 
-// versionAtRef is the version the VERSION file carried at ref. A ref that
-// never had the file is a repo before its first version: 0.0.0.
-func versionAtRef(root, ref string) (compat.Version, error) {
-	if _, err := gitStdoutIn(root, "rev-parse", "--verify", "--quiet", ref+"^{commit}"); err != nil {
-		return compat.Version{}, fmt.Errorf("%q is not a commit in this repository: %w", ref, err)
-	}
-	listed, err := gitStdoutIn(root, "ls-tree", "--name-only", ref, "--", compat.VersionFile)
+// fileAtRef is the text of file at ref, "" when ref has no such file: a repo
+// before its first changelog has no released section to protect.
+func fileAtRef(root, ref, file string) (string, error) {
+	listed, err := gitStdoutIn(root, "ls-tree", "--name-only", ref, "--", file)
 	if err != nil {
-		return compat.Version{}, err
+		return "", err
 	}
 	if strings.TrimSpace(listed) == "" {
-		return compat.Version{}, nil
+		return "", nil
 	}
-	text, err := gitStdoutIn(root, "show", ref+":"+compat.VersionFile)
-	if err != nil {
-		return compat.Version{}, err
-	}
-	v, err := compat.ParseVersion(strings.TrimSpace(text))
-	if err != nil {
-		return compat.Version{}, fmt.Errorf("%s at %s: %w", compat.VersionFile, ref, err)
-	}
-	return v, nil
+	return gitStdoutIn(root, "show", ref+":"+file)
 }
 
 // gitStdoutIn runs git in dir and returns its stdout; a failure carries git's own

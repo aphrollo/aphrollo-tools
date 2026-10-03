@@ -10,19 +10,14 @@ import (
 const (
 	versionPath   = "internal/buildinfo/VERSION"
 	changelogPath = "CHANGELOG.md"
+	fragmentPath  = "changelog.d/lane-x.md"
+	minorFragment = "level: minor\n\nA law now reads comments.\n"
 )
 
-func changelogWith(versions ...string) string {
-	var b strings.Builder
-	b.WriteString("# Changelog\n\n")
-	for _, v := range versions {
-		b.WriteString("## " + v + "\n\nWhat a consumer will notice.\n\n")
-	}
-	return b.String()
-}
+const frozenChangelog = "# Changelog\n\nPointer.\n\n## 1.6.6\n\nFrozen words.\n"
 
-// versionLane is a repo whose first commit carries version base, and a helper
-// to commit the lane's own change on top of it.
+// versionLane is a repo with a first commit, and a helper to commit the lane's
+// own change on top of it.
 type versionLane struct {
 	t    *testing.T
 	dir  string
@@ -54,6 +49,12 @@ func (l *versionLane) commit(files map[string]string) {
 	versionGit(l.t, l.dir, "commit", "-q", "-m", "change")
 }
 
+func (l *versionLane) remove(rel string) {
+	l.t.Helper()
+	versionGit(l.t, l.dir, "rm", "-q", "-f", rel)
+	versionGit(l.t, l.dir, "commit", "-q", "-m", "remove")
+}
+
 func (l *versionLane) check(body string) (code int, stdout, stderr string) {
 	l.t.Helper()
 	bodyFile := filepath.Join(l.t.TempDir(), "body.txt")
@@ -63,63 +64,147 @@ func (l *versionLane) check(body string) (code int, stdout, stderr string) {
 	return runCLI([]string{"version", "check", "--repo", l.dir, "--base", l.base, "--body-file", bodyFile}, "")
 }
 
-func TestVersionCheck_AcceptsABumpTheBodyDeclaresAndTheChangelogExplains(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
+func TestVersionCheck_AcceptsAMinorPRThatAddsItsOneFragment(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
 	lane.commit(map[string]string{
-		versionPath:   "1.1.0\n",
-		changelogPath: changelogWith("1.1.0", "1.0.0"),
+		fragmentPath: minorFragment,
 		"internal/ratchet/presets/go/new_law.toml": "name = \"x\"\n",
 	})
 
 	code, stdout, stderr := lane.check("Adds a law.\n\nversion: minor\n")
-	if code != 0 || stdout != "version: ok (1.0.0 -> 1.1.0)\n" || stderr != "" {
-		t.Fatalf("version check = (%d, %q, %q), want (0, \"version: ok (1.0.0 -> 1.1.0)\\n\", \"\")", code, stdout, stderr)
+	if code != 0 || stdout != "version: ok (minor, "+fragmentPath+")\n" || stderr != "" {
+		t.Fatalf("version check = (%d, %q, %q), want (0, \"version: ok (minor, %s)\\n\", \"\")", code, stdout, stderr, fragmentPath)
 	}
 }
 
-func TestVersionCheck_AcceptsNoBumpForAChangeNoConsumerSees(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.2.3\n", changelogPath: changelogWith("1.2.3")})
+func TestVersionCheck_AcceptsNoneWithNoFragmentForAChangeNoConsumerSees(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
 	lane.commit(map[string]string{"internal/cli/x.go": "package cli\n"})
+
+	code, stdout, stderr := lane.check("version: none\n")
+	if code != 0 || stdout != "version: ok (none)\n" || stderr != "" {
+		t.Fatalf("version check = (%d, %q, %q), want (0, \"version: ok (none)\\n\", \"\")", code, stdout, stderr)
+	}
+}
+
+func TestVersionCheck_RefusesAMinorPRThatAddsNoFragment(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
+	lane.commit(map[string]string{"internal/cli/x.go": "package cli\n"})
+
+	code, stdout, stderr := lane.check("version: minor\n")
+	if code != 1 || stdout != "" || !strings.Contains(stderr, "version: the body says `version: minor` but the PR adds no changelog fragment") {
+		t.Fatalf("version check = (%d, %q, %q), want exit 1 naming the missing fragment", code, stdout, stderr)
+	}
+}
+
+func TestVersionCheck_RefusesAFragmentWhoseLevelContradictsTheBody(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
+	lane.commit(map[string]string{fragmentPath: minorFragment})
+
+	code, _, stderr := lane.check("version: patch\n")
+	want := "version: " + fragmentPath + " says `level: minor` but the body says `version: patch`: make them agree\n"
+	if code != 1 || stderr != want {
+		t.Fatalf("version check = (%d, %q), want (1, %q)", code, stderr, want)
+	}
+}
+
+func TestVersionCheck_RefusesANonePRThatAddsAFragment(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
+	lane.commit(map[string]string{fragmentPath: minorFragment})
+
+	code, _, stderr := lane.check("version: none\n")
+	if code != 1 || !strings.Contains(stderr, "the body says `version: none` but the PR adds "+fragmentPath) {
+		t.Fatalf("version check = (%d, %q), want the fragment named", code, stderr)
+	}
+}
+
+func TestVersionCheck_RefusesAPRThatEditsTheVersionFile(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: frozenChangelog})
+	lane.commit(map[string]string{versionPath: "1.1.0\n", fragmentPath: minorFragment})
+
+	code, _, stderr := lane.check("version: minor\n")
+	if code != 1 || !strings.Contains(stderr, "version: "+versionPath+" is not edited by a PR") {
+		t.Fatalf("version check = (%d, %q), want the VERSION edit refused", code, stderr)
+	}
+}
+
+// The version file is retired; a PR that removes it is the way out of the old
+// rule, not another edit of it.
+func TestVersionCheck_AcceptsAPRThatDeletesTheVersionFile(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: frozenChangelog})
+	lane.remove(versionPath)
 
 	if code, stdout, stderr := lane.check("version: none\n"); code != 0 {
 		t.Fatalf("version check = (%d, %q, %q), want 0", code, stdout, stderr)
 	}
 }
 
-func TestVersionCheck_ARepoThatHadNoVersionYetTakesItsFirstOneAsMajor(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{"README.md": "x\n"})
-	lane.commit(map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
+func TestVersionCheck_RefusesAPRThatEditsAReleasedChangelogSection(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
+	lane.commit(map[string]string{changelogPath: strings.Replace(frozenChangelog, "Frozen words.", "New words.", 1)})
 
-	if code, stdout, stderr := lane.check("version: major\n"); code != 0 {
+	code, _, stderr := lane.check("version: none\n")
+	want := "version: CHANGELOG.md's section for 1.6.6 changed: released sections are frozen, and a later release is written as a changelog.d fragment\n"
+	if code != 1 || stderr != want {
+		t.Fatalf("version check = (%d, %q), want (1, %q)", code, stderr, want)
+	}
+}
+
+// A merge that has not been tagged yet is not history: a revert PR deletes the
+// fragment of the change it reverts, and must pass.
+func TestVersionCheck_AcceptsARevertThatDeletesAFragmentNoTagContainsYet(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog, "changelog.d/old.md": minorFragment})
+	versionGit(t, lane.dir, "tag", "v1.7.0")
+	lane.commit(map[string]string{"changelog.d/pending.md": minorFragment})
+	lane.base = strings.TrimSpace(versionGit(t, lane.dir, "rev-parse", "HEAD"))
+	lane.remove("changelog.d/pending.md")
+
+	if code, stdout, stderr := lane.check("version: none\n"); code != 0 {
 		t.Fatalf("version check = (%d, %q, %q), want 0", code, stdout, stderr)
 	}
-	code, _, stderr := lane.check("version: minor\n")
-	if code != 1 || !strings.Contains(stderr, "version: the body says `version: minor` but VERSION went 0.0.0 -> 1.0.0, which is major") {
-		t.Fatalf("a first version declared minor = (%d, %q), want it refused as a major", code, stderr)
+}
+
+func TestVersionCheck_AcceptsAPRThatEditsTheChangelogPreamble(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
+	lane.commit(map[string]string{changelogPath: strings.Replace(frozenChangelog, "Pointer.", "Later releases live in changelog.d.", 1)})
+
+	if code, stdout, stderr := lane.check("version: none\n"); code != 0 {
+		t.Fatalf("version check = (%d, %q, %q), want 0", code, stdout, stderr)
+	}
+}
+
+func TestVersionCheck_RefusesAPRThatEditsAFragmentTheNewestTagContains(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog, "changelog.d/old.md": minorFragment})
+	versionGit(t, lane.dir, "tag", "v1.7.0")
+	lane.commit(map[string]string{"changelog.d/old.md": "level: major\n\nRewritten history.\n"})
+
+	code, _, stderr := lane.check("version: none\n")
+	if code != 1 || !strings.Contains(stderr, "changelog.d/old.md is a released fragment") {
+		t.Fatalf("version check = (%d, %q), want the old fragment protected", code, stderr)
 	}
 }
 
 // A branch behind its base is judged on what the branch itself changes: the
-// base moved on with its own bump (1.0.0 -> 1.0.1), and a `version: none` PR
-// that never touched VERSION is not blamed for it (PR #1132).
+// base moved on with its own fragment, and a `version: none` PR that never
+// touched changelog.d is not blamed for it (PR #1132).
 func TestVersionCheck_JudgesTheBranchFromWhereItForkedNotFromTheMovedBase(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
 	fork := lane.base
 	versionGit(t, lane.dir, "checkout", "-q", "-b", "trunk")
-	lane.commit(map[string]string{versionPath: "1.0.1\n", changelogPath: changelogWith("1.0.1", "1.0.0")})
+	lane.commit(map[string]string{"changelog.d/other.md": minorFragment})
 	trunkTip := strings.TrimSpace(versionGit(t, lane.dir, "rev-parse", "HEAD"))
 	versionGit(t, lane.dir, "checkout", "-q", "-b", "pr", fork)
 	lane.commit(map[string]string{"README.md": "x\n"})
 	lane.base = trunkTip
 
 	code, stdout, stderr := lane.check("Fixes a typo.\n\nversion: none\n")
-	if code != 0 || stdout != "version: ok (1.0.0 -> 1.0.0)\n" || stderr != "" {
-		t.Fatalf("version check = (%d, %q, %q), want (0, \"version: ok (1.0.0 -> 1.0.0)\\n\", \"\")", code, stdout, stderr)
+	if code != 0 || stdout != "version: ok (none)\n" || stderr != "" {
+		t.Fatalf("version check = (%d, %q, %q), want (0, \"version: ok (none)\\n\", \"\")", code, stdout, stderr)
 	}
 }
 
 func TestVersionCheck_RefusesABodyWithNoVersionLine(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
 	lane.commit(map[string]string{"README.md": "x\n"})
 
 	code, stdout, stderr := lane.check("Fixes a typo.\n")
@@ -128,8 +213,8 @@ func TestVersionCheck_RefusesABodyWithNoVersionLine(t *testing.T) {
 	}
 }
 
-func TestVersionCheck_RefusesALawChangeThatCarriesNoMinorBump(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
+func TestVersionCheck_RefusesALawChangeThatCarriesNoMinorLevel(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
 	lane.commit(map[string]string{"internal/lang/languages/go.toml": "x = 1\n"})
 
 	code, _, stderr := lane.check("version: none\n")
@@ -138,35 +223,14 @@ func TestVersionCheck_RefusesALawChangeThatCarriesNoMinorBump(t *testing.T) {
 	}
 }
 
-func TestVersionCheck_RefusesAVersionWhoseChangelogSectionIsMissing(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
-	lane.commit(map[string]string{versionPath: "1.1.0\n"})
-
-	code, _, stderr := lane.check("version: minor\n")
-	want := "version: CHANGELOG.md has no section for 1.1.0: add a `## 1.1.0` heading with what a consumer will notice and what migrates by itself\n"
-	if code != 1 || stderr != want {
-		t.Fatalf("version check = (%d, %q), want (1, %q)", code, stderr, want)
-	}
-}
-
-func TestVersionCheck_RefusesARepoWithNoChangelogAtAll(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n"})
-	lane.commit(map[string]string{versionPath: "1.1.0\n"})
-
-	code, _, stderr := lane.check("version: minor\n")
-	if code != 1 || !strings.Contains(stderr, "CHANGELOG.md has no section for 1.1.0") {
-		t.Fatalf("version check = (%d, %q), want the missing changelog named", code, stderr)
-	}
-}
-
 func TestVersionCheck_NamesEveryProblemOnItsOwnLine(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
-	lane.commit(map[string]string{"internal/mask/lex.go": "package mask\n"})
+	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: frozenChangelog})
+	lane.commit(map[string]string{versionPath: "1.1.0\n", "internal/mask/lex.go": "package mask\n"})
 
-	code, _, stderr := lane.check("nothing\n")
+	code, _, stderr := lane.check("version: none\n")
 	lines := strings.Split(strings.TrimSuffix(stderr, "\n"), "\n")
 	if code != 1 || len(lines) != 2 {
-		t.Fatalf("version check = (%d, %q), want exit 1 and two lines: the missing line and the floor", code, stderr)
+		t.Fatalf("version check = (%d, %q), want exit 1 and two lines: the VERSION edit and the floor", code, stderr)
 	}
 	for _, l := range lines {
 		if !strings.HasPrefix(l, "version: ") {
@@ -175,8 +239,18 @@ func TestVersionCheck_NamesEveryProblemOnItsOwnLine(t *testing.T) {
 	}
 }
 
+func TestVersionCheck_RefusesBodyLinesThatDisagree(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
+	lane.commit(map[string]string{"README.md": "x\n"})
+
+	code, _, stderr := lane.check("version: none\nversion: major\n")
+	if code != 1 || !strings.HasPrefix(stderr, "version: the PR body's `version:` lines disagree") {
+		t.Fatalf("version check = (%d, %q), want the disagreeing lines named", code, stderr)
+	}
+}
+
 func TestVersionCheck_FailsLoudlyOnABaseItCannotResolve(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
 	lane.base = "no-such-ref"
 
 	code, stdout, stderr := lane.check("version: none\n")
@@ -196,18 +270,8 @@ func TestVersionCheck_FailsLoudlyOutsideARepo(t *testing.T) {
 	}
 }
 
-func TestVersionCheck_FailsLoudlyOnAVersionFileItCannotParse(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
-	lane.commit(map[string]string{versionPath: "one point one\n"})
-
-	code, _, stderr := lane.check("version: minor\n")
-	if code != 1 || !strings.Contains(stderr, "internal/buildinfo/VERSION") || !strings.Contains(stderr, "one point one") {
-		t.Fatalf("version check = (%d, %q), want the unreadable VERSION named", code, stderr)
-	}
-}
-
 func TestVersionCheck_FailsLoudlyOnAMissingBodyFile(t *testing.T) {
-	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
 	code, _, stderr := runCLI([]string{"version", "check", "--repo", lane.dir, "--base", lane.base, "--body-file", filepath.Join(t.TempDir(), "absent.txt")}, "")
 	if code != 1 || !strings.HasPrefix(stderr, "aphrollo version check: ") {
 		t.Fatalf("version check = (%d, %q), want exit 1 from the verb", code, stderr)
@@ -234,3 +298,25 @@ func TestVersionCheck_HelpPrintsUsageAndExitsZero(t *testing.T) {
 		t.Fatalf("version check -h = (%d, %q), want usage and exit 0", code, stderr)
 	}
 }
+
+// ratchet: test_removed TestVersionCheck_AcceptsABumpTheBodyDeclaresAndTheChangelogExplains: the PR carries a fragment, not a VERSION bump (TestVersionCheck_AcceptsAMinorPRThatAddsItsOneFragment)
+// ratchet: test_removed TestVersionCheck_AcceptsNoBumpForAChangeNoConsumerSees: replaced by TestVersionCheck_AcceptsNoneWithNoFragmentForAChangeNoConsumerSees
+// ratchet: test_removed TestVersionCheck_ARepoThatHadNoVersionYetTakesItsFirstOneAsMajor: a repo's first version is the first release tag, never a PR's VERSION file
+// ratchet: test_removed TestVersionCheck_RefusesAVersionWhoseChangelogSectionIsMissing: a release's notes are its fragments, and its changelog section is frozen
+// ratchet: test_removed TestVersionCheck_RefusesARepoWithNoChangelogAtAll: a release's notes are its fragments; the changelog file is the frozen record
+// ratchet: test_removed TestVersionCheck_FailsLoudlyOnAVersionFileItCannotParse: the version file is no longer read
+// ratchet: test_removed TestVersionCheck_RefusesALawChangeThatCarriesNoMinorBump: renamed TestVersionCheck_RefusesALawChangeThatCarriesNoMinorLevel
+
+// The directory's own README is documentation, not a fragment: adding or
+// changing it asks for no release and is not counted as one.
+func TestVersionCheck_TheFragmentDirectorysReadmeIsNotAFragment(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{changelogPath: frozenChangelog})
+	lane.commit(map[string]string{"changelog.d/README.md": "# How to write a fragment\n"})
+
+	code, stdout, stderr := lane.check("version: none\n")
+	if code != 0 || stdout != "version: ok (none)\n" || stderr != "" {
+		t.Fatalf("version check = (%d, %q, %q), want (0, \"version: ok (none)\n\", \"\")", code, stdout, stderr)
+	}
+}
+
+// ratchet: test_removed TestVersionCheck_RefusesAPRThatEditsAFragmentAlreadyMerged: renamed TestVersionCheck_RefusesAPRThatEditsAFragmentTheNewestTagContains, now that only a fragment the newest tag holds is protected

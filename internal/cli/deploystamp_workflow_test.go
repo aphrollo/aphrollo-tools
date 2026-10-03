@@ -24,7 +24,7 @@ var ldflagsXKeyRe = regexp.MustCompile(`-X\s+([A-Za-z0-9_./-]+)=`)
 func TestDeployJobBuild_StampsEveryBuildinfoKeySelfInstallStamps(t *testing.T) {
 	t.Parallel()
 
-	args := buildArgs("/repo", "/out", "0123456789abcdef0123456789abcdef01234567", time.Unix(0, 0))
+	args := buildArgs("/repo", "/out", "0123456789abcdef0123456789abcdef01234567", "1.7.0", time.Unix(0, 0))
 	var want []string
 	for i, a := range args {
 		if a == "-ldflags" && i+1 < len(args) {

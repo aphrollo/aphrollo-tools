@@ -1177,17 +1177,23 @@ jobs:
   # Checks run on push too (see the header note above), so this uses the same
   # always()+needs-result guard as aphrollo-api regardless: run after they are
   # all green, but a red one means this never fires. A manual workflow_dispatch
-  # stays gated behind the same guard.
-  # A tag per release: when the merge that just landed carries a new
-  # internal/buildinfo/VERSION, tag that commit v<VERSION> and push it. A
-  # version already tagged is [skip]. `aphrollo update` and deploy.yml both
-  # follow the newest of these tags, not the tip of main, so a box only ever
-  # runs a version a consumer was told about (CHANGELOG.md).
+  # stays gated behind the same guard, and runs only on main: a dispatch from a lane
+  # branch would tag that unmerged commit with a real version, which deploy.yml ships.
+  # A tag per release: no PR carries a version. When the merge that just landed
+  # brings changelog.d fragments the newest v* tag does not contain,
+  # `aphrollo release plan` (built from this very commit) names the tag they
+  # earn (the newest bumped by the highest level among them); deploy/tag-release.sh
+  # tags this commit with it, pushes the tag and creates the GitHub Release whose
+  # notes are those fragments. Nothing is committed to main. A tag that exists is
+  # [skip], so a rerun does nothing, and the concurrency group below queues two
+  # pushes in quick succession instead of letting them race for one tag.
+  # `aphrollo update` and deploy.yml both follow the newest of these tags, not
+  # the tip of main, so a box only ever runs a version a consumer was told about.
   release:
     needs: [test, lint, scan, workflow-pins]
-    if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    if: ${{ always() && ((github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       contents: write
       actions: write
@@ -1198,10 +1204,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build aphrollo from this checkout
+        run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       - name: Tag the release
         run: bash deploy/tag-release.sh
         env:
           GITHUB_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ github.token }}
       # The deploy is its own workflow (deploy.yml) so a host that is down can
       # never hold this run open: queued, it would stall every later push to
       # main, and GitHub cancels all but the newest pending run, so their
@@ -1292,10 +1305,11 @@ jobs:
   # is at least a minor bump. A path rule can name some of those changes (a
   # law preset, a language row, a mask) and none of the rest (a gate stage, the
   # mutation run), so the author states the bump in the PR body ("version:
-  # none|patch|minor|major") and `aphrollo version check` holds the VERSION
-  # file to it: the file must have moved from the PR's base by exactly that
-  # much, a change to the named surfaces must be a minor bump at least, and
-  # CHANGELOG.md must have a section for the new version. The body is read
+  # none|patch|minor|major") and `aphrollo version check` holds the PR to it:
+  # a PR that is not "none" adds exactly one changelog.d fragment of that level
+  # (the release tag is made on main from the fragments, so no PR carries a
+  # version number or edits VERSION or a released CHANGELOG.md section), a
+  # change to the named surfaces must be a minor change at least. The body is read
   # with gh here, not taken from the event payload, so re-running the job
   # after editing the body judges the edit. Skipped for Dependabot, whose
   # dependency bumps move no verdict and cannot carry the line.
@@ -1310,7 +1324,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}   # the branch itself, not the merge ref: the check measures it from its merge base with the base
-          fetch-depth: 0   # the PR base must be in the clone to read its VERSION and diff against it
+          fetch-depth: 0   # the PR base must be in the clone to find the merge base and diff against it
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
