@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,11 +48,20 @@ func outsideMergeFixture(t *testing.T) (work, seed string) {
 
 func eventLog(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(tdd.StateDir(), "events.jsonl"))
+	wd, err := os.Getwd()
 	if err != nil {
-		return ""
+		t.Fatal(err)
 	}
-	return string(data)
+	var log strings.Builder
+	for _, e := range tdd.ReadEvents(wd) {
+		line, err := json.Marshal(e)
+		if err != nil {
+			t.Fatal(err)
+		}
+		log.Write(line)
+		log.WriteByte(0x0a)
+	}
+	return log.String()
 }
 
 // A pull that takes in a merge made on GitHub fires `gate postmerge`; the hook

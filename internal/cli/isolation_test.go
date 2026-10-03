@@ -28,6 +28,7 @@ func gateConfigDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	return dir
 }
 

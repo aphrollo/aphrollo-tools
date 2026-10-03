@@ -121,6 +121,8 @@ type CIStatus struct {
 	NotStarted int
 	SHA        string
 	NoRun      bool // no check exists for SHA yet
+	// Cause says why a red was red: test, mutation or other (ciCause). "" unless red.
+	Cause string
 }
 
 // Word renders the state for a receipt line: a commit CI has not reached reads
@@ -152,6 +154,7 @@ var ghCIStatus = func(wt, sha string) (CIStatus, error) {
 		return CIStatus{}, err
 	}
 	failing, pending, notStarted, reached := 0, 0, 0, false
+	var failed []string
 	for _, r := range runs {
 		if r.SHA != sha {
 			continue
@@ -164,6 +167,7 @@ var ghCIStatus = func(wt, sha string) (CIStatus, error) {
 				continue
 			}
 			failing++
+			failed = append(failed, r.Name)
 		case "pending":
 			pending++
 		}
@@ -172,7 +176,7 @@ var ghCIStatus = func(wt, sha string) (CIStatus, error) {
 	case !reached:
 		return CIStatus{State: "pending", SHA: sha, NoRun: true}, nil
 	case failing > 0:
-		return CIStatus{State: "red", Failing: failing, SHA: sha}, nil
+		return CIStatus{State: "red", Failing: failing, SHA: sha, Cause: ciCause(failed)}, nil
 	case pending > 0:
 		return CIStatus{State: "pending", SHA: sha}, nil
 	case notStarted > 0:

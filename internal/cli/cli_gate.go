@@ -426,6 +426,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: reading hook input: %v\n", err)
 		return 1
 	}
+	defer recordHookTiming(args[0], raw, time.Now())
 
 	switch args[0] {
 	case "sessionstart":

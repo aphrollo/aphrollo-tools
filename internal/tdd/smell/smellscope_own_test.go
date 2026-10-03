@@ -275,6 +275,9 @@ func TestEvaluateAdded_ABlockingHitOnAnAddedLineBlocksAndNamesItself(t *testing.
 	if got.Action != Block || got.Reason != "sleep reason" || got.Policy != "sleep" {
 		t.Fatalf("Decision = %+v, want Block naming the sleep policy and its reason", got)
 	}
+	if got.Override != "real-time:" {
+		t.Fatalf("Override = %q, want the policy's escape marker real-time:", got.Override)
+	}
 	if len(got.Escapes) != 0 {
 		t.Fatalf("Escapes = %v, want none: nothing was escaped", got.Escapes)
 	}

@@ -139,6 +139,7 @@ func recordEditVerdict(root, id, cmd string, outcome Outcome, output string) {
 	}
 	for _, one := range strings.Split(id, editIDSep) {
 		appendLedgerLine(path, ledgerLine{EditID: one, Verdict: verdict})
+		recordRunResult(root, one, outcome, time.Now())
 	}
 }
 
@@ -375,4 +376,27 @@ func ExtractPassingTests(output string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// editLatency is how long before now the edit that id names was made: an edit's
+// id is its time in nanoseconds since the epoch, in base 36.
+func editLatency(id string, now time.Time) (time.Duration, bool) {
+	ns, err := strconv.ParseInt(id, 36, 64)
+	if err != nil {
+		return 0, false
+	}
+	return now.Sub(time.Unix(0, ns)), true
+}
+
+// recordRunResult writes the run.result event of a settled run: the outcome it
+// reached for edit id, and how long after the edit the verdict arrived (a
+// deferred run's verdict arrives at a later hook, which is the delay the agent
+// felt).
+func recordRunResult(root, id string, outcome Outcome, now time.Time) {
+	latency, ok := editLatency(id, now)
+	if !ok {
+		return
+	}
+	AppendEvent(Event{Kind: "run.result", Root: root, Verdict: string(outcome),
+		Detail: map[string]string{"result": string(outcome), "edit": id, "latency_ms": strconv.FormatInt(latency.Milliseconds(), 10)}})
 }

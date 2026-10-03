@@ -15,3 +15,5 @@ type Action = core.Action
 func GateLogNewerSchema() (int, bool) { return core.GateLogNewerSchema() }
 
 func GateLogPath() string { return core.GateLogPath() }
+
+func ReadEvents(p0 string) []Event { return core.ReadEvents(p0) }

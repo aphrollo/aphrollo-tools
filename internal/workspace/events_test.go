@@ -7,26 +7,43 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// emitted is every record of the test's own events.jsonl, in file order.
+// gateState gives the test its own gate state dir and its own event-log root,
+// so the events it reads are the ones it caused.
+func gateState(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+}
+
+// emitted is every event the test caused, whichever repository's log it went
+// to, oldest first.
 func emitted(t *testing.T) []tdd.Event {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(tdd.StateDir(), "events.jsonl"))
+	logs, err := filepath.Glob(filepath.Join(os.Getenv("TRELLIS_DATA"), "state", "*", "events-*.jsonl"))
 	if err != nil {
-		return nil
+		t.Fatal(err)
 	}
 	var out []tdd.Event
-	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
-		var e tdd.Event
-		if json.Unmarshal([]byte(line), &e) == nil {
-			out = append(out, e)
+	for _, log := range logs {
+		data, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+			var e tdd.Event
+			if json.Unmarshal([]byte(line), &e) == nil {
+				out = append(out, e)
+			}
 		}
 	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At < out[j].At })
 	return out
 }
 
@@ -61,7 +78,7 @@ func pushedLane(t *testing.T) (repo string) {
 // pending. Only a settled state is an event, it names the commit and PR, and a
 // re-push of the unchanged lane does not record it again.
 func TestPushApply_RecordsASettledCIEventOncePerCommit(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	repo := pushedLane(t)
 	stubGH(t,
 		func(wt, branch string) (*PRInfo, error) {
@@ -92,7 +109,7 @@ func TestPushApply_RecordsASettledCIEventOncePerCommit(t *testing.T) {
 }
 
 func TestPushApply_PendingCIIsNotAnEvent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	repo := pushedLane(t)
 	stubGH(t,
 		func(wt, branch string) (*PRInfo, error) { return nil, nil },
@@ -111,7 +128,7 @@ func TestPushApply_PendingCIIsNotAnEvent(t *testing.T) {
 }
 
 func TestMergeApply_RecordsTheMergeAndTheCIItRead(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) {
 			return &PRInfo{Number: 18, URL: "u", State: "OPEN", HeadSHA: "abc123"}, nil
@@ -140,7 +157,7 @@ func TestMergeApply_RecordsTheMergeAndTheCIItRead(t *testing.T) {
 }
 
 func TestPRApply_RecordsAPROpenedEvent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	repo := repoWithRemote(t)
 	stubGH(t,
 		func(wt, branch string) (*PRInfo, error) { return nil, nil },
@@ -204,7 +221,7 @@ func TestMergeWait_RecordsARedCIEventWhenAFirstRunFails(t *testing.T) {
 
 // A push before any PR exists still records the settled result, with no pr.
 func TestPushApply_CIEventHasNoPRWhenNoneExists(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	gateState(t)
 	repo := pushedLane(t)
 	stubGH(t,
 		func(wt, branch string) (*PRInfo, error) { return nil, nil },

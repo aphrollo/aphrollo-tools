@@ -64,11 +64,11 @@ func runLocalCI(t *Target, sha string, pr int, stdout, stderr io.Writer) error {
 	v, err := localCI(t, stderr)
 	if err != nil {
 		if v.Red {
-			recordSettledCIBy(t.Worktree, sha, pr, "red", tdd.CILocal)
+			recordSettledCIBy(t.Worktree, sha, pr, "red", tdd.CILocal, "other")
 		}
 		return err
 	}
-	recordSettledCIBy(t.Worktree, sha, pr, "green", tdd.CILocal)
+	recordSettledCIBy(t.Worktree, sha, pr, "green", tdd.CILocal, "")
 	switch {
 	case v.Landed:
 		fmt.Fprintf(stdout, "ci: local — trunk already holds this lane, nothing to judge\n")

@@ -25,6 +25,7 @@ type ciWorld struct {
 
 func newCIWorld(t *testing.T, declared string, gh CIStatus) *ciWorld {
 	t.Helper()
+	gateState(t)
 	w := &ciWorld{}
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 5, URL: "u"}, nil },

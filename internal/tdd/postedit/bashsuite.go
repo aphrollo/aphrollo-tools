@@ -114,9 +114,10 @@ func decideNarrowedSuite(root, cmd string) Decision {
 			return Decision{Action: Allow, Escapes: []string{escapeBashEnvSwitch}}
 		}
 		return Decision{
-			Action: Block,
-			Policy: "bash-narrowed-rerun",
-			Reason: denyNarrowedRerunReason(root, entry),
+			Action:   Block,
+			Policy:   "bash-narrowed-rerun",
+			Override: escapeBashEnvSwitch,
+			Reason:   denyNarrowedRerunReason(root, entry),
 		}
 	}
 	if _, recent := lastSuiteLogEntry(root, bashSuiteVerdictFreshFor); recent {
@@ -254,9 +255,10 @@ func decideWholeSuite(root, cmd string) Decision {
 		return Decision{Action: Allow, Escapes: []string{escapeBashEnvSwitch}}
 	}
 	return Decision{
-		Action: Block,
-		Policy: "bash-whole-suite",
-		Reason: denyWholeSuiteReason(root, entry),
+		Action:   Block,
+		Policy:   "bash-whole-suite",
+		Override: escapeBashEnvSwitch,
+		Reason:   denyWholeSuiteReason(root, entry),
 	}
 }
 
@@ -364,7 +366,7 @@ func LogBashSuiteDecision(raw []byte, d Decision) {
 	}
 	cmd := LogToken(in.ToolInput.Command)
 	if d.Action == Block {
-		AppendGateLog("preedit", root, cmd, "pretooluse-denied:"+LogToken(policyName(d)), 0)
+		AppendGateLogDetail("preedit", root, cmd, "pretooluse-denied:"+LogToken(policyName(d)), 0, denyDetail(d))
 	}
 	for _, esc := range d.Escapes {
 		AppendGateLog("preedit", root, cmd, LogToken(esc), 0)

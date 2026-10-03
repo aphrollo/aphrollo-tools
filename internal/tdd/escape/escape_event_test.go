@@ -1,68 +1,51 @@
 package escape
 
 import (
-	"encoding/json"
+	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
 
+// isolateEventLog gives a test its own gate state dir and event log root.
+func isolateEventLog(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+}
+
+func recordedEvent(t *testing.T) Event {
+	t.Helper()
+	got := ReadEvents("")
+	if len(got) != 1 {
+		t.Fatalf("%d events written, want 1: %+v", len(got), got)
+	}
+	return got[0]
+}
+
 // A recorded escape also lands in the event log, with its kind (a false
 // positive is a wrong deny) and never its free-text reason.
 func TestRecordEscape_WritesAnEventWithoutTheReason(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	isolateEventLog(t)
 
 	_, err := RecordEscape(EscapeOptions{Reason: "leaked token abc123 reached main", Kind: FalsePositiveKind, Check: "clippy"}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(StateDir(), "events.jsonl"))
-	if err != nil {
-		t.Fatalf("no event written: %v", err)
-	}
-	if strings.Contains(string(data), "abc123") {
-		t.Fatalf("reason text leaked into the event: %s", data)
-	}
-	var e struct {
-		V       int
-		Kind    string
-		Verdict string
-		Detail  map[string]string
-	}
-	if err := json.Unmarshal(data, &e); err != nil {
-		t.Fatal(err)
+	e := recordedEvent(t)
+	if text := fmt.Sprintf("%+v", e); strings.Contains(text, "abc123") {
+		t.Fatalf("reason text leaked into the event: %s", text)
 	}
 	if e.V != 1 || e.Kind != "escape" || e.Verdict != FalsePositiveKind || e.Detail["check"] != "clippy" {
 		t.Fatalf("event = %+v", e)
 	}
 }
 
-func recordedEvent(t *testing.T) struct {
-	Lane   string
-	Detail map[string]string
-} {
-	t.Helper()
-	data, err := os.ReadFile(filepath.Join(StateDir(), "events.jsonl"))
-	if err != nil {
-		t.Fatalf("no event written: %v", err)
-	}
-	var e struct {
-		Lane   string
-		Detail map[string]string
-	}
-	if err := json.Unmarshal(data, &e); err != nil {
-		t.Fatal(err)
-	}
-	return e
-}
-
 // An escape recorded from the main checkout would resolve to main; the lane
 // and PR its own data names are what the per-PR count needs.
 func TestRecordEscape_EventCarriesTheLaneAndPRTheEscapeNames(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	isolateEventLog(t)
 
 	_, err := RecordEscape(EscapeOptions{Reason: "red after green", Lane: "lane/fix", PR: 7}, io.Discard)
 	if err != nil {
@@ -77,7 +60,7 @@ func TestRecordEscape_EventCarriesTheLaneAndPRTheEscapeNames(t *testing.T) {
 
 // Check is free text on the command line; only a stage or law name is kept.
 func TestRecordEscape_EventDropsACheckThatIsNotAToken(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	isolateEventLog(t)
 
 	_, err := RecordEscape(EscapeOptions{Reason: "x", Check: "the clippy stage, but only when the token abc123 leaks"}, io.Discard)
 	if err != nil {
@@ -105,7 +88,7 @@ func TestEventToken_AdmitsOnlyBareIdentifiers(t *testing.T) {
 
 // A PR number rides along only when the escape named one.
 func TestRecordEscape_EventPRDetailOnlyWhenNamed(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	isolateEventLog(t)
 	if _, err := RecordEscape(EscapeOptions{Reason: "no pr"}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
@@ -113,11 +96,45 @@ func TestRecordEscape_EventPRDetailOnlyWhenNamed(t *testing.T) {
 		t.Fatalf("pr = %q on an escape that named none", got)
 	}
 
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	isolateEventLog(t)
 	if _, err := RecordEscape(EscapeOptions{Reason: "one", PR: 1}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if got := recordedEvent(t).Detail["pr"]; got != "1" {
 		t.Fatalf("pr = %q, want 1", got)
+	}
+}
+
+// The class says what an escape is evidence of, so escaped defects are counted
+// per class: a product escape, the gate disagreeing with itself, a canary.
+func TestRecordEscape_EventNamesTheClassOfTheEscape(t *testing.T) {
+	cases := []struct{ check, want string }{
+		{"ci:test", "product"},
+		{"", "product"},
+		{"merge:mutants", "disagreement"},
+		{"merge:premergecommit", "disagreement"},
+		{"gitworld:mutation proof", "canary"},
+	}
+	for _, c := range cases {
+		isolateEventLog(t)
+		if _, err := RecordEscape(EscapeOptions{Reason: "x", Check: c.check}, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		if got := recordedEvent(t).Detail["class"]; got != c.want {
+			t.Errorf("check %q: class = %q, want %q", c.check, got, c.want)
+		}
+	}
+}
+
+// A false positive is a check that refused correct work, not an escape, so it
+// has no class.
+func TestRecordEscape_AFalsePositiveHasNoClass(t *testing.T) {
+	isolateEventLog(t)
+	if _, err := RecordEscape(EscapeOptions{Reason: "x", Kind: FalsePositiveKind, Check: "clippy"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, ok := recordedEvent(t).Detail["class"]; ok {
+		t.Fatalf("class = %q on a false positive", got)
 	}
 }

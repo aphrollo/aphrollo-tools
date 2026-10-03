@@ -123,6 +123,9 @@ func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
 	// separates a real escape from a false positive (a wrong deny). Check and
 	// the CI job ride along only when they are a bare stage or law name.
 	detail := map[string]string{"id": r.ID}
+	if r.Kind == EscapeKind {
+		detail["class"] = escapeClass(r.Check)
+	}
 	if eventToken(r.Check) {
 		detail["check"] = r.Check
 	}
@@ -567,4 +570,19 @@ func issueNumberFromURL(url string) int {
 		return 0
 	}
 	return n
+}
+
+// escapeClass says what an escape is evidence of, from the stage that recorded
+// it: a mutation canary firing (the test runner changed the real repository), a
+// merge-gate refusal of what an earlier stage passed (the gate disagreeing with
+// itself), or, for everything else, a defect that got past every check: a
+// product escape.
+func escapeClass(check string) string {
+	switch {
+	case strings.HasPrefix(check, "gitworld:"):
+		return "canary"
+	case strings.HasPrefix(check, "merge:"):
+		return "disagreement"
+	}
+	return "product"
 }

@@ -30,6 +30,8 @@ type Decision = core.Decision
 
 type DiscardBashSpentEntry = core.DiscardBashSpentEntry
 
+type Event = core.Event
+
 type Kind = core.Kind
 
 type Outcome = core.Outcome
@@ -50,8 +52,14 @@ type waiverEntry = core.WaiverEntry
 
 var errNoSession = core.ErrNoSession
 
+func AppendEvent(p0 Event) { core.AppendEvent(p0) }
+
 func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration) {
 	core.AppendGateLog(p0, p1, p2, p3, p4)
+}
+
+func AppendGateLogDetail(p0 string, p1 string, p2 string, p3 string, p4 time.Duration, p5 map[string]string) {
+	core.AppendGateLogDetail(p0, p1, p2, p3, p4, p5)
 }
 
 func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }

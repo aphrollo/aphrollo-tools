@@ -90,6 +90,9 @@ func postEditFileAs(session, target string, run SuiteRunner, editID string, touc
 	if root == "" {
 		return "", false
 	}
+	// One event per edit, so edits per message and per batch are counted from
+	// the log, beside the hook.timing of the message boundary.
+	AppendEvent(Event{Kind: "edit", Root: root, Actor: session, Detail: map[string]string{"edit": editID}})
 
 	snap, ok := captureStateSnapshot(session, target, root, touched)
 	if !ok {

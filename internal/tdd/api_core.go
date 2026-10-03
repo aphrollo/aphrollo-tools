@@ -51,6 +51,8 @@ func LogToken(p0 string) string { return core.LogToken(p0) }
 
 func MergeRejectedMarkerPath(p0 string) string { return core.MergeRejectedMarkerPath(p0) }
 
+func ReadEvents(p0 string) []Event { return core.ReadEvents(p0) }
+
 func SessionID() string { return core.SessionID() }
 
 func StateDir() string { return core.StateDir() }
