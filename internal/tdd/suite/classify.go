@@ -162,7 +162,7 @@ func ensureGoTestArg(args []string, flag string) []string {
 //     record of an EARLIER tree, not a measurement of the one on disk right
 //     now, and this is the one seam every "go test" the gate runs —
 //     post-edit advisory, fail-first, and the mechanical suite — passes
-//     through on its way to exec.CommandContext, so adding it here is what
+//     through on its way to run.StartHeavy, so adding it here is what
 //     makes "-count=1 belongs anywhere the gate claims to have tested the
 //     current tree" (issue #421) true without touching every
 //     Runner-construction call site. The mechanical stage (withGoCIParity)

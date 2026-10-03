@@ -1076,6 +1076,8 @@ stopcheck_test.go                                  postedit
 style.go                                           install
 style.md                                           install
 style_test.go                                      install
+suitechild.go                                      suite
+suitechild_test.go                                 suite
 suiteenv_seal_test.go                              suite
 suiteoutput.go                                     suite
 suiteoutput_dir_test.go                            postedit  # prefix says suite; its test body reaches postedit

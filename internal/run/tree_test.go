@@ -5,11 +5,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run/runtest"
 )
 
 // A heavy child that starts children of its own must leave none of them
@@ -41,7 +40,7 @@ func chains() []chain {
 				t.Skip("no bash on this box") // skip-ok: the chain needs a real shell, which a box may lack.
 			}
 			script := filepath.Join(t.TempDir(), "chain.sh")
-			if err := os.WriteFile(script, []byte(bashChain), 0o755); err != nil {
+			if err := os.WriteFile(script, []byte(runtest.BashChain), 0o755); err != nil {
 				t.Fatal(err)
 			}
 			hold := "wait"
@@ -51,33 +50,6 @@ func chains() []chain {
 			return Spec{Name: bash, Args: []string{filepath.ToSlash(script), filepath.ToSlash(pidFile), hold}, Env: os.Environ(), Area: t.TempDir()}
 		}},
 	}
-}
-
-// bashChain is the outer shell: it starts an inner shell, which starts a
-// sleep, and every shell records its own pid and its child's, as the OS knows
-// them. Given "leave" it returns once all are up, leaving the rest running.
-var bashChain = "pid() { " + treePidExpr + "; }\n" + `
-out="$1"
-bash -c 'pid() { ` + treePidExpr + `; }; sleep 600 & pid $! >> "$0"; pid $$ >> "$0"; wait' "$out" &
-pid $$ >> "$out"
-pid $! >> "$out"
-if [ "$2" = wait ]; then
-  wait
-else
-  until [ "$(sort -u "$out" | wc -l)" -ge 3 ]; do sleep 0.1; done
-fi
-`
-
-// readPids is the distinct pids the tree has recorded so far.
-func readPids(file string) []int {
-	data, _ := os.ReadFile(file)
-	var pids []int
-	for _, f := range strings.Fields(string(data)) {
-		if pid, err := strconv.Atoi(f); err == nil && pid > 0 && !slices.Contains(pids, pid) {
-			pids = append(pids, pid)
-		}
-	}
-	return pids
 }
 
 // watch records pids of the tree for cleanup, so a failing test leaves none.
@@ -178,3 +150,12 @@ func TestHeavy_WaitEndsWhatTheChildLeftBehind(t *testing.T) {
 		})
 	}
 }
+
+// The helpers of the proof live in runtest, where the packages that start
+// their children through run reach them too.
+var (
+	alive       = runtest.Alive
+	bashCommand = runtest.BashCommand
+	readPids    = runtest.ReadPids
+	forceKill   = runtest.ForceKill
+)

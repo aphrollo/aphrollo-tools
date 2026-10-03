@@ -4,11 +4,12 @@ package suite
 
 import (
 	lock "github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
-	exec "os/exec"
 	time "time"
 )
 
 const BuildLockHeldEnv = lock.BuildLockHeldEnv
+
+const CapSlot = lock.CapSlot
 
 const suiteFloorMargin = lock.SuiteFloorMargin
 
@@ -16,13 +17,21 @@ type BuildLockOwner = lock.BuildLockOwner
 
 type BuildSlot = lock.BuildSlot
 
+type CapKind = lock.CapKind
+
 type CapResult = lock.CapResult
+
+type CapRun = lock.CapRun
+
+type MemCap = lock.MemCap
+
+func MemCapFor(p0 string, p1 CapKind) MemCap { return lock.MemCapFor(p0, p1) }
+
+func NewCapRun(p0 MemCap) *CapRun { return lock.NewCapRun(p0) }
 
 func ReadBuildSlotOwner(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildSlotOwner(p0) }
 
 func ResolveCargoTargetDir(p0 string) string { return lock.ResolveCargoTargetDir(p0) }
-
-func RunSlotChild(p0 *exec.Cmd, p1 string) (CapResult, error) { return lock.RunSlotChild(p0, p1) }
 
 func WaitForHeadroom(p0 string, p1 time.Duration) string { return lock.WaitForHeadroom(p0, p1) }
 

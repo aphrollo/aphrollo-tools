@@ -13,6 +13,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // systemdRunAt is a systemd-run lookup that finds it at path ("" = absent).
@@ -300,5 +302,79 @@ func TestParseStatGroupRSS_EdgesOfTheFieldCount(t *testing.T) {
 	short := "1 (x) S 1 5 5 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 1 1"
 	if _, _, ok := parseStatGroupRSS(short); ok {
 		t.Fatal("a 21-field tail has no rss field and must be unreadable")
+	}
+}
+
+// A run started by internal/run is held to its cap by the same enforcer a
+// RunCapped child is: the hook carries it into the child run owns.
+func TestCapRun_WatchdogEndsARunawayThatRunStarted(t *testing.T) {
+	prev := capModeFn
+	capModeFn = func() string { return modeWatchdog }
+	t.Cleanup(func() { capModeFn = prev })
+	hook := NewCapRun(MemCap{MB: 150, Why: "test"})
+	c, err := run.StartHeavy(context.Background(), run.Spec{
+		Name:    os.Args[0],
+		Args:    []string{"-test.run=^TestCapHelper_Allocate$"},
+		Env:     append(os.Environ(), capHelperEnv+"=600"),
+		EnvAsIs: true,
+		Timeout: 25 * time.Second,
+		Hook:    hook,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waitErr := c.Wait()
+	res := hook.Result(c)
+
+	if !res.Killed || res.Mode != modeWatchdog {
+		t.Fatalf("res=%+v err=%v, want the runaway ended by the watchdog", res, waitErr)
+	}
+	if waitErr == nil || errors.Is(waitErr, run.ErrTimeout) {
+		t.Fatalf("Wait = %v, want the child's death by the cap and not by its timeout", waitErr)
+	}
+}
+
+func TestCapRun_ARunWithinItsCapIsNeverReportedKilled(t *testing.T) {
+	prev := capModeFn
+	capModeFn = func() string { return modeWatchdog }
+	t.Cleanup(func() { capModeFn = prev })
+	hook := NewCapRun(MemCap{MB: 400, Why: "test"})
+	c, err := run.StartHeavy(context.Background(), run.Spec{
+		Name:    os.Args[0],
+		Args:    []string{"-test.run=^TestCapHelper_Allocate$"},
+		Env:     append(os.Environ(), capHelperEnv+"=20"),
+		EnvAsIs: true,
+		Timeout: 2 * time.Second,
+		Hook:    hook,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = c.Wait() // the helper sleeps past its 2 s timeout, which ends it
+	if res := hook.Result(c); res.Killed || res.Kills != 0 {
+		t.Fatalf("res=%+v: a 20MB child under a 400MB cap must never be killed by it", res)
+	}
+}
+
+func TestCapRun_ACommandThatNeverStartedLeavesNothingBehind(t *testing.T) {
+	// In the kernel-scope mode the command is wrapped in systemd-run and a
+	// shell, which start whether or not the command exists.
+	prev := capModeFn
+	capModeFn = func() string { return modeWatchdog }
+	t.Cleanup(func() { capModeFn = prev })
+	hook := NewCapRun(MemCap{MB: 400, Why: "test"})
+	_, err := run.StartHeavy(context.Background(), run.Spec{
+		Name:    filepath.Join(t.TempDir(), "no-such-binary"),
+		EnvAsIs: true,
+		Hook:    hook,
+	})
+	if err == nil {
+		t.Fatal("StartHeavy of a missing binary succeeded")
+	}
+
+	if res := hook.Result(nil); res.Killed || res.Cap.MB != 400 {
+		t.Fatalf("res=%+v, want an unkilled result carrying the cap", res)
 	}
 }

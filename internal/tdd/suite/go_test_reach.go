@@ -3,9 +3,10 @@ package suite
 import (
 	"bytes"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Which packages' TESTS can reach a given package — the question a mutation
@@ -104,14 +105,11 @@ type goReachGraph struct {
 // verdict that says only "inconclusive" leaves the reader with nothing to act
 // on.
 func loadGoReachGraph(root string) (goReachGraph, error) {
-	cmd := exec.Command("go", "list", "-f", goListReachFormat, "./...")
 	// The answer is about root, not about wherever the gate was invoked —
 	// the same is true of goPackageDirs, which builds the import-path map
 	// from that root too.
-	cmd.Dir = root
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := lightOutput(run.Spec{Name: "go", Args: []string{"list", "-f", goListReachFormat, "./..."}, Dir: root, Stderr: &stderr})
 	if err != nil {
 		return goReachGraph{}, fmt.Errorf("go list in %s: %w: %s", root, err, strings.TrimSpace(stderr.String()))
 	}

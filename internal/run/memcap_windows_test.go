@@ -33,3 +33,23 @@ func TestHeavy_MemoryCapRefusesAnAllocationPastIt(t *testing.T) {
 		t.Fatalf("3072 MB under a 1536 MB cap: output %q, err %v; want it refused", out, err)
 	}
 }
+
+// A caller that holds a child to a memory cap tells the cap's doing from an
+// ordinary failure by how near the cap the tree's peak commit came, so the
+// job's peak has to outlive the job: it is read before the job is closed.
+func TestHeavy_PeakMemoryIsWhatTheTreeCommittedAtMost(t *testing.T) {
+	var out bytes.Buffer
+	spec := helperSpec(t, "alloc", "64")
+	spec.MemoryMB, spec.Stdout = 1536, &out
+	c, err := StartHeavy(context.Background(), spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.Wait(); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := c.PeakMemory(); got < 64<<20 || got > 1536<<20 {
+		t.Fatalf("PeakMemory = %d MB for a child that allocated 64 MB under a 1536 MB cap", got>>20)
+	}
+}

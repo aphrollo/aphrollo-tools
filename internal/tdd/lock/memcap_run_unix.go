@@ -14,6 +14,7 @@ import (
 	"syscall"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // capModeFn is the enforcer this process uses, decided once.
@@ -111,51 +112,104 @@ func scopeArgv(systemdRun string, c MemCap, countFile string, argv []string) []s
 	return append(out, argv...)
 }
 
-// launchCapped is the unix enforcer.
+// launchCapped is the unix enforcer: a CapRun that starts and waits for cmd
+// itself.
 func launchCapped(cmd *exec.Cmd, c MemCap) (CapResult, error) {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	cmd.SysProcAttr.Setpgid = true
+	r := NewCapRun(c)
+	r.Before(cmd)
+	if err := cmd.Start(); err != nil {
+		r.Ended()
+		return CapResult{Cap: c, Mode: r.mode}, err
+	}
+	r.Started(cmd.Process.Pid)
+	err := cmd.Wait()
+	r.Ended()
+	return r.Result(nil), err
+}
 
-	mode := modeWatchdog
-	var final func() int
+// CapRun holds one run to its cap while internal/run starts and ends it: it is
+// the run.Hook that carries this package's enforcers (the kernel scope or the
+// watchdog) into a child run owns. The command must lead a process group of
+// its own, as run's children do.
+type CapRun struct {
+	cap     MemCap
+	mode    string
+	m       *capMonitor
+	events  *scopeEvents
+	final   func() int
+	cleanup func()
+	stop    chan struct{}
+	done    chan struct{}
+}
+
+// NewCapRun is the hook that holds a run to c.
+func NewCapRun(c MemCap) *CapRun {
+	return &CapRun{cap: c, mode: modeWatchdog, cleanup: func() {}}
+}
+
+// Before wraps cmd in the cap's scope where the kernel enforces it.
+func (r *CapRun) Before(cmd *exec.Cmd) {
 	if capModeFn() == modeCgroup {
 		if sr, shell := systemdRunPath(), capShellPath(); sr != "" && shell != "" && cmd.Err == nil {
 			if f, err := os.CreateTemp("", "aphrollo-oomcount-*"); err == nil {
 				countFile := f.Name()
 				_ = f.Close()
-				defer os.Remove(countFile)
-				mode = modeCgroup
-				argv := scopeArgv(sr, c, countFile, append([]string{cmd.Path}, cmd.Args[1:]...))
+				r.cleanup = func() { _ = os.Remove(countFile) }
+				r.mode = modeCgroup
+				argv := scopeArgv(sr, r.cap, countFile, append([]string{cmd.Path}, cmd.Args[1:]...))
 				cmd.Path, cmd.Args = argv[0], argv
 				cmd.Env = withEnv(cmd.Env, "XDG_RUNTIME_DIR", capRuntimeDirFn())
-				final = func() int { n, _ := readOOMKills(countFile); return n }
+				r.final = func() int { n, _ := readOOMKills(countFile); return n }
 			}
 		}
 	}
-
-	m := &capMonitor{cap: c, mode: mode}
-	m.probe = capProbe{procs: scanProcRSS}
-	// The pid is known only after Start: the probes are built on first use.
-	var pid int
-	m.probe.killTree = func() { _ = proc.KillTree(pid) }
-	m.probe.killPIDs = func(pids []int) {
+	r.m = &capMonitor{cap: r.cap, mode: r.mode}
+	r.m.probe = capProbe{procs: scanProcRSS}
+	// The pid is known only after Start: the probes read it on first use.
+	r.m.probe.killTree = func() { _ = proc.KillTree(r.m.pgrp) }
+	r.m.probe.killPIDs = func(pids []int) {
 		for _, p := range pids {
 			_ = syscall.Kill(p, syscall.SIGKILL)
 		}
 	}
-	events := &scopeEvents{find: scopeEventsPath, count: readOOMKills}
-	if mode == modeCgroup {
-		m.probe.oomKills = events.oomKills
+	r.events = &scopeEvents{find: scopeEventsPath, count: readOOMKills}
+	if r.mode == modeCgroup {
+		r.m.probe.oomKills = r.events.oomKills
 	}
-	if err := cmd.Start(); err != nil {
-		return CapResult{Cap: c, Mode: mode}, err
+}
+
+// Started begins watching the child.
+func (r *CapRun) Started(pid int) {
+	r.events.pid = pid
+	r.m.pgrp = pid
+	r.stop, r.done = make(chan struct{}), make(chan struct{})
+	go r.m.run(r.stop, r.done)
+}
+
+// Ended stops watching, folds in the kernel's own count of kills, and removes
+// what Before made. It is safe for a child that never started.
+func (r *CapRun) Ended() {
+	defer r.cleanup()
+	if r.stop == nil {
+		return
 	}
-	pid = cmd.Process.Pid
-	events.pid = pid
-	m.pgrp = pid
-	return waitMonitored(cmd, m, final)
+	close(r.stop)
+	<-r.done
+	if r.final != nil {
+		r.m.settle(r.final())
+	}
+}
+
+// Result is what became of the run. The child is not asked: the monitor saw it.
+func (r *CapRun) Result(_ *run.Child) CapResult {
+	if r.m == nil {
+		return CapResult{Cap: r.cap, Mode: r.mode}
+	}
+	return r.m.result()
 }
 
 // withEnv sets key in env when env names none. A nil env is the parent's own,

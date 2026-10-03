@@ -22,8 +22,9 @@ import (
 // a child let run first could commit its whole working set before it was held.
 // taskkill /T misses an MSYS grandchild; the job holds every process in it.
 type jobTree struct {
-	mu  sync.Mutex
-	job windows.Handle
+	mu    sync.Mutex
+	job   windows.Handle
+	peakB uint64 // the job's peak commit, read just before the job is closed
 }
 
 // pidTree guards a light child by walking the parent-child tree from its pid.
@@ -81,6 +82,7 @@ func (j *jobTree) finish() {
 	j.mu.Lock()
 	defer j.mu.Unlock()
 	if j.job != 0 {
+		j.peakB = peakJobMemory(j.job)
 		_ = windows.TerminateJobObject(j.job, 1) // as in kill
 		_ = windows.CloseHandle(j.job)           // closing kills on close even where the terminate was refused
 		j.job = 0
@@ -99,3 +101,23 @@ func (p *pidTree) kill() {
 // finish leaves a light child's descendants alone, as a light child's own
 // exit has always done.
 func (p *pidTree) finish() {}
+
+// peak is 0: a light child has no job to measure.
+func (p *pidTree) peak() uint64 { return 0 }
+
+func (j *jobTree) peak() uint64 {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.peakB
+}
+
+// peakJobMemory is the most the job's processes committed together; 0 when the
+// job cannot be asked.
+func peakJobMemory(job windows.Handle) uint64 {
+	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+	if err := windows.QueryInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
+		uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info)), nil); err != nil {
+		return 0
+	}
+	return uint64(info.PeakJobMemoryUsed)
+}

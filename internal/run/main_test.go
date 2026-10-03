@@ -2,6 +2,7 @@ package run
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -38,6 +39,8 @@ func helper(mode string, args []string) int {
 	switch mode {
 	case "sleep":
 		block()
+	case "stdin":
+		_, _ = io.Copy(os.Stdout, os.Stdin)
 	case "exit3":
 		return 3
 	case "env":

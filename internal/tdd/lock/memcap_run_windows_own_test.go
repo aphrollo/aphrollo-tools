@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // runawaySource is a program that grows by 16 MB steps, touching every page,
@@ -87,5 +89,61 @@ func TestLaunchCapped_KillLargestReportsTheWorkerNotTheRun(t *testing.T) {
 	}
 	if res.Killed || res.Kills != 1 {
 		t.Fatalf("result = %+v, want one kill and the run not ended", res)
+	}
+}
+
+// A run started by internal/run is held by run's own job, and the hook tells
+// the cap's doing from a failure the same way launchCapped does.
+func TestCapRun_ReportsARunThatOutgrewItsCapAsEnded(t *testing.T) {
+	exe := buildRunaway(t).Path
+	hook := NewCapRun(MemCap{MB: 100, Why: "test"})
+	c, err := run.StartHeavy(context.Background(), run.Spec{
+		Name: exe, MemoryMB: 100, Timeout: runawayDeadline, EnvAsIs: true, Hook: hook,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	waitErr := c.Wait()
+	res := hook.Result(c)
+
+	if waitErr == nil {
+		t.Fatal("a child that outgrew the cap exited cleanly")
+	}
+	if res.Mode != "job" || !res.Killed || res.Kills != 1 {
+		t.Fatalf("result = %+v, want the run ended at the cap", res)
+	}
+}
+
+func TestCapRun_AWorkerTheCapEndsIsNotTheRunsDeath(t *testing.T) {
+	exe := buildRunaway(t).Path
+	hook := NewCapRun(MemCap{MB: 100, Why: "test", KillLargest: true})
+	c, err := run.StartHeavy(context.Background(), run.Spec{
+		Name: exe, MemoryMB: 100, Timeout: runawayDeadline, EnvAsIs: true, Hook: hook,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_ = c.Wait()
+	if res := hook.Result(c); res.Killed || res.Kills != 1 {
+		t.Fatalf("result = %+v, want one kill and the run not ended", res)
+	}
+}
+
+func TestCapRun_ACleanRunUnderItsCapIsNeverReportedEnded(t *testing.T) {
+	hook := NewCapRun(MemCap{MB: 100, Why: "test"})
+	c, err := run.StartHeavy(context.Background(), run.Spec{
+		Name: "cmd.exe", Args: []string{"/c", "exit", "0"}, MemoryMB: 100, Timeout: 30 * time.Second, EnvAsIs: true, Hook: hook,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := c.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	if res := hook.Result(c); res.Killed || res.Kills != 0 {
+		t.Fatalf("result = %+v, want a run that was not ended", res)
 	}
 }

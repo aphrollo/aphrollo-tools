@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run/runtest"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
@@ -170,3 +171,41 @@ var treeFixtureBinary = sync.OnceValues(func() (string, error) {
 	}
 	return bin, nil
 })
+
+// The socket test above covers a launcher whose grandchild is an ordinary
+// process. An MSYS shell is the other shape: its children are not found by
+// `taskkill /T`, so a suite whose runner is a shell script (a bash suite, a
+// make wrapper, a package manager's script) left its sleeping or compiling
+// grandchildren behind at the deadline. Every pid of the bash -> bash -> sleep
+// chain has to be gone once the timed-out run returns.
+func TestRunSuite_TimeoutEndsAnMSYSShellChain(t *testing.T) {
+	bash := runtest.BashCommand()
+	if bash == "" {
+		t.Skip("no bash on this box") // skip-ok: the chain needs a real shell, which a box may lack.
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	script := filepath.Join(dir, "chain.sh")
+	if err := os.WriteFile(script, []byte(runtest.BashChain), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pidFile := filepath.Join(dir, "pids")
+
+	res := RunSuite(8*time.Second)(Runner{Cmd: bash, Args: []string{filepath.ToSlash(script), filepath.ToSlash(pidFile), "wait"}}, dir)
+
+	pids := runtest.ReadPids(pidFile)
+	t.Cleanup(func() {
+		for _, pid := range pids {
+			runtest.ForceKill(pid)
+		}
+	})
+	if !res.TimedOut {
+		t.Fatalf("the chain must outlive its deadline for this test to prove anything: %+v", res)
+	}
+	if len(pids) < 3 {
+		t.Fatalf("the chain recorded %d pids before the deadline, want 3: it never came up", len(pids))
+	}
+	if !runtest.AllGone(pids, 20*time.Second) {
+		t.Errorf("a pid of the shell chain %v outlived the suite that was killed at its deadline", pids)
+	}
+}

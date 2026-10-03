@@ -35,3 +35,6 @@ func (g *groupTree) kill() {
 }
 
 func (g *groupTree) finish() { g.kill() }
+
+// peak is 0: a process group has no memory measure of its own.
+func (g *groupTree) peak() uint64 { return 0 }
