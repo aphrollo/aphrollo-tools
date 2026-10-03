@@ -50,6 +50,11 @@ echo "goose $*" >> "$OPLOG"
 	stubRsync = `#!/usr/bin/env bash
 echo "rsync $*" >> "$OPLOG"
 `
+	// The script refuses a checkout that is not the newest release tag: the tag
+	// lookup and the rev-parse of it are stubbed to agree with GITHUB_SHA.
+	stubGit = `#!/usr/bin/env bash
+echo "0123456789abcdef0123456789abcdef01234567"
+`
 	stubSystemctl = `#!/usr/bin/env bash
 echo "systemctl $*" >> "$OPLOG"
 `
@@ -81,7 +86,7 @@ func runDeploy(t *testing.T, env map[string]string, preStage func(stage string))
 		}
 	}
 	for name, body := range map[string]string{
-		"sudo": stubSudo, "goose": stubGoose, "rsync": stubRsync, "systemctl": stubSystemctl,
+		"sudo": stubSudo, "goose": stubGoose, "rsync": stubRsync, "systemctl": stubSystemctl, "git": stubGit,
 	} {
 		write(filepath.Join(stub, name), body, 0o755)
 	}
@@ -103,6 +108,7 @@ func runDeploy(t *testing.T, env map[string]string, preStage func(stage string))
 		t.Fatal("OPT_BASE assignment not found — deploy-prod.sh shape changed, update this test")
 	}
 	write(filepath.Join(deployDir, "deploy-prod.sh"), script, 0o755)
+	write(filepath.Join(deployDir, "newest-tag.sh"), "#!/usr/bin/env bash\necho v0.0.0\n", 0o755)
 	// The post-migration check queries a real database; stand in for it.
 	write(filepath.Join(deployDir, "check-migrations-applied.sh"), "#!/usr/bin/env bash\necho \"check-migrations $*\" >> \"$OPLOG\"\n", 0o755)
 

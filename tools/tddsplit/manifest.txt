@@ -286,9 +286,12 @@ doctor_mutation.go                                 mutation  # created by P2
 doctor_own_test.go                                 core
 doctor_primary_test.go                             install
 doctor_test.go                                     install
+doctor_twogates.go                                 install
+doctor_twogates_test.go                            install
 e2e_zig_test.go                                    suite
 edit_ownership.go                                  suite
 edit_ownership_own_test.go                         suite
+edithook_detached_test.go                          postedit
 editledger.go                                      failfirst
 editledger_batch_test.go                           failfirst
 editledger_suite.go                                suite     # created by P2

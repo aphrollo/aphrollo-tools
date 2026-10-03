@@ -2,7 +2,8 @@
 # Atomic host-native deploy of the aphrollo dev-env CLI (/usr/local/bin/aphrollo).
 #
 # Invoked by .github/workflows/pipeline.yml's `deploy` job on the self-hosted
-# runner, on push-to-main (post-merge) and manual workflow_dispatch. Stages a
+# runner, on push-to-main (post-merge) and manual workflow_dispatch, in a
+# checkout of the newest release tag. Stages a
 # release dir, smoke-tests the new binary, then atomically flips the `current`
 # symlink. No daemon to restart — every coder/devops/operator session execs
 # /usr/local/bin/aphrollo fresh per call, so a swapped `current` is picked up on
@@ -34,10 +35,16 @@
 
 set -euo pipefail
 
+# The deploy follows the newest release TAG (deploy/newest-tag.sh), never the
+# tip of main: the workflow checks the tag out before building, and this
+# refuses to ship a checkout that is not exactly it.
+TAG=$(bash "$(dirname "$0")/newest-tag.sh")
+TAG_SHA=$(git rev-parse "${TAG}^{commit}")
 SHA="${GITHUB_SHA:-$(git rev-parse HEAD)}"
+[ "$SHA" = "$TAG_SHA" ] || { echo "refusing to deploy ${SHA:0:7}: the newest release tag $TAG is ${TAG_SHA:0:7}" >&2; exit 1; }
 SHA_SHORT="${SHA:0:7}"
 TS=$(date +%Y%m%d-%H%M%S)
-RELEASE_NAME="${TS}-${SHA_SHORT}"
+RELEASE_NAME="${TS}-${TAG}-${SHA_SHORT}"
 
 OPT_BASE=/opt/aphrollo-cli
 RELEASES="${OPT_BASE}/releases"

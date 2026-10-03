@@ -1,11 +1,14 @@
 # Deploy — aphrollo dev-env CLI
 
 `/usr/local/bin/aphrollo` deploys **on merge to `main`**, the same way the Go
-services do: the `deploy` job in `.github/workflows/pipeline.yml` builds the
-binary on the self-hosted runner and runs `deploy/deploy-prod.sh`, which stages the
-build and hands it to the root-owned installer (`aphrollo-install-release`): it
-verifies it, installs a release, smoke-tests it, and atomically swaps a `current`
-symlink. No manual
+services do, but what it ships is the newest release **tag** (`v<VERSION>`),
+not the tip of `main`: the `release` job tags a merge that bumps
+`internal/buildinfo/VERSION` (`deploy/tag-release.sh`; a tag already present is
+`[skip]`), and the `deploy` job checks out the newest tag
+(`deploy/newest-tag.sh`), builds the binary on the self-hosted runner and runs
+`deploy/deploy-prod.sh`, which stages the build and hands it to the root-owned
+installer (`aphrollo-install-release`): it verifies it, installs a release,
+smoke-tests it, and atomically swaps a `current` symlink. No manual
 `deploy-infra` step, no stale-operator-clone footgun.
 
 ## Release layout

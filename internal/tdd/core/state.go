@@ -246,8 +246,14 @@ func computeFingerprint(root string) *fingerprint {
 		return nil
 	}
 	var mtime int64
-	if fi, err := os.Stat(filepath.Join(root, ".git", "index")); err == nil {
-		mtime = fi.ModTime().UnixNano()
+	// `.git` is a file in a linked worktree; git knows where the index is.
+	if idx := gitOut(root, "rev-parse", "--git-path", "index"); idx != "" {
+		if !filepath.IsAbs(idx) {
+			idx = filepath.Join(root, idx)
+		}
+		if fi, err := os.Stat(idx); err == nil {
+			mtime = fi.ModTime().UnixNano()
+		}
 	}
 	return &fingerprint{Branch: branch, HeadSHA: head, IndexMtime: mtime}
 }

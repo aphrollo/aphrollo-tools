@@ -1081,8 +1081,32 @@ jobs:
   # always()+needs-result guard as aphrollo-api regardless: run after they are
   # all green, but a red one means this never fires. A manual workflow_dispatch
   # stays gated behind the same guard.
-  deploy:
+  # A tag per release: when the merge that just landed carries a new
+  # internal/buildinfo/VERSION, tag that commit v<VERSION> and push it. A
+  # version already tagged is [skip]. `aphrollo update` and `deploy` below both
+  # follow the newest of these tags, not the tip of main, so a box only ever
+  # runs a version a consumer was told about (CHANGELOG.md).
+  release:
     needs: [test, lint, scan, workflow-pins]
+    if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    concurrency:
+      group: release-tag-aphrollo-cli
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Tag the release
+        run: bash deploy/tag-release.sh
+        env:
+          GITHUB_SHA: ${{ github.sha }}
+
+  deploy:
+    needs: [release, test, lint, scan, workflow-pins]
     # Only a push to main or a manual dispatch by a writer can schedule this
     # job onto the host; a pull_request event never satisfies the guard.
     if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
@@ -1095,6 +1119,16 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      # The box runs the newest release tag, not the commit that triggered this
+      # run: a merge that does not bump VERSION redeploys the tag it already ran.
+      - name: Check out the newest release tag
+        id: tag
+        run: |
+          tag=$(bash deploy/newest-tag.sh)
+          git checkout --detach "$tag"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -1108,10 +1142,10 @@ jobs:
       # hourly behind-origin/main check has nothing to compare, so this box
       # would never notice a stale binary.
       - name: Build
-        run: go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=${{ github.sha }} -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o bin/aphrollo ./cmd/aphrollo
+        run: go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=${{ steps.tag.outputs.sha }} -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o bin/aphrollo ./cmd/aphrollo
       - name: Deploy
         env:
-          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_SHA: ${{ steps.tag.outputs.sha }}
         run: ./deploy/deploy-prod.sh
 
   # Judges the MERGED TREE itself (#372): every check above judges a PR
