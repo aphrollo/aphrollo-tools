@@ -1,10 +1,11 @@
 package gitx
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/shfake"
 )
 
 // fakeGitPrinting builds a `git` script in t.TempDir() that prints stdout on
@@ -15,10 +16,13 @@ import (
 func fakeGitPrinting(t *testing.T, stdout, stderr string) {
 	t.Helper()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "fake-git.sh")
+	path := filepath.Join(dir, "fake-git")
 	script := "#!/bin/sh\nprintf '%s\\n' \"" + stdout + "\"\nprintf '%s\\n' \"" + stderr + "\" 1>&2\n"
-	if err := proc.WriteExecutable(path, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
+	shfake.Install(t, dir, "fake-git", script)
+	// Where a script cannot be run directly, Install leaves a compiled
+	// trampoline beside it with an .exe name.
+	if _, err := os.Stat(path + ".exe"); err == nil {
+		path += ".exe"
 	}
 	t.Setenv(realGitEnv, path)
 }
