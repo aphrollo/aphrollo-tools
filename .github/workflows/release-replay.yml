@@ -39,6 +39,7 @@ on:
       - "internal/docs/**"
       - "internal/diff/**"
       - "internal/gitenv/**"
+      - "internal/git/**"
       - "internal/tomlsubset/**"
       - "internal/argvbatch/**"
       - "internal/depinstall/**"
