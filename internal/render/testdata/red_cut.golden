@@ -1,0 +1,11 @@
+trellis: red internal/lane TestOpenOnRed · lane_test.go:1: want open, got closed; the lane was xxxxxxxxxxxxxx · code edits open in internal/lane until it is green
+  lane_test.go:2: want open, got closed; the lane was xxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  lane_test.go:3: want open, got closed; the lane was xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  lane_test.go:4: want open, got closed; the lane was xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  lane_test.go:5: want open, got closed; the lane was xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  lane_test.go:6: want open, got closed; the lane was xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  lane_test.go:7: want open, got closed; the lane was xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+  lane_test.go:8: want open, got closed; the lane was xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…
+  lane_test.go:9: want open, got closed; the lane was xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…
+  lane_test.go:10: want open, got closed; the lane was xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…
+  cut: 4 more lines, 3 lines clipped · full run: trellis output j42
