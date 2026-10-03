@@ -270,6 +270,23 @@ func TestPostMergeRetro_GateRefusalsInTheLaneAreCounted(t *testing.T) {
 	}
 }
 
+func TestPostMergeRetro_AReportedSurvivorIsNotAGateRefusal(t *testing.T) {
+	isolateRetro(t, "sess-reported")
+	replayGh(t, "827", nil)
+	lane := t.TempDir()
+	logGate(t, lane,
+		"2026-09-24T08:10:00Z precommit mutants-reported:tested=99,caught=49,missed=35",
+		"2026-09-24T08:11:00Z precommit mutants-refused:tested=3,caught=1,missed=2",
+		"2026-09-24T08:20:00Z precommit green",
+	)
+
+	runRetro(t, lane, "lane/own-tests-smell", 827)
+	got := TakeSessionRetros("sess-reported")
+	if !strings.Contains(got, "#827: 1 gate refusal in the lane (mutants-refused:tested=3,caught=1,missed=2 1)\n") {
+		t.Errorf("retro counted a reported survivor as a refusal, or dropped the real one:\n%s", got)
+	}
+}
+
 func TestPostMergeRetro_ClassNotListedInRetroOnStaysSilent(t *testing.T) {
 	isolateRetro(t, "sess-optout")
 	calls := replayGh(t, "839", nil)
