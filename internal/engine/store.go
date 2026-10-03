@@ -25,6 +25,10 @@ var (
 // Delivered), which lets it sit below the engine.
 type Record = store.Record
 
+// Flags are a unit's guided-once flags kept apart from the unit (see
+// Record.Guided).
+type Flags = store.Flags
+
 // Store is what the engine needs of the per-repo store (architecture §8; the
 // real one is F24 to F27). Keys are lane keys: a branch, or kernel.TrunkLane.
 //

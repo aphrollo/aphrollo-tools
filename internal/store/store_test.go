@@ -49,8 +49,9 @@ func decideCommit(ctx context.Context, s *Store, ev kernel.Event) (uint64, error
 	if err != nil {
 		return 0, err
 	}
-	d := kernel.Decide(rec.Lane, rec.Units, ev, s.cfg)
-	return s.Commit(ctx, ev.Lane, ver, Record{Lane: d.Lane, Units: d.Units}, []kernel.Event{ev})
+	d := kernel.Decide(rec.Lane, rec.DecideUnits(ev.Unit), ev, s.cfg)
+	next := Record{Lane: d.Lane, Units: d.Units, Guided: rec.Settled(ev.Unit), Delivered: rec.Delivered}
+	return s.Commit(ctx, ev.Lane, ver, next, []kernel.Event{ev})
 }
 
 func fact(t *testing.T, s *Store, ev kernel.Event) (uint64, error) {

@@ -67,6 +67,7 @@ func cloneRecord(r Record) Record {
 	r.Lane.CI = maps.Clone(r.Lane.CI)
 	r.Lane.CIRequired = slices.Clone(r.Lane.CIRequired)
 	r.Units = maps.Clone(r.Units)
+	r.Guided = maps.Clone(r.Guided)
 	r.Delivered = slices.Clone(r.Delivered)
 	return r
 }

@@ -75,9 +75,15 @@ var ErrConflict = errors.New("store: lane record changed since it was loaded")
 // engine). Deliveries append no event, so the log cannot give them back: a
 // rebuild keeps them from a checkpoint it could read, and a lost checkpoint
 // loses them, which only makes lines due again, never lost.
+//
+// Guided holds the guided-once flags of units no fact has named (see Flags).
+// Like Delivered it is checkpoint-only: a question is never logged, so a
+// rebuild keeps Guided from a checkpoint it could read, and a lost checkpoint
+// loses it, which at worst shows a guide once more, never blocks.
 type Record struct {
 	Lane      kernel.State
 	Units     kernel.Units
+	Guided    map[string]Flags `json:",omitempty"`
 	Delivered []render.Delivery
 }
 
@@ -267,6 +273,9 @@ func (s *Store) current(lane string, force bool) (view, error) {
 	}
 	logs, end := s.scan(lane, logPos{})
 	v := view{pos: end, replace: missing || unreadable || ck.Fold <= FoldVersion}
+	if !missing && !unreadable {
+		v.rec.Guided = ck.Rec.Guided
+	}
 	for _, l := range logs {
 		v.rec, v.ver = s.fold(v.rec, l.ev), max(v.ver, l.ver)
 	}
@@ -288,8 +297,8 @@ func (s *Store) fold(r Record, ev kernel.Event) Record {
 	if ev.Kind.Question() {
 		return r
 	}
-	d := kernel.Decide(r.Lane, r.Units, ev, s.cfg)
-	return Record{Lane: d.Lane, Units: d.Units, Delivered: r.Delivered}
+	d := kernel.Decide(r.Lane, r.DecideUnits(ev.Unit), ev, s.cfg)
+	return Record{Lane: d.Lane, Units: d.Units, Guided: r.Settled(ev.Unit), Delivered: r.Delivered}
 }
 
 // say reports an unreadable checkpoint once per lane and process.

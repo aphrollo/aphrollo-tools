@@ -188,6 +188,9 @@ func TestHandle_questionsChangeNothingButTheGuidedFlags(t *testing.T) {
 				if !reflect.DeepEqual(before.Lane, after.Lane) {
 					rt.Fatalf("event %d (%s) moved the lane:\n before %+v\n after  %+v", i, e.Kind, before.Lane, after.Lane)
 				}
+				if len(after.Units) != len(before.Units) {
+					rt.Fatalf("event %d (%s) changed the units known to the facts:\n before %+v\n after  %+v", i, e.Kind, before.Units, after.Units)
+				}
 				continue
 			}
 			machines := e
