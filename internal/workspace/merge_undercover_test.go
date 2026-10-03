@@ -46,15 +46,15 @@ func stubMergeUndercover(t *testing.T, title, body string) (plain *bool, withBod
 	*withBody = "\x00unset"
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 9, URL: "u", State: "OPEN"}, nil },
-		func(wt, branch, method string) error { *plain = true; return nil },
+		func(wt, branch, method, sha string) error { *plain = true; return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	stubSync(t, func(string, bool, io.Writer, io.Writer) error { return nil })
 	prevText, prevBody, prevGate, prevRetro := ghPRText, ghMergePRBody, premergeGate, postMergeRetro
 	ghPRText = func(wt, branch string) (string, string, error) { return title, body, nil }
-	ghMergePRBody = func(wt, branch, method, subject, b string) error { *withBody = b; return nil }
-	premergeGate = func(*Target, *tdd.CIVerdict, io.Writer) error { return nil }
+	ghMergePRBody = func(wt, branch, method, subject, b, sha string) error { *withBody = b; return nil }
+	premergeGate = func(*Target, string, *tdd.CIVerdict, io.Writer) error { return nil }
 	postMergeRetro = func(string, string, string, int, io.Writer) {}
 	t.Cleanup(func() {
 		ghPRText, ghMergePRBody, premergeGate, postMergeRetro = prevText, prevBody, prevGate, prevRetro
@@ -239,5 +239,32 @@ func TestMerge_CarriesTheLaneCommitsClosingTrailersIntoTheSquashBody(t *testing.
 				t.Errorf("squash body = %q, want %q", *withBody, c.want)
 			}
 		})
+	}
+}
+
+// The undercover walls judge the commits of the PR head that merges, and the
+// merge call is bound to that head: a tool-authored commit the lane holds but
+// never pushed is not in the squash GitHub makes, and is the lane check's to
+// refuse, not this one's.
+func TestMerge_UndercoverJudgesThePRHeadsCommitsAndBindsTheMergeToIt(t *testing.T) {
+	repo, commit := mergeUndercoverRepo(t, true)
+	head := commit(nil)
+	commit([]string{"-c", "user.name=Claude", "-c", "user.email=noreply@anthropic.com"}, "--author", "Claude <noreply@anthropic.com>")
+	_, withBody := stubMergeUndercover(t, "Fix the timer", "Fixes it.")
+	ghViewPR = func(wt, branch string) (*PRInfo, error) {
+		return &PRInfo{Number: 9, URL: "u", State: "OPEN", HeadSHA: head}, nil
+	}
+	var boundTo string
+	ghMergePRBody = func(wt, branch, method, subject, b, sha string) error { boundTo = sha; *withBody = b; return nil }
+	m, err := MergePlan(targetFor(repo, "lane/x"), "squash", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	if err := m.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if boundTo != head {
+		t.Errorf("merge bound to %q, want the PR head %q", boundTo, head)
 	}
 }

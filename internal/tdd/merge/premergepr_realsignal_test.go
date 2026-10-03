@@ -169,6 +169,6 @@ func runPRGateRealSignalChild(t *testing.T) {
 		// os.Exit here, untouched) — this call is never meant to return.
 		select {}
 	}
-	err := GatePRMerge(root, run, io.Discard)
+	err := GatePRMerge(root, "", run, io.Discard)
 	t.Fatalf("GatePRMerge returned instead of being terminated by the delivered signal (err=%v)", err)
 }

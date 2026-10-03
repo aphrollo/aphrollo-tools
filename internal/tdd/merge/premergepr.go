@@ -52,7 +52,7 @@ import (
 // cannot be built, a checkout that cannot be made: none of those measured
 // anything, and a merge that lands on an unrun gate is the hole this closes,
 // not a case to be waved through.
-func GatePRMerge(laneWorktree string, run SuiteRunner, log io.Writer) error {
+func GatePRMerge(laneWorktree, head string, run SuiteRunner, log io.Writer) error {
 	if log == nil {
 		log = io.Discard
 	}
@@ -63,22 +63,22 @@ func GatePRMerge(laneWorktree string, run SuiteRunner, log io.Writer) error {
 	if !cfg.AtMerge && !ratchet.HasLaws(laneWorktree) {
 		return nil
 	}
-	return judgeMergedTree(laneWorktree, run, log, nil)
+	return judgeMergedTree(laneWorktree, head, run, log, nil)
 }
 
 // judgeMergedTree is the body both the merge gate and local CI run: build the
 // merge in a throwaway checkout and hand it to Mechanical. tips, when the
 // caller already resolved them, are not resolved again.
-func judgeMergedTree(laneWorktree string, run SuiteRunner, log io.Writer, tips *prGateTips) error {
-	return judgeMergedTreeWith(laneWorktree, run, log, tips, func(wt string) GateResult { return Mechanical(wt, run) })
+func judgeMergedTree(laneWorktree, head string, run SuiteRunner, log io.Writer, tips *prGateTips) error {
+	return judgeMergedTreeWith(laneWorktree, head, run, log, tips, func(wt string) GateResult { return Mechanical(wt, run) })
 }
 
 // judgeMergedTreeWith is judgeMergedTree with the judgment of the built
 // checkout left to the caller: the whole mechanical stage, or only the part a
 // reused CI verdict leaves owing.
-func judgeMergedTreeWith(laneWorktree string, run SuiteRunner, log io.Writer, tips *prGateTips, judge func(wt string) GateResult) error {
+func judgeMergedTreeWith(laneWorktree, head string, run SuiteRunner, log io.Writer, tips *prGateTips, judge func(wt string) GateResult) error {
 	if tips == nil {
-		resolved, err := prGateTipsOf(laneWorktree, log)
+		resolved, err := prGateTipsOf(laneWorktree, head, log)
 		if err != nil {
 			return err
 		}
@@ -148,12 +148,16 @@ var prGateFetch = func(dir string) error {
 	return err
 }
 
-// prGateTipsOf resolves both ends of the merge. A failed fetch is reported and
+// prGateTipsOf resolves both ends of the merge. head is the commit being landed:
+// the merge verb passes the PR head GitHub reported, so the tree judged is the
+// tree that merges whatever the lane worktree has checked out; "" reads the
+// checkout's own HEAD, which is what a run with no PR (ci run) judges. A head
+// this checkout does not hold is refused, never read as HEAD. A failed fetch is reported and
 // not refused — the gate then judges the merge against the trunk this box
 // already has, which is a weaker base but still a real measurement of the
 // lane's own change, and refusing here would ground the verb on a flaky
 // network the merge itself already got through.
-func prGateTipsOf(laneWorktree string, log io.Writer) (prGateTips, error) {
+func prGateTipsOf(laneWorktree, head string, log io.Writer) (prGateTips, error) {
 	trunk := TrunkBranch(laneWorktree)
 	if trunk == "" {
 		return prGateTips{}, prGateRefusal(laneWorktree, "no-trunk",
@@ -165,7 +169,14 @@ func prGateTipsOf(laneWorktree string, log io.Writer) (prGateTips, error) {
 	}
 	tips := prGateTips{trunkRef: trunk}
 	tips.trunk = strings.TrimSpace(gitOut(laneWorktree, "rev-parse", trunk))
-	tips.lane = strings.TrimSpace(gitOut(laneWorktree, "rev-parse", "HEAD"))
+	if head == "" {
+		head = "HEAD"
+	}
+	tips.lane = strings.TrimSpace(gitOut(laneWorktree, "rev-parse", "--verify", "--quiet", head+"^{commit}"))
+	if head != "HEAD" && tips.lane == "" {
+		return prGateTips{}, prGateRefusal(laneWorktree, "no-head",
+			"the PR head %s is not a commit this checkout holds, so the merge could not be built and judged", shortCommit(head))
+	}
 	if tips.trunk == "" || tips.lane == "" {
 		return prGateTips{}, prGateRefusal(laneWorktree, "no-tips",
 			"neither %s nor HEAD resolved to a commit, so the merge could not be built and judged", trunk)

@@ -84,7 +84,7 @@ func TestGhMergePR_WritesItsOwnSubjectNeverGitHubsDefault(t *testing.T) {
 			repo := initRepo(t)
 			withOrigin(t, repo, "acme", "widgets")
 			logFile := fakeGhLogging(t)
-			if err := ghMergePR(repo, "feat/x", method); err != nil {
+			if err := ghMergePR(repo, "feat/x", method, "0123456789abcdef0123456789abcdef01234567"); err != nil {
 				t.Fatalf("ghMergePR: %v", err)
 			}
 			if got := mergeCall(t, logFile); !strings.Contains(got, "commit_title=Fix the debounce race (#12)") {
@@ -98,7 +98,7 @@ func TestGhMergePR_RebaseSendsNoSubject(t *testing.T) {
 	repo := initRepo(t)
 	withOrigin(t, repo, "acme", "widgets")
 	logFile := fakeGhLogging(t)
-	if err := ghMergePR(repo, "feat/x", "rebase"); err != nil {
+	if err := ghMergePR(repo, "feat/x", "rebase", "0123456789abcdef0123456789abcdef01234567"); err != nil {
 		t.Fatalf("ghMergePR: %v", err)
 	}
 	if got := mergeCall(t, logFile); strings.Contains(got, "commit_title") {
@@ -110,7 +110,7 @@ func TestMerge_BodyPathPassesTheSubjectToo(t *testing.T) {
 	var gotSubject string
 	repo, _ := mergeUndercoverRepo(t, true)
 	stubMergeUndercover(t, "Fix the debounce race", "body")
-	ghMergePRBody = func(wt, branch, method, subject, b string) error { gotSubject = subject; return nil }
+	ghMergePRBody = func(wt, branch, method, subject, b, sha string) error { gotSubject = subject; return nil }
 	m, _ := MergePlan(targetFor(repo, "lane/x"), "merge", false)
 	var out, errb strings.Builder
 	if err := m.Apply(&out, &errb); err != nil {

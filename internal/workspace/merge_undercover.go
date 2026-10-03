@@ -31,25 +31,35 @@ var ghPRText = func(wt, branch string) (title, body string, err error) {
 }
 
 // ghMergePRBody is ghMergePR with an explicit commit subject and body.
-var ghMergePRBody = func(wt, branch, method, subject, body string) error {
-	args := []string{"pr", "merge", "--" + method, "--subject", subject, "--body", body, "--", branch}
-	out, err := ghCombinedOutput(wt, args...)
+// sha is the judged PR head: gh refuses the merge when the head is another
+// commit by then (see ghMergePR).
+var ghMergePRBody = func(wt, branch, method, subject, body, sha string) error {
+	out, err := ghCombinedOutput(wt, mergeBodyArgs(method, subject, body, sha, branch)...)
 	if err != nil {
+		if moved := headMoved(out, sha); moved != nil {
+			return moved
+		}
 		return fmt.Errorf("gh pr merge: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// mergeBodyArgs is gh's argv for a merge with an explicit subject and body,
+// bound to the head sha that was judged.
+func mergeBodyArgs(method, subject, body, sha, branch string) []string {
+	return []string{"pr", "merge", "--" + method, "--subject", subject, "--body", body, "--match-head-commit", sha, "--", branch}
 }
 
 // undercoverMerge judges the PR before it merges. useBody reports that the
 // merge must pass body explicitly: the repo set `undercover = true` and the
 // method writes a commit body (a rebase writes none). A repo that never
 // asked merges exactly as before.
-func undercoverMerge(t *Target, method string) (body, title string, useBody bool, err error) {
+func undercoverMerge(t *Target, method, head string) (body, title string, useBody bool, err error) {
 	tells, on := undercover.Load(t.Worktree)
 	if !on {
 		return "", "", false, nil
 	}
-	if err := undercoverPRCommits(t, tells); err != nil {
+	if err := undercoverPRCommits(t, head, tells); err != nil {
 		return "", "", false, err
 	}
 	if method == "rebase" {
@@ -70,7 +80,7 @@ func undercoverMerge(t *Target, method string) (body, title string, useBody bool
 		kept = title
 	}
 	base := "origin/" + resolveDefaultBranch(t.Worktree)
-	return withClosingTrailers(kept, commitMessagesSince(t.Worktree, base, "HEAD")), title, true, nil
+	return withClosingTrailers(kept, commitMessagesSince(t.Worktree, base, head)), title, true, nil
 }
 
 // missingCloses is every issue a lane commit closes that body does not, in
@@ -107,11 +117,11 @@ func withClosingTrailers(body string, commits []string) string {
 
 // undercoverPRCommits refuses when a commit the PR brings — everything on the
 // branch that origin's default branch does not hold — carries a tell.
-func undercoverPRCommits(t *Target, tells undercover.List) error {
+func undercoverPRCommits(t *Target, head string, tells undercover.List) error {
 	base := "origin/" + resolveDefaultBranch(t.Worktree)
-	sha, h, hit, err := tells.RangeTell("git", t.Worktree, nil, base+"..HEAD")
+	sha, h, hit, err := tells.RangeTell("git", t.Worktree, nil, base+".."+head)
 	if err != nil {
-		return fmt.Errorf("listing the PR's commits (%s..HEAD): %w", base, err)
+		return fmt.Errorf("listing the PR's commits (%s..%s): %w", base, short(head), err)
 	}
 	if !hit {
 		return nil

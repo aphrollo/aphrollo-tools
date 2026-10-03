@@ -18,8 +18,8 @@ import (
 // local CI run, so merge tests drive the choice without a repo or a suite.
 var (
 	readCIMode = tdd.ReadCIMode
-	localCI    = func(t *Target, log io.Writer) (tdd.LocalCIVerdict, error) {
-		return tdd.LocalCI(t.Worktree, log)
+	localCI    = func(t *Target, head string, log io.Writer) (tdd.LocalCIVerdict, error) {
+		return tdd.LocalCIWith(t.Worktree, log, tdd.CIRunOptions{Head: head})
 	}
 )
 
@@ -59,9 +59,9 @@ func isCIUnavailable(err error) bool {
 }
 
 // runLocalCI is the local CI step of a merge: it judges the merge result of
-// the lane and refuses the merge on a red.
+// the PR head sha and refuses the merge on a red.
 func runLocalCI(t *Target, sha string, pr int, stdout, stderr io.Writer) error {
-	v, err := localCI(t, stderr)
+	v, err := localCI(t, sha, stderr)
 	if err != nil {
 		if v.Red {
 			recordSettledCIBy(t.Worktree, sha, pr, "red", tdd.CILocal, "other")

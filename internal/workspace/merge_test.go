@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -14,11 +15,23 @@ import (
 // view seam they depend on for a test. Branch deletion is a remote-only step
 // (git push origin --delete) so the merge never checks out the default branch —
 // see the comment on ghDeleteRemoteBranch.
-func stubMerge(t *testing.T, view func(wt, branch string) (*PRInfo, error), merge func(wt, branch, method string) error, del func(wt, branch string) (bool, error)) {
+func stubMerge(t *testing.T, view func(wt, branch string) (*PRInfo, error), merge func(wt, branch, method, sha string) error, del func(wt, branch string) (bool, error)) {
 	t.Helper()
 	ov, om, od := ghViewPR, ghMergePR, ghDeleteRemoteBranch
-	oc := escapeClosureBeforeMerge
-	ghViewPR, ghMergePR, ghDeleteRemoteBranch = view, merge, del
+	oc, oAt := escapeClosureBeforeMerge, laneAtHead
+	// Most merge tests are about something other than the lane/PR-head relation:
+	// the PR reports the lane's own HEAD (a fixed commit where the worktree is
+	// not a real repository) and the lane is at it. A test about that relation
+	// states the PR head itself and rebinds laneAtHead.
+	ghViewPR = func(wt, branch string) (*PRInfo, error) {
+		pr, err := view(wt, branch)
+		if pr != nil && pr.HeadSHA == "" {
+			pr.HeadSHA = stubLaneHead(wt)
+		}
+		return pr, err
+	}
+	laneAtHead = func(string, string, int) error { return nil }
+	ghMergePR, ghDeleteRemoteBranch = merge, del
 	// Every existing merge test drives ghMergePR through this helper without
 	// itself caring about the escape-closure judgment, so it defaults to a
 	// pass here — a test proving the refusal (or the recording beside it)
@@ -26,8 +39,17 @@ func stubMerge(t *testing.T, view func(wt, branch string) (*PRInfo, error), merg
 	escapeClosureBeforeMerge = func(wt string, prNumber int, w io.Writer) error { return nil }
 	t.Cleanup(func() {
 		ghViewPR, ghMergePR, ghDeleteRemoteBranch = ov, om, od
-		escapeClosureBeforeMerge = oc
+		escapeClosureBeforeMerge, laneAtHead = oc, oAt
 	})
+}
+
+// stubLaneHead is the head a stubbed PR reports when its test names none: the
+// worktree's own HEAD when it is a repository, else a fixed commit.
+func stubLaneHead(wt string) string {
+	if out, err := exec.Command("git", "-C", wt, "rev-parse", "HEAD").Output(); err == nil {
+		return strings.TrimSpace(string(out))
+	}
+	return "c0ffee0000000000000000000000000000000000"
 }
 
 // stubSync swaps the post-merge sync seam so a test can observe the catch-up of
@@ -42,7 +64,7 @@ func stubSync(t *testing.T, fn func(repoArg string, dry bool, stdout, stderr io.
 func TestMerge_SyncsCanonicalCloneAfterSuccess(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 7, URL: "u"}, nil },
-		func(wt, branch, method string) error { return nil },
+		func(wt, branch, method, sha string) error { return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
@@ -76,7 +98,7 @@ func TestMerge_SyncsCanonicalCloneAfterSuccess(t *testing.T) {
 func TestMerge_SyncFailureDoesNotFailMerge(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 9, URL: "u"}, nil },
-		func(wt, branch, method string) error { return nil },
+		func(wt, branch, method, sha string) error { return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
@@ -118,7 +140,7 @@ func TestMerge_MergesOpenPR(t *testing.T) {
 		func(wt, branch string) (*PRInfo, error) {
 			return &PRInfo{Number: 18, URL: "https://github.com/o/r/pull/18", State: "OPEN"}, nil
 		},
-		func(wt, branch, method string) error { gotMethod = method; return nil },
+		func(wt, branch, method, sha string) error { gotMethod = method; return nil },
 		func(wt, branch string) (bool, error) { deletedBranch = branch; return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
@@ -150,7 +172,7 @@ func TestMerge_MergesOpenPR(t *testing.T) {
 func TestMerge_RefusesRedCI(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 363, URL: "u"}, nil },
-		func(wt, branch, method string) error {
+		func(wt, branch, method, sha string) error {
 			t.Fatal("merge must not run while a required check is red")
 			return nil
 		},
@@ -174,7 +196,7 @@ func TestMerge_RefusesRedCI(t *testing.T) {
 func TestMerge_RefusesPendingCI(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 364, URL: "u"}, nil },
-		func(wt, branch, method string) error {
+		func(wt, branch, method, sha string) error {
 			t.Fatal("merge must not run while a required check is pending")
 			return nil
 		},
@@ -201,7 +223,7 @@ func TestMerge_RefusesPendingCI(t *testing.T) {
 func TestMerge_RefusesWhenCIStatusCannotBeDetermined(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 365, URL: "u"}, nil },
-		func(wt, branch, method string) error {
+		func(wt, branch, method, sha string) error {
 			t.Fatal("merge must not run when CI status could not be determined")
 			return nil
 		},
@@ -222,7 +244,7 @@ func TestMerge_RefusesWhenCIStatusCannotBeDetermined(t *testing.T) {
 func TestMerge_NoPR(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return nil, nil },
-		func(wt, branch, method string) error {
+		func(wt, branch, method, sha string) error {
 			t.Fatal("merge must not run without a PR")
 			return nil
 		},
@@ -293,7 +315,7 @@ func TestRemoteBranchAlreadyGone_MatchesObservedMessages(t *testing.T) {
 func TestMerge_AlreadyDeletedRemoteBranchStillSyncs(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 402, URL: "u"}, nil },
-		func(wt, branch, method string) error { return nil },
+		func(wt, branch, method, sha string) error { return nil },
 		func(wt, branch string) (bool, error) { return true, nil }, // already gone
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
@@ -323,7 +345,7 @@ func TestMerge_KeepBranch(t *testing.T) {
 	deleteCalled := false
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 5, URL: "u"}, nil },
-		func(wt, branch, method string) error { return nil },
+		func(wt, branch, method, sha string) error { return nil },
 		func(wt, branch string) (bool, error) { deleteCalled = true; return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
@@ -346,7 +368,7 @@ func TestMerge_KeepBranch(t *testing.T) {
 func TestMerge_RefusesWhenEscapeClosureFails(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 700, URL: "u"}, nil },
-		func(wt, branch, method string) error {
+		func(wt, branch, method, sha string) error {
 			t.Fatal("merge must not run when the escape-closure check refuses")
 			return nil
 		},
@@ -376,7 +398,7 @@ func TestMerge_RefusesWhenEscapeClosureFails(t *testing.T) {
 func TestMerge_EscapeClosureCalledWithThePRNumber(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 701, URL: "u"}, nil },
-		func(wt, branch, method string) error { return nil },
+		func(wt, branch, method, sha string) error { return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
@@ -404,7 +426,7 @@ func TestMerge_EscapeClosureCalledWithThePRNumber(t *testing.T) {
 func TestMerge_RecordsAnEscapeWhenCIIsRedOnATipTheGateProvedGreen(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 702, URL: "u"}, nil },
-		func(wt, branch, method string) error {
+		func(wt, branch, method, sha string) error {
 			t.Fatal("merge must not run while CI is red")
 			return nil
 		},
@@ -434,7 +456,7 @@ func TestMerge_RecordsAnEscapeWhenCIIsRedOnATipTheGateProvedGreen(t *testing.T) 
 func TestMerge_PendingCIDoesNotRecordAnEscape(t *testing.T) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 703, URL: "u"}, nil },
-		func(wt, branch, method string) error {
+		func(wt, branch, method, sha string) error {
 			t.Fatal("merge must not run while CI is pending")
 			return nil
 		},

@@ -89,7 +89,7 @@ func LocalCIWith(laneWorktree string, log io.Writer, run CIRunOptions) (LocalCIV
 	if err != nil {
 		return LocalCIVerdict{}, err
 	}
-	tips, err := prGateTipsOf(laneWorktree, log)
+	tips, err := prGateTipsOf(laneWorktree, run.Head, log)
 	if err != nil {
 		return LocalCIVerdict{}, err
 	}

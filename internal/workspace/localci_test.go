@@ -20,6 +20,7 @@ import (
 // each.
 type ciWorld struct {
 	ghReads, localRuns, gateRuns, merges int
+	localHead, gateHead, mergeHead       string // the head each step was given
 	localErr                             error
 }
 
@@ -29,15 +30,20 @@ func newCIWorld(t *testing.T, declared string, gh CIStatus) *ciWorld {
 	w := &ciWorld{}
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 5, URL: "u"}, nil },
-		func(wt, branch, method string) error { w.merges++; return nil },
+		func(wt, branch, method, sha string) error { w.merges++; w.mergeHead = sha; return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubSync(t, func(string, bool, io.Writer, io.Writer) error { return nil })
 	stubCI(t, func(wt, branch string) (CIStatus, error) { w.ghReads++; return gh, nil })
 	oGate, oLocal, oRead := premergeGate, localCI, readCIMode
-	premergeGate = func(*Target, *tdd.CIVerdict, io.Writer) error { w.gateRuns++; return nil }
-	localCI = func(*Target, io.Writer) (tdd.LocalCIVerdict, error) {
+	premergeGate = func(_ *Target, head string, _ *tdd.CIVerdict, _ io.Writer) error {
+		w.gateRuns++
+		w.gateHead = head
+		return nil
+	}
+	localCI = func(_ *Target, head string, _ io.Writer) (tdd.LocalCIVerdict, error) {
 		w.localRuns++
+		w.localHead = head
 		return tdd.LocalCIVerdict{Tree: "t"}, w.localErr
 	}
 	readCIMode = func(string) (string, error) { return declared, nil }

@@ -24,12 +24,12 @@ func TestMerge_RunsTheRetroOnceTheMergeHasLanded(t *testing.T) {
 	var calls []string
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 839, URL: "u"}, nil },
-		func(wt, branch, method string) error { calls = append(calls, "merge"); return nil },
+		func(wt, branch, method, sha string) error { calls = append(calls, "merge"); return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error { return nil })
-	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error { return nil })
+	stubPremergeGate(t, func(tgt *Target, _ string, _ *tdd.CIVerdict, log io.Writer) error { return nil })
 	stubRetro(t, &calls)
 
 	tgt := &Target{Worktree: "/x/.worktrees/feat", Branch: "lane/feat", MainRepo: "/x/main-clone", RepoName: "r"}
@@ -48,7 +48,7 @@ func TestMerge_RefusedMergeRunsNoRetro(t *testing.T) {
 	var calls []string
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 839, URL: "u"}, nil },
-		func(wt, branch, method string) error { calls = append(calls, "merge"); return nil },
+		func(wt, branch, method, sha string) error { calls = append(calls, "merge"); return nil },
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "red", Failing: 1}, nil })

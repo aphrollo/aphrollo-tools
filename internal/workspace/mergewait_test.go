@@ -44,15 +44,17 @@ func (p *fakePR) at(i int) ciStep {
 // Each wait poll reads the PR head exactly once, which advances that PR's
 // script; the checks read answers from the step that head read selected.
 type fakeCI struct {
-	now      time.Time
-	slept    time.Duration
-	prs      []*fakePR
-	cur      *fakePR
-	lanes    []worktreeEntry
-	laneHead map[string]string // worktree -> the lane's own HEAD
-	merged   []string
-	refuse   map[string]error    // branch -> ghMergePR's refusal
-	onMerge  func(branch string) // runs as each merge is made, before it counts
+	now       time.Time
+	slept     time.Duration
+	prs       []*fakePR
+	cur       *fakePR
+	lanes     []worktreeEntry
+	laneHead  map[string]string // worktree -> the lane's own HEAD
+	merged    []string
+	mergedSHA []string            // the head each merge call was bound to
+	gated     []string            // the head each pre-merge gate judged
+	refuse    map[string]error    // branch -> ghMergePR's refusal
+	onMerge   func(branch string) // runs as each merge is made, before it counts
 }
 
 func (f *fakeCI) byBranch(b string) *fakePR {
@@ -73,10 +75,10 @@ func install(t *testing.T, f *fakeCI) {
 	if f.now.IsZero() {
 		f.now = time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	}
-	oHead, oChecks, oLane, oLanes := ghPRHead, ghChecksAt, laneHeadSHA, listLanes
+	oHead, oChecks, oLane, oLanes, oAt := ghPRHead, ghChecksAt, laneHeadSHA, listLanes, laneAtHead
 	oNow, oSleep := waitNow, waitSleep
 	t.Cleanup(func() {
-		ghPRHead, ghChecksAt, laneHeadSHA, listLanes = oHead, oChecks, oLane, oLanes
+		ghPRHead, ghChecksAt, laneHeadSHA, listLanes, laneAtHead = oHead, oChecks, oLane, oLanes, oAt
 		waitNow, waitSleep = oNow, oSleep
 	})
 	ghPRHead = func(dir, ref string) (*PRHead, error) {
@@ -108,9 +110,13 @@ func install(t *testing.T, f *fakeCI) {
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) {
 			p := f.byBranch(branch)
-			return &PRInfo{Number: p.number, URL: fmt.Sprintf("https://github.com/o/r/pull/%d", p.number), State: "OPEN"}, nil
+			head := p.at(0).head
+			if p.cursor > 0 {
+				head = p.at(p.cursor - 1).head
+			}
+			return &PRInfo{Number: p.number, URL: fmt.Sprintf("https://github.com/o/r/pull/%d", p.number), State: "OPEN", HeadSHA: head}, nil
 		},
-		func(wt, branch, method string) error {
+		func(wt, branch, method, sha string) error {
 			if err := f.refuse[branch]; err != nil {
 				return err
 			}
@@ -118,13 +124,24 @@ func install(t *testing.T, f *fakeCI) {
 				f.onMerge(branch)
 			}
 			f.merged = append(f.merged, branch)
+			f.mergedSHA = append(f.mergedSHA, sha)
 			return nil
 		},
 		func(wt, branch string) (bool, error) { return false, nil },
 	)
 	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
 	stubSync(t, func(repoArg string, dry bool, stdout, stderr io.Writer) error { return nil })
-	stubPremergeGate(t, func(tgt *Target, _ *tdd.CIVerdict, log io.Writer) error { return nil })
+	// The lane is at the PR head unless the script says its HEAD is another commit.
+	laneAtHead = func(wt, head string, pr int) error {
+		if h := f.laneHead[wt]; h != "" && h != head {
+			return &JudgedHeadError{Msg: "lane HEAD " + short(h) + " is not the PR head " + short(head)}
+		}
+		return nil
+	}
+	stubPremergeGate(t, func(tgt *Target, head string, _ *tdd.CIVerdict, log io.Writer) error {
+		f.gated = append(f.gated, head)
+		return nil
+	})
 }
 
 func run(name, sha, status, conclusion string) CheckRun {

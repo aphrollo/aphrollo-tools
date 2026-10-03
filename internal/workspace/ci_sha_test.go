@@ -150,7 +150,7 @@ func TestMerge_ReadsCIOfThePRHead(t *testing.T) {
 		func(wt, branch string) (*PRInfo, error) {
 			return &PRInfo{Number: 5, URL: "u", HeadSHA: "5555555eee"}, nil
 		},
-		func(wt, branch, method string) error {
+		func(wt, branch, method, sha string) error {
 			t.Fatal("merge must not run on pending CI")
 			return nil
 		},

@@ -111,7 +111,7 @@ func TestMerge_CIUnavailableRefusesByNameAndRecordsNoEscape(t *testing.T) {
 	pinCIMode(t, tdd.CIGithub)
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) { return &PRInfo{Number: 193, URL: "u"}, nil },
-		func(wt, branch, method string) error {
+		func(wt, branch, method, sha string) error {
 			t.Fatal("merge must not run while CI never ran")
 			return nil
 		},

@@ -68,7 +68,7 @@ func TestGatePRMergeReusingCI_ReusesTheVerdictOfTheSameTreeOnEveryOS(t *testing.
 	var seen []gateRun
 	var log strings.Builder
 	v := ciVerdictOf(t, root, passedCheck("test"), passedCheck("test-windows (cli)"), passedCheck("test-windows (rest)"))
-	if err := GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), &log, v); err != nil {
+	if err := GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), &log, v); err != nil {
 		t.Fatalf("a merged tree CI judged green on both OSes must land: %v", err)
 	}
 	if len(seen) != 0 {
@@ -87,7 +87,7 @@ func TestGatePRMergeReusingCI_NamesOnlyTheOSesCIRan(t *testing.T) {
 
 	var log strings.Builder
 	v := ciVerdictOf(t, root, passedCheck("test"))
-	if err := GatePRMergeReusingCI(root, recordRuns(new([]gateRun), SuiteResult{Passed: true}), &log, v); err != nil {
+	if err := GatePRMergeReusingCI(root, "", recordRuns(new([]gateRun), SuiteResult{Passed: true}), &log, v); err != nil {
 		t.Fatal(err)
 	}
 	if want := "reused CI verdict for tree " + tree + " (linux)"; !strings.Contains(log.String(), want) {
@@ -107,7 +107,7 @@ func TestGatePRMergeReusingCI_StillJudgesTheMergedTreesDocs(t *testing.T) {
 
 	var seen []gateRun
 	var log strings.Builder
-	err := GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, passedCheck("test")))
+	err := GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, passedCheck("test")))
 	if err == nil || !strings.Contains(err.Error(), "gone_missing.rs") {
 		t.Fatalf("a dangling doc reference in the merged tree must refuse even on a reused verdict, got %v: %s", err, log.String())
 	}
@@ -167,7 +167,7 @@ func TestGatePRMergeReusingCI_DecidesByWhatCIJudged(t *testing.T) {
 
 			var seen []gateRun
 			var log strings.Builder
-			err := GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, tc.checks...))
+			err := GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, tc.checks...))
 
 			staleErr, isStale := AsStaleCIVerdict(err)
 			switch tc.want {
@@ -217,7 +217,7 @@ func TestGatePRMergeReusingCI_RunsTheLocalSuiteWhenAnOSCheckIsNotGreen(t *testin
 			root, trunk := ciReuseLane(t, mutantsInCI)
 			stubCIMergeRef(t, mergedTreeOf(t, root, trunk), ciBefore)
 			var seen []gateRun
-			_ = GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, checks...))
+			_ = GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, checks...))
 			if len(seen) == 0 {
 				t.Fatal("a missing or red OS verdict was taken as a pass: no local suite ran")
 			}
@@ -232,7 +232,7 @@ func TestGatePRMergeReusingCI_ReusesWithoutAMergeRefWhenTheLaneIsUpToDate(t *tes
 
 	var seen []gateRun
 	var log strings.Builder
-	if err := GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, passedCheck("test"))); err != nil {
+	if err := GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, passedCheck("test"))); err != nil {
 		t.Fatal(err)
 	}
 	if len(seen) != 0 || *reads != 0 {
@@ -250,7 +250,7 @@ func TestGatePRMergeReusingCI_RunsTheLocalSuiteWhenCIVerdictsAreForAnotherHead(t
 	v.HeadSHA = "deadbeef"
 
 	var seen []gateRun
-	_ = GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, v)
+	_ = GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, v)
 	if len(seen) == 0 {
 		t.Fatal("reused a verdict that belongs to another commit than the one being merged")
 	}
@@ -261,7 +261,7 @@ func TestGatePRMergeReusingCI_ARepoCanTurnReuseOff(t *testing.T) {
 	stubCIMergeRef(t, mergedTreeOf(t, root, trunk), ciBefore)
 
 	var seen []gateRun
-	err := GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, passedCheck("test")))
+	err := GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, passedCheck("test")))
 	if len(seen) == 0 {
 		t.Fatalf("ci-reuse = false still skipped the local suite (gate said %v)", err)
 	}
@@ -274,7 +274,7 @@ func TestGatePRMergeReusingCI_ALocalMutationMeasurementIsNeverSkipped(t *testing
 	var seen []gateRun
 	// The measurement itself needs a toolchain and disk this test does not have; what
 	// matters is that the gate went down the full path rather than reusing.
-	_ = GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, passedCheck("test")))
+	_ = GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, passedCheck("test")))
 	if len(seen) == 0 {
 		t.Fatal("a repo measuring mutants at the merge had its gate skipped on CI's word")
 	}
@@ -307,7 +307,7 @@ func TestGatePRMergeReusingCI_RunsTheLocalSuiteForARerunOrAnUnknownAttempt(t *te
 			c := passedCheck("test")
 			c.Attempt = attempt
 			var seen []gateRun
-			_ = GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, c))
+			_ = GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, c))
 			if len(seen) == 0 {
 				t.Fatalf("attempt %d was taken as the tree CI tested", attempt)
 			}
@@ -328,7 +328,7 @@ func TestGatePRMergeReusingCI_OnlyCountsTheChecksOfTheBoundWorkflowAndApp(t *tes
 			c := passedCheck("test")
 			mutate(&c)
 			var seen []gateRun
-			_ = GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, c))
+			_ = GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, c))
 			if len(seen) == 0 {
 				t.Fatal("a check from outside the bound workflow stood in for the suites")
 			}
@@ -348,7 +348,7 @@ func TestGatePRMergeReusingCI_ARepoNamesTheChecksThatCarryItsSuites(t *testing.T
 	}
 	var seen []gateRun
 	var log strings.Builder
-	err := GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, bound("unit"), bound("unit-windows (a)")))
+	err := GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, bound("unit"), bound("unit-windows (a)")))
 	if err != nil || len(seen) != 0 {
 		t.Fatalf("named checks green on the named workflow must be reused: err=%v, suites run=%d\n%s", err, len(seen), log.String())
 	}
@@ -372,7 +372,7 @@ func TestGatePRMergeReusingCI_SaysWhenCIRanNoTestsForANonCodeDiff(t *testing.T) 
 	gitDo(t, root, "commit", "-qm", "notes")
 
 	var log strings.Builder
-	if err := GatePRMergeReusingCI(root, recordRuns(new([]gateRun), SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, passedCheck("test"))); err != nil {
+	if err := GatePRMergeReusingCI(root, "", recordRuns(new([]gateRun), SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, passedCheck("test"))); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(log.String(), "reused CI verdict") || !strings.Contains(log.String(), "CI ran no tests: non-code diff") {

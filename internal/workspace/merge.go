@@ -23,7 +23,11 @@ var mergeMethods = map[string]bool{"squash": true, "merge": true, "rebase": true
 // worktree …` — because the main clone holds main. The remote PR merge succeeds
 // but the verb returns non-zero on gh's local checkout. Branch deletion is split
 // out to ghDeleteRemoteBranch, which never checks anything out.
-var ghMergePR = func(wt, branch, method string) error {
+//
+// sha is the PR head the merge judged. It goes to GitHub with the merge, which
+// refuses (a headMoved refusal) when the head is anything else by then, so a push
+// between judgement and merge can never land a tree nobody judged.
+var ghMergePR = func(wt, branch, method, sha string) error {
 	owner, repo, ok := githubOwnerRepo(wt)
 	if !ok {
 		return fmt.Errorf("origin is not a github remote in %s", wt)
@@ -36,7 +40,7 @@ var ghMergePR = func(wt, branch, method string) error {
 		return fmt.Errorf("gh api pulls: no PR found for %s", branch)
 	}
 	args := []string{"api", fmt.Sprintf("repos/%s/%s/pulls/%d/merge", owner, repo, n),
-		"-X", "PUT", "-f", "merge_method=" + method}
+		"-X", "PUT", "-f", "merge_method=" + method, "-f", "sha=" + sha}
 	if method != "rebase" {
 		// A rebase writes no merge commit; the others get this verb's own
 		// subject so GitHub's "Merge pull request #N from <branch>" never
@@ -49,6 +53,9 @@ var ghMergePR = func(wt, branch, method string) error {
 	}
 	out, err := ghCombinedOutput(wt, args...)
 	if err != nil {
+		if moved := headMoved(out, sha); moved != nil {
+			return moved
+		}
 		return fmt.Errorf("gh api pulls merge: %v\n%s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -141,6 +148,8 @@ func (m *Merge) Render(apply bool) string {
 	if m.DeleteBranch {
 		fmt.Fprintf(&b, "  deletes the PR's remote branch after merging (local worktree left for prune)\n")
 	}
+	fmt.Fprintf(&b, "  judges and merges the PR head GitHub holds; a lane not at that head, or with uncommitted\n"+
+		"  changes, is refused before anything is judged (push first: aphrollo workspace push)\n")
 	fmt.Fprintf(&b, "  honors GitHub's gates — a non-mergeable or red-CI PR is refused (no force)\n")
 	fmt.Fprintf(&b, "  a repo declaring mutants-at-merge is judged locally first: the merge is built in a\n"+
 		"  throwaway checkout and run through the pre-merge gate before the PR lands\n")
@@ -150,6 +159,11 @@ func (m *Merge) Render(apply bool) string {
 
 // Apply resolves the branch's open PR and merges it, printing the outcome. A
 // branch with no PR points at `pr`; the merge itself is gh's call.
+//
+// The PR's head sha is resolved here, once, and is the only commit this merge
+// knows: the lane must be exactly at it (laneAtHead), CI is read at it, the gate
+// and local CI build the merge from it, and the merge call is bound to it. The
+// lane's local HEAD is never judged in its place (#1174).
 //
 // Before merging it reads CI through ghCIStatus and refuses unless the state is
 // exactly "green" (#385): `gh pr merge` without `--admin` does not itself
@@ -174,7 +188,14 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if pr == nil {
 		return fmt.Errorf("no open PR for %s — run: aphrollo workspace pr", m.Target.Branch)
 	}
-	body, prTitle, useBody, err := undercoverMerge(m.Target, m.Method)
+	head := pr.HeadSHA
+	if head == "" {
+		return fmt.Errorf("refusing to merge %s: GitHub did not report the PR's head commit, so there is no commit to judge", m.Target.Branch)
+	}
+	if err := laneAtHead(m.Target.Worktree, head, pr.Number); err != nil {
+		return err
+	}
+	body, prTitle, useBody, err := undercoverMerge(m.Target, m.Method, head)
 	if err != nil {
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
@@ -189,18 +210,18 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	if useLocal {
 		fmt.Fprintf(stdout, "ci: local (%s) — GitHub's checks are not read\n", choice.source)
 	} else {
-		ci, ciErr := ghCIStatus(m.Target.Worktree, pr.HeadSHA)
+		ci, ciErr := ghCIStatus(m.Target.Worktree, head)
 		if ciErr != nil {
 			return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
 		}
-		recordSettledCI(m.Target.Worktree, pr.HeadSHA, pr.Number, ci.State, ci.Cause)
+		recordSettledCI(m.Target.Worktree, head, pr.Number, ci.State, ci.Cause)
 		switch {
 		case ci.State == "unavailable" && choice.mode == tdd.CIAuto:
 			useLocal = true
 			fmt.Fprintf(stdout, "ci: local (%s) — GitHub's CI is unavailable: %s\n", choice.source, ci.Word())
 		case ci.State == "green":
-			verdict = ciVerdictOf(m.Target.Worktree, pr.Number, ci)
-			fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(ci.SHA))
+			verdict = ciVerdictOf(m.Target.Worktree, pr.Number, head, ci)
+			fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(head))
 		default:
 			return m.refuseGitHubCI(ci, stderr)
 		}
@@ -225,11 +246,11 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 	// checks: the repo's own workflow on the merge result. The gate below
 	// still judges the merge as before, mutation included where declared.
 	if useLocal {
-		if err := runLocalCI(m.Target, pr.HeadSHA, pr.Number, stdout, stderr); err != nil {
+		if err := runLocalCI(m.Target, head, pr.Number, stdout, stderr); err != nil {
 			return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 		}
 	}
-	if err := premergeGate(m.Target, verdict, stderr); err != nil {
+	if err := premergeGate(m.Target, head, verdict, stderr); err != nil {
 		if _, stale := tdd.AsStaleCIVerdict(err); stale {
 			// CI is green on this head but judged an older base: the refusal is
 			// already the one line that says what to do, and the PR branch is
@@ -238,10 +259,10 @@ func (m *Merge) Apply(stdout, stderr io.Writer) error {
 		}
 		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
-	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method) }
+	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method, head) }
 	if useBody {
 		merge = func() error {
-			return ghMergePRBody(m.Target.Worktree, m.Target.Branch, m.Method, mergeSubject(prTitle, pr.Number), body)
+			return ghMergePRBody(m.Target.Worktree, m.Target.Branch, m.Method, mergeSubject(prTitle, pr.Number), body, head)
 		}
 	}
 	if err := merge(); err != nil {

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 
@@ -68,10 +69,16 @@ func runWorkspaceMergeWait(pos []string, into, method string, deleteBranch, dry,
 }
 
 // mergeExitCode is the exit code of a merge that did not land: 2 when CI is
-// green on the head but judged an older base, so the operator rebases and runs
-// the merge again, and 1 for any other refusal or failure.
+// green on the head but judged an older base, or when the lane is not the PR
+// head the merge would judge (or the head moved after it was judged), so the
+// operator rebases or pushes and runs the merge again, and 1 for any other
+// refusal or failure.
 func mergeExitCode(err error) int {
 	if _, stale := tdd.AsStaleCIVerdict(err); stale {
+		return 2
+	}
+	var judged *workspace.JudgedHeadError
+	if errors.As(err, &judged) {
 		return 2
 	}
 	return 1

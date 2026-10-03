@@ -491,6 +491,7 @@ installowner_windows.go                            tdd
 installwritable.go                                 tdd
 issue.go                                           escape
 issue_test.go                                      install   # prefix says escape; its test body reaches install
+judgedhead_test.go                                 merge
 killtree_test.go                                   postedit
 knownwall_test.go                                  postedit
 lintdeferred.go                                    postedit
