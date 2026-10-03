@@ -18,7 +18,7 @@ func BranchIsTrunk(p0 string, p1 string) bool { return branchIsTrunk(p0, p1) }
 
 func CleanGitEnv() []string { return cleanGitEnv() }
 
-func CleanGitEnvFor(p0 string) []string { return cleanGitEnvFor(p0) }
+func CleanGitEnvFor(p0 string, p1 ...string) []string { return cleanGitEnvFor(p0, p1...) }
 
 func Git(p0 string, p1 ...string) (string, error) { return git(p0, p1...) }
 

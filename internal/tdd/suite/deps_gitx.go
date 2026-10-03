@@ -12,7 +12,7 @@ func TrunkBranch(p0 string) string { return gitx.TrunkBranch(p0) }
 
 func cleanGitEnv() []string { return gitx.CleanGitEnv() }
 
-func cleanGitEnvFor(p0 string) []string { return gitx.CleanGitEnvFor(p0) }
+func cleanGitEnvFor(p0 string, p1 ...string) []string { return gitx.CleanGitEnvFor(p0, p1...) }
 
 func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
 

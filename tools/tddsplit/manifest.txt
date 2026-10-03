@@ -199,6 +199,7 @@ clippyscope_test.go                                precommit # prefix says suite
 commentonly.go                                     precommit
 commentonly_go.go                                  precommit
 commentonly_go_test.go                             precommit
+commit_index_hook_test.go                          precommit
 commitmsg.go                                       merge
 commitmsg_claimwords_test.go                       merge
 commitmsg_defaults.go                              merge

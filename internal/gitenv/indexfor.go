@@ -6,20 +6,60 @@ import (
 	"strings"
 )
 
-// CleanFor is Clean for a git call made in dir. `git commit -a` and
-// `git commit <paths>` build a temporary index and run the pre-commit hook
-// with GIT_INDEX_FILE naming it, while the default index is stale and locked
-// for the length of the commit. A call the hook makes for that repository
-// must read the index the commit is writing, so it keeps GIT_INDEX_FILE, made
-// absolute against the hook's working directory; a call for any other
-// repository, or for a linked worktree of it, whose index is its own, gets
-// none.
-func CleanFor(dir string) []string {
+// CleanFor is Clean for a git call made in dir with the given arguments.
+// `git commit -a` and `git commit <paths>` build a temporary index and run the
+// pre-commit hook with GIT_INDEX_FILE naming it, while the default index is
+// stale and locked for the length of the commit. A call the hook makes to read
+// the staged tree of that repository must read the index the commit is
+// writing, so it keeps GIT_INDEX_FILE, made absolute against the hook's
+// working directory.
+//
+// Every other call gets none: a call for another repository, or for a linked
+// worktree of this one, has an index of its own, and a call that writes an
+// index or checks a tree out would write through the commit's index instead
+// (`git worktree add` resets it to HEAD, and the commit lands empty). Only the
+// subcommands in stagedTreeReaders keep it, so a call this package has not
+// named as a read never inherits it.
+func CleanFor(dir string, args ...string) []string {
 	env := Clean()
+	if !readsStagedTree(args) {
+		return env
+	}
 	if idx := hookIndexFor(dir); idx != "" {
 		env = append(env, "GIT_INDEX_FILE="+idx)
 	}
 	return env
+}
+
+// stagedTreeReaders are the subcommands that only read the index, or write
+// objects and never an index.
+var stagedTreeReaders = map[string]bool{
+	"ls-files":   true,
+	"diff":       true,
+	"diff-index": true,
+	"show":       true,
+	"cat-file":   true,
+	"write-tree": true,
+}
+
+// globalOptionsWithValue are the git options before the subcommand that take
+// their value as the next argument.
+var globalOptionsWithValue = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true, "--namespace": true}
+
+// readsStagedTree reports whether args run one of stagedTreeReaders. It skips
+// the options git takes before the subcommand; no subcommand is no read.
+func readsStagedTree(args []string) bool {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case globalOptionsWithValue[a]:
+			i++
+		case strings.HasPrefix(a, "-"):
+		default:
+			return stagedTreeReaders[a]
+		}
+	}
+	return false
 }
 
 // hookIndexFor answers the process's GIT_INDEX_FILE, absolute, when it lies

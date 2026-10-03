@@ -56,27 +56,27 @@ func TestCleanFor_CarriesTheHooksIndexOnlyToTheRepositoryItBelongsTo(t *testing.
 	gitIn(t, repo, []string{"GIT_INDEX_FILE=" + temp}, "add", "f.txt")
 	t.Setenv("GIT_INDEX_FILE", temp)
 
-	got, ok := envValue(CleanFor(repo), "GIT_INDEX_FILE")
+	got, ok := envValue(CleanFor(repo, "show", ":f.txt"), "GIT_INDEX_FILE")
 	if !ok || got != temp {
 		t.Fatalf("GIT_INDEX_FILE for the hook's own repository = %q (%v), want %q", got, ok, temp)
 	}
 	cmd := exec.Command("git", "-C", repo, "show", ":f.txt")
-	cmd.Env = CleanFor(repo)
+	cmd.Env = CleanFor(repo, "show", ":f.txt")
 	out, err := cmd.Output()
 	if err != nil || string(out) != "v2\n" {
 		t.Errorf("git show :f.txt under CleanFor = %q (%v), want the staged v2", out, err)
 	}
 
 	other := initRepo(t)
-	if v, ok := envValue(CleanFor(other), "GIT_INDEX_FILE"); ok {
+	if v, ok := envValue(CleanFor(other, "show", ":f.txt"), "GIT_INDEX_FILE"); ok {
 		t.Errorf("another repository was handed the hook's index %q", v)
 	}
 	linked := filepath.Join(t.TempDir(), "linked")
 	gitIn(t, repo, nil, "worktree", "add", "-q", "--detach", linked, "HEAD")
-	if v, ok := envValue(CleanFor(linked), "GIT_INDEX_FILE"); ok {
+	if v, ok := envValue(CleanFor(linked, "show", ":f.txt"), "GIT_INDEX_FILE"); ok {
 		t.Errorf("a linked worktree of that repository, whose index is its own, was handed %q", v)
 	}
-	if _, ok := envValue(CleanFor(filepath.Join(repo, "no", "such", "dir")), "GIT_INDEX_FILE"); !ok {
+	if _, ok := envValue(CleanFor(filepath.Join(repo, "no", "such", "dir"), "show", ":f.txt"), "GIT_INDEX_FILE"); !ok {
 		t.Error("a directory that does not exist yet inside the repository lost the index")
 	}
 }
@@ -85,7 +85,7 @@ func TestCleanFor_ReadsARelativeIndexAgainstTheHooksWorkingDirectory(t *testing.
 	repo := initRepo(t)
 	t.Chdir(repo)
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(".git", "index.lock"))
-	got, ok := envValue(CleanFor(repo), "GIT_INDEX_FILE")
+	got, ok := envValue(CleanFor(repo, "show", ":f.txt"), "GIT_INDEX_FILE")
 	want, _ := filepath.Abs(filepath.Join(".git", "index.lock"))
 	if !ok || got != want {
 		t.Fatalf("GIT_INDEX_FILE = %q (%v), want the absolute %q", got, ok, want)
@@ -95,7 +95,46 @@ func TestCleanFor_ReadsARelativeIndexAgainstTheHooksWorkingDirectory(t *testing.
 func TestCleanFor_AddsNoIndexWhenTheProcessHasNone(t *testing.T) {
 	repo := initRepo(t)
 	t.Setenv("GIT_INDEX_FILE", "")
-	if v, ok := envValue(CleanFor(repo), "GIT_INDEX_FILE"); ok && v != "" {
+	if v, ok := envValue(CleanFor(repo, "show", ":f.txt"), "GIT_INDEX_FILE"); ok && v != "" {
 		t.Errorf("GIT_INDEX_FILE = %q with none in the environment", v)
+	}
+}
+
+// The hook's index belongs to the commit being built. A call that reads the
+// staged tree must see it; a call that writes an index or checks a tree out
+// would write through it instead of into the index it means (a `worktree add`
+// resets it to HEAD, and the commit lands empty), so it gets none.
+func TestCleanFor_KeepsTheHooksIndexOnlyForCallsThatReadTheStagedTree(t *testing.T) {
+	repo := initRepo(t)
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(repo, ".git", "index"))
+	cases := []struct {
+		args []string
+		keep bool
+	}{
+		{[]string{"ls-files", "--cached"}, true},
+		{[]string{"diff", "--cached", "--name-only"}, true},
+		{[]string{"diff", "--name-only"}, true},
+		{[]string{"diff-index", "--cached", "HEAD"}, true},
+		{[]string{"show", ":f.txt"}, true},
+		{[]string{"cat-file", "--batch"}, true},
+		{[]string{"write-tree"}, true},
+		{[]string{"-C", "elsewhere", "-c", "core.quotepath=off", "--no-pager", "ls-files"}, true},
+		{[]string{"worktree", "add", "--detach", "wt", "HEAD"}, false},
+		{[]string{"-C", "elsewhere", "worktree", "add", "wt"}, false},
+		{[]string{"checkout", "HEAD", "--", "f.txt"}, false},
+		{[]string{"read-tree", "-u", "--reset", "HEAD"}, false},
+		{[]string{"reset", "--hard"}, false},
+		{[]string{"stash", "push"}, false},
+		{[]string{"update-index", "--refresh"}, false},
+		{[]string{"apply", "--cached", "p.diff"}, false},
+		{[]string{"commit", "-m", "x"}, false},
+		{[]string{"-C", "elsewhere"}, false},
+		{nil, false},
+	}
+	for _, c := range cases {
+		_, got := envValue(CleanFor(repo, c.args...), "GIT_INDEX_FILE")
+		if got != c.keep {
+			t.Errorf("git %s: GIT_INDEX_FILE carried = %v, want %v", strings.Join(c.args, " "), got, c.keep)
+		}
 	}
 }
