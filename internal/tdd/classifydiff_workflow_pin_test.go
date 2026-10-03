@@ -96,6 +96,7 @@ func TestPipeline_EachJobKeysOnTheOutputItsClassNeeds(t *testing.T) {
 		"docs-check":    {"docs"},
 		"test":          {"code", "refactor"},
 		"gate-env":      {"code"},
+		"test-windows":  {"code"},
 		"lint":          {"lint"},
 		"benchmarks":    {"bench"},
 		"mutants-plan":  {"code"},
@@ -193,5 +194,29 @@ func TestPipeline_MutantsVerdictIsTheAggregateOfTheShards(t *testing.T) {
 	}
 	if !regexp.MustCompile(`(?m)^      fail-fast: false`).MatchString(shard) {
 		t.Error("one failed shard cancels the others, so the verdict could not name what they measured")
+	}
+}
+
+// The merge gate re-runs `go test -race` on a Windows box and refuses every
+// merge when one package alone outruns its cap. test-windows is CI's answer to
+// the same question, so it must run the same flags on a Windows runner and
+// give each of the two packages that outrun the cap a shard of its own.
+func TestPipeline_TestWindowsRunsTheRaceSuiteInShardsOnAHostedWindowsRunner(t *testing.T) {
+	t.Parallel()
+	job := pipelineJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"), "test-windows")
+	for _, want := range []string{
+		"runs-on: windows-latest",
+		"go test -race -count=1 -shuffle=on",
+		"mutation) pkgs=",
+		"cli) pkgs=",
+		"core.autocrlf false",
+		"TEMP: ${{ runner.temp }}",
+	} {
+		if !strings.Contains(job, want) {
+			t.Errorf("test-windows lacks %q:\n%s", want, job)
+		}
+	}
+	if strings.Contains(job, "self-hosted") {
+		t.Errorf("test-windows must run on a hosted runner")
 	}
 }

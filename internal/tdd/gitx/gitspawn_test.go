@@ -7,16 +7,31 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
 // When the OS cannot give a hook another thread or process (Windows errno
 // 1450, EAGAIN), starting git fails. The hook must say so in one line and go on
 // without git's answer, not dump a trace or repeat itself per call (#997).
+// hostExhaustionErrno is the error this OS gives a spawn it has no resources
+// for: EAGAIN where that is the code, the Windows code 1450 where it is not.
+func hostExhaustionErrno(t *testing.T) error {
+	t.Helper()
+	for _, e := range []error{syscall.EAGAIN, syscall.Errno(1450)} {
+		if proc.IsResourceExhausted(e) {
+			return e
+		}
+	}
+	t.Fatal("no known errno reads as resource exhaustion on this OS")
+	return nil
+}
+
 func TestOutputGit_SaysOnceThatTheOSCannotStartAProcess(t *testing.T) {
 	var out strings.Builder
 	restore := setExhaustionNotice(&out)
 	defer restore()
-	exhausted := &exec.Error{Name: "git", Err: syscall.EAGAIN}
+	exhausted := &exec.Error{Name: "git", Err: hostExhaustionErrno(t)}
 
 	noteIfExhausted(exhausted)
 	noteIfExhausted(exhausted)

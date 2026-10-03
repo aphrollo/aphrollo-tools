@@ -6,8 +6,15 @@ import (
 )
 
 func TestIsUnstableBinary_JudgesTheLocationNotTheName(t *testing.T) {
-	tmp := "/srv/scratchroot"
+	// filepath.Abs gives the root a drive letter on Windows, which ignores a
+	// temp dir that is not a drive path; on POSIX it is /srv/scratchroot.
+	tmp, err := filepath.Abs(filepath.FromSlash("/srv/scratchroot"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
 	cases := []struct {
 		name string
 		path string

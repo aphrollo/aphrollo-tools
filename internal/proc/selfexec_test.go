@@ -3,6 +3,7 @@ package proc
 import (
 	"errors"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -134,8 +135,8 @@ func TestExhausted_PerOperatingSystem(t *testing.T) {
 		{"windows", 1455, true},
 		{"windows", 2, false},
 		{"windows", 11, false},
-		{"linux", 11, true},
-		{"linux", 12, true},
+		{"linux", uintptr(syscall.EAGAIN), true},
+		{"linux", uintptr(syscall.ENOMEM), true},
 		{"linux", 1450, false},
 		{"linux", 2, false},
 	}

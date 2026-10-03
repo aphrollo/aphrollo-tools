@@ -46,6 +46,19 @@ running the whole suite again on your box.
 - When trunk has moved, the fallback is the full local run; it is not yet cut down
   to the packages where trunk's change and the PR's change meet.
 
+## 1.3.1 - 2026-10-03
+
+CI now runs the whole test suite on Windows too.
+
+### What you will notice
+
+- A new `test-windows` job in the pipeline runs `go test -race -count=1 -shuffle=on`
+  on a GitHub-hosted Windows runner, split into five shards (the mutation package,
+  the cli package, the `internal/tdd` root, its subpackages, and everything else) so
+  no shard holds two of the packages that outrun a single run's time cap.
+- The job is not a required check yet; the repo owner adds it in branch protection.
+  Nothing else changes for a repo that uses aphrollo.
+
 ## 1.3.0 - 2026-10-03
 
 Mutation testing is opt-in and reports. A repo that declares nothing runs no
