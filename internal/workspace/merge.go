@@ -61,6 +61,16 @@ var ghMergePR = func(wt, branch, method, sha string) error {
 	return nil
 }
 
+// undercoverMethod is the method the undercover judgment is made for. A merge
+// queue writes its squash message from the PR's title and body whatever method
+// was asked for, so under one the body is always judged as a squash's would be.
+func undercoverMethod(method string, queued bool) string {
+	if queued {
+		return "squash"
+	}
+	return method
+}
+
 // mergeSubject is the subject every merge this verb makes carries: the PR's
 // title and number, never git's or GitHub's default line naming the branch.
 func mergeSubject(title string, n int) string {
@@ -124,6 +134,7 @@ type Merge struct {
 	Method       string // squash | merge | rebase
 	DeleteBranch bool   // delete the PR branch after merging
 	CI           string // --ci mode (auto | local | github); empty reads the repo's setting
+	MethodSet    bool   // the operator named the method (--squash|--merge|--rebase) rather than taking the default
 }
 
 // MergePlan validates the merge without touching gh; the PR is resolved at Apply
@@ -217,11 +228,11 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 	if base == "" {
 		base = resolveDefaultBranch(m.Target.Worktree)
 	}
-	queued, err := ghHasMergeQueue(m.Target.Worktree, base)
+	queued, err := ghHasMergeQueue(m.Target.Worktree, pr.BaseRepo, base)
 	if err != nil {
 		return nil, fmt.Errorf("refusing to merge %s: reading whether %s has a merge queue: %w", m.Target.Branch, base, err)
 	}
-	body, prTitle, useBody, err := undercoverMerge(m.Target, m.Method, head)
+	body, prTitle, useBody, err := undercoverMerge(m.Target, undercoverMethod(m.Method, queued), head)
 	if err != nil {
 		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
@@ -292,6 +303,14 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	if queued {
+		if useBody {
+			if err := m.scrubPRBody(pr.Number, prTitle, body, stdout); err != nil {
+				return nil, err
+			}
+		}
+		if m.MethodSet {
+			fmt.Fprintf(stdout, "note: --%s is ignored: the %s merge queue sets the merge method\n", m.Method, base)
+		}
 		return m.enqueue(pr, head, base, stdout)
 	}
 	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method, head) }

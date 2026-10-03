@@ -331,6 +331,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		opts := workspace.DefaultWaitOpts()
 		opts.Timeout = *tmo
 		opts.CI = *ciMode
+		opts.MethodSet = *squash || *mergeC || *rebase
 		if *resume && len(pos) > 0 {
 			fmt.Fprintln(stderr, "aphrollo: --resume takes no PR numbers: it resumes the queue this repo's record names")
 			return 2
@@ -347,6 +348,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	m.CI = *ciMode
+	m.MethodSet = *squash || *mergeC || *rebase
 	apply := !*dry
 	fmt.Fprint(stdout, m.Render(apply))
 	if !apply {

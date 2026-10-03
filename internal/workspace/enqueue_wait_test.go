@@ -71,6 +71,7 @@ func TestMergeWait_QueueRemovalNamesTheFailingJobAndFails(t *testing.T) {
 		{"OPEN", nil},
 		{"OPEN", nil}, // the re-read that confirms it is not merged
 	}
+	q.removal = QueueRemoval{Removed: true, Reason: "failed_checks"}
 	q.explain = "run 9001 Pipeline attempt 1: failure (merge_group gh-readonly-queue/main/pr-5-c0ffee0 e566f2f)\nFAIL test: TestSomething\n"
 	synced := 0
 	stubSync(t, func(string, bool, io.Writer, io.Writer) error { synced++; return nil })
@@ -99,6 +100,7 @@ func TestMergeWait_QueueRemovalWithNoMergeGroupRunSaysSo(t *testing.T) {
 	_, q := newQueueWorld(t, CIStatus{State: "green", SHA: "abc"})
 	q.pre = []*QueueEntry{nil, {Position: 1, Total: 1, State: "QUEUED"}}
 	q.polls = []qPoll{{"OPEN", &QueueEntry{Position: 1, Total: 1, State: "QUEUED"}}, {"OPEN", nil}, {"OPEN", nil}}
+	q.removal = QueueRemoval{Removed: true, Reason: "failed_checks"}
 	q.noRun = true
 
 	var out, errb bytes.Buffer
@@ -172,13 +174,13 @@ func TestRunMergeQueue_QueueEnqueuesEveryPRBeforeWaitingForAny(t *testing.T) {
 	t.Cleanup(func() {
 		ghHasMergeQueue, ghEnqueuePR, ghQueueEntry, ghPRHead, premergeGateQueued = oQ, oEnq, oEntry, oHead, oGateQ
 	})
-	ghHasMergeQueue = func(string, string) (bool, error) { return true, nil }
+	ghHasMergeQueue = func(string, string, string) (bool, error) { return true, nil }
 	premergeGateQueued = func(*Target, string, *tdd.CIVerdict, io.Writer) error { return nil }
-	ghEnqueuePR = func(_ string, pr int, _ string) error {
+	ghEnqueuePR = func(_, _ string, pr int, _ string) error {
 		trace = append(trace, fmt.Sprintf("enqueue %d", pr))
 		return nil
 	}
-	ghQueueEntry = func(string, int) (*QueueEntry, error) { return nil, nil }
+	ghQueueEntry = func(string, string, int) (*QueueEntry, error) { return nil, nil }
 	ghPRHead = func(dir, ref string) (*PRHead, error) {
 		if n, err := strconv.Atoi(ref); err == nil {
 			trace = append(trace, fmt.Sprintf("wait %d", n))

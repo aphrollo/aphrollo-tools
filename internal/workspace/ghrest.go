@@ -99,7 +99,10 @@ type ghAPIPull struct {
 		SHA string `json:"sha"`
 	} `json:"head"`
 	Base struct {
-		Ref string `json:"ref"`
+		Ref  string `json:"ref"`
+		Repo struct {
+			FullName string `json:"full_name"`
+		} `json:"repo"`
 	} `json:"base"`
 }
 
@@ -138,7 +141,7 @@ func (p *ghAPIPull) info() *PRInfo {
 	return &PRInfo{
 		Number: p.Number, URL: p.HTMLURL, State: p.state(),
 		IsDraft: p.Draft, Mergeable: p.mergeableWord(), MergeStateStatus: p.mergeStateStatus(),
-		HeadSHA: p.Head.SHA, BaseRef: p.Base.Ref,
+		HeadSHA: p.Head.SHA, BaseRef: p.Base.Ref, BaseRepo: p.Base.Repo.FullName,
 	}
 }
 

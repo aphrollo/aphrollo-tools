@@ -40,8 +40,8 @@ func stubMerge(t *testing.T, view func(wt, branch string) (*PRInfo, error), merg
 	escapeClosureBeforeMerge = func(wt string, prNumber int, w io.Writer) error { return nil }
 	// No merge queue unless a test says there is one: the merge is direct, and an
 	// enqueue call in a test that did not ask for a queue is a failure.
-	ghHasMergeQueue = func(string, string) (bool, error) { return false, nil }
-	ghEnqueuePR = func(_ string, pr int, _ string) error {
+	ghHasMergeQueue = func(string, string, string) (bool, error) { return false, nil }
+	ghEnqueuePR = func(_, _ string, pr int, _ string) error {
 		t.Errorf("PR #%d was enqueued in a repo with no merge queue", pr)
 		return nil
 	}

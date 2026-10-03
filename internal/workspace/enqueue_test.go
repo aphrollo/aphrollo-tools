@@ -30,8 +30,11 @@ type enqueueGH struct {
 	polls    []qPoll
 	poll     int
 	enqErr   error
-	explain  string // what the merge_group run's summary prints
-	noRun    bool   // the queue removed the PR but no merge_group run exists
+	explain  string       // what the merge_group run's summary prints
+	noRun    bool         // the queue removed the PR but no merge_group run exists
+	removal  QueueRemoval // what the PR's timeline says whenever the PR is out of the queue
+	dequeued []string
+	repos    []string // the repository slug each queue call was given
 }
 
 type qPoll struct {
@@ -58,17 +61,20 @@ func newQueueWorld(t *testing.T, ci CIStatus) (*ciWorld, *enqueueGH) {
 	oQ, oEnq, oEntry, oRun, oExplain := ghHasMergeQueue, ghEnqueuePR, ghQueueEntry, ghMergeGroupRun, explainMergeGroupRun
 	oHead, oNow, oSleep, oQGate := ghPRHead, waitNow, waitSleep, premergeGateQueued
 	oChecks, oLane := ghChecksAt, laneHeadSHA
+	oRem, oDeq := ghQueueRemoval, ghDequeuePR
 	t.Cleanup(func() {
 		ghHasMergeQueue, ghEnqueuePR, ghQueueEntry, ghMergeGroupRun, explainMergeGroupRun = oQ, oEnq, oEntry, oRun, oExplain
 		ghPRHead, waitNow, waitSleep, premergeGateQueued = oHead, oNow, oSleep, oQGate
 		ghChecksAt, laneHeadSHA = oChecks, oLane
+		ghQueueRemoval, ghDequeuePR = oRem, oDeq
 	})
-	ghHasMergeQueue = func(wt, base string) (bool, error) { q.calls = append(q.calls, "detect "+base); return true, nil }
-	ghEnqueuePR = func(wt string, pr int, sha string) error {
+	ghHasMergeQueue = func(wt, repo, base string) (bool, error) { q.calls = append(q.calls, "detect "+base); return true, nil }
+	ghEnqueuePR = func(wt, repo string, pr int, sha string) error {
+		q.repos = append(q.repos, repo)
 		q.enqueued = append(q.enqueued, fmt.Sprintf("%d@%s", pr, sha))
 		return q.enqErr
 	}
-	ghQueueEntry = func(wt string, pr int) (*QueueEntry, error) {
+	ghQueueEntry = func(wt, repo string, pr int) (*QueueEntry, error) {
 		if q.poll > 0 {
 			return q.pollAt().entry, nil
 		}
@@ -92,7 +98,9 @@ func newQueueWorld(t *testing.T, ci CIStatus) (*ciWorld, *enqueueGH) {
 		q.poll++
 		return &PRHead{Number: 5, URL: "u", State: q.pollAt().state, HeadRef: "feat/z", HeadSHA: queueHead}, nil
 	}
-	ghMergeGroupRun = func(wt string, pr int) (int64, error) {
+	ghQueueRemoval = func(wt, repo string, pr int) (QueueRemoval, error) { return q.removal, nil }
+	ghDequeuePR = func(wt, id string) error { q.dequeued = append(q.dequeued, id); return nil }
+	ghMergeGroupRun = func(wt, repo string, pr int) (int64, error) {
 		if q.noRun {
 			return 0, nil
 		}
@@ -325,7 +333,7 @@ func TestMergeQueue_TheBaseBranchTheQueueIsAskedAboutIsThePRs(t *testing.T) {
 
 func TestMergeQueue_AnUnreadableQueueStateRefusesInsteadOfGuessing(t *testing.T) {
 	_, q := newQueueWorld(t, CIStatus{State: "green", SHA: "abc"})
-	ghHasMergeQueue = func(string, string) (bool, error) { return false, errors.New("HTTP 502") }
+	ghHasMergeQueue = func(string, string, string) (bool, error) { return false, errors.New("HTTP 502") }
 
 	_, err := applyMerge(t, "")
 

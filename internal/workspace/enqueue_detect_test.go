@@ -37,7 +37,7 @@ func TestHasMergeQueue_ReadsTheBranchsRulesAndReadsThemOncePerRun(t *testing.T) 
 	})
 
 	for i := 0; i < 3; i++ {
-		got, err := ghHasMergeQueueReal(repo, "main")
+		got, err := ghHasMergeQueueReal(repo, "", "main")
 		if err != nil || !got {
 			t.Fatalf("main: queue = %v, err = %v; want true", got, err)
 		}
@@ -45,7 +45,7 @@ func TestHasMergeQueue_ReadsTheBranchsRulesAndReadsThemOncePerRun(t *testing.T) 
 	if *reads != 1 {
 		t.Errorf("rules read %d times for one branch in one run, want 1", *reads)
 	}
-	got, err := ghHasMergeQueueReal(repo, "release")
+	got, err := ghHasMergeQueueReal(repo, "", "release")
 	if err != nil || got {
 		t.Errorf("release: queue = %v, err = %v; want false (no merge_queue rule)", got, err)
 	}
@@ -65,11 +65,11 @@ func TestHasMergeQueue_AReadFailureIsAnErrorAndIsNotCached(t *testing.T) {
 		return []byte(rulesWithoutQueue), nil
 	})
 
-	if got, err := ghHasMergeQueueReal(repo, "main"); err == nil {
+	if got, err := ghHasMergeQueueReal(repo, "", "main"); err == nil {
 		t.Fatalf("a failed read answered %v, want an error: no queue is a claim, not a default", got)
 	}
 	fail = false
-	if got, err := ghHasMergeQueueReal(repo, "main"); err != nil || got {
+	if got, err := ghHasMergeQueueReal(repo, "", "main"); err != nil || got {
 		t.Fatalf("after the failure cleared: %v, %v; want false, nil", got, err)
 	}
 	if *reads != 2 {
@@ -83,7 +83,7 @@ func TestHasMergeQueue_ARepoWithNoGitHubOriginIsAnError(t *testing.T) {
 		t.Error("rules were read for a repo with no GitHub origin")
 		return nil, nil
 	})
-	if _, err := ghHasMergeQueueReal(repo, "main"); err == nil {
+	if _, err := ghHasMergeQueueReal(repo, "", "main"); err == nil {
 		t.Error("a repo with no GitHub origin answered; want the unreadable-remote error")
 	}
 }
@@ -110,10 +110,12 @@ func TestRulesHaveMergeQueue_LooksForTheQueueRuleByType(t *testing.T) {
 }
 
 func TestEnqueueArgs_BindTheHeadAndTakeThePRByNumber(t *testing.T) {
-	got := strings.Join(enqueueArgs(1190, "abc123"), " ")
-	want := "pr merge --auto --match-head-commit abc123 -- 1190"
-	if got != want {
-		t.Errorf("argv = %q, want %q", got, want)
+	args := enqueueArgs("PR_node", "abc123")
+	joined := strings.Join(args, " ")
+	for _, want := range []string{"id=PR_node", "sha=abc123", "enqueuePullRequest", "expectedHeadOid:$sha"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("argv lacks %q: %v", want, args)
+		}
 	}
 }
 
@@ -135,5 +137,76 @@ func TestParseQueueEntry_ReadsPositionTotalAndState(t *testing.T) {
 	}
 	if _, err := parseQueueEntry([]byte(`{"errors":[{"message":"boom"}]}`)); err == nil {
 		t.Error("an errors payload parsed as an answer")
+	}
+}
+
+func TestRulesHaveMergeQueue_ReadsEveryPageOfASlurpedRead(t *testing.T) {
+	pages := `[[{"type":"deletion"}],[{"type":"merge_queue"}]]`
+	got, err := rulesHaveMergeQueue([]byte(pages))
+	if err != nil || !got {
+		t.Errorf("a queue rule on page 2 was missed: %v, %v", got, err)
+	}
+}
+
+// No rulesets on the host (404) is no queue; auth or server trouble is not an
+// answer and refuses with the fix.
+func TestRulesReadResult_A404IsNoQueueAndEverythingElseIsAnError(t *testing.T) {
+	out, err := rulesReadResult("main", []byte("gh: Not Found (HTTP 404)"), errors.New("exit status 1"))
+	if err != nil || string(out) != "[]" {
+		t.Errorf("404 = %q, %v; want an empty rule list", out, err)
+	}
+	for _, text := range []string{"gh: Bad credentials (HTTP 401)", "gh: Bad Gateway (HTTP 502)", "dial tcp: no such host"} {
+		_, err := rulesReadResult("main", []byte(text), errors.New("exit status 1"))
+		if err == nil || !strings.Contains(err.Error(), "gh auth status") {
+			t.Errorf("%q: error = %v, want a refusal carrying the fix hint", text, err)
+		}
+	}
+}
+
+// A fork PR lives in its base repository: the rules are read there, not in origin.
+func TestHasMergeQueue_ReadsTheBaseRepositoryNotOrigin(t *testing.T) {
+	repo := initRepo(t)
+	withOrigin(t, repo, "fork-owner", "widgets")
+	var read string
+	prev := ghBranchRules
+	ghBranchRules = func(_, owner, name, _ string) ([]byte, error) {
+		read = owner + "/" + name
+		return []byte(rulesWithQueue), nil
+	}
+	queueRulesCache.reset()
+	t.Cleanup(func() { ghBranchRules = prev; queueRulesCache.reset() })
+
+	if got, err := ghHasMergeQueueReal(repo, "upstream/widgets", "main"); err != nil || !got {
+		t.Fatalf("queue = %v, %v", got, err)
+	}
+	if read != "upstream/widgets" {
+		t.Errorf("rules read from %q, want the PR's base repository upstream/widgets", read)
+	}
+}
+
+func TestParseQueueRemoval_OnlyTheNewestQueueEventCounts(t *testing.T) {
+	cases := map[string]struct {
+		nodes string
+		want  QueueRemoval
+	}{
+		"removed for failed checks": {`[{"__typename":"AddedToMergeQueueEvent"},{"__typename":"RemovedFromMergeQueueEvent","reason":"failed_checks"}]`,
+			QueueRemoval{Removed: true, Reason: "failed_checks"}},
+		"removed then enqueued again": {`[{"__typename":"RemovedFromMergeQueueEvent","reason":"failed_checks"},{"__typename":"AddedToMergeQueueEvent"}]`, QueueRemoval{}},
+		"the queue's own merge":       {`[{"__typename":"AddedToMergeQueueEvent"},{"__typename":"RemovedFromMergeQueueEvent","reason":"merged"}]`, QueueRemoval{Reason: "merged"}},
+		"auto-merge switched off":     {`[{"__typename":"AutoMergeDisabledEvent"}]`, QueueRemoval{Removed: true, Reason: "auto-merge disabled"}},
+		"nothing yet":                 {`[]`, QueueRemoval{}},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			in := `{"data":{"repository":{"pullRequest":{"autoMergeRequest":null,"timelineItems":{"nodes":` + tc.nodes + `}}}}}`
+			got, err := parseQueueRemoval([]byte(in))
+			if err != nil || got != tc.want {
+				t.Errorf("got %+v, %v; want %+v", got, err, tc.want)
+			}
+		})
+	}
+	on, _ := parseQueueRemoval([]byte(`{"data":{"repository":{"pullRequest":{"autoMergeRequest":{},"timelineItems":{"nodes":[]}}}}}`))
+	if !on.AutoMerge {
+		t.Error("an autoMergeRequest was not read as auto-merge on")
 	}
 }

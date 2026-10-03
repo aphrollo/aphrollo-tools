@@ -29,6 +29,8 @@ type PRInfo struct {
 	HeadSHA string `json:"-"`
 	// BaseRef is the branch the PR merges into; empty when GitHub did not say.
 	BaseRef string `json:"-"`
+	// BaseRepo is the repository the PR merges into, "owner/name"; empty when GitHub did not say.
+	BaseRepo string `json:"-"`
 }
 
 // prStateWord maps a gh PR to the canonical lifecycle word the rlndx kanban git

@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,9 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/aphrollo/aphrollo-tools/internal/ciwhy"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -24,11 +21,15 @@ import (
 // tell, the PR's own checks are green on its head, the merged tree's laws), but
 // it does not demand that a verdict is for the base as it stands: that is what
 // the queue's own run is for.
+//
+// Every read and write here names the PR's BASE repository (repo, "owner/name";
+// empty means origin), because a PR from a fork lives there, not in origin.
 
 // QueueEntry is where a queued PR stands: its place in the queue (1 is next to
-// merge), how many PRs the queue holds, and GitHub's state word for the entry
-// (QUEUED, AWAITING_CHECKS, MERGEABLE, UNMERGEABLE, LOCKED).
+// merge), how many PRs the queue holds, GitHub's state word for the entry
+// (QUEUED, AWAITING_CHECKS, MERGEABLE, UNMERGEABLE, LOCKED) and its node id.
 type QueueEntry struct {
+	ID       string
 	Position int
 	Total    int
 	State    string
@@ -51,20 +52,41 @@ type Enqueued struct {
 	URL    string
 	Branch string
 	Base   string
+	Repo   string
 }
 
-// ghHasMergeQueue is the seam over "does this base branch have a merge queue".
+// splitRepo reads "owner/name", or origin's owner and name when slug is empty.
+func splitRepo(wt, slug string) (owner, name string, ok bool) {
+	if o, n, found := strings.Cut(slug, "/"); found && o != "" && n != "" {
+		return o, n, true
+	}
+	return githubOwnerRepo(wt)
+}
+
+// ghHasMergeQueue is the seam over "does this base branch of repo have a merge queue".
 var ghHasMergeQueue = ghHasMergeQueueReal
 
 // ghBranchRules reads the active rules that apply to a branch, as REST's
-// rules/branches endpoint answers them. REST rather than GraphQL: a repo with
-// no queue must keep merging where GraphQL is refused.
+// rules/branches endpoint answers them, every page. REST rather than GraphQL: a
+// repo with no queue must keep merging where GraphQL is refused.
 var ghBranchRules = func(wt, owner, repo, branch string) ([]byte, error) {
-	out, err := ghCombinedOutput(wt, "api", "repos/"+owner+"/"+repo+"/rules/branches/"+url.PathEscape(branch))
-	if err != nil {
-		return nil, fmt.Errorf("gh api rules/branches/%s: %v: %s", branch, err, strings.TrimSpace(string(out)))
+	out, err := ghCombinedOutput(wt, "api", "--paginate", "--slurp", "repos/"+owner+"/"+repo+"/rules/branches/"+url.PathEscape(branch))
+	return rulesReadResult(branch, out, err)
+}
+
+// rulesReadResult turns the rules read's outcome into rules or a refusal. A 404
+// means the host has no rulesets (an older GHES, a plan without them): there is
+// no queue to be in, so it is an empty rule list. Anything else (auth, a 5xx, no
+// network) is an error with the fix, because "no queue" is a claim.
+func rulesReadResult(branch string, out []byte, err error) ([]byte, error) {
+	if err == nil {
+		return out, nil
 	}
-	return out, nil
+	text := strings.TrimSpace(string(out))
+	if strings.Contains(text, "HTTP 404") {
+		return []byte("[]"), nil
+	}
+	return nil, fmt.Errorf("gh api rules/branches/%s: %v: %s — check `gh auth status` and the network, then merge again", branch, err, text)
 }
 
 // rulesCache remembers, for the life of the process, which branches have a
@@ -99,11 +121,9 @@ func (c *rulesCache) reset() {
 
 var queueRulesCache rulesCache
 
-// ghHasMergeQueueReal reports whether base has a merge_queue rule. A read that
-// fails is an error: "no queue" is a claim, and a direct merge GitHub then
-// refuses is a worse way to learn it was wrong.
-func ghHasMergeQueueReal(wt, base string) (bool, error) {
-	owner, repo, ok := githubOwnerRepo(wt)
+// ghHasMergeQueueReal reports whether base has a merge_queue rule in repo.
+func ghHasMergeQueueReal(wt, slug, base string) (bool, error) {
+	owner, repo, ok := splitRepo(wt, slug)
 	if !ok {
 		return false, fmt.Errorf("origin is not a github remote in %s", wt)
 	}
@@ -123,49 +143,80 @@ func ghHasMergeQueueReal(wt, base string) (bool, error) {
 	return queue, nil
 }
 
-// rulesHaveMergeQueue reads a rules/branches answer for a merge_queue rule.
+// rulesHaveMergeQueue reads a rules/branches answer, one list or a list of
+// pages, for a merge_queue rule.
 func rulesHaveMergeQueue(out []byte) (bool, error) {
-	var rules []struct {
-		Type string `json:"type"`
-	}
-	if err := json.Unmarshal(out, &rules); err != nil {
+	var v any
+	if err := json.Unmarshal(out, &v); err != nil {
 		return false, fmt.Errorf("parsing the branch rules: %w", err)
 	}
-	for _, r := range rules {
-		if r.Type == "merge_queue" {
-			return true, nil
+	return hasQueueRule(v), nil
+}
+
+func hasQueueRule(v any) bool {
+	switch x := v.(type) {
+	case []any:
+		for _, e := range x {
+			if hasQueueRule(e) {
+				return true
+			}
 		}
+	case map[string]any:
+		return x["type"] == "merge_queue"
 	}
-	return false, nil
+	return false
 }
 
-// enqueueArgs is gh's argv to put a PR in the merge queue, bound to the head
-// that was judged: gh refuses when the PR head is another commit by then. With
-// the PR's required checks green gh enqueues it; the queue, not this verb,
-// picks the merge method.
-func enqueueArgs(pr int, sha string) []string {
-	return []string{"pr", "merge", "--auto", "--match-head-commit", sha, "--", strconv.Itoa(pr)}
+const enqueueMutation = `mutation($id:ID!,$sha:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$sha}){` +
+	`mergeQueueEntry{id position}}}`
+
+// enqueueArgs is gh's argv for the enqueue mutation. The head the PR was judged
+// at goes in as expectedHeadOid, which GitHub checks itself: `gh pr merge
+// --auto --match-head-commit` is not relied on to send it.
+func enqueueArgs(nodeID, sha string) []string {
+	return []string{"api", "graphql", "-f", "id=" + nodeID, "-f", "sha=" + sha, "-f", "query=" + enqueueMutation}
 }
 
-// ghEnqueuePR is the seam over putting a PR in the merge queue.
-var ghEnqueuePR = func(wt string, pr int, sha string) error {
-	out, err := ghCombinedOutput(wt, enqueueArgs(pr, sha)...)
+// ghEnqueuePR is the seam over putting a PR in the merge queue, bound to sha.
+var ghEnqueuePR = func(wt, slug string, pr int, sha string) error {
+	owner, repo, ok := splitRepo(wt, slug)
+	if !ok {
+		return fmt.Errorf("origin is not a github remote in %s", wt)
+	}
+	id, err := ghCombinedOutput(wt, "api", fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, pr), "--jq", ".node_id")
+	if err != nil {
+		return fmt.Errorf("gh api pulls/%d (node id): %v: %s", pr, err, strings.TrimSpace(string(id)))
+	}
+	out, err := ghCombinedOutput(wt, enqueueArgs(strings.TrimSpace(string(id)), sha)...)
+	if err == nil && strings.Contains(string(out), `"errors"`) {
+		err = errors.New("GitHub refused the enqueue")
+	}
 	if err != nil {
 		if moved := headMoved(out, sha); moved != nil {
 			return moved
 		}
-		return fmt.Errorf("gh pr merge --auto: %v\n%s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("enqueue PR #%d: %v\n%s", pr, err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
+// ghDequeuePR takes a queue entry back out of the queue.
+var ghDequeuePR = func(wt, entryID string) error {
+	out, err := ghCombinedOutput(wt, "api", "graphql", "-f", "id="+entryID,
+		"-f", "query=mutation($id:ID!){dequeuePullRequest(input:{id:$id}){clientMutationId}}")
+	if err != nil {
+		return fmt.Errorf("dequeue %s: %v: %s", entryID, err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
 
 const queueEntryQuery = `query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){` +
-	`pullRequest(number:$n){state mergeQueueEntry{position state} mergeQueue{entries{totalCount}}}}}`
+	`pullRequest(number:$n){state mergeQueueEntry{id position state} mergeQueue{entries{totalCount}}}}}`
 
 // ghQueueEntry reads where a PR stands in its merge queue: nil when it is in
 // none. GraphQL is the only place a queue publishes positions.
-var ghQueueEntry = func(wt string, pr int) (*QueueEntry, error) {
-	owner, repo, ok := githubOwnerRepo(wt)
+var ghQueueEntry = func(wt, slug string, pr int) (*QueueEntry, error) {
+	owner, repo, ok := splitRepo(wt, slug)
 	if !ok {
 		return nil, fmt.Errorf("origin is not a github remote in %s", wt)
 	}
@@ -184,6 +235,7 @@ func parseQueueEntry(out []byte) (*QueueEntry, error) {
 			Repository struct {
 				PullRequest *struct {
 					MergeQueueEntry *struct {
+						ID       string `json:"id"`
 						Position int    `json:"position"`
 						State    string `json:"state"`
 					} `json:"mergeQueueEntry"`
@@ -212,50 +264,38 @@ func parseQueueEntry(out []byte) (*QueueEntry, error) {
 	if pr.MergeQueueEntry == nil {
 		return nil, nil
 	}
-	e := &QueueEntry{Position: pr.MergeQueueEntry.Position, State: pr.MergeQueueEntry.State}
+	e := &QueueEntry{ID: pr.MergeQueueEntry.ID, Position: pr.MergeQueueEntry.Position, State: pr.MergeQueueEntry.State}
 	if pr.MergeQueue != nil {
 		e.Total = pr.MergeQueue.Entries.TotalCount
 	}
 	return e, nil
 }
 
-// ghMergeGroupRun finds the newest merge_group run the queue made for a PR:
-// 0 when there is none. The queue names its branches gh-readonly-queue/<base>/pr-<n>-<sha>.
-var ghMergeGroupRun = func(wt string, pr int) (int64, error) {
-	jq := fmt.Sprintf(`[.workflow_runs[] | select(.head_branch | contains("/pr-%d-"))] | sort_by(.id) | last | .id // empty`, pr)
-	out, err := ghCombinedOutput(wt, "api", "repos/{owner}/{repo}/actions/runs?event=merge_group&per_page=100", "--jq", jq)
-	if err != nil {
-		return 0, fmt.Errorf("gh api actions/runs (merge_group): %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	s := strings.TrimSpace(string(out))
-	if s == "" {
-		return 0, nil
-	}
-	return strconv.ParseInt(s, 10, 64)
-}
-
-// explainMergeGroupRun prints why a run is red, the way `aphrollo ci why` does.
-var explainMergeGroupRun = func(wt string, id int64, w io.Writer) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	gh := func(_ context.Context, args ...string) ([]byte, error) { return ghCombinedOutput(wt, args...) }
-	return ciwhy.Why(ctx, gh, ciwhy.Target{Run: id}, w)
-}
-
 // enqueue puts the PR in its base branch's merge queue, bound to head, and says
 // where it stands. A PR already in the queue (a resumed run) is left as it is.
+// The bind is GitHub's (expectedHeadOid); the head is read again right after, and
+// a PR that moved anyway is taken back out and refused.
 func (m *Merge) enqueue(pr *PRInfo, head, base string, stdout io.Writer) (*Enqueued, error) {
 	wt := m.Target.Worktree
-	q := &Enqueued{PR: pr.Number, URL: pr.URL, Branch: m.Target.Branch, Base: base}
-	if entry, err := ghQueueEntry(wt, pr.Number); err == nil && entry != nil {
+	q := &Enqueued{PR: pr.Number, URL: pr.URL, Branch: m.Target.Branch, Base: base, Repo: pr.BaseRepo}
+	if entry, err := ghQueueEntry(wt, q.Repo, pr.Number); err == nil && entry != nil {
 		fmt.Fprintf(stdout, "PR #%d is already in the %s merge queue at %s: %s\n", pr.Number, base, entry, pr.URL)
 		return q, nil
 	}
-	if err := ghEnqueuePR(wt, pr.Number, head); err != nil {
+	if err := ghEnqueuePR(wt, q.Repo, pr.Number, head); err != nil {
 		return nil, err
 	}
-	entry, err := ghQueueEntry(wt, pr.Number)
-	if err != nil || entry == nil {
+	entry, entryErr := ghQueueEntry(wt, q.Repo, pr.Number)
+	if now, err := ghViewPR(wt, m.Target.Branch); err == nil && now != nil && now.HeadSHA != "" && now.HeadSHA != head {
+		msg := fmt.Sprintf("PR head moved to %s after it was judged and enqueued at %s", short(now.HeadSHA), short(head))
+		if entryErr == nil && entry != nil {
+			if err := ghDequeuePR(wt, entry.ID); err != nil {
+				return nil, &JudgedHeadError{Msg: msg + fmt.Sprintf("; taking it out of the queue failed (%v) — dequeue it by hand", err)}
+			}
+		}
+		return nil, &JudgedHeadError{Msg: msg + " — it was taken out of the queue; merge again to judge the new head"}
+	}
+	if entryErr != nil || entry == nil {
 		fmt.Fprintf(stdout, "queued PR #%d in the %s merge queue (position not reported yet): %s\n", pr.Number, base, pr.URL)
 		return q, nil
 	}
@@ -263,76 +303,32 @@ func (m *Merge) enqueue(pr *PRInfo, head, base string, stdout io.Writer) (*Enque
 	return q, nil
 }
 
-// awaitMerged waits until the queue has merged the PR. It prints one line per
-// change of the PR's place, never one per poll, and fails with the queue's
-// reason when the PR leaves it without merging. After the merge it runs the
-// steps a direct merge runs.
-func (m *Merge) awaitMerged(q *Enqueued, o WaitOpts, stdout, stderr io.Writer) error {
+// scrubPRBody makes the PR body the one undercover judged, because the queue
+// writes the squash message from the PR's title and body: a tell footer left
+// in it would land in trunk, and a closing trailer only a lane commit carries
+// would be lost. The body is read back and a rewrite that did not take refuses.
+func (m *Merge) scrubPRBody(number int, title, want string, stdout io.Writer) error {
 	wt := m.Target.Worktree
-	deadline := waitNow().Add(o.Timeout)
-	last := ""
-	seenEntry := false
-	for {
-		head, err := ghPRHead(wt, strconv.Itoa(q.PR))
-		if err != nil {
-			return err
-		}
-		switch strings.ToUpper(head.State) {
-		case "MERGED":
-			return m.landed(q.PR, q.URL, "merge queue", stdout, stderr)
-		case "CLOSED":
-			return fmt.Errorf("PR #%d for %s was closed without merging", q.PR, q.Branch)
-		}
-		entry, entryErr := ghQueueEntry(wt, q.PR)
-		line := ""
-		switch {
-		case entryErr != nil:
-			line = "merge queue position unreadable: " + entryErr.Error()
-		case entry != nil:
-			seenEntry = true
-			line = entry.String()
-		case seenEntry:
-			// Gone from the queue and still open: removed. The merge can have
-			// landed between this poll's two reads, so the state is read once more.
-			again, err := ghPRHead(wt, strconv.Itoa(q.PR))
-			if err != nil {
-				return err
-			}
-			if strings.EqualFold(again.State, "MERGED") {
-				return m.landed(q.PR, q.URL, "merge queue", stdout, stderr)
-			}
-			return m.removedFromQueue(q)
-		default:
-			line = "not in the " + q.Base + " merge queue yet"
-		}
-		if state := fmt.Sprintf("  [queue] PR #%d %s", q.PR, line); state != last {
-			fmt.Fprintln(stdout, state)
-			last = state
-		}
-		if !waitNow().Add(o.Interval).Before(deadline) {
-			return fmt.Errorf("timed out after %v waiting for the %s merge queue to merge PR #%d (last: %s)", o.Timeout, q.Base, q.PR, line)
-		}
-		waitSleep(o.Interval)
+	_, raw, err := ghPRText(wt, m.Target.Branch)
+	if err != nil {
+		return err
 	}
-}
-
-// removedFromQueue is the failure for a PR the queue dropped: the queue's own
-// merge_group run says why, summarised the way `aphrollo ci why` does.
-func (m *Merge) removedFromQueue(q *Enqueued) error {
-	wt := m.Target.Worktree
-	head := fmt.Sprintf("PR #%d for %s was removed from the merge queue without merging", q.PR, q.Branch)
-	id, err := ghMergeGroupRun(wt, q.PR)
-	switch {
-	case err != nil:
-		return fmt.Errorf("%s (the merge_group run could not be read: %v)", head, err)
-	case id == 0:
-		return fmt.Errorf("%s: no merge_group run was found for it, so it was removed for another reason (a push to the PR, a dequeue, a conflict)", head)
+	same := func(a, b string) bool { return strings.TrimSpace(a) == strings.TrimSpace(b) }
+	if same(raw, want) || (strings.TrimSpace(raw) == "" && same(want, title)) {
+		return nil
 	}
-	var why strings.Builder
-	if err := explainMergeGroupRun(wt, id, &why); err != nil {
-		return fmt.Errorf("%s (merge_group run %d could not be summarised: %v)", head, id, err)
+	if err := ghEditPRBody(wt, m.Target.Branch, want); err != nil {
+		return fmt.Errorf("refusing to enqueue %s: the PR body must be rewritten first and could not be: %w", m.Target.Branch, err)
 	}
-	return fmt.Errorf("%s:\n%s", head, strings.TrimRight(why.String(), "\n"))
+	_, again, err := ghPRText(wt, m.Target.Branch)
+	if err != nil {
+		return err
+	}
+	if !same(again, want) {
+		return fmt.Errorf("refusing to enqueue %s: the PR body was rewritten but GitHub still holds the old one, and the queue would write it into main", m.Target.Branch)
+	}
+	fmt.Fprintf(stdout, "rewrote PR #%d's body for the queue: tell footer stripped, closing trailers kept\n", number)
+	return nil
 }
 
 // recordQueued notes that the verb queued a PR it will not wait for, so the

@@ -23,6 +23,9 @@ type WaitOpts struct {
 	Interval time.Duration
 	Timeout  time.Duration
 	CI       string // --ci mode (auto | local | github); empty reads the repo's setting
+	// MethodSet is whether the operator named a merge method; behind a merge
+	// queue it is ignored, and the verb says so.
+	MethodSet bool
 }
 
 // DefaultWaitOpts polls every 30 s — the floor for a remote API on this box —
@@ -333,7 +336,7 @@ func mergeWaitStart(t *Target, method string, deleteBranch bool, o WaitOpts, std
 	if err != nil {
 		return nil, nil, err
 	}
-	m.CI = o.CI
+	m.CI, m.MethodSet = o.CI, o.MethodSet
 	choice, err := chooseCI(t.Worktree, o.CI)
 	if err != nil {
 		return nil, nil, fmt.Errorf("refusing to merge %s: %w", t.Branch, err)
