@@ -62,6 +62,7 @@ type Client struct {
 	mu        sync.Mutex
 	status    *Status
 	statusKey string
+	statusErr error
 	trunk     string
 	trunkDone bool
 }
@@ -178,23 +179,20 @@ var statusArgs = []string{"--no-optional-locks", "status", "--porcelain=v2", "-z
 // time, and the same answer for every later call with that key. A different key
 // reads the tree again and replaces the kept answer. An empty key is a read of
 // its own, never kept, and leaves the kept answer as it was. A failed call is
-// not kept either.
+// kept as the batch's answer too, as its error: a repository git cannot read
+// costs one call per batch, not one per question.
 func (c *Client) Status(key string) (*Status, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if key == "" {
 		return c.readStatus()
 	}
-	if c.status != nil && key == c.statusKey {
-		return c.status, nil
+	if key == c.statusKey && (c.status != nil || c.statusErr != nil) {
+		return c.status, c.statusErr
 	}
-	c.status, c.statusKey = nil, ""
 	st, err := c.readStatus()
-	if err != nil {
-		return nil, err
-	}
-	c.status, c.statusKey = st, key
-	return st, nil
+	c.status, c.statusErr, c.statusKey = st, err, key
+	return st, err
 }
 
 // readStatus asks git for the status now.
@@ -204,4 +202,14 @@ func (c *Client) readStatus() (*Status, error) {
 		return nil, err
 	}
 	return ParseStatus(out)
+}
+
+// Canonical is the one spelling of a path every caller compares: symbolic
+// links, junctions and short names resolved, case as the filesystem has it,
+// cleaned. A path that does not resolve (it is gone) is only cleaned.
+func Canonical(path string) string {
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	return filepath.Clean(path)
 }

@@ -32,6 +32,9 @@ const (
 	packRefDelta = 7
 )
 
+// maxDeltaResult bounds the size a delta header may claim for its result.
+const maxDeltaResult = 1 << 31
+
 // maxDeltaDepth bounds a delta chain, which git itself caps well below this.
 const maxDeltaDepth = 4096
 
@@ -108,11 +111,16 @@ func (c *Client) readPacked(oid string) (int, []byte, bool) {
 	if err != nil {
 		return 0, nil, false
 	}
-	idxs, err := filepath.Glob(filepath.Join(c.commonDir, "objects", "pack", "pack-*.idx"))
+	dir := filepath.Join(c.commonDir, "objects", "pack")
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return 0, nil, false
 	}
-	for _, idx := range idxs {
+	for _, e := range entries {
+		if name := e.Name(); !strings.HasPrefix(name, "pack-") || !strings.HasSuffix(name, ".idx") {
+			continue
+		}
+		idx := filepath.Join(dir, e.Name())
 		off, found := packOffset(idx, want)
 		if !found {
 			continue
@@ -302,8 +310,14 @@ func inflate(r io.Reader, size int64) ([]byte, bool) {
 		return nil, false
 	}
 	defer zr.Close()
-	out := make([]byte, size)
-	if _, err := io.ReadFull(zr, out); err != nil {
+	if size < 0 {
+		return nil, false
+	}
+	// The size is a claim of the entry's header, not a fact: read what the
+	// stream holds, one byte past the claim, and compare, so a corrupt header
+	// cannot ask for memory the stream does not fill.
+	out, err := io.ReadAll(io.LimitReader(zr, size+1))
+	if err != nil || int64(len(out)) != size {
 		return nil, false
 	}
 	return out, true
@@ -324,13 +338,19 @@ func applyDelta(base, delta []byte) ([]byte, bool) {
 		return nil, false
 	}
 	delta = delta[n:]
-	out := make([]byte, 0, resultSize)
+	if resultSize < 0 || resultSize > maxDeltaResult {
+		return nil, false
+	}
+	out := make([]byte, 0, min(resultSize, len(delta)+len(base)))
 	// walk-terminates: each turn consumes at least the instruction byte of delta
 	for len(delta) > 0 {
 		op := delta[0]
 		delta = delta[1:]
 		if op&0x80 == 0 {
 			if op == 0 || int(op) > len(delta) {
+				return nil, false
+			}
+			if len(out)+int(op) > resultSize {
 				return nil, false
 			}
 			out = append(out, delta[:op]...)
@@ -360,6 +380,9 @@ func applyDelta(base, delta []byte) ([]byte, bool) {
 			size = 0x10000
 		}
 		if off+size > len(base) {
+			return nil, false
+		}
+		if len(out)+size > resultSize {
 			return nil, false
 		}
 		out = append(out, base[off:off+size]...)

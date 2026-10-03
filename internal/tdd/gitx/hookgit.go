@@ -2,7 +2,6 @@ package gitx
 
 import (
 	"fmt"
-	"path/filepath"
 	"sync"
 
 	igit "github.com/aphrollo/aphrollo-tools/internal/git"
@@ -71,18 +70,14 @@ func HookStatus(dir string) (*igit.Client, *igit.Status) {
 }
 
 // HookRoot is the top directory of the worktree dir sits in, read from the
-// `.git` files without a spawn, "" when dir is in no repository. It names the
-// directory as git does: symlinks resolved.
+// `.git` files without a spawn, "" when dir is in no repository. It is spelled as
+// RepoRoot spells it, the one canonical spelling (git.Canonical).
 func HookRoot(dir string) string {
 	c := HookClient(dir)
 	if c == nil {
 		return ""
 	}
-	root := c.Root()
-	if real, err := filepath.EvalSymlinks(root); err == nil {
-		root = real
-	}
-	return filepath.Clean(root)
+	return igit.Canonical(c.Root())
 }
 
 // FreshStatus is HookStatus for a caller that asks twice to learn whether the

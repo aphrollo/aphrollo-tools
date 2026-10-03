@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"unicode"
 )
 
 func sameWorktreeDir(t *testing.T, got, want string) bool {
@@ -157,4 +158,44 @@ func TestHeadCopy_AMovedFileHasNoCopyUnderItsNewName(t *testing.T) {
 	if text != "" || inHead || !ok {
 		t.Errorf("HeadCopy of a rename's destination = %q, %v, %v; want no copy, known", text, inHead, ok)
 	}
+}
+
+// Every caller gets one spelling of a worktree's top, however the directory
+// was named to reach it: string-keyed comparisons of the roots depend on it.
+func TestHookRoot_IsOneSpellingWhicheverWayTheDirectoryIsNamed(t *testing.T) {
+	root := makeGoRepo(t)
+	write(t, root, "deep/er/f.go", "package m\n")
+	spellings := []string{
+		root,
+		filepath.ToSlash(root),
+		filepath.Join(root, "deep", "er"),
+		filepath.Join(root, "deep", "..", "deep", "er"),
+		filepath.ToSlash(filepath.Join(root, "deep")) + "/",
+	}
+	if swapped := swapCase(root); swapped != root {
+		if _, err := os.Stat(swapped); err == nil {
+			spellings = append(spellings, swapped)
+		}
+	}
+	want := RepoRoot(root)
+	for _, dir := range spellings {
+		if got := HookRoot(dir); got != want {
+			t.Errorf("HookRoot(%q) = %q, want %q", dir, got, want)
+		}
+		if got := RepoRoot(dir); got != want {
+			t.Errorf("RepoRoot(%q) = %q, want %q", dir, got, want)
+		}
+	}
+}
+
+func swapCase(s string) string {
+	out := []rune(s)
+	for i, r := range out {
+		if lower := unicode.ToLower(r); lower != r {
+			out[i] = lower
+		} else {
+			out[i] = unicode.ToUpper(r)
+		}
+	}
+	return string(out)
 }

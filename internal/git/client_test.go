@@ -337,7 +337,7 @@ func TestStatus_AnEmptyBatchKeyIsNeverCached(t *testing.T) {
 	}
 }
 
-func TestStatus_AFailedCallIsNotCachedAsTheBatchsAnswer(t *testing.T) {
+func TestStatus_AFailedCallIsTheBatchsAnswerAndANewBatchTriesAgain(t *testing.T) {
 	dir := repoWithCommit(t)
 	c := mustNew(t, dir)
 	// An index git cannot read makes status fail.
@@ -349,14 +349,19 @@ func TestStatus_AFailedCallIsNotCachedAsTheBatchsAnswer(t *testing.T) {
 	if err := os.WriteFile(idx, []byte("garbage"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Status("b"); err == nil {
-		t.Fatal("status of a corrupt index succeeded")
+	for range 3 {
+		if _, err := c.Status("b"); err == nil {
+			t.Fatal("status of a corrupt index succeeded")
+		}
+	}
+	if c.Spawns() != 1 {
+		t.Errorf("a batch of three questions of an unreadable repository spawned git %d times, want 1", c.Spawns())
 	}
 	if err := os.WriteFile(idx, good, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Status("b"); err != nil {
-		t.Errorf("the repaired batch still fails: %v", err)
+	if _, err := c.Status("b2"); err != nil {
+		t.Errorf("the repaired repository still fails in a new batch: %v", err)
 	}
 }
 
@@ -428,3 +433,5 @@ func TestStatus_AKeylessReadLeavesTheKeptBatchAnswerAlone(t *testing.T) {
 		t.Errorf("Spawns = %d, want 2: the batch's read and the keyless one, none to answer the batch again", c.Spawns())
 	}
 }
+
+// ratchet: test_removed TestStatus_AFailedCallIsNotCachedAsTheBatchsAnswer: a failed status is now the batch's answer; TestStatus_AFailedCallIsTheBatchsAnswerAndANewBatchTriesAgain pins it

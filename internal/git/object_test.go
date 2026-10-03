@@ -2,6 +2,7 @@ package git
 
 import (
 	"bytes"
+	"compress/zlib"
 	"errors"
 	"fmt"
 	"strings"
@@ -134,5 +135,51 @@ func TestApplyDelta_RefusesADeltaThatDoesNotFitItsBase(t *testing.T) {
 	got, ok := applyDelta(base, []byte{5, 6, 0x90, 3, 3, 'x', 'y', 'z'})
 	if !ok || string(got) != "helxyz" {
 		t.Errorf("a copy of three bytes then an insert of three = %q, %v; want \"helxyz\"", got, ok)
+	}
+}
+
+func TestInflate_RefusesAHeaderThatClaimsMoreThanTheStreamHolds(t *testing.T) {
+	var packed bytes.Buffer
+	zw := zlib.NewWriter(&packed)
+	zw.Write([]byte("tiny"))
+	zw.Close()
+
+	for _, claim := range []int64{1 << 60, 5, 3, -1} {
+		if got, ok := inflate(bytes.NewReader(packed.Bytes()), claim); ok {
+			t.Errorf("claim of %d bytes for a 4-byte stream inflated to %q", claim, got)
+		}
+	}
+	if got, ok := inflate(bytes.NewReader(packed.Bytes()), 4); !ok || string(got) != "tiny" {
+		t.Errorf("an honest claim = %q, %v", got, ok)
+	}
+}
+
+func TestApplyDelta_RefusesAResultSizeThatIsAbsurdOrNotWhatTheInstructionsMake(t *testing.T) {
+	base := []byte("hello")
+	huge := []byte{5, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x7f, 3, 'a', 'b', 'c'}
+	if got, ok := applyDelta(base, huge); ok {
+		t.Errorf("a delta claiming an enormous result applied: %d bytes", len(got))
+	}
+	// An insert that would run past the claimed result is refused as it is read.
+	if got, ok := applyDelta(base, []byte{5, 2, 3, 'a', 'b', 'c'}); ok {
+		t.Errorf("an insert past the claimed size applied: %q", got)
+	}
+}
+
+func TestReadBlob_ReadsAPackedObjectFromARepositoryWhosePathHoldsGlobCharacters(t *testing.T) {
+	dir := t.TempDir() + "/re[po]"
+	gitT(t, t.TempDir(), "init", "-q", "-b", "main", dir)
+	oids, texts := blobsOf(t, dir)
+	gitT(t, dir, "repack", "-q", "-a", "-d", "-f")
+	gitT(t, dir, "prune-packed")
+	c := mustNew(t, dir)
+
+	got, err := c.ReadBlob(oids[3])
+
+	if err != nil || string(got) != texts[3] {
+		t.Fatalf("ReadBlob = %d bytes, %v; want the committed text", len(got), err)
+	}
+	if c.Spawns() != 0 {
+		t.Errorf("a path with [ ] cost %d spawns, want 0 (the pack index was not found)", c.Spawns())
 	}
 }

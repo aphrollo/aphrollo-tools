@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
@@ -186,5 +186,5 @@ func RepoRoot(dir string) string {
 	if err != nil {
 		return ""
 	}
-	return filepath.Clean(strings.TrimSpace(out))
+	return igit.Canonical(strings.TrimSpace(out))
 }
