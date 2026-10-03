@@ -310,3 +310,16 @@ func TestExplain_textWritesALongLatencyInFullDigits(t *testing.T) {
 		t.Errorf("latency of 1500000 ms not written in full digits:\n%s", got)
 	}
 }
+
+func TestExplain_eventsAtTheSameInstantAreOrderedBySeq(t *testing.T) {
+	first, second := denyAt(0, 1, "a", "r"), denyAt(0, 2, "a", "r")
+	// The log lists the later record first; the deny that was written first is
+	// still the one the second repeats.
+	events := []tdd.Event{second, first}
+	if got := explain(t, events, 1).Deny.Outcome; got != OutcomeRepeated {
+		t.Errorf("seq 1 outcome %q, want %q: seq 2, at the same instant, repeats it", got, OutcomeRepeated)
+	}
+	if got := explain(t, events, 2).Deny.Outcome; got != OutcomeNothingAfter {
+		t.Errorf("seq 2 outcome %q, want %q: it is the last record", got, OutcomeNothingAfter)
+	}
+}
