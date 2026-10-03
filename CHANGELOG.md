@@ -19,6 +19,19 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.5.1 - 2026-10-03
+
+A test run no longer sees the CI runner's variables.
+
+### What you will notice
+
+- The environment the gate seals a test or mutation run to drops `CI`, `GITHUB_*`, `RUNNER_*` and
+  `ACTIONS_*`, whichever case the box spells them in. A test that read `GITHUB_SHA` passed in CI and
+  failed on a box that has none; it now sees the same environment in both places.
+- `aphrollo ratchet check` counts a new law, `exec_outside_run`: child processes started outside
+  `internal/run`, the package that ends a child's whole tree when it is closed, times out or exits.
+  Today's sites are the baseline and only go down.
+
 ## 1.5.0 - 2026-10-03
 
 The gate keeps its event log per repository, outside the plugin, and records what the pipeline
