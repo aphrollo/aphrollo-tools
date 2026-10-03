@@ -80,7 +80,11 @@ retro-sinks = [
 # the shared host ran it out of memory (#1005). Pin
 # mutants-at-merge-level = "block" to make a survivor fail the check and hold the
 # merge. `aphrollo gate mutants run` still measures a lane by hand.
-mutants-at-merge = "ci"
+# Mutation runs once, at the commit (mutants-at-commit, below), before CI, so a
+# survivor is seen and fixed locally instead of in a CI round trip. CI does not
+# measure it again: with mutants-at-merge off, the PR pipeline's mutants-plan
+# owes no measurement and runs no shards.
+mutants-at-merge = false
 mutants-before-pr = "ci"
 
 # The commit gate mutates the lines a commit adds or changes and runs each
