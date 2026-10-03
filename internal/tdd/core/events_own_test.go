@@ -142,7 +142,7 @@ func TestAppendEvent_FilesUnderTheStateRootByRepoAndMonth(t *testing.T) {
 	if err != nil {
 		t.Fatalf("no log at %s: %v", want, err)
 	}
-	if n := strings.Count(string(data), "\n"); n != 2 {
+	if n := strings.Count(string(data), "\n{"); n != 2 {
 		t.Fatalf("%d records at %s, want the lane's and the main checkout's: %s", n, want, data)
 	}
 }
@@ -520,22 +520,7 @@ func TestAppendEventOnce_WritesOneRecordPerKey(t *testing.T) {
 	}
 }
 
-func TestStateRoot_PrefersTheExplicitRootThenTheWindowsThenTheXdgDirectory(t *testing.T) {
-	t.Setenv("TRELLIS_DATA", "")
-	t.Setenv("LOCALAPPDATA", filepath.Join("c", "local"))
-	t.Setenv("XDG_STATE_HOME", filepath.Join("x", "state"))
-	if got, want := StateRoot(), filepath.Join("c", "local", "trellis"); got != want {
-		t.Errorf("with LOCALAPPDATA: %q, want %q", got, want)
-	}
-	t.Setenv("LOCALAPPDATA", "")
-	if got, want := StateRoot(), filepath.Join("x", "state", "trellis"); got != want {
-		t.Errorf("with XDG_STATE_HOME: %q, want %q", got, want)
-	}
-	t.Setenv("TRELLIS_DATA", filepath.Join("t", "data"))
-	if got, want := StateRoot(), filepath.Join("t", "data"); got != want {
-		t.Errorf("with TRELLIS_DATA: %q, want %q", got, want)
-	}
-}
+// ratchet: test_removed TestStateRoot_PrefersTheExplicitRootThenTheWindowsThenTheXdgDirectory: split by platform into TestStateRoot_PrefersTheExplicitRootThenTheXdgDirectory and the windows and other files, because LOCALAPPDATA now counts on Windows only
 
 // The append budget is 2 ms. The bound here is ten times that so a busy box
 // does not fail it; the mean is logged for the record.
