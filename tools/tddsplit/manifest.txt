@@ -462,6 +462,12 @@ gotmpdir_test.go                                   suite     # prefix says lock;
 gotmpdir_workflow_pin_test.go                      tdd
 greenlabel_outcome_test.go                         precommit
 home_test.go                                        tddtest
+hookfixture.go                                     tddtest
+hookfixture_test.go                                tddtest
+hookfixtures_test.go                               lawgate
+hookfixtures_test.go                               postedit
+hookfixtures_test.go                               smell
+hookfixtures_test.go                               tdd
 hostedrunners_workflow_pin_test.go                   tdd
 inconclusive_reject_test.go                        precommit
 init.go                                            install
@@ -1072,9 +1078,9 @@ testdata/fuzz/FuzzBashWriteTargets/                shell
 testdata/fuzz/FuzzDocsOnlyClassifier/              core
 testdata/fuzz/FuzzGateLogLine/                     escape
 testdata/gremlins_report.json                      mutation
+testdata/hooks/                                    tddtest
 testdata/policies/                                 smell
 testdata/retro/                                    merge
-testdata/stophooks/                                postedit
 testmain_tddtest_test.go                           tdd
 testquality.go                                     smell
 testquality_line_test.go                           postedit  # prefix says smell; its test body reaches postedit

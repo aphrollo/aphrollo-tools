@@ -7,13 +7,17 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // The stop checks answer the three hooks that end something: Stop (the turn),
-// SubagentStop (a subagent's turn) and TaskCompleted (a task marked done). The
-// payloads under testdata/stophooks are recorded from Claude Code's documented
-// hook inputs; each test overlays only the fields it controls, so the rest of
-// the payload stays what the harness really sends.
+// SubagentStop (a subagent's turn) and TaskCompleted (a task marked done). Stop
+// and SubagentStop payloads are recordings of the real harness
+// (tddtest/testdata/hooks); TaskCompleted has none, because no session has
+// raised that event yet, so its payload is hand-written from the documented
+// fields (handwritten/taskcompleted.json). Each test overlays only the fields
+// it controls, so the rest of the payload stays what the harness really sends.
 
 const stopSession = "stop-sess"
 
@@ -21,22 +25,7 @@ const stopSession = "stop-sess"
 // controls with the documented key names.
 func stopPayload(t *testing.T, fixture string, overlay map[string]any) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("testdata", "stophooks", fixture))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
-		t.Fatal(err)
-	}
-	for k, v := range overlay {
-		m[k] = v
-	}
-	out, err := json.Marshal(m)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return out
+	return tddtest.HookPayload(t, fixture, overlay)
 }
 
 // finishedJobWith records a run (or build) phase for project under stopSession
@@ -329,7 +318,7 @@ func TestDecideStop_SubagentStopAndTaskCompletedAllowWhenThePayloadNamesNoCwd(t 
 	stopTreeFn = func(string) string { return crate }
 	t.Cleanup(func() { stopTreeFn = prev })
 
-	for event, fixture := range map[StopEvent]string{StopHookSubagentStop: "subagentstop.json", StopHookTaskCompleted: "taskcompleted.json"} {
+	for event, fixture := range map[StopEvent]string{StopHookSubagentStop: "subagentstop.json", StopHookTaskCompleted: "handwritten/taskcompleted.json"} {
 		got := DecideStop(event, stopPayload(t, fixture, map[string]any{"session_id": stopSession, "cwd": ""}))
 
 		if got.Block {
@@ -357,7 +346,7 @@ func TestDecideStop_NothingToReportResolvesNoTree(t *testing.T) {
 	stampProject(t, crate, "green", nil)
 
 	for event, fixture := range map[StopEvent]string{
-		StopHookStop: "stop.json", StopHookSubagentStop: "subagentstop.json", StopHookTaskCompleted: "taskcompleted.json",
+		StopHookStop: "stop.json", StopHookSubagentStop: "subagentstop.json", StopHookTaskCompleted: "handwritten/taskcompleted.json",
 	} {
 		if got := DecideStop(event, stopPayload(t, fixture, stopFields(crate))); got.Block {
 			t.Errorf("%s: verdict = %+v, want an allow", event, got)
