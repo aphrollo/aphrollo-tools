@@ -62,6 +62,7 @@ type JobResult struct {
 	ID       string
 	Result   string
 	Detail   string
+	Refused  []string // steps not run because they would change the box outside the run's isolation
 }
 
 // Summary is every job of a run, in the order they ran.
@@ -99,13 +100,15 @@ func Run(ctx context.Context, flows []*Workflow, opt Options) (*Summary, error) 
 	if err != nil {
 		return nil, fmt.Errorf("a scratch directory for the run could not be made: %w", err)
 	}
+	registerScratch(tmp)
 	defer func() {
+		defer unregisterScratch(tmp)
 		if err := removeScratch(tmp); err != nil {
 			fmt.Fprintf(opt.Out, "ci run: [note] the run's scratch directory %s was not removed: %v\n", tmp, err)
 		}
 	}()
 	opt.Out = &lineEnder{w: opt.Out}
-	opt.iso = newIsolation(ctx, tmp, flows, opt.Env)
+	opt.iso = newIsolation(ctx, tmp, opt.Env)
 	opt.iso.describe(opt.Out)
 	opt.describe(opt.Out)
 	sum := &Summary{}
@@ -334,6 +337,7 @@ func (r *jobRun) finishOutputs() {
 func (r *jobRun) runSteps(ctx context.Context) JobResult {
 	status := ResultSuccess
 	failedAt := ""
+	var refusedSteps []string
 	for _, st := range r.job.Steps {
 		sc := r.ctxFor(status, r.envMap())
 		run, err := sc.Cond(st.If)
@@ -351,7 +355,11 @@ func (r *jobRun) runSteps(ctx context.Context) JobResult {
 			r.recordStep(st, "skipped", "skipped", nil)
 			continue
 		}
-		ok := r.runStep(ctx, st)
+		ok, refused := r.runStep(ctx, st)
+		if refused {
+			refusedSteps = append(refusedSteps, st.Label())
+			continue
+		}
 		if !ok && failedAt == "" {
 			if r.tolerated(st) {
 				if rec, ok := r.steps[st.ID].(map[string]any); ok {
@@ -367,9 +375,9 @@ func (r *jobRun) runSteps(ctx context.Context) JobResult {
 		fmt.Fprintf(r.opt.Out, "  [note] %s\n", n)
 	}
 	if failedAt != "" {
-		return JobResult{ID: r.job.ID, Result: ResultFailure, Detail: failedAt}
+		return JobResult{ID: r.job.ID, Result: ResultFailure, Detail: failedAt, Refused: refusedSteps}
 	}
-	return JobResult{ID: r.job.ID, Result: ResultSuccess}
+	return JobResult{ID: r.job.ID, Result: ResultSuccess, Refused: refusedSteps}
 }
 
 func skipReason(cond string) string {
@@ -399,35 +407,35 @@ func (r *jobRun) tolerated(st *Step) bool {
 }
 
 // runStep runs one run: step and records its outcome. It reports success.
-func (r *jobRun) runStep(ctx context.Context, st *Step) bool {
+func (r *jobRun) runStep(ctx context.Context, st *Step) (ok, refused bool) {
+	r.timedOut = 0 // before anything below can fail: only this step's own timeout labels it
 	fmt.Fprintf(r.opt.Out, "  [run] %s\n", st.Label())
 	sc := r.ctxFor(r.scope.Status, r.envMap())
 	script, err := sc.Interpolate(st.Run)
 	if err != nil {
 		fmt.Fprintf(r.opt.Out, "  [fail] %v\n", err)
 		r.recordStep(st, ResultFailure, ResultFailure, nil)
-		return false
+		return false, false
 	}
 	stepEnv, err := r.stepEnv(sc, st)
 	if err != nil {
 		fmt.Fprintf(r.opt.Out, "  [fail] %v\n", err)
 		r.recordStep(st, ResultFailure, ResultFailure, nil)
-		return false
+		return false, false
 	}
 	if why := r.refusal(st, script); why != "" {
-		fmt.Fprintf(r.opt.Out, "  [refuse] %s: %s\n", st.Label(), why)
-		r.recordStep(st, ResultFailure, ResultFailure, nil)
-		return false
+		fmt.Fprintf(r.opt.Out, "  [skip] %s (refused: %s)\n", st.Label(), why)
+		r.recordStep(st, "skipped", "skipped", nil)
+		return true, true
 	}
 	files, err := r.stepFiles()
 	if err != nil {
 		fmt.Fprintf(r.opt.Out, "  [fail] %v\n", err)
 		r.recordStep(st, ResultFailure, ResultFailure, nil)
-		return false
+		return false, false
 	}
 	runErr := r.exec(ctx, st, script, r.opt.iso.apply(append(stepEnv, files.env2()...)))
 	var timeout *stepTimeoutError
-	r.timedOut = 0
 	if errors.As(runErr, &timeout) {
 		r.timedOut = timeout.limit
 	}
@@ -438,7 +446,7 @@ func (r *jobRun) runStep(ctx context.Context, st *Step) bool {
 		outcome = ResultFailure
 	}
 	r.recordStep(st, outcome, outcome, outputs)
-	return runErr == nil
+	return runErr == nil, false
 }
 
 func (r *jobRun) exec(ctx context.Context, st *Step, script string, env []string) error {

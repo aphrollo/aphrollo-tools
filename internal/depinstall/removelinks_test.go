@@ -1,8 +1,12 @@
 package depinstall
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -116,5 +120,91 @@ func TestIsLink_SymlinksAndJunctionsOnly(t *testing.T) {
 		if got := isLink(c.mode); got != c.want {
 			t.Errorf("isLink(%s) = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+// A tree some of whose directories and files are read-only (a go module
+// cache is, by design) cannot be removed as it stands on every platform: the
+// removal makes every directory and file writable and tries again. The first
+// removal here refuses the way a read-only directory does, so only a tree
+// made writable first goes.
+func TestRemoveTree_ReadOnlyDirectoriesAndFilesAreMadeWritableAndTheRemovalRetried(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "scratch")
+	file := filepath.Join(root, "mod", "sub", "f.go")
+	if err := os.MkdirAll(filepath.Dir(file), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("package f\n"), 0o444); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{filepath.Join(root, "mod", "sub"), filepath.Join(root, "mod")} {
+		if err := os.Chmod(p, 0o555); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prev := removeAll
+	removeAll = func(p string) error {
+		if err := refuseReadOnly(p); err != nil {
+			return err
+		}
+		return prev(p)
+	}
+	t.Cleanup(func() { removeAll = prev })
+	if err := RemoveTree(root); err != nil {
+		t.Fatalf("RemoveTree: %v", err)
+	}
+	if _, err := os.Lstat(root); !os.IsNotExist(err) {
+		t.Errorf("the tree must be gone, lstat err = %v", err)
+	}
+}
+
+// refuseReadOnly is what a removal does to a tree with a read-only entry.
+func refuseReadOnly(root string) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err == nil && info.Mode().Perm()&0o200 == 0 {
+			return fmt.Errorf("remove %s: permission denied", p)
+		}
+		return err
+	})
+}
+
+func TestMakeWritable_EveryDirectoryAndRegularFileIsChangedAndNothingElse(t *testing.T) {
+	root := t.TempDir()
+	for _, f := range []string{filepath.Join("a", "b", "f.txt"), filepath.Join("a", "g.txt")} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(root, f)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, f), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	outside := filepath.Join(t.TempDir(), "box-python")
+	if err := os.WriteFile(outside, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linked := os.Symlink(outside, filepath.Join(root, "a", "python")) == nil
+	modes := map[string]fs.FileMode{}
+	err := makeWritable(root, func(p string, m fs.FileMode) error {
+		rel, _ := filepath.Rel(root, p)
+		modes[filepath.ToSlash(rel)] = m
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]fs.FileMode{
+		".": 0o700, "a": 0o700, "a/b": 0o700,
+		"a/b/f.txt": 0o600, "a/g.txt": 0o600,
+	}
+	if !reflect.DeepEqual(modes, want) {
+		t.Errorf("changed %v, want %v: a link must never be chmodded, it would change what it points at (a link was made: %v)", modes, want, linked)
+	}
+	boom := errors.New("chmod refused")
+	if err := makeWritable(root, func(string, fs.FileMode) error { return boom }); !errors.Is(err, boom) {
+		t.Errorf("a chmod that fails must stop the walk with its error, got %v", err)
 	}
 }

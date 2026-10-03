@@ -400,3 +400,21 @@ func TestInFlight_CountsWhatStartedAndHasNotEnded(t *testing.T) {
 		t.Errorf("inFlight of nothing = %d", got)
 	}
 }
+
+func TestRun_AToleratedTimeoutDoesNotLabelALaterStepThatFailsBeforeItRuns(t *testing.T) {
+	sum, _, _ := runFlow(t, `
+on: pull_request
+jobs:
+  j:
+    steps:
+      - name: slow but allowed
+        continue-on-error: true
+        run: while :; do :; done
+      - name: broken expression
+        run: echo ${{ nosuch() }}
+`, func(o *Options) { o.StepTimeout = 400 * time.Millisecond })
+	r := result(t, sum, "j")
+	if r.Result != ResultFailure || r.Detail != "step failed: broken expression" {
+		t.Errorf("j = %+v, want the failure named for the step that failed, not the earlier timeout", r)
+	}
+}

@@ -4,11 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
-	"sort"
 	"strings"
 	"testing"
 )
@@ -136,36 +134,7 @@ func TestEnvIn_TheLastValueWinsAndTheNameIgnoresCase(t *testing.T) {
 	}
 }
 
-func TestMentionsPython_AnyPlaceAStepCouldNameItAndNoWordThatOnlyLooksLikeIt(t *testing.T) {
-	step := func(s Step) []*Workflow { return []*Workflow{{Jobs: []*Job{{Steps: []*Step{&s}}}}} }
-	for name, flows := range map[string][]*Workflow{
-		"a run script":      step(Step{Run: "pip install -r requirements.txt"}),
-		"an action":         step(Step{Uses: "actions/setup-python@v5"}),
-		"a step shell":      step(Step{Shell: "python"}),
-		"a step env":        step(Step{Env: []KV{{"X", "python3.12"}}}),
-		"a job shell":       {{Jobs: []*Job{{Shell: "python"}}}},
-		"a job env":         {{Jobs: []*Job{{Env: []KV{{"X", "poetry"}}}}}},
-		"a workflow shell":  {{Shell: "python"}},
-		"a workflow env":    {{Env: []KV{{"X", "uv"}}}},
-		"a second workflow": {{}, {Jobs: []*Job{{Steps: []*Step{{Run: "tox"}}}}}},
-		"requirements":      step(Step{Run: "cat requirements-dev.txt"}),
-	} {
-		if !mentionsPython(flows) {
-			t.Errorf("%s: not seen as mentioning python", name)
-		}
-	}
-	for name, flows := range map[string][]*Workflow{
-		"nothing":      nil,
-		"empty":        {{Jobs: []*Job{{Steps: []*Step{{}}}}}},
-		"look-alikes":  step(Step{Run: "echo pipeline pythonic pipe uvicorn convenient"}),
-		"another tool": step(Step{Run: "go test ./... && npm ci"}),
-	} {
-		if mentionsPython(flows) {
-			t.Errorf("%s: seen as mentioning python", name)
-		}
-	}
-}
-
+// ratchet: test_removed TestMentionsPython_AnyPlaceAStepCouldNameItAndNoWordThatOnlyLooksLikeIt: the venv is made whenever python is on PATH, so there is no scan of the steps to test; TestRun_AScriptThatPipInstallsGetsAVenvEvenWhenNoStepNamesPython covers it
 func TestSetupPython_TheVenvIsMadeFromTheFoundPythonAndPutFirst(t *testing.T) {
 	var gotPython, gotDir string
 	var gotEnv []string
@@ -176,9 +145,8 @@ func TestSetupPython_TheVenvIsMadeFromTheFoundPythonAndPutFirst(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { findPython, makeVenv = prevFind, prevMake })
-	flows := []*Workflow{{Jobs: []*Job{{Steps: []*Step{{Run: "pip install x"}}}}}}
 	s := &isolation{root: "ROOT", path: []string{"later"}}
-	s.setupPython(context.Background(), flows, []string{"BASE=1"})
+	s.setupPython(context.Background(), []string{"BASE=1"})
 	venv := filepath.Join("ROOT", "venv")
 	if gotPython != "/box/python3" || gotDir != venv || !reflect.DeepEqual(gotEnv, []string{"BASE=1"}) {
 		t.Errorf("makeVenv(%q, %q, %q), want the found python, %s and the base environment", gotPython, gotDir, gotEnv, venv)
@@ -195,13 +163,12 @@ func TestSetupPython_TheVenvIsMadeFromTheFoundPythonAndPutFirst(t *testing.T) {
 }
 
 func TestSetupPython_NoPythonOrABrokenVenvLeavesNoVenvAndSaysWhy(t *testing.T) {
-	flows := []*Workflow{{Jobs: []*Job{{Steps: []*Step{{Run: "pip install x"}}}}}}
 	prevFind, prevMake := findPython, makeVenv
 	t.Cleanup(func() { findPython, makeVenv = prevFind, prevMake })
 
 	findPython = func() (string, bool) { return "", false }
 	none := &isolation{}
-	none.setupPython(context.Background(), flows, nil)
+	none.setupPython(context.Background(), nil)
 	if len(none.vars) != 0 || none.python != "" || len(none.notes) != 1 || !strings.Contains(none.notes[0], "no python3 or python") {
 		t.Errorf("no python: vars %v, python %q, notes %q", none.vars, none.python, none.notes)
 	}
@@ -209,12 +176,36 @@ func TestSetupPython_NoPythonOrABrokenVenvLeavesNoVenvAndSaysWhy(t *testing.T) {
 	findPython = func() (string, bool) { return "/box/python3", true }
 	makeVenv = func(context.Context, string, string, []string) error { return errors.New("ensurepip exploded") }
 	broken := &isolation{}
-	broken.setupPython(context.Background(), flows, nil)
+	broken.setupPython(context.Background(), nil)
 	if len(broken.vars) != 0 || broken.python != "" || len(broken.path) != 0 {
 		t.Errorf("a broken venv left vars %v, python %q, path %q", broken.vars, broken.python, broken.path)
 	}
 	if len(broken.notes) != 1 || !strings.Contains(broken.notes[0], "ensurepip exploded") || !strings.Contains(broken.notes[0], "/box/python3") {
 		t.Errorf("a broken venv must say which python and why: %q", broken.notes)
+	}
+}
+
+func TestIsPythonShell_ThePythonsAndTheirTemplatesAndNothingThatOnlyLooksLikeOne(t *testing.T) {
+	for shell, want := range map[string]bool{
+		"python":                  true,
+		"python3":                 true,
+		"python3.12":              true,
+		" python3 ":               true,
+		"python {0}":              true,
+		"python -u {0}":           true,
+		"/usr/bin/python3 -I {0}": true,
+		`C:\Py\python.exe {0}`:    false, // a backslash path is not split on this platform's separator everywhere
+		"python.exe {0}":          true,
+		"":                        false,
+		"   ":                     false,
+		"bash":                    false,
+		"pythonic {0}":            false,
+		"bash -c 'python {0}'":    false,
+		"pwsh -c {0}":             false,
+	} {
+		if got := isPythonShell(shell); got != want && !strings.Contains(shell, `\`) {
+			t.Errorf("isPythonShell(%q) = %v, want %v", shell, got, want)
+		}
 	}
 }
 
@@ -252,42 +243,14 @@ func TestDescribe_PrintsEveryVariableNoteAndTheDirectoriesAheadOnPATH(t *testing
 	s := &isolation{root: "ROOT", vars: []KV{{"A", "1"}, {"B", "2"}}, path: []string{"d1", "d2"}, notes: []string{"a note"}}
 	var out bytes.Buffer
 	s.describe(&out)
-	for _, want := range []string{"under ROOT", "[isolate] a note", "[isolate] A=1", "[isolate] B=2", "PATH first: d1" + string(os.PathListSeparator) + "d2", "[isolate] refused before the step runs"} {
+	for _, want := range []string{"under ROOT", "[isolate] a note", "[isolate] A=1", "[isolate] B=2", "PATH first: d1" + string(os.PathListSeparator) + "d2", "[isolate] skipped, and the run inconclusive"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("describe lacks %q:\n%s", want, out.String())
 		}
 	}
 }
 
-func TestMakeWritable_EveryDirectoryAndOnlyDirectoriesAreChanged(t *testing.T) {
-	root := t.TempDir()
-	writeTo(t, filepath.Join(root, "a", "b", "f.txt"), "x")
-	writeTo(t, filepath.Join(root, "a", "g.txt"), "y")
-	var changed []string
-	var modes []fs.FileMode
-	err := makeWritable(root, func(p string, m fs.FileMode) error {
-		changed, modes = append(changed, p), append(modes, m)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{root, filepath.Join(root, "a"), filepath.Join(root, "a", "b")}
-	sort.Strings(changed)
-	sort.Strings(want)
-	if !reflect.DeepEqual(changed, want) {
-		t.Errorf("changed %q, want exactly the directories %q", changed, want)
-	}
-	for _, m := range modes {
-		if m != 0o700 {
-			t.Errorf("a directory was given mode %o, want 700", m)
-		}
-	}
-	boom := errors.New("chmod refused")
-	if err := makeWritable(root, func(string, fs.FileMode) error { return boom }); !errors.Is(err, boom) {
-		t.Errorf("a chmod that fails must stop the walk with its error, got %v", err)
-	}
-}
+// ratchet: test_removed TestMakeWritable_EveryDirectoryAndOnlyDirectoriesAreChanged: the scratch is removed by depinstall.RemoveTree, which makes directories and files writable; TestMakeWritable_EveryDirectoryAndRegularFileIsChangedAndNothingElse in internal/depinstall covers it
 
 func TestLookPython_FindsPython3ThenPythonOnPATHAndNothingElse(t *testing.T) {
 	dir, _ := fakeToolsOnPath(t) // python, python3 and pip first on PATH
