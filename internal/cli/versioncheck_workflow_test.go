@@ -54,6 +54,7 @@ func TestPipeline_VersionCheckHoldsEveryPullRequestToTheVersionRule(t *testing.T
 		{"github.actor != 'dependabot[bot]'", "a bot's dependency bump cannot write the line, and moves no verdict"},
 		{"fetch-depth: 0", "the base commit must be in the clone to read its VERSION and diff against it"},
 		{"github.event.pull_request.base.sha", "the change is measured from the PR's own base"},
+		{"ref: ${{ github.event.pull_request.head.sha }}", "HEAD must be the PR's own head, not the merge ref, so the check measures the branch from its merge base with the base and never a base that moved on"},
 		{"gh pr view", "the body is read live, so a re-run after editing the body sees the edit, not the event's stale copy"},
 		{"pull-requests: read", "reading the body needs that scope and nothing wider"},
 		{"version check", "the job must run the check"},

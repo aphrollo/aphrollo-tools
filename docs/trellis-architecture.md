@@ -328,7 +328,7 @@ trellis deny [primary-write] Write lands in the main checkout on trunk · do: En
 - **trellis's own tests (F.f).**
   - Pure kernel, laws and measure tests run under `-race` and `rapid` in under 30 s.
   - Integration tests copy a prebuilt template repo.
-  - Process tests sit behind `//go:build proc` and run nightly and in windows-smoke.
+  - Process tests sit behind `//go:build proc` and run nightly.
   - Adapters are tested only on recorded payloads.
 
 ## 7. Rules/laws and config model

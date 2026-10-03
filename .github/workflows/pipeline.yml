@@ -250,7 +250,7 @@ jobs:
           cache: true
       - name: Workflow pin tests
         if: needs.changes.outputs.workflow == 'true'
-        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_|TestNightlyFuzzWorkflow_|TestNightlyMutantsWorkflow_|TestNightlyFlakeHuntWorkflow_|TestWindowsSmokeWorkflow_)' ./internal/tdd ./internal/cli
+        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_|TestNightlyFuzzWorkflow_|TestNightlyMutantsWorkflow_|TestNightlyFlakeHuntWorkflow_)' ./internal/tdd ./internal/cli
       - name: actionlint
         if: needs.changes.outputs.workflow == 'true'
         run: |
@@ -1309,6 +1309,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha }}   # the branch itself, not the merge ref: the check measures it from its merge base with the base
           fetch-depth: 0   # the PR base must be in the clone to read its VERSION and diff against it
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:

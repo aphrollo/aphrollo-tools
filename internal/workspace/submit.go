@@ -184,7 +184,7 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 		if err := mutantsBeforePR(wt, base, s.Skip, stdout, stderr); err != nil {
 			return err
 		}
-		title, body, cerr := closureChecksBeforePR(wt, base, branch, "", "", stdout)
+		title, body, cerr := closureChecksBeforePR(wt, base, branch, "", s.Summary, stdout)
 		if cerr != nil {
 			return cerr
 		}

@@ -18,7 +18,9 @@ const versionCheckUsage = `usage: aphrollo version check --base <ref> --body-fil
 
 Hold a change to the version rule, in the checkout of this repo. The PR body
 (--body-file) must carry one line, "version: none|patch|minor|major"; the
-VERSION file must have moved from <ref> to HEAD by exactly that much; a change
+VERSION file must have moved from the merge base of <ref> and HEAD to HEAD by
+exactly that much (a base that moved on since the branch forked is not the
+branch's change); a change
 to a law preset, a language row or a mask must be a minor bump at least; and
 CHANGELOG.md must have a section for the version in VERSION. Every failure is
 printed on its own line and the exit is 1. A <ref> with no VERSION file counts
@@ -73,11 +75,21 @@ func judgeVersionChange(repo, base, bodyFile string) (problems []string, summary
 	if err != nil {
 		return nil, "", err
 	}
-	was, err := versionAtRef(root, base)
+	if _, err := versionAtRef(root, base); err != nil {
+		return nil, "", err
+	}
+	// The change is what the branch did since it left base, not what base did
+	// since: a branch behind its base is measured from the merge base.
+	forkOut, err := gitStdoutIn(root, "merge-base", base, "HEAD")
+	if err != nil {
+		return nil, "", fmt.Errorf("no merge base between %q and HEAD: %w", base, err)
+	}
+	fork := strings.TrimSpace(forkOut)
+	was, err := versionAtRef(root, fork)
 	if err != nil {
 		return nil, "", err
 	}
-	changed, err := gitStdoutIn(root, "diff", "--name-only", "-z", base, "HEAD")
+	changed, err := gitStdoutIn(root, "diff", "--name-only", "-z", fork, "HEAD")
 	if err != nil {
 		return nil, "", err
 	}

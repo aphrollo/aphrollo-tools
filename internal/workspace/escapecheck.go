@@ -21,7 +21,7 @@ import (
 
 // closureChecksBeforePR resolves the PR's title/body (filling from commits
 // exactly as ghCreatePR would, so the check judges the text that is about to
-// ship) and refuses to open the PR when its body cannot honour every closing
+// ship; a body the caller gave is never replaced by the filled one) and refuses to open the PR when its body cannot honour every closing
 // keyword it carries, or when an escape/false-positive issue it names is not
 // actually closed by this branch's diff. It returns the resolved title/body
 // so the caller passes them straight to ghCreatePR without a second fill.
@@ -32,7 +32,11 @@ import (
 // on infrastructure the branch itself did not cause.
 func closureChecksBeforePR(wt, base, branch, title, body string, w io.Writer) (string, string, error) {
 	if title == "" {
-		title, body = fillTitleBody(wt, base, branch)
+		filledTitle, filledBody := fillTitleBody(wt, base, branch)
+		title = filledTitle
+		if body == "" {
+			body = filledBody
+		}
 	}
 	if !checkBodyCloses(body, w) {
 		return title, body, errors.New("PR not opened: its body closes more than one issue behind a single keyword — GitHub only honours the first (see above)")
