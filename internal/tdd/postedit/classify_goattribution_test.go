@@ -17,7 +17,8 @@ import (
 
 // mkGoTreeWithTestlessSubpackage writes a module whose internal/a package
 // has one real test and whose internal/a/sub package has none — the shape a
-// test edit's `go test ./internal/a/...` runs.
+// hand-run `go test ./internal/a/...` covers, which the classifier reads per
+// package. A test edit runs `go test ./internal/a` alone.
 func mkGoTreeWithTestlessSubpackage(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -43,8 +44,8 @@ func TestPostEdit_GoRunWithATestlessPackage_IsGreenWithItsRealCount(t *testing.T
 
 	got := PostEdit(postPayload("Edit", root+"/internal/a/a_test.go"), RunSuite(2*time.Minute))
 
-	if !strings.Contains(got, "go test ./internal/a/...") {
-		t.Fatalf("setup: want the test edit's package tree run, got: %s", got)
+	if !strings.Contains(got, "go test ./internal/a ") {
+		t.Fatalf("setup: want the test edit's package run, got: %s", got)
 	}
 	if strings.Contains(tddtest.Pathless(t, got), string(WritingTest)) {
 		t.Fatalf("a run in which a package ran a real test is not writing-test, got: %s", got)
@@ -61,8 +62,8 @@ func TestPostEdit_DeferredGoRunWithATestlessPackage_IsGreen(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkGoTreeWithTestlessSubpackage(t)
 	scriptedPhases(t, map[string]scriptedPhase{
-		"go test ./internal/a/...": {out: &PhaseOutcome{ExitCode: 0},
-			log: "ok  \texample.com/m/internal/a\t0.004s\n?   \texample.com/m/internal/a/sub\t[no test files]\n"},
+		"go test ./internal/a": {out: &PhaseOutcome{ExitCode: 0},
+			log: "ok  \texample.com/m/internal/a\t0.004s\n"},
 	})
 
 	got := PostEdit(postPayload("Edit", root+"/internal/a/a_test.go"), fakeRun(true, "the foreground runner must not be used"))

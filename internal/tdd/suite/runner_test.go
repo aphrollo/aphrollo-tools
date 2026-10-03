@@ -133,7 +133,7 @@ func TestNarrowToRelatedTests(t *testing.T) {
 	root := "/proj"
 	// Go test edit narrows to the package; source edit narrows to its package.
 	goR := Runner{Cmd: "go", Args: []string{"test", "./..."}, Dir: "", Deadline: time.Time{}}
-	if got := NarrowToRelatedTests(goR, "/proj/internal/x/x_test.go", root); !reflect.DeepEqual(got, Runner{Cmd: "go", Args: []string{"test", "./internal/x/..."}, Dir: "", Deadline: time.Time{}}) {
+	if got := NarrowToRelatedTests(goR, "/proj/internal/x/x_test.go", root); !reflect.DeepEqual(got, Runner{Cmd: "go", Args: []string{"test", "./internal/x"}, Dir: "", Deadline: time.Time{}}) {
 		t.Fatalf("go test narrow = %+v", got)
 	}
 	if got := NarrowToRelatedTests(goR, "/proj/internal/x/x.go", root); !reflect.DeepEqual(got, Runner{Cmd: "go", Args: []string{"test", "./internal/x"}, Dir: "", Deadline: time.Time{}}) {
@@ -516,5 +516,28 @@ func TestNarrowGoFailFirst_RunsTheStagedTestNamesInTheirPackages(t *testing.T) {
 	}
 	if _, ok := narrowGoFailFirst(Runner{Cmd: "cargo", Args: []string{"test"}}, root, []string{"internal/x/x_test.go"}); ok {
 		t.Error("a cargo runner was narrowed as a go one")
+	}
+}
+
+// TestNarrowToRelatedTests_GoEditsInAPackageWithSubpackagesNeverRunTheSubtree
+// pins the cost the edit hook used to pay: a test edit in internal/tdd (a
+// package with dozens of subpackages) narrowed to `./internal/tdd/...` and
+// ran every subpackage's suite for one edit. The package's own tests, its
+// external _test package included, are `go test ./<dir>`; a source edit in a
+// leaf package such as internal/tdd/merge names that one package.
+func TestNarrowToRelatedTests_GoEditsInAPackageWithSubpackagesNeverRunTheSubtree(t *testing.T) {
+	t.Parallel()
+	root := "/proj"
+	goR := Runner{Cmd: "go", Args: []string{"test", "./..."}}
+	cases := []struct{ file, want string }{
+		{"/proj/internal/tdd/session_test.go", "./internal/tdd"},
+		{"/proj/internal/tdd/merge/civerdict_test.go", "./internal/tdd/merge"},
+		{"/proj/internal/tdd/merge/civerdict.go", "./internal/tdd/merge"},
+	}
+	for _, c := range cases {
+		got := NarrowToRelatedTests(goR, c.file, root)
+		if len(got.Args) != 2 || got.Args[0] != "test" || got.Args[1] != c.want {
+			t.Errorf("NarrowToRelatedTests(%s) = %v, want go test %s only", c.file, got.Args, c.want)
+		}
 	}
 }

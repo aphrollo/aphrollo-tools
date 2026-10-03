@@ -211,6 +211,8 @@ deferred.go                                        postedit
 deferred_attribution_test.go                       postedit
 deferred_buildform_test.go                         postedit
 deferred_checkout_test.go                          tdd       # prefix says postedit; its test body reaches tdd
+deferred_coalesce.go                               postedit
+deferred_coalesce_test.go                          postedit
 deferred_core.go                                   core      # created by P2
 deferred_crosstree_test.go                         postedit
 deferred_edit.go                                   postedit
@@ -299,6 +301,7 @@ editledger.go                                      failfirst
 editledger_batch_test.go                           failfirst
 editledger_suite.go                                suite     # created by P2
 editledger_test.go                                 postedit  # prefix says failfirst; its test body reaches postedit
+editrun_scope_test.go                              postedit
 embed.go                                           core
 embed_test.go                                      core
 emptyselection.go                                  postedit

@@ -2,6 +2,7 @@ package postedit
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -44,24 +45,24 @@ func cargoWideningSteps(r Runner) []Runner {
 // `--findRelatedTests` select by the import graph: when no test file reaches
 // the edited one, the full suite holds the same test files and none of them
 // reaches it either, so a wider run cannot select a test for this code.
-func postEditWideningSteps(r Runner, root string) []Runner {
+func postEditWideningSteps(r Runner, target, root string) []Runner {
 	switch r.Cmd {
 	case "cargo":
 		return cargoWideningSteps(r)
 	case "go":
-		return goWideningSteps(r, root)
+		return goWideningSteps(r, target, root)
 	}
 	return nil
 }
 
 // goWideningSteps is the Go ladder: one rung, to the packages whose tests
 // reach the narrowed ones (goTestReachFn), minus the narrowed ones — they
-// already ran and selected nothing. A `/...` selection is a test file's own
-// tree, where selecting nothing is scaffolding rather than a missed filter,
+// already ran and selected nothing. A test file's own run (goOwnTestRun)
+// is one where selecting nothing is scaffolding rather than a missed filter,
 // so it has no rung; neither does a reach that cannot be read, nor one that
 // adds no package.
-func goWideningSteps(r Runner, root string) []Runner {
-	if goTestTreeSelection(r) {
+func goWideningSteps(r Runner, target, root string) []Runner {
+	if goOwnTestRun(r, target) {
 		return nil
 	}
 	selected, ok := goSelectedDirs(r)
@@ -103,8 +104,14 @@ func goWideningSteps(r Runner, root string) []Runner {
 	return []Runner{{Cmd: "go", Args: args, Dir: r.Dir}}
 }
 
-// goTestTreeSelection reports whether a Go runner selects a `/...` tree, the
-// shape a TEST edit narrows to (NarrowToRelatedTests).
+// goOwnTestRun reports whether r is the run a Go TEST edit owes: the edited
+// file is a _test.go file (NarrowToRelatedTests narrows it to its package), or
+// r selects a `/...` tree, the form a test-classified non-Go file narrows to.
+func goOwnTestRun(r Runner, target string) bool {
+	return r.Cmd == "go" && strings.HasSuffix(filepath.ToSlash(target), "_test.go") || goTestTreeSelection(r)
+}
+
+// goTestTreeSelection reports whether a Go runner selects a `/...` tree.
 func goTestTreeSelection(r Runner) bool {
 	for _, a := range r.Args {
 		if strings.HasSuffix(a, "/...") {
@@ -117,11 +124,11 @@ func goTestTreeSelection(r Runner) bool {
 // postEditSelectedZero is the post-edit hook's "this run tested nothing":
 // cargo's zero selection (selectedZeroTests, shared with the commit stages
 // and the mutation proof) or a source edit's Go run whose packages all ran
-// no test. A test edit's `/...` run that ran nothing stays writing-test: its
+// no test. A test edit's own run that ran nothing stays writing-test: its
 // file has no test yet. Go is read here and not in selectedZeroTests because
 // the commit stages judge a Go run by its -json stream (vacuousGoPackages).
-func postEditSelectedZero(r Runner, res SuiteResult) bool {
-	return selectedZeroTests(r, res) || (!goTestTreeSelection(r) && goRanNoTests(r, res))
+func postEditSelectedZero(r Runner, target string, res SuiteResult) bool {
+	return selectedZeroTests(r, res) || (!goOwnTestRun(r, target) && goRanNoTests(r, res))
 }
 
 // widenBudgetSpentAdvisory is the line for a ladder the post-edit budget ran

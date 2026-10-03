@@ -181,7 +181,7 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 	}
 	switch r.Cmd {
 	case "go":
-		return Runner{Cmd: "go", Args: []string{"test", "./" + path.Dir(rel) + "/..."}}
+		return goTestEditRunner(rel)
 	case "pytest":
 		return Runner{Cmd: "pytest", Args: []string{"-q", rel}}
 	case "npx":
@@ -190,6 +190,22 @@ func NarrowToRelatedTests(r Runner, target, root string) Runner {
 		return cargoTargetRunner(r, rel, root)
 	}
 	return r
+}
+
+// goTestEditRunner is the run a Go TEST-file edit owes: its own package, and
+// the package's external _test package, which sits in the same directory.
+// Never the directory's `/...` subtree: internal/tdd holds dozens of
+// subpackages, and one edit to a test beside them used to run every one of
+// their suites (724 such runs in one gate.log). A test-classified file that
+// is not a .go file (a fixture a Go repo's tests read) has no package of its
+// own to name, so it keeps the tree form, which skips a directory with no Go
+// files instead of failing the run.
+func goTestEditRunner(rel string) Runner {
+	pkg := "./" + path.Dir(rel)
+	if !strings.HasSuffix(rel, ".go") {
+		pkg += "/..."
+	}
+	return Runner{Cmd: "go", Args: []string{"test", pkg}}
 }
 
 // cargoTargetRunner maps a Rust file to the cargo TARGET that actually

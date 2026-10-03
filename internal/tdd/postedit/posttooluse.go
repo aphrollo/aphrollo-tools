@@ -161,8 +161,8 @@ func postEditFileAs(session, target string, run SuiteRunner, editID string, touc
 	// crate's tests may simply live where the filter did not look. Widen
 	// once and let that run answer; only a selection that stays empty is
 	// reported, as an inconclusive rather than a green.
-	if postEditSelectedZero(snap.runner, res) {
-		empty := resolveEmptySelection(run, snap, root, headSHA, res)
+	if postEditSelectedZero(snap.runner, target, res) {
+		empty := resolveEmptySelection(run, snap, target, root, headSHA, res)
 		if empty.terminal != "" {
 			return empty.terminal, false
 		}
