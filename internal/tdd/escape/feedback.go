@@ -75,5 +75,5 @@ func repoTip(repo string) string {
 	if root == "" {
 		return ""
 	}
-	return strings.TrimSpace(gitOut(root, "rev-parse", "HEAD"))
+	return checkedOutSHA(root)
 }

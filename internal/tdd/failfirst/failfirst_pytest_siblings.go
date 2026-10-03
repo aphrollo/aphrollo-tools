@@ -3,6 +3,9 @@ package failfirst
 import (
 	"path/filepath"
 	"strings"
+
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // A gate runs a pytest root in a throwaway worktree (the merged tree, the
@@ -38,12 +41,11 @@ func parseWorktrees(porcelain string) []worktreeEntry {
 // is the merge being judged. A root outside any worktree searches only itself.
 func otherWorktreeRoots(root string) pytestSearch {
 	search := pytestSearch{root: root}
-	top, err := git(root, "rev-parse", "--show-toplevel")
-	if err != nil {
+	top := gitx.RepoRoot(root)
+	if top == "" {
 		return search
 	}
-	top = filepath.Clean(strings.TrimSpace(top))
-	rel, err := filepath.Rel(top, filepath.Clean(root))
+	rel, err := filepath.Rel(top, igit.Canonical(root))
 	if err != nil {
 		return search
 	}
@@ -54,11 +56,12 @@ func otherWorktreeRoots(root string) pytestSearch {
 	mergeHead, _ := git(root, "rev-parse", "-q", "--verify", "MERGE_HEAD")
 	mergeHead = strings.TrimSpace(mergeHead)
 	for i, w := range parseWorktrees(list) {
-		dir := filepath.Join(filepath.Clean(w.path), rel)
+		path := igit.Canonical(w.path)
+		dir := filepath.Join(path, rel)
 		if i == 0 {
 			search.remedy = dir
 		}
-		if filepath.Clean(w.path) == top || (i > 0 && w.head != mergeHead) {
+		if path == top || (i > 0 && w.head != mergeHead) {
 			continue
 		}
 		search.elsewhere = append(search.elsewhere, dir)

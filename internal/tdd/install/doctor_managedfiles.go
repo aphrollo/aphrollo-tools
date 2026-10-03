@@ -74,9 +74,9 @@ func projectClaudeDir(repo string) string {
 	if repo == "" {
 		return ""
 	}
-	top, err := gitRead(repo, "rev-parse", "--show-toplevel")
-	if err != nil {
+	top := RepoRoot(repo)
+	if top == "" {
 		return ""
 	}
-	return filepath.Join(strings.TrimSpace(top), ".claude")
+	return filepath.Join(top, ".claude")
 }

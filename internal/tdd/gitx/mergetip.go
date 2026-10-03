@@ -23,6 +23,11 @@ const reflogActionEnv = "GIT_REFLOG_ACTION"
 // MERGE_HEAD (when it exists it IS the merge) and falling back to the branch
 // git says it is merging.
 func mergeTipOf(repoRoot string) (mergeTip, bool) {
+	// MERGE_HEAD is a file in the git directory: with none, and no merge named
+	// by the reflog action, nothing is merging and git is not asked.
+	if c := HookClient(repoRoot); c != nil && c.MergeInProgress() != "MERGE_HEAD" && reflogMergeRev() == "" {
+		return mergeTip{}, false
+	}
 	if tree, ok := revTree(repoRoot, "MERGE_HEAD"); ok {
 		return mergeTip{Rev: "MERGE_HEAD", Tree: tree, From: "MERGE_HEAD"}, true
 	}

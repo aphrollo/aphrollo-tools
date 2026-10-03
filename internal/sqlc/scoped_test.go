@@ -308,3 +308,21 @@ func TestChangedQueries_WrapsAGitShowFailure(t *testing.T) {
 		t.Errorf("changedQueries error = %v, want it wrapped with the query-file context", err)
 	}
 }
+
+// A run reads many files at one base ref: the ref is verified once, not once
+// per file.
+func TestVerifyRef_AsksGitOncePerRefAndRepo(t *testing.T) {
+	repo := gitShowTestRepo(t)
+	if err := verifyRef(repo, "HEAD"); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("PATH", t.TempDir()) // no git: a second ask of git would fail
+
+	if err := verifyRef(repo, "HEAD"); err != nil {
+		t.Errorf("a ref already verified was asked of git again: %v", err)
+	}
+	if err := verifyRef(repo, "no-such-ref"); err == nil {
+		t.Error("an unverified ref passed without asking git")
+	}
+}

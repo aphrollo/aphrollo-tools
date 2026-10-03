@@ -58,7 +58,7 @@ var spreadCallSites = map[string]string{
 	"internal/tdd/gc/gc_session.go:backgroundGCCommand":              "bounded: the fixed gc flags and one repository path",
 	"internal/tdd/gitx/gitplumbing.go:git":                           "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",
 	"internal/tdd/gitx/gitplumbing.go:gitStaged":                     "batched: Run splits the staged-path list (#960)",
-	"internal/tdd/gitx/gitplumbing.go:stagedChanges":                 "bounded: fixed diff --cached arguments; the path list, when a caller passes one, goes through Run in gitStaged",
+	"internal/tdd/gitx/gitplumbing.go:stagedChangesFromGit":          "bounded: fixed diff --cached arguments; the path list, when a caller passes one, goes through Run in gitStaged",
 	"internal/tdd/mutation/mutants_measure_tree.go:writeMeasureDiff": "batched: Run splits the lane-diff path list (#960)",
 	"internal/tdd/mutation/mutants_prove_sandbox.go:copyRepository":  "bounded: fixed git config argument pairs",
 	"internal/tdd/postedit/bashedit_mergescope.go:gitPathSet":        "batched: Run splits the merge-scope path list (#960)",

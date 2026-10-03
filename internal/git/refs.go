@@ -163,10 +163,21 @@ var mergeRefs = []string{"MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD"}
 func (c *Client) MergeInProgress() string {
 	for _, ref := range mergeRefs {
 		if raw, err := os.ReadFile(filepath.Join(c.gitDir, ref)); err == nil {
-			if sha, _, _ := strings.Cut(strings.TrimSpace(string(raw)), " "); isObjectID(sha) {
+			if isObjectID(firstToken(string(raw))) {
 				return ref
 			}
 		}
+	}
+	return ""
+}
+
+// firstToken is the first word of the first line of text: an octopus merge
+// leaves one commit per line in MERGE_HEAD, and FETCH_HEAD-style lines carry a
+// note after the commit.
+func firstToken(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	if f := strings.Fields(line); len(f) > 0 {
+		return f[0]
 	}
 	return ""
 }

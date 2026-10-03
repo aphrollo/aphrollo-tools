@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"sync"
 	"unicode"
 	"unicode/utf8"
 
@@ -355,6 +356,31 @@ func gitShow(repo, ref, relpath string) (string, error) {
 // a typo'd base ref, one never fetched, or git missing from PATH. gitShow
 // must propagate this rather than mistake it for a merely-absent path.
 func verifyRef(repo, ref string) error {
+	key := repo + "|" + ref
+	verifiedRefs.Lock()
+	done := verifiedRefs.set[key]
+	verifiedRefs.Unlock()
+	if done {
+		return nil
+	}
+	if err := verifyRefWithGit(repo, ref); err != nil {
+		return err
+	}
+	verifiedRefs.Lock()
+	verifiedRefs.set[key] = true
+	verifiedRefs.Unlock()
+	return nil
+}
+
+// verifiedRefs holds the refs this process has seen resolve: a run reads many
+// files at one base ref, and a ref does not stop resolving mid-run.
+var verifiedRefs = struct {
+	sync.Mutex
+	set map[string]bool
+}{set: map[string]bool{}}
+
+// verifyRefWithGit asks git whether ref resolves to a commit.
+func verifyRefWithGit(repo, ref string) error {
 	var stderr strings.Builder
 	if err := run.LightRun(run.Spec{Name: "git", Args: []string{"-C", repo, "rev-parse", "--verify", ref + "^{commit}"}, Stderr: &stderr}); err != nil {
 		return fmt.Errorf("git rev-parse --verify %s: %w: %s", ref, err, strings.TrimSpace(stderr.String()))

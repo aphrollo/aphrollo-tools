@@ -55,7 +55,7 @@ type gitWorld []gitWorldPart
 func snapshotGitWorld(root string) gitWorld {
 	var w gitWorld
 	if lane := RepoRoot(root); lane != "" {
-		common := strings.TrimSpace(gitOut(lane, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+		common := gitCommonDir(lane)
 		if common != "" {
 			config := filePart("the repository's config", filepath.Join(common, "config"))
 			config.Text = withoutBranchStanzas(config.Text)
@@ -68,9 +68,13 @@ func snapshotGitWorld(root string) gitWorld {
 		w = append(w, gitWorldPart{Label: "the worktree registrations", Present: true, Text: registrations})
 		w = append(w, gitWorldPart{Label: worktreeHeadsLabel, Present: true, Text: heads})
 		w = append(w, gitWorldPart{Label: "the branches", Present: true, Text: withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads"))})
-		w = append(w, gitWorldPart{Label: checkedOutLabel, Present: true, Text: strings.TrimSpace(gitOut(lane, "rev-parse", "HEAD")), Repo: lane})
-		tip := strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/heads/main"))
-		log := strings.TrimSuffix(gitOut(lane, "log", "-g", "-n", strconv.Itoa(reflogWindow), "--format=%gs", "refs/heads/main"), "\n")
+		w = append(w, gitWorldPart{Label: checkedOutLabel, Present: true, Text: checkedOutSHA(lane), Repo: lane})
+		trunk := localTrunk(lane)
+		tip, log := "", ""
+		if trunk != "" {
+			tip = strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/heads/"+trunk))
+			log = strings.TrimSuffix(gitOut(lane, "log", "-g", "-n", strconv.Itoa(reflogWindow), "--format=%gs", "refs/heads/"+trunk), "\n")
+		}
 		w = append(w, gitWorldPart{Label: tipOfMainLabel, Present: true, Text: tip + "\n" + log, Origin: mainOriginRelation(lane, tip)})
 	}
 	for _, path := range globalGitConfigs() {
@@ -181,8 +185,12 @@ const (
 // mainOriginRelation is how tip stands to origin/main in lane's repository,
 // "" when there is no origin/main to compare with.
 func mainOriginRelation(lane, tip string) string {
-	origin := strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/remotes/origin/main"))
-	if origin == "" || tip == "" {
+	trunk := localTrunk(lane)
+	if trunk == "" || tip == "" {
+		return ""
+	}
+	origin := strings.TrimSpace(gitOut(lane, "rev-parse", "--verify", "-q", "refs/remotes/origin/"+trunk))
+	if origin == "" {
 		return ""
 	}
 	switch base := strings.TrimSpace(gitOut(lane, "merge-base", tip, origin)); base {
@@ -485,4 +493,10 @@ func gitWorldRefusal(runner, root string, changes []string) string {
 	}
 	return fmt.Sprintf("gate: refused — a test process of the %s changed %s in %s or the global git config; its result is not trusted (details in the escape record)",
 		runner, strings.Join(labels, ", "), root)
+}
+
+// localTrunk is the repository's trunk as a local branch name, resolved and
+// never assumed: "" when it cannot be told.
+func localTrunk(lane string) string {
+	return strings.TrimPrefix(TrunkBranch(lane), "origin/")
 }

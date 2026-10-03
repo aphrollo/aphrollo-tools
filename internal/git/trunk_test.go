@@ -153,3 +153,28 @@ func TestClient_AnswersEveryPerEditFactTheGateReadsWithOneSpawn(t *testing.T) {
 		t.Errorf("Spawns = %d for the per-edit facts, want 1 (the status call)", c.Spawns())
 	}
 }
+
+func TestTrunk_AMissIsAskedAgainSoARemoteThatNamesItsDefaultLaterIsSeen(t *testing.T) {
+	dir := repoWithCommit(t)
+	gitT(t, dir, "branch", "-m", "main", "work")
+	c := mustNew(t, dir)
+	if got := c.Trunk(); got != "" {
+		t.Fatalf("Trunk = %q before the remote names a default, want none", got)
+	}
+	gitT(t, dir, "update-ref", "refs/remotes/origin/work", "HEAD")
+	gitT(t, dir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/work")
+	if got := c.Trunk(); got != "origin/work" {
+		t.Errorf("Trunk = %q after origin/HEAD appeared, want origin/work: the miss was kept", got)
+	}
+}
+
+func TestTrunk_ARemoteNameResolvesThroughItsHEADAsRevParseDoes(t *testing.T) {
+	dir := repoWithCommit(t)
+	gitT(t, dir, "update-ref", "refs/remotes/upstream/work", "HEAD")
+	gitT(t, dir, "symbolic-ref", "refs/remotes/upstream/HEAD", "refs/remotes/upstream/work")
+	gitT(t, dir, "config", "init.defaultBranch", "upstream")
+	gitT(t, dir, "rev-parse", "--verify", "--quiet", "upstream")
+	if got := mustNew(t, dir).Trunk(); got != "upstream" {
+		t.Errorf("Trunk = %q, want upstream: git resolves it through refs/remotes/upstream/HEAD", got)
+	}
+}

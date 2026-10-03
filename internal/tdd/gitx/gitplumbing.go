@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
@@ -128,6 +130,21 @@ func StagedRenames(repoRoot string) map[string]string {
 // default similarity threshold. It answers the destination paths and, for
 // the renames among them, destination -> source.
 func stagedChanges(repoRoot string) ([]string, map[string]string, error) {
+	stamp := indexStamp(repoRoot)
+	if stamp != "" {
+		if files, renames, ok := stagedMemo.get(repoRoot, stamp); ok {
+			return files, renames, nil
+		}
+	}
+	files, renames, err := stagedChangesFromGit(repoRoot)
+	if err == nil && stamp != "" {
+		stagedMemo.put(repoRoot, stamp, files, renames)
+	}
+	return files, renames, err
+}
+
+// stagedChangesFromGit is stagedChanges asked of git.
+func stagedChangesFromGit(repoRoot string) ([]string, map[string]string, error) {
 	args := []string{"diff", "--cached", "--name-status", "-M", "--diff-filter=" + stagedDiffFilter}
 	if base := stagedDiffBase(repoRoot); base != "" {
 		args = append(args, base)
@@ -182,9 +199,21 @@ func gitApplyIndex(wt, diff string) error {
 // RepoRoot returns the git top-level for dir, or "" if dir is not in a repo —
 // the working directory a git pre-commit hook should evaluate.
 func RepoRoot(dir string) string {
-	out, err := git(dir, "rev-parse", "--show-toplevel")
-	if err != nil {
+	if dir == "" {
+		dir, _ = os.Getwd()
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
 		return ""
 	}
-	return filepath.Clean(strings.TrimSpace(out))
+	root := HookRoot(dir)
+	if root == "" {
+		return ""
+	}
+	// Inside the git directory itself there is no work tree, as git says.
+	if abs, err := filepath.Abs(dir); err == nil {
+		if rel, err := filepath.Rel(root, igit.Canonical(abs)); err == nil && (rel == ".git" || strings.HasPrefix(filepath.ToSlash(rel), ".git/")) {
+			return ""
+		}
+	}
+	return root
 }

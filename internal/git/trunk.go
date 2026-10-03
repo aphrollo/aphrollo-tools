@@ -15,13 +15,16 @@ var conventionalTrunks = []string{"main", "master"}
 // default (`origin/HEAD`, as `origin/<name>`), else the configured
 // `init.defaultBranch`, else a conventional name; each candidate but the first
 // must resolve. "" means it cannot tell, and no name is ever assumed. The
-// answer is kept for the client's life. The first route reads a file; only the
+// answer is kept once it names a branch; a miss is asked again, so a
+// remote that names its default later is seen. The first route reads a file; only the
 // second asks git, and only when the remote names no default.
 func (c *Client) Trunk() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if !c.trunkDone {
-		c.trunk, c.trunkDone = c.resolveTrunk(), true
+		if name := c.resolveTrunk(); name != "" {
+			c.trunk, c.trunkDone = name, true
+		}
 	}
 	return c.trunk
 }
@@ -73,8 +76,8 @@ func (c *Client) resolves(name string) bool {
 		_, err := c.Output("rev-parse", "--verify", "--quiet", name)
 		return err == nil
 	}
-	for _, prefix := range []string{"refs/", "refs/tags/", "refs/heads/", "refs/remotes/"} {
-		if c.readRef(prefix+name) != "" {
+	for _, ref := range []string{name, "refs/" + name, "refs/tags/" + name, "refs/heads/" + name, "refs/remotes/" + name, "refs/remotes/" + name + "/HEAD"} {
+		if c.readRef(ref) != "" {
 			return true
 		}
 	}

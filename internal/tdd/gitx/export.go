@@ -16,6 +16,10 @@ type MergeTip = mergeTip
 
 func BranchIsTrunk(p0 string, p1 string) bool { return branchIsTrunk(p0, p1) }
 
+func CheckedOutBranch(p0 string) string { return checkedOutBranch(p0) }
+
+func CheckedOutSHA(p0 string) string { return checkedOutSHA(p0) }
+
 func CleanGitEnv() []string { return cleanGitEnv() }
 
 func CleanGitEnvFor(p0 string, p1 ...string) []string { return cleanGitEnvFor(p0, p1...) }
@@ -27,6 +31,8 @@ func GitApply(p0 string, p1 string) error { return gitApply(p0, p1) }
 func GitApplyIndex(p0 string, p1 string) error { return gitApplyIndex(p0, p1) }
 
 func GitBinary() string { return gitBinary() }
+
+func GitCommonDir(p0 string) string { return gitCommonDir(p0) }
 
 func GitOut(p0 string, p1 ...string) string { return gitOut(p0, p1...) }
 

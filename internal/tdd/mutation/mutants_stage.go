@@ -124,7 +124,7 @@ func mutantsStandDown(repoRoot string) (reason, token string) {
 		return ref + " in progress, which is not a merge", "not-a-merge"
 	}
 	trunk := TrunkBranch(repoRoot)
-	branch := gitOut(repoRoot, "rev-parse", "--abbrev-ref", "HEAD")
+	branch := checkedOutBranch(repoRoot)
 	if trunk == "" || branch == "" || branch == "HEAD" || branchIsTrunk(branch, trunk) {
 		// No trunk to compare against, a detached HEAD, or HEAD IS trunk:
 		// the last is the merge this stage exists for, and the first two are
