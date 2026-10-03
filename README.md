@@ -115,6 +115,17 @@ no edit to a released changelog section or a merged fragment.
   every run is; a run that does not finish makes the result a timeout that
   names its packages and the runs that never started, never a pass, and a run
   that fails ends the starting of new ones.
+- **Race runs:** a Go merge runs `-race` over the packages the change touched,
+  and the packages that import them in a second run without it, both with
+  `-count=1 -shuffle=on`; the merge is green only if both are, and a refusal
+  names both runs (`race-scope = "all"` keeps one `-race` run over everything).
+  Race runs on one box go side by side as far as the box carries them: the
+  smaller of free memory / 8 GB and cores / 8, never more than
+  `APHROLLO_BUILD_SLOTS`, the pool cargo builds share, and one when free memory
+  cannot be read. A run that has to wait says where it stands on one line, at
+  most once a minute: `gate: merge queue position 2 of 4 (est. ~11 min; holder:
+  <lane> pid <n>)`, the estimate taken from the recent `go test -race` runs in
+  gate.log and left out when there are none.
 - **Walls:** the primary checkout is merge-only; discarding commands are
   refused (`gate allow <wall>` arms one command).
 - **Memory:** every test, suite, lint and mutation process the gate starts runs
@@ -160,6 +171,7 @@ One ref name is let through: in a cloud session (`CLAUDE_CODE_REMOTE=true`) the 
 | `mutants-slots` (box) | 1 by default: measurements this box runs at once, the rest queue (fixed at 1 for now); cost: each slot runs a full shard set, so size it to cores and RAM |
 | `memory-cap` | derived by default: the most memory, in GB, one test, suite or mutation run the gate starts may hold before it is killed and reported OOM-KILLED (inconclusive, never red); derived from RAM, free memory and the slot count; off disables it; cost: a cap below what a build honestly needs kills honest work |
 | `memory-headroom` | derived by default: the available memory, in GB, a suite or measurement needs before it starts; below it the start waits, then is refused with the numbers; doubled while swap is 90% full; cost: a higher figure defers work on a busy box |
+| `race-scope` | changed by default: what -race covers in a Go merge: the packages the change touched, with the packages that import them run without it as a second run; all runs -race over every package in one run, as CI does; cost: all pays -race's several-fold build price on every importer of a touched package |
 | `undercover` | off by default: the commit-msg gate refuses AI attribution trailers; cost: none |
 | `ci` | `auto` (default), `local` or `github`: which CI judges `workspace merge`. `auto` uses GitHub's checks and falls back to local CI (`ci run`) when its jobs never start (a billing lock); `local` never waits on GitHub; `github` refuses an outage. `workspace merge --ci <mode>` beats it for one merge; every merge prints which CI judged it and why |
 | `ci-jobs` | 1 by default: the jobs local CI (`ci run`, `workspace merge --ci local`) runs at once; `--ci-jobs N` on `ci run` beats it for one run; cost: each extra job is another full build on the box at once, so keep it at 1 on a shared host |

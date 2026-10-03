@@ -289,6 +289,10 @@ func SelectedZeroTests(p0 Runner, p1 SuiteResult) bool { return selectedZeroTest
 
 func SplitFlagValue(p0 string) (string, string, bool) { return splitFlagValue(p0) }
 
+func SplitRaceRuns(p0 Runner, p1 string, p2 string, p3 []string) []Runner {
+	return splitRaceRuns(p0, p1, p2, p3)
+}
+
 func SplitRustTests(p0 string, p1 bool) (rustSplit, bool) { return splitRustTests(p0, p1) }
 
 func StagedProjectRoots(p0 string, p1 []string) []string { return stagedProjectRoots(p0, p1) }

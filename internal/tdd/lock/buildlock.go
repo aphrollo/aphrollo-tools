@@ -140,16 +140,17 @@ func postEditLockWait() time.Duration { return buildLockPostEditDeadline }
 
 func lockWaitLogAfter() time.Duration { return lockWaitLogThreshold }
 
-// goRaceLockKey is the synthetic "target dir" a `go test -race` run is
-// governed under, shared by every repo/worktree on the box: unlike a cargo
+// goRaceLockKey is the first of the synthetic "target dirs" a `go test -race`
+// run is governed under (raceslots.go makes the rest, one per run the box can
+// carry at once), shared by every repo/worktree on the box: unlike a cargo
 // target dir this is not where anything is actually written — Go's own
 // build cache (GOCACHE) is already safe for concurrent writers — so there is
 // no per-repo directory to key on and no reason to invent one. The point is
 // not per-repo exclusivity, it is that `-race` is genuinely CPU/RAM-heavy
 // (several times slower — the same box-wide contention buildLockPath's own
-// doc comment names for cargo) and now needs the SAME governor: a single
-// shared key means every `-race` run across every lane serializes on the
-// target lock AND draws from the SAME global slot pool cargo builds do, so
+// doc comment names for cargo) and now needs the SAME governor: the shared
+// keys mean every `-race` run across every lane takes a target lock AND
+// draws from the SAME global slot pool cargo builds do, so
 // a `-race` compile and a cargo build never stack uncounted on top of each
 // other either (cold review on #421).
 func goRaceLockKey() string {

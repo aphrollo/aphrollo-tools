@@ -131,6 +131,13 @@ func recordedSuiteFloor(stage, cmd string) suiteFloor {
 // GateStats treats one: the log is append-only text written by several
 // processes.
 func recordedSuiteSecs(stage, cmd string, window time.Duration) []float64 {
+	return recordedSecsWhere(func(e gateEntry) bool { return e.Stage == stage && e.Cmd == cmd }, window)
+}
+
+// recordedSecsWhere is recordedSuiteSecs over whichever entries match picks:
+// the same completed-run, same-window, last-suiteFloorSamples rule, for a
+// caller that identifies its work by more than one stage and command.
+func recordedSecsWhere(picks func(gateEntry) bool, window time.Duration) []float64 {
 	dir := StateDir()
 	if dir == "" {
 		return nil
@@ -146,7 +153,7 @@ func recordedSuiteSecs(stage, cmd string, window time.Duration) []float64 {
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
 		e, ok := parseGateLine(sc.Text())
-		if !ok || e.Stage != stage || e.Cmd != cmd {
+		if !ok || !picks(e) {
 			continue
 		}
 		// A run that never finished, or never ran, is not evidence about

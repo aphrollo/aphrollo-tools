@@ -71,10 +71,18 @@ func runCargoLocked(run SuiteRunner, r Runner, root string, lockDeadline, stageB
 		dir = r.Dir
 	}
 	target := goRaceLockKey()
-	if !racy {
+	var slot BuildSlot
+	var release func()
+	var ok bool
+	if racy {
+		// A race run takes whichever of the box's race keys is free, up to
+		// the capacity its memory and cores allow (lock/raceslots.go), and
+		// says where it stands in the queue while it waits.
+		slot, release, ok = acquireRaceSlot(lockDeadline, cmdString(r), dir)
+	} else {
 		target = runnerTargetDir(r, root)
+		slot, release, ok = acquireBuildSlot(target, lockDeadline, cmdString(r), dir)
 	}
-	slot, release, ok := acquireBuildSlot(target, lockDeadline, cmdString(r), dir)
 	waited = time.Since(start)
 	if !ok {
 		return SuiteResult{}, waited, false

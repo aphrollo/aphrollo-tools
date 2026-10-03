@@ -39,6 +39,10 @@ func acquireBuildSlot(p0 string, p1 time.Duration, p2 string, p3 string) (BuildS
 	return lock.AcquireBuildSlot(p0, p1, p2, p3)
 }
 
+func acquireRaceSlot(p0 time.Duration, p1 string, p2 string) (BuildSlot, func(), bool) {
+	return lock.AcquireRaceSlot(p0, p1, p2)
+}
+
 func buildSlotCount() int { return lock.BuildSlotCount() }
 
 func cappedFloor(p0 time.Duration, p1 time.Duration) time.Duration { return lock.CappedFloor(p0, p1) }
