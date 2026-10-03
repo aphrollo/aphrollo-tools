@@ -39,36 +39,81 @@ func syncRepo(t *testing.T, laneFiles, trunkFiles map[string]string) (root, trun
 	return root, trunk
 }
 
-func TestMechanical_TrunkSyncIntoDocsOnlyLaneTakesTheDocsFastPath(t *testing.T) {
-	t.Parallel()
-	root, trunk := syncRepo(t,
-		map[string]string{"docs/decisions.md": "# decisions\n"},
-		map[string]string{"internal/b/b.go": "package b\n\nfunc B() int { return 1 }\n"})
-	gitDo(t, root, "merge", "--no-commit", "--no-ff", trunk)
+// ratchet: test_removed TestMechanical_TrunkSyncIntoDocsOnlyLaneTakesTheDocsFastPath: a trunk sync into a lane no longer reaches the fast paths; it keeps the cheap stages and runs no suite, proved by TestMechanical_CatchUpMergeRunsNoSuiteAndSaysSo
+// ratchet: test_removed TestMechanical_TrunkSyncJudgesOnlyTheLanesOwnPackages: a trunk sync no longer runs the lane's packages either; CI tests the lane, proved by TestMechanical_CatchUpMergeRunsNoSuiteAndSaysSo
+// ratchet: test_removed TestMechanical_SyncFromLocalTrunkAheadOfOriginIsScopedToTheLane: renamed TestMechanical_CatchUpFromLocalTrunkAheadOfOriginRunsNoSuite, the sync from local trunk now runs no suite
+// ratchet: test_removed TestMechanical_AutomergeTrunkSyncNamedByReflogIsScopedToTheLane: renamed TestMechanical_AutomergeCatchUpNamedByReflogRunsNoSuite, the automerge sync now runs no suite
 
-	if res := Mechanical(root, refuseToRun(t)); res.Blocked {
-		t.Fatalf("a trunk sync into a docs-only lane must not be blocked: %s", res.Message)
-	}
-	log := gateLogHere(t)
-	if !strings.Contains(log, "docs-only-fastpath") {
-		t.Fatalf("a trunk sync into a docs-only lane must take the docs fast path, got:\n%s", log)
-	}
+// catchUpLine is the one line a catch-up merge prints in place of a suite.
+func catchUpLine(trunk, lane string) string {
+	return "gate premerge: catch-up merge of " + trunk + " into " + lane + " — suites skipped, CI tests the lane"
 }
 
-func TestMechanical_TrunkSyncJudgesOnlyTheLanesOwnPackages(t *testing.T) {
+// A catch-up merge (trunk brought into a lane) is not the tree that lands on
+// trunk: CI tests the lane after the push. The gate keeps the cheap stages and
+// runs no suite, whatever the lane carries.
+func TestMechanical_CatchUpMergeRunsNoSuiteAndSaysSo(t *testing.T) {
 	t.Parallel()
 	root, trunk := syncRepo(t,
 		map[string]string{"internal/a/a.go": "package a\n\nfunc A() int { return 1 }\n"},
 		map[string]string{"internal/b/b.go": "package b\n\nfunc B() int { return 1 }\n"})
 	gitDo(t, root, "merge", "--no-commit", "--no-ff", trunk)
 
-	var seen []Runner
-	if res := Mechanical(root, recordRunner(&seen, root)); res.Blocked {
-		t.Fatalf("unexpected block: %s", res.Message)
+	res := Mechanical(root, refuseToRun(t))
+	if res.Blocked {
+		t.Fatalf("a catch-up merge must not be blocked: %s", res.Message)
 	}
-	want := []Runner{{Cmd: "go", Args: []string{"test", "-race", "-count=1", "-shuffle=on", "./internal/a"}, Dir: "", Deadline: time.Time{}}}
-	if !reflect.DeepEqual(seen, want) {
-		t.Fatalf("a trunk sync must judge the lane's own package only:\n got %+v\nwant %+v", seen, want)
+	if want := catchUpLine(trunk, "lane/work"); !strings.Contains(res.Message, want) {
+		t.Fatalf("message = %q, want it to say %q", res.Message, want)
+	}
+}
+
+// The cheap stages still judge a catch-up merge: the lane's own law break is
+// refused at the merge, not first at CI.
+func TestMechanical_CatchUpMergeStillAnswersToTheLaws(t *testing.T) {
+	t.Parallel()
+	root, trunk := syncRepo(t,
+		map[string]string{
+			".ratchet/laws/no-todo.toml": `
+name = "no-todo"
+description = "Docs do not ship TODOs"
+severity = "deny"
+escape = "<!-- todo-ok:"
+baseline = ".ratchet/baselines/no-todo.txt"
+
+[scope]
+include = ["docs/**/*.md"]
+
+[matcher]
+kind = "regex-absent"
+pattern = "TODO"
+`,
+			".ratchet/baselines/no-todo.txt": "",
+			"docs/guide.md":                  "TODO: finish\n",
+		},
+		map[string]string{"internal/b/b.go": "package b\n\nfunc B() int { return 1 }\n"})
+	gitDo(t, root, "merge", "--no-commit", "--no-ff", trunk)
+
+	res := Mechanical(root, refuseToRun(t))
+	if !res.Blocked || !strings.Contains(res.Message, "no-todo") {
+		t.Fatalf("a catch-up merge must still answer to the laws: %+v", res)
+	}
+}
+
+// A repo whose trunk is not `main` still gets the catch-up path, named by its
+// own trunk.
+func TestMechanical_CatchUpMergeNamesTheReposOwnTrunk(t *testing.T) {
+	t.Parallel()
+	root, trunk := syncRepo(t,
+		map[string]string{"internal/a/a.go": "package a\n\nfunc A() int { return 1 }\n"},
+		map[string]string{"internal/b/b.go": "package b\n\nfunc B() int { return 1 }\n"})
+	gitDo(t, root, "branch", "-m", trunk, "develop")
+	gitDo(t, root, "config", "init.defaultBranch", "develop")
+	gitDo(t, root, "merge", "--no-commit", "--no-ff", "develop")
+
+	res := Mechanical(root, refuseToRun(t))
+	if want := catchUpLine("develop", "lane/work"); !strings.Contains(res.Message, want) {
+		t.Fatalf("message = %q, want it to say %q", res.Message, want)
 	}
 }
 
@@ -178,22 +223,23 @@ func TestMechanical_LaneIntoLaneJudgesTheIncomingLane(t *testing.T) {
 }
 
 // A lane lands on the primary's local trunk before anything is pushed, so a
-// sync names local main while trunk resolves as origin/main.
-func TestMechanical_SyncFromLocalTrunkAheadOfOriginIsScopedToTheLane(t *testing.T) {
+// sync names local main while trunk resolves as origin/main: still a catch-up.
+func TestMechanical_CatchUpFromLocalTrunkAheadOfOriginRunsNoSuite(t *testing.T) {
 	t.Parallel()
 	root := originTrunkRepo(t)
 	gitDo(t, root, "checkout", "-q", "lane/work")
 	gitDo(t, root, "merge", "--no-commit", "--no-ff", "main")
 
-	if got, want := mechanicalRuns(t, root), []Runner{goTestRun("./internal/a")}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("a sync from local trunk must judge the lane's own package only:\n got %+v\nwant %+v", got, want)
+	res := Mechanical(root, refuseToRun(t))
+	if want := catchUpLine("main", "lane/work"); !strings.Contains(res.Message, want) {
+		t.Fatalf("message = %q, want it to say %q", res.Message, want)
 	}
 }
 
 // A clean automerge fires pre-merge-commit before MERGE_HEAD exists; only
 // GIT_REFLOG_ACTION names the incoming branch.
 // Serial: sets the process-wide env var GIT_REFLOG_ACTION.
-func TestMechanical_AutomergeTrunkSyncNamedByReflogIsScopedToTheLane(t *testing.T) {
+func TestMechanical_AutomergeCatchUpNamedByReflogRunsNoSuite(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root, trunk := syncRepo(t,
 		map[string]string{"internal/a/a.go": "package a\n\nfunc A() int { return 1 }\n"},
@@ -204,8 +250,9 @@ func TestMechanical_AutomergeTrunkSyncNamedByReflogIsScopedToTheLane(t *testing.
 	}
 	t.Setenv(reflogActionEnv, "merge "+trunk)
 
-	if got, want := mechanicalRuns(t, root), []Runner{goTestRun("./internal/a")}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("an automerge trunk sync must judge the lane's own package only:\n got %+v\nwant %+v", got, want)
+	res := Mechanical(root, refuseToRun(t))
+	if want := catchUpLine(trunk, "lane/work"); !strings.Contains(res.Message, want) {
+		t.Fatalf("message = %q, want it to say %q", res.Message, want)
 	}
 }
 

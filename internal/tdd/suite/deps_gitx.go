@@ -8,6 +8,8 @@ import (
 
 func RepoRoot(p0 string) string { return gitx.RepoRoot(p0) }
 
+func TrunkBranch(p0 string) string { return gitx.TrunkBranch(p0) }
+
 func cleanGitEnv() []string { return gitx.CleanGitEnv() }
 
 func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
