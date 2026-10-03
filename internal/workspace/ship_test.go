@@ -75,3 +75,55 @@ func TestShipApply_ReportsAheadCountFromTheCommitItJustCreated(t *testing.T) {
 		t.Errorf("push receipt should report 1 commit ahead (the one ship just created), got:\n%s", out.String())
 	}
 }
+
+// A lane whose work is already committed ships by pushing and opening the PR:
+// the commit stage reports a skip, never a refusal, and needs no message.
+func TestShipApply_AlreadyCommittedSkipsTheCommitStageAndContinues(t *testing.T) {
+	repo := repoWithRemote(t)
+	run := func(args ...string) {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	run("checkout", "-q", "-b", "feat/done")
+	writeFile(t, repo, "f.txt", "x\n")
+	run("add", ".")
+	run("commit", "-qm", "already committed")
+
+	created := 0
+	stubGH(t,
+		func(wt, branch string) (*PRInfo, error) { return nil, nil },
+		func(wt string, req PRCreate) (*PRInfo, error) {
+			created++
+			return &PRInfo{Number: 7, URL: "https://github.com/o/r/pull/7", State: "OPEN"}, nil
+		},
+	)
+	stubCI(t, func(wt, branch string) (CIStatus, error) { return CIStatus{State: "green"}, nil })
+
+	s, err := ShipPlan(targetFor(repo, "feat/done"), ShipRequest{StageAll: true, NoVerify: true, Reason: "test bypass"})
+	if err != nil {
+		t.Fatalf("ShipPlan with no message on a clean tree: %v", err)
+	}
+	var out, errb bytes.Buffer
+	if err := s.Apply(&out, &errb); err != nil {
+		t.Fatalf("Apply: %v\n%s", err, errb.String())
+	}
+	if !strings.Contains(out.String(), "[skip] nothing to commit") {
+		t.Errorf("commit stage should report a skip:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "pushed feat/done -> origin") {
+		t.Errorf("push stage must still run after the skipped commit:\n%s", out.String())
+	}
+	if created != 1 {
+		t.Errorf("PR stage created %d PRs, want 1", created)
+	}
+}
+
+// A message is still required when there is something to commit.
+func TestShipPlan_DirtyTreeStillRequiresAMessage(t *testing.T) {
+	repo := repoWithRemote(t)
+	writeFile(t, repo, "f.txt", "x\n")
+	if _, err := ShipPlan(targetFor(repo, "main"), ShipRequest{StageAll: true}); err == nil {
+		t.Fatal("expected ShipPlan to reject an empty message when there are changes to commit")
+	}
+}

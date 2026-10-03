@@ -43,7 +43,15 @@ type Commit struct {
 // requires prose: --no-verify with no stated reason is an unexplained bypass
 // gate stats has nothing to attribute it to.
 func CommitPlan(t *Target, message string, stageAll, noVerify bool, reason string) (*Commit, error) {
-	if strings.TrimSpace(message) == "" {
+	return commitPlan(t, message, stageAll, noVerify, reason, false)
+}
+
+// commitPlan is CommitPlan's body. messageOptionalWhenClean lets a plan with
+// nothing to commit carry no message, because its Apply never reads one: ship
+// resumes a lane that was committed by hand.
+func commitPlan(t *Target, message string, stageAll, noVerify bool, reason string, messageOptionalWhenClean bool) (*Commit, error) {
+	blank := strings.TrimSpace(message) == ""
+	if blank && !messageOptionalWhenClean {
 		return nil, fmt.Errorf("a commit message is required (-m)")
 	}
 	if noVerify && strings.TrimSpace(reason) == "" {
@@ -53,7 +61,11 @@ func CommitPlan(t *Target, message string, stageAll, noVerify bool, reason strin
 	if err != nil {
 		return nil, err
 	}
-	return &Commit{Target: t, Message: message, StageAll: stageAll, NoVerify: noVerify, Reason: reason, dirty: status}, nil
+	c := &Commit{Target: t, Message: message, StageAll: stageAll, NoVerify: noVerify, Reason: reason, dirty: status}
+	if blank && !c.clean() {
+		return nil, fmt.Errorf("a commit message is required (-m)")
+	}
+	return c, nil
 }
 
 // Render previews the commit. apply=false is the dry-run; apply=true is the terse
@@ -92,7 +104,7 @@ func (c *Commit) Render(apply bool) string {
 // further — that stderr already says what failed and how to proceed.
 func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	if c.clean() {
-		fmt.Fprintf(stdout, "%s\n", c.noopMsg())
+		fmt.Fprintf(stdout, "[skip] %s\n", c.noopMsg())
 		return nil
 	}
 	wt := c.Target.Worktree
