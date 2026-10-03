@@ -18,6 +18,8 @@ func TestParse_ReadsTheJobModelAndTheTriggerForms(t *testing.T) {
 		{"list", "on: [push, pull_request]", true, 0},
 		{"list without", "on: [push, workflow_dispatch]", false, 0},
 		{"map", "on:\n  push:\n    branches: [main]\n  pull_request:", true, 0},
+		{"map with merge_group beside pull_request", "on:\n  merge_group:\n    types: [checks_requested]\n  pull_request:\n    types: [opened]", true, 1},
+		{"merge_group alone is not pull_request", "on:\n  merge_group:\n    types: [checks_requested]", false, 0},
 		{"map without", "on:\n  push:\n    branches: [main]", false, 0},
 		{"map with filters", "on:\n  pull_request:\n    branches: [main]\n    paths: ['src/**']\n    types: [opened]", true, 3},
 		{"target is not pull_request", "on: pull_request_target", false, 0},

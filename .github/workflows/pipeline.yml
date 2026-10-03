@@ -24,6 +24,15 @@ on:
   # the ready_for_review run reports them fresh.
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # The merge queue runs the pipeline on a temporary branch holding the queued
+  # change on top of the base (and of every entry ahead of it), and merges only
+  # when every required check reports there. Draft and event guards below are
+  # written so each required job runs on this event: `pull_request.draft` is
+  # absent here, so `!= true` holds. `pr-ratchet` runs against the group's
+  # base_sha; the jobs that need a pull request (version-check, the mutation
+  # measurement) are not required and skip.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   workflow_dispatch:
@@ -99,7 +108,7 @@ jobs:
         run: go build -trimpath -buildvcs=false -o bin/cireuse ./tools/cireuse
       - id: filter
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           set -euo pipefail
           # Anything but one of the four known classes -- the classifier
@@ -288,7 +297,7 @@ jobs:
       - name: aphrollo docs check (changed markdown)
         if: needs.changes.outputs.docs == 'true'
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
         run: |
           set -euo pipefail
           aphrollo="$PWD/bin/aphrollo"
@@ -979,8 +988,9 @@ jobs:
   # that gate. `merged-tree-ratchet` (below) catches the same regression, but
   # only AFTER the merge already produced it.
   #
-  # Pull requests only, same reasoning as `mutants-verdict`: a push to main
-  # has no merge ahead of itself to check.
+  # Pull requests and merge groups only: a push to main has no merge ahead of
+  # itself to check. It is a required check, so it must report on a merge-queue
+  # run too (a skipped required job would pass unchecked), and it is cheap.
   #
   # Skipped only for a docs-only PR (`changes.outputs.code == 'false'`):
   # `doc_reference_exists` covers markdown, and `docs-check` already runs
@@ -1002,7 +1012,7 @@ jobs:
   # baseline -- only a developer's own commit or `--adopt` may lower or
   # create one.
   pr-ratchet:
-    if: github.event_name == 'pull_request' && github.event.pull_request.draft != true
+    if: (github.event_name == 'pull_request' || github.event_name == 'merge_group') && github.event.pull_request.draft != true
     needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1023,11 +1033,20 @@ jobs:
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       - name: aphrollo ratchet check (the PR's merged tree)
         if: (needs.changes.outputs.code == 'true' || needs.changes.outputs.lint == 'true')
+        env:
+          MERGE_GROUP_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
-          # HEAD is the merge; HEAD^1 is the base it merges into, HEAD^2 is
-          # this PR's own tip -- the same parents `mutants-verdict` reads.
-          base=$(git merge-base HEAD^1 HEAD^2)
+          # On a pull request HEAD is the merge; HEAD^1 is the base it merges
+          # into, HEAD^2 is this PR's own tip -- the same parents
+          # `mutants-verdict` reads. On a merge group HEAD is the queued commit
+          # (a squash has one parent), so the base is the group's own base_sha,
+          # already an ancestor of HEAD.
+          if [ -n "$MERGE_GROUP_BASE" ]; then
+            base="$MERGE_GROUP_BASE"
+          else
+            base=$(git merge-base HEAD^1 HEAD^2)
+          fi
           echo "scoping the ratchet check to $base..HEAD"
           ./bin/aphrollo ratchet check --base "$base" --no-tighten --no-cache
 
