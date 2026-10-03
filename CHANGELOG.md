@@ -19,6 +19,27 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.4.1 - 2026-10-03
+
+The merge gate is stricter about which CI checks it will take in place of a local run.
+
+### What you will notice
+
+- A re-run of a CI job is never taken for the tree CI tested: a re-run keeps the merge
+  commit it first tested but starts later, so its start time cannot say which merge it
+  saw. The gate reads each check's workflow run and reuses only first attempts; a run it
+  cannot read counts as not reusable, and the full local gate runs. The line
+  `CI's verdict is not reused (<why>)` says so.
+- Only the checks the repo's own workflow published count: the app must be
+  `github-actions` and the workflow file `pipeline.yml`. A check of the same name from
+  another app or workflow no longer stands in for the suites, and if the bound checks
+  do not exist the gate runs locally.
+- A repo whose jobs are named otherwise lists them under `[aphrollo]` in `aphrollo.toml`:
+  `ci-reuse-checks = ["unit", "unit-windows"]` (the first is required, the others count
+  when present) and `ci-reuse-workflow = "ci.yml"`.
+- When the diff changes only markdown, CI's test job passes with its steps skipped; the
+  gate still reuses it and says `CI ran no tests: non-code diff` on the reuse line.
+
 ## 1.4.0 - 2026-10-03
 
 The merge gate takes CI's verdict for a tree CI has already tested, instead of

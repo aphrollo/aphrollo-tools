@@ -37,7 +37,8 @@ func mergedTreeOf(t *testing.T, root, trunk string) string {
 var ciBefore = time.Now().Add(-time.Hour)
 
 func passedCheck(name string) CIVerdictCheck {
-	return CIVerdictCheck{Name: name, Passed: true, Started: ciBefore.Add(time.Minute)}
+	return CIVerdictCheck{Name: name, Passed: true, Started: ciBefore.Add(time.Minute),
+		App: "github-actions", Workflow: "pipeline.yml", Attempt: 1}
 }
 
 // stubCIMergeRef makes CI's merge ref carry tree, made at committed, and
@@ -132,11 +133,10 @@ func TestGatePRMergeReusingCI_RunsTheLocalSuiteWhenCIJudgedADifferentTree(t *tes
 }
 
 func TestGatePRMergeReusingCI_RunsTheLocalSuiteWhenAnOSCheckIsNotGreen(t *testing.T) {
-	started := ciBefore.Add(time.Minute)
 	cases := map[string][]CIVerdictCheck{
-		"windows shard red":  {passedCheck("test"), passedCheck("test-windows (cli)"), {Name: "test-windows (rest)", Started: started}},
+		"windows shard red":  {passedCheck("test"), passedCheck("test-windows (cli)"), redCheck("test-windows (rest)")},
 		"linux test missing": {passedCheck("test-windows (cli)")},
-		"linux test red":     {{Name: "test", Started: started}, passedCheck("test-windows (cli)")},
+		"linux test red":     {redCheck("test"), passedCheck("test-windows (cli)")},
 	}
 	for name, checks := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -232,4 +232,95 @@ func TestReadCIReuse_IsOnWhenUndeclared(t *testing.T) {
 	if err != nil || !on {
 		t.Fatalf("undeclared ci-reuse = (%v, %v), want on", on, err)
 	}
+}
+
+// A re-run job keeps the merge commit it first tested but starts later, so a
+// start time cannot say which merge it saw. Only a first attempt can be
+// ordered against the merge ref; anything else, or an attempt GitHub did not
+// say, is a verdict about a tree this gate cannot name.
+func TestGatePRMergeReusingCI_RunsTheLocalSuiteForARerunOrAnUnknownAttempt(t *testing.T) {
+	for name, attempt := range map[string]int{"rerun": 2, "unknown": 0} {
+		t.Run(name, func(t *testing.T) {
+			root, trunk := ciReuseLane(t, mutantsInCI)
+			stubCIMergeRef(t, mergedTreeOf(t, root, trunk), ciBefore)
+			c := passedCheck("test")
+			c.Attempt = attempt
+			var seen []gateRun
+			_ = GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, c))
+			if len(seen) == 0 {
+				t.Fatalf("attempt %d was taken as the tree CI tested", attempt)
+			}
+		})
+	}
+}
+
+// Any app can publish a check named `test`; only the pipeline's own job counts.
+func TestGatePRMergeReusingCI_OnlyCountsTheChecksOfTheBoundWorkflowAndApp(t *testing.T) {
+	cases := map[string]func(*CIVerdictCheck){
+		"another app":      func(c *CIVerdictCheck) { c.App = "some-ci" },
+		"another workflow": func(c *CIVerdictCheck) { c.Workflow = "other.yml" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			root, trunk := ciReuseLane(t, mutantsInCI)
+			stubCIMergeRef(t, mergedTreeOf(t, root, trunk), ciBefore)
+			c := passedCheck("test")
+			mutate(&c)
+			var seen []gateRun
+			_ = GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, c))
+			if len(seen) == 0 {
+				t.Fatal("a check from outside the bound workflow stood in for the suites")
+			}
+		})
+	}
+}
+
+// A repo whose jobs are named otherwise says which ones carry its suites.
+func TestGatePRMergeReusingCI_ARepoNamesTheChecksThatCarryItsSuites(t *testing.T) {
+	root, trunk := ciReuseLane(t, mutantsInCI+"ci-reuse-checks = [\"unit\", \"unit-windows\"]\n"+"ci-reuse-workflow = \"ci.yml\"\n")
+	tree := mergedTreeOf(t, root, trunk)
+	stubCIMergeRef(t, tree, ciBefore)
+	bound := func(name string) CIVerdictCheck {
+		c := passedCheck(name)
+		c.Workflow = "ci.yml"
+		return c
+	}
+	var seen []gateRun
+	var log strings.Builder
+	err := GatePRMergeReusingCI(root, recordRuns(&seen, SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, bound("unit"), bound("unit-windows (a)")))
+	if err != nil || len(seen) != 0 {
+		t.Fatalf("named checks green on the named workflow must be reused: err=%v, suites run=%d\n%s", err, len(seen), log.String())
+	}
+	if want := "reused CI verdict for tree " + tree + " (unit, unit-windows)"; !strings.Contains(log.String(), want) {
+		t.Errorf("log lacks %q:\n%s", want, log.String())
+	}
+}
+
+// The `test` job of a pull request that changes no code concludes success
+// with its steps skipped: reuse is right, and the log must not claim tests ran.
+func TestGatePRMergeReusingCI_SaysWhenCIRanNoTestsForANonCodeDiff(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, trunk := prGateLane(t)
+	gitDo(t, root, "checkout", "-q", trunk)
+	write(t, root, "aphrollo.toml", "[aphrollo]\n"+mutantsInCI)
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "declare the gate")
+	gitDo(t, root, "checkout", "-q", "-b", "doclane")
+	write(t, root, "NOTES.md", "Some notes.\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "notes")
+
+	var log strings.Builder
+	if err := GatePRMergeReusingCI(root, recordRuns(new([]gateRun), SuiteResult{Passed: true}), &log, ciVerdictOf(t, root, passedCheck("test"))); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.String(), "reused CI verdict") || !strings.Contains(log.String(), "CI ran no tests: non-code diff") {
+		t.Errorf("log lacks the reuse line with the non-code note:\n%s", log.String())
+	}
+}
+
+func redCheck(name string) CIVerdictCheck {
+	c := passedCheck(name)
+	c.Passed = false
+	return c
 }

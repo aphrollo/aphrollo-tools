@@ -21,18 +21,57 @@ import (
 // `test-windows` shards (one check run per matrix entry, "test-windows (cli)").
 // An OS whose check does not exist on the head is not declared; one that
 // exists and is not green is a reason to run locally, never a pass.
+//
+// Only a check the repo's own workflow published counts: the app must be
+// github-actions and the workflow file the bound one (pipeline.yml), since any
+// other app can publish a check of the same name. A repo whose jobs are named
+// otherwise lists them in `ci-reuse-checks` (the first is required, the others
+// count when present) and its workflow file in `ci-reuse-workflow`.
 const (
-	ciReuseKey    = "ci-reuse"
-	linuxCheck    = "test"
-	windowsPrefix = "test-windows"
+	ciReuseKey         = "ci-reuse"
+	ciReuseChecksKey   = "ci-reuse-checks"
+	ciReuseWorkflowKey = "ci-reuse-workflow"
+	ciReuseApp         = "github-actions"
+	defaultWorkflow    = "pipeline.yml"
 )
 
+var defaultChecks = []string{"test", "test-windows"}
+
+// osLabels names an OS for the checks the pipeline ships with; any other
+// check is named by itself.
+var osLabels = map[string]string{"test": "linux", "test-windows": "windows"}
+
 // CIVerdictCheck is one check run on the PR head: its name, whether it
-// completed green, and when it began (zero when GitHub did not say).
+// completed green, when it began (zero when GitHub did not say), the app and
+// workflow file that published it, and which attempt of its run it is (0 when
+// GitHub did not say).
 type CIVerdictCheck struct {
-	Name    string
-	Passed  bool
-	Started time.Time
+	Name     string
+	Passed   bool
+	Started  time.Time
+	App      string
+	Workflow string
+	Attempt  int
+}
+
+// ciSpec is which checks stand for the suites: the names (first required) and
+// the workflow file they must come from.
+type ciSpec struct {
+	names    []string
+	workflow string
+}
+
+// readCISpec is the repo's declaration of the bound checks, defaults where it
+// declares nothing.
+func readCISpec(root string) ciSpec {
+	spec := ciSpec{names: defaultChecks, workflow: defaultWorkflow}
+	if names := tomlStringsIn(root+"/aphrollo.toml", "[aphrollo]", ciReuseChecksKey); len(names) > 0 {
+		spec.names = names
+	}
+	if w, set := tomlStringIn(root+"/aphrollo.toml", "[aphrollo]", ciReuseWorkflowKey); set && strings.TrimSpace(w) != "" {
+		spec.workflow = strings.TrimSpace(w)
+	}
+	return spec
 }
 
 // CIVerdict is what CI said about a PR: its number, the head commit the
@@ -89,46 +128,54 @@ func ReadCIReuse(root string) (bool, error) {
 	return false, fmt.Errorf("%s = %q is not true or false", ciReuseKey, v)
 }
 
-// ciOSes names the OSes whose checks all passed, or why the verdict cannot
-// stand: the Linux check missing or not green, or a Windows check present and
-// not green. started is the earliest begin time among the checks counted.
-func ciOSes(checks []CIVerdictCheck) (oses []string, started time.Time, why string) {
-	var linux, windows, windowsRed int
-	note := func(c CIVerdictCheck) {
-		if started.IsZero() || c.Started.Before(started) {
-			started = c.Started
-		}
-	}
-	for _, c := range checks {
-		switch {
-		case c.Name == linuxCheck && c.Passed:
-			linux++
-			note(c)
-		case c.Name == linuxCheck:
-			return nil, started, "the Linux check `" + linuxCheck + "` is not green"
-		case c.Name == windowsPrefix || strings.HasPrefix(c.Name, windowsPrefix+" ("):
-			if !c.Passed {
-				windowsRed++
+// ciOSes names what ran and passed, or why the verdict cannot stand: the
+// required check missing or not green, or another named check present and not
+// green. Only checks of the bound app and workflow count. started is the
+// earliest begin time among the checks counted; firstAttempts is false when
+// any counted check is a re-run or of an attempt GitHub did not name.
+func ciOSes(checks []CIVerdictCheck, spec ciSpec) (oses []string, started time.Time, firstAttempts bool, why string) {
+	firstAttempts = true
+	for i, name := range spec.names {
+		var count, red int
+		for _, c := range checks {
+			if c.App != ciReuseApp || c.Workflow != spec.workflow {
+				continue
 			}
-			windows++
-			note(c)
+			if c.Name != name && !strings.HasPrefix(c.Name, name+" (") {
+				continue
+			}
+			count++
+			if !c.Passed {
+				red++
+			}
+			if started.IsZero() || c.Started.Before(started) {
+				started = c.Started
+			}
+			if c.Attempt != 1 {
+				firstAttempts = false
+			}
 		}
+		switch {
+		case red > 0:
+			return nil, started, false, "a `" + name + "` check is not green"
+		case count == 0 && i == 0:
+			return nil, started, false, "CI has no `" + name + "` check of " + spec.workflow + " on this head"
+		case count == 0:
+			continue
+		}
+		label := osLabels[name]
+		if label == "" {
+			label = name
+		}
+		oses = append(oses, label)
 	}
-	switch {
-	case linux == 0:
-		return nil, started, "CI has no `" + linuxCheck + "` check on this head"
-	case windowsRed > 0:
-		return nil, started, "a `" + windowsPrefix + "` check is not green"
-	case windows > 0:
-		return []string{"linux", "windows"}, started, ""
-	}
-	return []string{"linux"}, started, ""
+	return oses, started, firstAttempts, ""
 }
 
 // ciVerdictTree is the tree the verdict covers when it stands for the merge
 // this gate would test, and "" with the reason when it does not.
-func ciVerdictTree(laneWorktree string, tips prGateTips, v CIVerdict) (tree string, oses []string, why string) {
-	oses, started, why := ciOSes(v.Checks)
+func ciVerdictTree(laneWorktree string, tips prGateTips, v CIVerdict, spec ciSpec) (tree string, oses []string, why string) {
+	oses, started, firstAttempts, why := ciOSes(v.Checks, spec)
 	if why != "" {
 		return "", nil, why
 	}
@@ -155,6 +202,11 @@ func ciVerdictTree(laneWorktree string, tips prGateTips, v CIVerdict) (tree stri
 	}
 	if ref.Tree != merged {
 		return "", nil, "trunk moved since CI tested (its merge tree is " + ref.Tree + ", this one " + merged + ")"
+	}
+	// A re-run keeps the merge commit it first tested but starts later, so
+	// its start time proves nothing about which merge it saw.
+	if !firstAttempts {
+		return "", nil, "a counted check is a re-run, or its attempt is unknown, so which merge it tested cannot be named"
 	}
 	if started.IsZero() || ref.Committed.After(started) {
 		return "", nil, "CI's merge ref is newer than its checks, so they may have tested another merge"
@@ -192,11 +244,31 @@ func GatePRMergeReusingCI(laneWorktree string, run SuiteRunner, log io.Writer, v
 	if tips.landed {
 		return nil
 	}
-	tree, oses, why := ciVerdictTree(laneWorktree, tips, v)
+	tree, oses, why := ciVerdictTree(laneWorktree, tips, v, readCISpec(laneWorktree))
 	if why != "" {
 		fmt.Fprintf(log, "gate %s: CI's verdict is not reused (%s); running the local suite\n", premergeDisplayName, why)
 		return judgeMergedTree(laneWorktree, run, log, &tips)
 	}
-	fmt.Fprintf(log, "gate %s: reused CI verdict for tree %s (%s)\n", premergeDisplayName, tree, strings.Join(oses, ", "))
+	note := ""
+	if docsOnly(laneWorktree, tips) {
+		// CI's test job concludes success with its steps skipped on a diff
+		// with no code, so its green says nothing was run.
+		note = " — CI ran no tests: non-code diff"
+	}
+	fmt.Fprintf(log, "gate %s: reused CI verdict for tree %s (%s)%s\n", premergeDisplayName, tree, strings.Join(oses, ", "), note)
 	return judgeMergedTreeWith(laneWorktree, run, log, &tips, MechanicalLaws)
+}
+
+// docsOnly is whether everything the lane changes against trunk is markdown.
+func docsOnly(laneWorktree string, tips prGateTips) bool {
+	out := strings.TrimSpace(gitOut(laneWorktree, "diff", "--name-only", tips.trunk+"..."+tips.lane))
+	if out == "" {
+		return false
+	}
+	for _, f := range strings.Split(out, "\n") {
+		if !strings.HasSuffix(strings.TrimSpace(f), ".md") {
+			return false
+		}
+	}
+	return true
 }
