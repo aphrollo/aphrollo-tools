@@ -19,6 +19,21 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.4.4 - 2026-10-03
+
+A push to `main` no longer runs the test suites a second time on a tree the pull
+request's own CI already tested green.
+
+### What you will notice
+
+- When a pull request merges and the commit on `main` holds the tree its pipeline
+  run tested, the `test`, `test-windows`, `gate-env`, `lint` and `benchmarks` jobs
+  are skipped on the push; `release` still tags the merge. The `changes` job's
+  summary names the pull request and run whose verdict was reused.
+- Any doubt runs the full suite as before: trunk moved so the trees differ, a check
+  not green, a re-run attempt, a run that is not `pipeline.yml` from this
+  repository, or no pull request for the commit. `scan` always runs.
+
 ## 1.4.3 - 2026-10-03
 
 An edit to a Go test file runs that file's package, not the directory's whole subtree.

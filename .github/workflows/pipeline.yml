@@ -64,7 +64,12 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      # actions and pull-requests: only the push-to-main reuse step reads
+      # them, to find the merged pull request and its pipeline run.
+      actions: read
+      pull-requests: read
     outputs:
+      reuse: ${{ steps.reuse.outputs.reuse }}
       class: ${{ steps.filter.outputs.class }}
       code: ${{ steps.filter.outputs.code }}
       lint: ${{ steps.filter.outputs.lint }}
@@ -87,6 +92,11 @@ jobs:
         # the full chain's own build fails loudly instead.
         continue-on-error: true
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
+      - name: Build the reuse decision from this commit
+        # Best effort like the classifier: with no binary `reuse` stays unset
+        # and every job runs.
+        continue-on-error: true
+        run: go build -trimpath -buildvcs=false -o bin/cireuse ./tools/cireuse
       - id: filter
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
@@ -158,6 +168,64 @@ jobs:
           else
             echo "refactor=false" >> "$GITHUB_OUTPUT"
           fi
+      # A pull request's run publishes the tree its checkout tested (every
+      # job of a run checks out the same merge commit), so the push that
+      # lands the pull request can tell whether it holds that very tree.
+      - name: Record the tree this run tested
+        if: github.event_name == 'pull_request'
+        run: mkdir -p tested-tree && git rev-parse HEAD^{tree} > tested-tree/tree
+      - name: Publish the tree this run tested
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tested-tree
+          path: tested-tree/tree
+          retention-days: 30
+          if-no-files-found: error
+      # A push to main whose tree the merged pull request's own run already
+      # tested green does not run the suites again: `reuse=true` stands the
+      # test, test-windows, gate-env, lint and benchmarks jobs down, and
+      # `release` still runs behind the skipped jobs. tools/cireuse says yes
+      # only for a merged pull request whose merge commit is this one, a
+      # first-attempt successful pipeline run on its head from this
+      # repository, a successful run of each step named below in the jobs
+      # named (the job concluding success is not enough: a skipped job does),
+      # and a recorded tested tree equal to this commit's. Anything else, a
+      # lookup that failed, or a binary that was never built leaves the output
+      # false and the full suite runs as before. scan is not reused:
+      # govulncheck reads a vulnerability database that moves without the tree.
+      # The step names below are pinned to the jobs' by
+      # TestPipeline_ReuseRequirementsNameRealJobsAndStepsAndCoverTheSkippedJobs.
+      - name: Reuse the merged pull request's verdict
+        id: reuse
+        if: github.event_name == 'push' && steps.filter.outputs.class == 'code'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          # cireuse prints its answer on stdout and its reason on stderr. A
+          # missing binary or a refused command line prints no answer, which
+          # reads as false.
+          : > reuse-reason.txt
+          if [ -x bin/cireuse ] && ./bin/cireuse -repo "$REPO" -sha "$GITHUB_SHA" -tree "$(git rev-parse HEAD^{tree})" \
+            -workflow .github/workflows/pipeline.yml \
+            -require 'test=Test (race' \
+            -require 'test-windows=Test (race' \
+            -require 'gate-env=Test under the gate' \
+            -require 'lint=golangci-lint' \
+            >> "$GITHUB_OUTPUT" 2> reuse-reason.txt; then
+            :
+          else
+            echo "reuse=false" >> "$GITHUB_OUTPUT"
+            echo "cireuse gave no answer (not built, or refused its command line)" >> reuse-reason.txt
+          fi
+          cat reuse-reason.txt
+          {
+            echo "### Test verdict reuse"
+            echo
+            cat reuse-reason.txt
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # A change confined to .github/** moves no Go package's behaviour. What it
   # can break is the tests that read this repo's own workflow files, so this
@@ -239,7 +307,7 @@ jobs:
     # `release` runs behind them either way, via an always()+needs-result guard
     # (mirrors aphrollo-api/pipeline.yml) rather than the checks standing down
     # on push.
-    if: github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true && needs.changes.outputs.reuse != 'true'
     needs: changes
     runs-on: ubuntu-latest
     # 20, not 10: the internal/tdd split gives each subpackage its own -race
@@ -371,7 +439,7 @@ jobs:
   # the internal/tdd subpackages, and everything else. -timeout is per test
   # binary, as in `test` above.
   test-windows:
-    if: github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true && needs.changes.outputs.reuse != 'true'
     needs: changes
     strategy:
       fail-fast: false
@@ -477,7 +545,7 @@ jobs:
   # tempEnvKeys var internal/tdd/suite/gotmpdir_test.go asserts both suiteEnv halves
   # against) if either changes.
   gate-env:
-    if: github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true && needs.changes.outputs.reuse != 'true'
     needs: changes
     strategy:
       fail-fast: false
@@ -518,7 +586,7 @@ jobs:
           go test ./internal/tdd/... -count=1 -timeout=1500s
 
   lint:
-    if: github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true && needs.changes.outputs.reuse != 'true'
     needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -605,7 +673,7 @@ jobs:
   # or testdata/bench — packages whose behaviour cannot move any of the four
   # numbers below. `bench` narrows that to the PRs that can.
   benchmarks:
-    if: github.event.pull_request.draft != true
+    if: github.event.pull_request.draft != true && needs.changes.outputs.reuse != 'true'
     needs: changes
     runs-on: ubuntu-latest
     # Measured generating testdata/bench/baseline.txt on a Windows dev box:
