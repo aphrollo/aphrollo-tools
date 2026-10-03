@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // machineRAMGB reads this box's physical memory in whole gigabytes from
@@ -77,7 +79,7 @@ func buildToolPids() ([]int, bool) {
 	var pids []int
 	asked := false
 	for _, name := range []string{"cargo", "rustc", "cargo-nextest", "cargo-mutants"} {
-		out, err := exec.Command("pgrep", "-x", name).Output()
+		out, err := run.LightOutput(run.Spec{Name: "pgrep", Args: []string{"-x", name}})
 		if err != nil {
 			var ee *exec.ExitError
 			if errors.As(err, &ee) && ee.ExitCode() == 1 {

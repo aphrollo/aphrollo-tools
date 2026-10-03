@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // CommitStagedSubset commits the STAGED content of paths, alone, on top of
@@ -113,10 +115,7 @@ func copyStagedEntryInto(repoRoot, scratch, head, path string) error {
 // gitIndexed runs git in dir against the scratch index file instead of the
 // repo's own, and returns STDOUT (STDERR on failure, as git does).
 func gitIndexed(dir, index string, args ...string) (string, error) {
-	cmd := exec.Command(gitBinary(), args...)
-	cmd.Dir = dir
-	cmd.Env = append(cleanGitEnv(), "GIT_INDEX_FILE="+index)
-	out, err := outputGit(cmd)
+	out, err := outputGit(run.Spec{Name: gitBinary(), Args: args, Dir: dir, Env: append(cleanGitEnv(), "GIT_INDEX_FILE="+index)})
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) {

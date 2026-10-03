@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // When the OS cannot give a hook another thread or process (Windows errno
@@ -74,7 +75,7 @@ func TestOutputGit_WaitsForASlotWhenTheCapIsReached(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() {
-		_, err := outputGit(exec.Command(gitBinary(), "--version"))
+		_, err := outputGit(run.Spec{Name: gitBinary(), Args: []string{"--version"}})
 		done <- err
 	}()
 
@@ -96,7 +97,7 @@ func TestOutputGit_WaitsForASlotWhenTheCapIsReached(t *testing.T) {
 
 func TestOutputGit_ReturnsSlotsItTook(t *testing.T) {
 	before := len(gitSlots)
-	if _, err := outputGit(exec.Command(gitBinary(), "--version")); err != nil {
+	if _, err := outputGit(run.Spec{Name: gitBinary(), Args: []string{"--version"}}); err != nil {
 		t.Fatal(err)
 	}
 	if after := len(gitSlots); after != before {

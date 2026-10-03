@@ -1,6 +1,7 @@
 package mutation
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // What the run found, turned into the one report a merge reads. The order is
@@ -323,10 +326,12 @@ func runMutantsAfter(root string, cfg MutantsConfig, v Verdict, log io.Writer) {
 		// on, and the repo's own runner was invoked exactly this way.
 		argv = []string{"bash", filepath.ToSlash(path)}
 	}
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), mutantsAfterStatusEnv+"="+status)
-	out, err := cmd.CombinedOutput()
+	var out bytes.Buffer
+	err := run.HeavyRun(run.Spec{
+		Name: argv[0], Args: argv[1:], Dir: root,
+		Env:    append(os.Environ(), mutantsAfterStatusEnv+"="+status),
+		Stdout: &out, Stderr: &out,
+	})
 	if err == nil {
 		return
 	}
@@ -336,7 +341,7 @@ func runMutantsAfter(root string, cfg MutantsConfig, v Verdict, log io.Writer) {
 		code = ee.ExitCode()
 	}
 	logf(log, "mutants: mutants-after exited %d — %v; the verdict is unchanged", code, err)
-	if text := strings.TrimSpace(string(out)); text != "" {
+	if text := strings.TrimSpace(out.String()); text != "" {
 		logf(log, "mutants: mutants-after said: %s", text)
 	}
 }

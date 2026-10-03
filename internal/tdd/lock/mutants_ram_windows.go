@@ -3,9 +3,10 @@
 package lock
 
 import (
-	"os/exec"
 	"syscall"
 	"unsafe"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // memoryStatusEx is GlobalMemoryStatusEx's out-parameter, in the order the
@@ -90,7 +91,7 @@ func buildToolPids() ([]int, bool) {
 	var pids []int
 	asked := false
 	for _, image := range []string{"cargo.exe", "rustc.exe", "cargo-nextest.exe", "cargo-mutants.exe"} {
-		out, err := exec.Command("tasklist", "/FI", "IMAGENAME eq "+image, "/NH", "/FO", "CSV").Output()
+		out, err := run.LightOutput(run.Spec{Name: "tasklist", Args: []string{"/FI", "IMAGENAME eq " + image, "/NH", "/FO", "CSV"}})
 		if err != nil {
 			continue
 		}

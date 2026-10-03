@@ -172,6 +172,7 @@ var mutantsEditLaunchFn = launchMutantsEdit
 
 // mutantsEditCommand is the verb run by the binary at self on one job.
 func mutantsEditCommand(self string, job mutantsEditJob) *exec.Cmd {
+	// exec-ok: the mutation run is detached on purpose and must outlive the hook that starts it; a guarded child of run ends with its guard, which is the opposite.
 	cmd := exec.Command(self, CmdName, "mutants", "edit", "--file", job.File, "--done", job.Done)
 	cmd.Dir = job.Root
 	cmd.Env = proc.ChildEnv(os.Environ(), append(os.Environ(), "CI=1", "NO_COLOR=1"))

@@ -4,11 +4,12 @@ package postedit
 
 import (
 	"os"
-	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // detachedAttrs puts a spawned phase in its own session, so the hook's exit
@@ -25,9 +26,7 @@ func detachedAttrs() *syscall.SysProcAttr {
 // arithmetic portably (Linux, macOS, BSD) without a new dependency. False
 // means the pid names no process right now, or ps could not be run.
 func processStartTime(pid int) (time.Time, bool) {
-	cmd := exec.Command("ps", "-o", "lstart=", "-p", strconv.Itoa(pid))
-	cmd.Env = append(os.Environ(), "LC_ALL=C")
-	out, err := cmd.Output()
+	out, err := run.LightOutput(run.Spec{Name: "ps", Args: []string{"-o", "lstart=", "-p", strconv.Itoa(pid)}, Env: append(os.Environ(), "LC_ALL=C")})
 	if err != nil {
 		return time.Time{}, false
 	}

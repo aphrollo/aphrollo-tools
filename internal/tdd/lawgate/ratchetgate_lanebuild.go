@@ -2,17 +2,16 @@ package lawgate
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // The fixtures stage judged a tree with the binary that happened to be
@@ -48,8 +47,8 @@ const lawEngineModule = "github.com/aphrollo/aphrollo-tools"
 // laneBuildTimeout bounds the lane's own build. A build that hangs must
 // refuse the commit with a reason rather than hold the gate open forever;
 // the whole build is seconds on a warm cache, so this is a hang detector,
-// not a budget.
-const laneBuildTimeout = 5 * time.Minute
+// not a budget. A var so a test can shrink it and prove the whole tree ends.
+var laneBuildTimeout = 5 * time.Minute
 
 // laneFixtureBinName always carries .exe: Windows will not execute an
 // extensionless file, and on unix the name of a file has no bearing on
@@ -198,14 +197,12 @@ var laneFixtureBuild = func(root string) (string, func(), error) {
 	}
 	cleanup := func() { _ = os.RemoveAll(dir) }
 	bin := filepath.Join(dir, laneFixtureBinName)
-	ctx, cancel := context.WithTimeout(context.Background(), laneBuildTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "go", "build", "-buildvcs=false", "-o", bin, "./cmd/aphrollo")
-	cmd.Dir = root
-	cmd.Env = laneBuildEnv(os.Environ(), scratch)
 	var errb bytes.Buffer
-	cmd.Stderr = &errb
-	if err := cmd.Run(); err != nil {
+	err = run.HeavyRun(run.Spec{
+		Name: "go", Args: []string{"build", "-buildvcs=false", "-o", bin, "./cmd/aphrollo"},
+		Dir: root, Env: laneBuildEnv(os.Environ(), scratch), Stderr: &errb, Timeout: laneBuildTimeout,
+	})
+	if err != nil {
 		said := strings.TrimSpace(errb.String())
 		if said == "" {
 			said = err.Error()
@@ -220,13 +217,9 @@ var laneFixtureBuild = func(root string) (string, func(), error) {
 // ordinary failing verdict the stage must report law by law, not a tooling
 // failure; only output that is not a verdict list at all is one.
 var laneFixtureRun = func(bin, root string, laws []string) ([]ratchet.FixtureResult, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), laneBuildTimeout)
-	defer cancel()
 	argv := []string{"ratchet", "test", "--repo", root, "--only", strings.Join(laws, ","), "--format", "json"}
-	cmd := exec.CommandContext(ctx, bin, argv...)
 	var out, errb bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &errb
-	runErr := cmd.Run()
+	runErr := run.HeavyRun(run.Spec{Name: bin, Args: argv, Stdout: &out, Stderr: &errb, Timeout: laneBuildTimeout})
 	var results []ratchet.FixtureResult
 	if err := json.Unmarshal(out.Bytes(), &results); err != nil {
 		said := strings.TrimSpace(errb.String())

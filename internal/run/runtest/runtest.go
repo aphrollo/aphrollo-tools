@@ -42,6 +42,19 @@ func ReadPids(file string) []int {
 	return pids
 }
 
+// WaitPids waits up to within for the tree to have recorded at least n pids in
+// file and returns the pids recorded, however many that is.
+func WaitPids(file string, n int, within time.Duration) []int {
+	deadline := time.Now().Add(within)
+	for {
+		pids := ReadPids(file)
+		if len(pids) >= n || time.Now().After(deadline) {
+			return pids
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 // ForceKill ends one process, for a test's cleanup: it is usually gone
 // already, and a refusal says only that.
 func ForceKill(pid int) {

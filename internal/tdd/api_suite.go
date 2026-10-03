@@ -4,7 +4,6 @@ package tdd
 
 import (
 	suite "github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
-	syscall "syscall"
 	time "time"
 )
 
@@ -37,5 +36,3 @@ func hasGitHubRemote(p0 string) bool { return suite.HasGitHubRemote(p0) }
 func runGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
 	return suite.RunGhTimeout(p0, p1, p2...)
 }
-
-func suiteAttrs() *syscall.SysProcAttr { return suite.SuiteAttrs() }

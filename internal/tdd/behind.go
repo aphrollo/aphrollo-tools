@@ -6,13 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
-	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // A binary that never rebuilds itself drifts from origin/main silently: the
@@ -63,24 +62,13 @@ var lsRemoteFn = func(ctx context.Context) (string, error) {
 // that reproduces the hang this guards against.
 //
 // `git ls-remote https://...` spawns a git-remote-https helper that inherits
-// the stdout pipe cmd.Output() wires up. The default Cancel that
-// exec.CommandContext installs kills only the git pid, not that helper — so
-// on a timeout the helper can keep the pipe open and Wait() blocks past ctx's
-// deadline. cmd.Cancel reaches the whole tree (the same proc.KillTree a
-// deferred build phase already uses) and WaitDelay bounds how long Wait() waits for
-// I/O to drain after that, so the call returns within its budget even when
-// the helper never exits on its own.
+// the stdout pipe. Killing only the git pid would leave the helper holding
+// the pipe, so Wait() would block past ctx's deadline. The child is a light
+// child of internal/run, which ends its whole process tree when ctx is done
+// and bounds how long Wait() waits for I/O to drain after that, so the call
+// returns within its budget even when the helper never exits on its own.
 func runLsRemote(ctx context.Context, gitProgram string) (string, error) {
-	cmd := exec.CommandContext(ctx, gitProgram, "ls-remote", "--heads", binaryBehindRemote, "main")
-	cmd.SysProcAttr = suiteAttrs()
-	cmd.Cancel = func() error {
-		if cmd.Process == nil {
-			return nil
-		}
-		return proc.KillTree(cmd.Process.Pid)
-	}
-	cmd.WaitDelay = 2 * time.Second
-	out, err := cmd.Output()
+	out, err := run.LightOutputCtx(ctx, run.Spec{Name: gitProgram, Args: []string{"ls-remote", "--heads", binaryBehindRemote, "main"}})
 	if err != nil {
 		return "", err
 	}

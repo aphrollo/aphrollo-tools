@@ -2,13 +2,14 @@ package failfirst
 
 import (
 	"cmp"
-	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // A pytest root's fail-first proof runs in a worktree at HEAD, where the
@@ -24,9 +25,7 @@ const pytestImportProbeTimeout = time.Minute
 
 // pytestImportable reports whether the interpreter can import pytest.
 func pytestImportable(python string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), pytestImportProbeTimeout)
-	defer cancel()
-	return exec.CommandContext(ctx, python, "-c", "import pytest").Run()
+	return run.LightRun(run.Spec{Name: python, Args: []string{"-c", "import pytest"}, Timeout: pytestImportProbeTimeout})
 }
 
 // venvPythons are the interpreters a root's own virtualenv would carry, the

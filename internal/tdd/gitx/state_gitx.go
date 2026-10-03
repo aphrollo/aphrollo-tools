@@ -4,11 +4,11 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"strings"
 	"sync"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // maxConcurrentGit caps the git children one gate process has running at once.
@@ -57,12 +57,14 @@ func noteIfExhausted(err error) {
 	fmt.Fprintf(exhaustion.w, "aphrollo gate: the OS cannot start a process (%v); skipping the git check\n", err)
 }
 
-// outputGit is cmd.Output under the concurrency cap, saying so once when the OS
-// is out of processes.
-func outputGit(cmd *exec.Cmd) ([]byte, error) {
+// outputGit runs git, a light child of internal/run, under the concurrency cap
+// and answers its stdout, saying so once when the OS is out of processes. A
+// failure is the child's *exec.ExitError carrying what it wrote on stderr, as
+// exec.Cmd.Output gave it.
+func outputGit(spec run.Spec) ([]byte, error) {
 	gitSlots <- struct{}{}
 	defer func() { <-gitSlots }()
-	out, err := cmd.Output()
+	out, err := run.LightOutput(spec)
 	noteIfExhausted(err)
 	return out, err
 }
@@ -71,9 +73,7 @@ func outputGit(cmd *exec.Cmd) ([]byte, error) {
 // PostToolUse fingerprint, not a pre-commit worktree), so it intentionally skips
 // cleanGitEnv() — no inherited GIT_* vars to scrub here.
 func gitOut(root string, args ...string) string {
-	cmd := exec.Command(gitBinary(), args...)
-	cmd.Dir = root
-	out, err := outputGit(cmd)
+	out, err := outputGit(run.Spec{Name: gitBinary(), Args: args, Dir: root})
 	if err != nil {
 		return ""
 	}

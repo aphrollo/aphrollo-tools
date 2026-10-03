@@ -3,11 +3,12 @@ package merge
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // The undercover check in commitmsg.go answers "does this message describe
@@ -192,7 +193,7 @@ var shortstatNumber = regexp.MustCompile(`(\d+) insertions?\(\+\)|(\d+) deletion
 // the place to explain a broken git, and demanding a body over a mystery it
 // cannot name would be worse than staying silent.
 func stagedChangedLines(repoRoot string) int {
-	out, err := exec.Command(gitBinary(), "-C", repoRoot, "diff", "--cached", "--shortstat").Output() // stderr-ok: failure silently answers zero, never surfaced
+	out, err := run.LightOutput(run.Spec{Name: gitBinary(), Args: []string{"-C", repoRoot, "diff", "--cached", "--shortstat"}})
 	if err != nil {
 		return 0
 	}

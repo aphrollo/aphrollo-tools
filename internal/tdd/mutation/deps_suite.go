@@ -4,7 +4,6 @@ package mutation
 
 import (
 	suite "github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
-	syscall "syscall"
 	time "time"
 )
 
@@ -77,8 +76,6 @@ func runGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
 }
 
 func selectedZeroTests(p0 Runner, p1 SuiteResult) bool { return suite.SelectedZeroTests(p0, p1) }
-
-func suiteAttrs() *syscall.SysProcAttr { return suite.SuiteAttrs() }
 
 func toRootRelative(p0 string, p1 string, p2 []string) []string {
 	return suite.ToRootRelative(p0, p1, p2)

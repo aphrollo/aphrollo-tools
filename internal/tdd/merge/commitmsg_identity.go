@@ -2,9 +2,9 @@ package merge
 
 import (
 	"bytes"
-	"os/exec"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/undercover"
 )
 
@@ -40,9 +40,6 @@ func identityRefusal(repoRoot string, tells undercover.List) string {
 // answers its stdout alone: `git var` warns on stderr while still answering.
 func identGit(dir string, args ...string) (string, error) {
 	var stdout bytes.Buffer
-	cmd := exec.Command(gitBinary(), args...)
-	cmd.Dir = dir
-	cmd.Stdout = &stdout
-	err := cmd.Run()
+	err := run.LightRun(run.Spec{Name: gitBinary(), Args: args, Dir: dir, Stdout: &stdout})
 	return stdout.String(), err
 }

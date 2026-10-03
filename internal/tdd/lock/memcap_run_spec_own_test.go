@@ -2,6 +2,7 @@ package lock
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -111,5 +112,60 @@ func TestRunSpecCapped_TimeoutEndsAnMSYSShellChain(t *testing.T) {
 				t.Errorf("a pid of the shell chain %v outlived the child that was ended at its timeout", pids)
 			}
 		})
+	}
+}
+
+// A caller that gives up on a slot child ends everything it started, the shape
+// a mutation run's patience takes: the context, not a timeout, is the limit.
+func TestRunSpecCappedCtx_CancelEndsAnMSYSShellChain(t *testing.T) {
+	bash := bashOrSkip(t)
+	for name, c := range specCaps {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			script := filepath.Join(dir, "chain.sh")
+			if err := os.WriteFile(script, []byte(runtest.BashChain), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			pidFile := filepath.Join(dir, "pids")
+			spec := run.Spec{Name: bash, Args: []string{filepath.ToSlash(script), filepath.ToSlash(pidFile), "wait"}}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() {
+				_, err := RunSpecCappedCtx(ctx, spec, c)
+				done <- err
+			}()
+
+			pids := runtest.WaitPids(pidFile, 3, 30*time.Second)
+			cancel()
+			t.Cleanup(func() {
+				for _, pid := range pids {
+					runtest.ForceKill(pid)
+				}
+			})
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Fatal("a child its caller gave up on reported success")
+				}
+			case <-time.After(30 * time.Second):
+				t.Fatal("the run did not return within 30 s of its context ending")
+			}
+			if len(pids) < 3 {
+				t.Fatalf("the chain recorded %d pids before the cancel, want 3: it never came up", len(pids))
+			}
+			if !runtest.AllGone(pids, 20*time.Second) {
+				t.Errorf("a pid of the shell chain %v outlived the run its caller gave up on", pids)
+			}
+		})
+	}
+}
+
+func TestRunMutationSpec_RunsTheChildUnderTheMutationCapAndAnswersItsExit(t *testing.T) {
+	bash := bashOrSkip(t)
+	_, err := RunMutationSpec(context.Background(), run.Spec{Name: bash, Args: []string{"-c", "exit 5"}}, t.TempDir(), 1)
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 5 {
+		t.Fatalf("err = %v, want the child's exit status 5", err)
 	}
 }

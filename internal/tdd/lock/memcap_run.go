@@ -63,20 +63,6 @@ func RunCapped(cmd *exec.Cmd, c MemCap) (CapResult, error) {
 	return capLauncherFn(cmd, c)
 }
 
-// RunSlotChild runs a build slot's child (a suite, a lint, a deferred phase)
-// started in dir under the cap that dir's repo and this box give it.
-func RunSlotChild(cmd *exec.Cmd, dir string) (CapResult, error) {
-	return RunCapped(cmd, MemCapFor(dir, CapSlot))
-}
-
-// RunMutationChild runs a mutation tool's process tree started in dir under
-// the pool-sized cap, ending only the runaway worker where it can. share is
-// how many such trees run side by side (a measurement's shards), which split a
-// derived pool between them.
-func RunMutationChild(cmd *exec.Cmd, dir string, share int) (CapResult, error) {
-	return RunCapped(cmd, MemCapFor(dir, CapMutation).splitAmong(share))
-}
-
 // procRSS is one process as the watchdog sees it.
 type procRSS struct {
 	PID   int

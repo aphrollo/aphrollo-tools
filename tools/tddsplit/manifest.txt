@@ -241,14 +241,12 @@ deferred_sweep.go                                  postedit
 deferred_sweep_test.go                             gc        # prefix says postedit; its test body reaches gc
 deferred_test.go                                   postedit
 deferred_unix.go                                   postedit
-deferred_unix_suite.go                             suite     # created by P2
 deferred_unix_test.go                              postedit
 deferred_verdict.go                                postedit
 deferred_verdict_test.go                           postedit
 deferred_widen.go                                  postedit
 deferred_widen_test.go                             postedit
 deferred_windows.go                                postedit
-deferred_windows_suite.go                          suite     # created by P2
 deferred_windows_test.go                           postedit
 deploy_workflow_pin_test.go                         tdd
 demote.go                                          escape
@@ -455,6 +453,7 @@ gitpathlimit_other.go                              core
 gitpathlimit_windows.go                            core
 gitplumbing.go                                     gitx
 gitplumbing_commita_test.go                        gitx
+gitplumbing_failure_test.go                        gitx
 gitplumbing_stdout_test.go                         gitx
 gitspawn_test.go                                    gitx
 gitstaged_batch_unix_test.go                       gitx
@@ -744,6 +743,7 @@ mutants_testmap_store_test.go                      mutation
 mutants_testmap_test.go                            mutation
 mutants_tombstones_test.go                         tdd
 mutants_tool_batched_test.go                       mutation
+mutants_tool_tree_test.go                          mutation
 mutants_unix.go                                    lock
 mutants_unix_core.go                               core      # created by P2
 mutants_unix_own_test.go                           core
@@ -793,6 +793,7 @@ posttooluse_inconclusive_test.go                   postedit
 posttooluse_lint.go                                postedit
 posttooluse_lint_run_test.go                       postedit
 posttooluse_lint_test.go                           postedit
+posttooluse_lint_tree_test.go                      postedit
 posttooluse_notrun_test.go                         postedit
 posttooluse_pytest_unix_test.go                    postedit
 posttooluse_ratchet.go                             postedit
@@ -911,6 +912,7 @@ ratchetgate.go                                     lawgate
 ratchetgate_bench_test.go                          tdd
 ratchetgate_lanebuild.go                           lawgate
 ratchetgate_lanebuild_e2e_test.go                  lawgate
+ratchetgate_lanebuild_limit_test.go                lawgate
 ratchetgate_lanebuild_scratch_test.go              lawgate
 ratchetgate_lanebuild_test.go                      lawgate
 ratchetgate_stagedgraph.go                         lawgate
@@ -1208,8 +1210,6 @@ writeFileAtomic                               deferred.go                  defer
 InfraFailed                                   deferred_edit.go             deferred_edit_suite.go
 headSHAFor                                    deferred_edit.go             deferred_edit_failfirst.go
 runnerDir                                     deferred_edit.go             deferred_edit_suite.go
-suiteAttrs                                    deferred_unix.go             deferred_unix_suite.go
-suiteAttrs                                    deferred_windows.go          deferred_windows_suite.go
 LogToken                                      denylog.go                   denylog_core.go
 DoctorCheck                                   doctor.go                    doctor_mutation.go
 DoctorInput                                   doctor.go                    doctor_mutation.go

@@ -1,9 +1,11 @@
 package postedit
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -15,6 +17,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // The commit gate refuses a commit over a golangci-lint finding, and the
@@ -251,14 +255,14 @@ func runLintEdit(root string, args []string) (out string, timedOut bool) {
 
 // runLintWithin is runLintEdit with the budget stated.
 func runLintWithin(root string, args []string, budget time.Duration) (out string, timedOut bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), budget)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "golangci-lint", args...)
-	cmd.Dir = root
-	cmd.WaitDelay = time.Second
 	// A finding exits non-zero; what matters is the text.
-	text, _ := cmd.CombinedOutput()
-	return string(text), ctx.Err() != nil
+	var text bytes.Buffer
+	child, err := run.StartHeavy(context.Background(), run.Spec{Name: "golangci-lint", Args: args, Dir: root, EnvAsIs: true, Stdout: &text, Stderr: &text, Timeout: budget})
+	if err != nil {
+		return text.String(), false
+	}
+	timedOut = errors.Is(child.Wait(), run.ErrTimeout)
+	return text.String(), timedOut
 }
 
 // lintBoxLoaded reports whether the box's runnable load is at or past

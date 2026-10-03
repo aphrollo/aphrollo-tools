@@ -13,6 +13,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/docs"
 	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // CI parity. A gate that runs a different set of checks from the job which
@@ -42,9 +43,7 @@ var lookLinter = func() bool {
 // linterVersion reports the local binary's version ("" when it cannot be
 // read). A var so a test can state a version without installing one.
 var linterVersion = func(dir string) string {
-	cmd := exec.Command(golangciLint, "--version")
-	cmd.Dir = dir
-	out, err := cmd.Output()
+	out, err := run.LightOutput(run.Spec{Name: golangciLint, Args: []string{"--version"}, Dir: dir})
 	if err != nil {
 		return ""
 	}
