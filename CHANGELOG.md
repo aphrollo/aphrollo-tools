@@ -19,6 +19,25 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.6.0 - 2026-10-03
+
+`aphrollo stats` reports how the pipeline is doing, from the event log it already keeps.
+
+### What you will notice
+
+- `aphrollo stats [--repo <path>] [--lane <name>] [--week | --since <dur>] [--json]` prints, for the
+  current repo, how long a lane takes from its first event to its merge (p50 and p90), how many
+  lanes were green on the first CI run and why the others were not, the gate's wall time per lane,
+  how many runs proved nothing and why, how long a verdict takes after an edit, how many edits
+  each message brings, and the denies, overrides, wrong blocks and escapes. It only reads.
+- A deny that was waived within ten minutes on the same lane counts as a wrong block.
+- A gate timing that is negative or longer than a day is left out of the gate time and counted on
+  its own line, so one broken clock reading cannot swamp the sum.
+- `aphrollo stats --briefs` measures the managed CLAUDE.md block, the tdd skill and each agent
+  brief at bytes divided by four and marks the ones over their cap: 400 tokens for the block and
+  the skill, 250 for an agent.
+- `aphrollo gate stats` is unchanged and still reports gate.log.
+
 ## 1.5.4 - 2026-10-03
 
 The commit gate judges what `git commit -a` and `git commit <paths>` stage.

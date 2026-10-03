@@ -10,6 +10,8 @@ const HooksDirUnsafeEnv = install.HooksDirUnsafeEnv
 
 type BlockFlags = install.BlockFlags
 
+type Brief = install.Brief
+
 type InstallPlan = install.InstallPlan
 
 type ShimExeResult = install.ShimExeResult
@@ -17,6 +19,8 @@ type ShimExeResult = install.ShimExeResult
 var ErrManagedBlockInPrimary = install.ErrManagedBlockInPrimary
 
 func BinIsRunnable(p0 string) error { return install.BinIsRunnable(p0) }
+
+func Briefs(p0 string) []Brief { return install.Briefs(p0) }
 
 func BuildInstallPlan(p0 string, p1 string) (InstallPlan, error) {
 	return install.BuildInstallPlan(p0, p1)
