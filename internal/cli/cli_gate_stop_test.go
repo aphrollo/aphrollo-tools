@@ -30,11 +30,34 @@ func unseenRedProject(t *testing.T) string {
 	return project
 }
 
+// recordedHookDir is where the recorded harness payloads live, relative to
+// this package's directory.
+const recordedHookDir = "../tdd/internal/tddtest/testdata/hooks"
+
+// stopCLIFixtures maps each turn-end event to the payload it is fed: Stop and
+// SubagentStop are recordings of the real harness; TaskCompleted has none (no
+// session has raised that event yet), so its payload is hand-written from the
+// documented fields.
+var stopCLIFixtures = map[string]string{
+	"Stop":          "stop.json",
+	"SubagentStop":  "subagentstop.json",
+	"TaskCompleted": "handwritten/taskcompleted.json",
+}
+
+// stopCLIPayload is the recorded payload of event with the session and cwd the
+// test controls put in, the rest as the harness sent it.
 func stopCLIPayload(t *testing.T, event, cwd string) *strings.Reader {
 	t.Helper()
-	raw, err := json.Marshal(map[string]any{
-		"session_id": stopCLISession, "cwd": cwd, "hook_event_name": event, "stop_hook_active": false,
-	})
+	data, err := os.ReadFile(filepath.Join(recordedHookDir, filepath.FromSlash(stopCLIFixtures[event])))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	m["session_id"], m["cwd"] = stopCLISession, cwd
+	raw, err := json.Marshal(m)
 	if err != nil {
 		t.Fatal(err)
 	}

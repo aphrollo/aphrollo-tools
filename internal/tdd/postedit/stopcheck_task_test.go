@@ -32,7 +32,7 @@ func TestDecideStop_TaskCompletedKeepsTheTaskOpenNamingTheFailingTests(t *testin
 	repo := makeGoRepo(t)
 	stampProject(t, repo, "red", []string{"TestRetry/backoff", "TestRetry/jitter"})
 
-	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(repo)))
+	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(repo)))
 
 	if !got.Block {
 		t.Fatalf("verdict = %+v, want the task kept open: its tests are red", got)
@@ -63,7 +63,7 @@ func TestDecideStop_TaskCompletedJudgesTheLastRecordedOutcomeOfTheTree(t *testin
 			repo := makeGoRepo(t)
 			stampProject(t, repo, tc.outcome, tc.failing)
 
-			got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(repo)))
+			got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(repo)))
 
 			if got.Block != tc.block {
 				t.Fatalf("outcome %s: verdict = %+v, want block=%v", tc.outcome, got, tc.block)
@@ -88,7 +88,7 @@ func TestDecideStop_TaskCompletedFindsARedProjectNestedInTheTasksTree(t *testing
 	stampProject(t, crate, "red", []string{"tests::a_breaks"})
 	cwd := filepath.Join(repo, "crates")
 
-	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(cwd)))
+	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(cwd)))
 
 	if !got.Block || !strings.Contains(got.Reason, "tests::a_breaks") {
 		t.Fatalf("verdict = %+v, want the task kept open for the red crate under the repo", got)
@@ -101,7 +101,7 @@ func TestDecideStop_TaskCompletedIgnoresARedOfAnotherTree(t *testing.T) {
 	otherLane := makeGoRepo(t)
 	stampProject(t, otherLane, "red", []string{"TestElsewhere"})
 
-	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(repo)))
+	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(repo)))
 
 	if got.Block {
 		t.Fatalf("verdict = %+v, want an allow: that red is in %s, not this task's tree", got, otherLane)
@@ -118,7 +118,7 @@ func TestDecideStop_TaskCompletedIgnoresARedStampedUnderAnEarlierGitState(t *tes
 	gitDo(t, repo, "add", "-A")
 	gitDo(t, repo, "-c", "core.hooksPath=", "commit", "-q", "-m", "later", "--no-verify")
 
-	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(repo)))
+	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(repo)))
 
 	if got.Block {
 		t.Fatalf("verdict = %+v, want an allow: the red describes a git state the tree has left", got)
@@ -139,7 +139,7 @@ func TestDecideStop_TaskCompletedIgnoresARedWithNoGitStateToCompareTo(t *testing
 	}
 
 	for _, cwd := range []string{repo, plain} {
-		got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(cwd)))
+		got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(cwd)))
 
 		if got.Block {
 			t.Errorf("cwd %s: verdict = %+v, want an allow: the red has no git state to match", cwd, got)
@@ -161,7 +161,7 @@ func TestDecideStop_TaskCompletedDoesNotNameAGreenProjectBesideARedOne(t *testin
 	stampProject(t, red, "red", []string{"Test_red"})
 	stampProject(t, green, "green", nil)
 
-	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(repo)))
+	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(repo)))
 
 	if !got.Block || !strings.Contains(got.Reason, red) {
 		t.Fatalf("verdict = %+v, want the task kept open for %s", got, red)
@@ -182,7 +182,7 @@ func TestDecideStop_TaskCompletedNamesEveryRedProjectInOrder(t *testing.T) {
 		stampProject(t, crate, "red", []string{"Test_" + name})
 	}
 
-	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(repo)))
+	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(repo)))
 
 	last := -1
 	for _, name := range []string{"a", "b", "c", "d"} {
@@ -204,7 +204,7 @@ func TestDecideStop_TaskCompletedAllowsWhenTheSessionTurnedTheGateOff(t *testing
 		t.Fatal(err)
 	}
 
-	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(repo)))
+	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(repo)))
 
 	if got.Block {
 		t.Fatalf("verdict = %+v, want an allow: /tdd off switches the check off", got)
@@ -219,7 +219,7 @@ func TestDecideStop_TaskCompletedDeliversAnUnseenRedAndKeepsTheTaskOpen(t *testi
 	crate := filepath.Join(repo, "crates", "a")
 	redJobAt(t, crate)
 
-	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(repo)))
+	got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(repo)))
 
 	if !got.Block || !strings.Contains(got.Reason, "tests::a_breaks") || !strings.Contains(got.Reason, crate) {
 		t.Fatalf("verdict = %+v, want the task kept open with the unseen red's line", got)
@@ -237,7 +237,7 @@ func TestDecideStop_TaskCompletedKeepsBlockingWhileTheTestsStayRed(t *testing.T)
 	stampProject(t, repo, "red", []string{"TestA"})
 
 	for range 3 {
-		got := DecideStop(StopHookTaskCompleted, stopPayload(t, "taskcompleted.json", taskFields(repo)))
+		got := DecideStop(StopHookTaskCompleted, stopPayload(t, "handwritten/taskcompleted.json", taskFields(repo)))
 		if !got.Block {
 			t.Fatalf("verdict = %+v, want the task kept open on every ask", got)
 		}
