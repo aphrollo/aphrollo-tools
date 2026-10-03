@@ -16,7 +16,7 @@ import (
 var ldflagsXKeyRe = regexp.MustCompile(`-X\s+([A-Za-z0-9_./-]+)=`)
 
 // TestDeployJobBuild_StampsEveryBuildinfoKeySelfInstallStamps pins the
-// pipeline.yml deploy job's `go build` to the same -X stamp keys buildArgs
+// deploy.yml deploy job's `go build` to the same -X stamp keys buildArgs
 // (selfinstall.go) passes. The deploy job builds the binary the box actually
 // runs; built without the stamp, buildinfo.Stamp reports unstamped and
 // BinaryBehindLine stays silent forever, so the one box that deploys on every
@@ -44,23 +44,23 @@ func TestDeployJobBuild_StampsEveryBuildinfoKeySelfInstallStamps(t *testing.T) {
 	}
 	for _, k := range want {
 		if !got[k] {
-			t.Errorf("pipeline.yml deploy job builds with %q, missing the -X %s stamp buildArgs sets", build, k)
+			t.Errorf("deploy.yml deploy job builds with %q, missing the -X %s stamp buildArgs sets", build, k)
 		}
 	}
 }
 
-// deployJobBuildLine returns the `go build` run line inside pipeline.yml's
+// deployJobBuildLine returns the `go build` run line inside deploy.yml's
 // top-level deploy job, bounded by the next top-level job key so a
 // neighbouring job's build line can never satisfy the test.
 func deployJobBuildLine(t *testing.T) string {
 	t.Helper()
 	root := tdd.RepoRoot(".")
 	if root == "" {
-		t.Fatal("this test reads this repo's own pipeline.yml and could not find its root")
+		t.Fatal("this test reads this repo's own deploy.yml and could not find its root")
 	}
-	raw, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "pipeline.yml"))
+	raw, err := os.ReadFile(filepath.Join(root, ".github", "workflows", "deploy.yml"))
 	if err != nil {
-		t.Fatalf("read pipeline.yml: %v", err)
+		t.Fatalf("read deploy.yml: %v", err)
 	}
 	jobKey := regexp.MustCompile(`^  [A-Za-z][A-Za-z0-9_-]*:\s*$`)
 	in := false
@@ -73,6 +73,6 @@ func deployJobBuildLine(t *testing.T) string {
 			return line
 		}
 	}
-	t.Fatalf("no `go build` line inside pipeline.yml's deploy job")
+	t.Fatalf("no `go build` line inside deploy.yml's deploy job")
 	return ""
 }

@@ -143,15 +143,13 @@ func TestPipeline_EveryWorkflowAndJobDeclaresPermissions(t *testing.T) {
 	}
 }
 
-func TestPipeline_OnlyDeployStaysSelfHostedInThePipeline(t *testing.T) {
+// ratchet: test_removed TestPipeline_OnlyDeployStaysSelfHostedInThePipeline: deploy left the pipeline; NoJobInThePipelineIsSelfHosted pins the stricter rule
+func TestPipeline_NoJobInThePipelineIsSelfHosted(t *testing.T) {
 	t.Parallel()
 	text := workflowFiles(t)["pipeline.yml"]
 	for _, j := range workflowJobs("pipeline.yml", text) {
-		if j.name == "deploy" {
-			continue
-		}
 		if strings.Contains(j.text, "self-hosted") {
-			t.Errorf("pipeline.yml job %q must run on a GitHub-hosted runner; only deploy touches the host", j.name)
+			t.Errorf("pipeline.yml job %q must run on a GitHub-hosted runner; the host-touching deploy lives in deploy.yml", j.name)
 		}
 	}
 }

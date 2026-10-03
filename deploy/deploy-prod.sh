@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Atomic host-native deploy of the aphrollo dev-env CLI (/usr/local/bin/aphrollo).
 #
-# Invoked by .github/workflows/pipeline.yml's `deploy` job on the self-hosted
-# runner, on push-to-main (post-merge) and manual workflow_dispatch, in a
+# Invoked by .github/workflows/deploy.yml's `deploy` job on the self-hosted
+# runner, when the pipeline release job dispatches it, in a
 # checkout of the newest release tag. Stages a
 # release dir, smoke-tests the new binary, then atomically flips the `current`
 # symlink. No daemon to restart — every coder/devops/operator session execs
