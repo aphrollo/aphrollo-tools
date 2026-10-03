@@ -59,6 +59,18 @@ func setJobLimits(job windows.Handle, info *windows.JOBOBJECT_EXTENDED_LIMIT_INF
 
 var ntResumeProcess = windows.NewLazySystemDLL("ntdll.dll").NewProc("NtResumeProcess")
 
+// holdStart puts CREATE_SUSPENDED back on a command whose Before hook replaced
+// its SysProcAttr or its flags. The job join must happen before the child runs:
+// a child that ran unsuspended may be gone, or half done, when the join fails,
+// and the fallback would start the command a second time. The hook's other
+// attributes stay.
+func (j *jobTree) holdStart(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CreationFlags |= windows.CREATE_SUSPENDED
+}
+
 func (j *jobTree) attach(p *os.Process) error {
 	h, err := windows.OpenProcess(windows.PROCESS_SET_QUOTA|windows.PROCESS_TERMINATE|windows.PROCESS_SUSPEND_RESUME, false, uint32(p.Pid))
 	if err != nil {
@@ -69,7 +81,8 @@ func (j *jobTree) attach(p *os.Process) error {
 		return err
 	}
 	if status, _, _ := ntResumeProcess.Call(uintptr(h)); status != 0 {
-		return errors.New("run: could not resume the child after it joined its job")
+		// Whether a failed resume let the child run is not known.
+		return mayHaveRun{errors.New("run: could not resume the child after it joined its job")}
 	}
 	return nil
 }

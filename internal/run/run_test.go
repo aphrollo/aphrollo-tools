@@ -361,6 +361,33 @@ func TestHeavy_AGuardThatFailsToAttachRunsTheChildUnguarded(t *testing.T) {
 	}
 }
 
+// A guard that failed to join a child that may already have run must not lead
+// to a second start: the command would run twice. The start fails with the
+// guard's reason, and the caller's Before hook, which sees every start, sees
+// exactly one.
+func TestHeavy_AGuardFailureAfterTheChildMayHaveRunDoesNotStartItAgain(t *testing.T) {
+	boom := errors.New("the resume failed")
+	withGuard(t, func(*exec.Cmd, bool, int64) (tree, error) {
+		return &brokenTree{attachErr: mayHaveRun{boom}}, nil
+	})
+	h := &hookLog{}
+	spec := helperSpec(t, "sleep")
+	spec.Hook = h
+
+	c, err := StartHeavy(context.Background(), spec)
+	if err == nil {
+		forceKill(c.Pid())
+		t.Fatal("StartHeavy = nil, want the guard's failure")
+	}
+
+	if !errors.Is(err, boom) {
+		t.Fatalf("StartHeavy = %v, want the guard's own reason", err)
+	}
+	if got, want := h.got(), "before,ended"; got != want {
+		t.Fatalf("the hook saw %q, want %q: the command was started a second time", got, want)
+	}
+}
+
 func TestHeavy_AGuardThatFailsToPrepareRunsTheChildUnguarded(t *testing.T) {
 	boom := errors.New("no job object for this process")
 	withGuard(t, func(*exec.Cmd, bool, int64) (tree, error) { return nil, boom })
