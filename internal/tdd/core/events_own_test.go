@@ -584,3 +584,15 @@ func TestStateRoot_IsEmptyWhenNoHomeCanBeResolved(t *testing.T) {
 		t.Fatalf("StateRoot = %q, want none", got)
 	}
 }
+
+func TestEventLogDir_isWhereARecordFromAnyWorktreeOfTheRepoLands(t *testing.T) {
+	isolateEvents(t)
+	main, lane := laneRoot(t, "lane/why")
+	AppendEvent(Event{Kind: "deny", Root: lane})
+	written := filepath.Dir(eventFiles(t, main)[0])
+	for _, root := range []string{main, lane} {
+		if got := EventLogDir(root); got != written {
+			t.Errorf("EventLogDir(%s) = %q, want the directory the record landed in: %q", root, got, written)
+		}
+	}
+}

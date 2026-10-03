@@ -19,6 +19,24 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.7.0 - 2026-10-03
+
+`aphrollo why <seq>` explains one event of the event log.
+
+### What you will notice
+
+- `aphrollo why <seq>` (with `--repo <path>`, `--json`) replays a deny or a run result by the seq the
+  event log gives it, read-only. For a deny it prints the rule, the cause, everything the log recorded,
+  the override the deny offered, whether an override followed within 10 minutes (a wrong block) and
+  whether the agent went on without one, and the rule's denies, overrides, wrong blocks and compliance
+  over the whole log. When the rule is in the kernel's rule table it also prints its level, its
+  section and whether the lane is in the 10% holdout arm.
+- For a run result it prints the verdict, the cause, the tree, the edit-to-verdict latency and, for a
+  run that proved nothing, why. A field the log did not record reads `not recorded`.
+- Shadow catches and shadow passes are not recorded yet, so the line says `not recorded yet` rather
+  than showing zeros.
+- A seq the log does not hold prints one line naming the seq and the log directory and exits 1.
+
 ## 1.6.6 - 2026-10-03
 
 The cli and gc packages start their child processes through the process runner.
