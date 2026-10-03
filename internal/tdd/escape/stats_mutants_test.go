@@ -75,3 +75,31 @@ func TestStats_MutantsSkipIsCountedApartFromARefusal(t *testing.T) {
 		t.Errorf("mutants red = %d, want 0 — neither line measured a mutant", got)
 	}
 }
+
+// A survivor the repo only reports is logged as reported, and it is not a
+// refusal: the commit or merge went through. Counting it under red would send
+// a reader looking for a refused gate that never refused anything.
+func TestStats_AReportedSurvivorIsNotARefusal(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	log := strings.Join([]string{
+		stamp(at, "precommit", "/repo", "mutants", "mutants-reported:tested=99,caught=49,unviable=15,missed=35,accepted=0,unmeasured=0,notcovered=0,inconclusive=0", 0),
+		stamp(at, "precommit", "/repo", "mutants", "mutants-reported:tested=3,caught=2,unviable=0,missed=1,accepted=0,unmeasured=0,notcovered=0,inconclusive=0", 0),
+		stamp(at, "precommit", "/repo", "mutants", "mutants-refused:tested=6,caught=4,unviable=0,missed=2,accepted=0,unmeasured=0,notcovered=0,inconclusive=0", 0),
+	}, "")
+
+	s := GateStats(strings.NewReader(log), time.Time{})
+
+	if got := s.Count("precommit", "red"); got != 1 {
+		t.Errorf("precommit red = %d, want 1 — only the block-level refusal", got)
+	}
+	if s.Mutants["reported"] != 2 {
+		t.Errorf("mutation stage reasons = %v, want reported=2", s.Mutants)
+	}
+	if s.Mutants["survivor"] != 1 {
+		t.Errorf("mutation stage reasons = %v, want survivor=1 for the refusal alone", s.Mutants)
+	}
+	if out := RenderGateStats(s); !strings.Contains(out, "reported=2") {
+		t.Errorf("rendered stats never show the reported count:\n%s", out)
+	}
+}

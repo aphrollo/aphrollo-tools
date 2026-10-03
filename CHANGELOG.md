@@ -19,6 +19,19 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.5.3 - 2026-10-03
+
+A mutation survivor a repo only reports is no longer logged as a refusal.
+
+### What you will notice
+
+- With `mutants-at-commit` set but not `"block"`, a commit with survivors goes through and the gate
+  log now says `mutants-reported:tested=...` where it said `mutants-refused:tested=...`. The same
+  holds for the merge measurement under `mutants-at-merge-level`. `mutants-refused:` is written
+  only where the commit or merge was refused: a pinned `block`, or a measurement that broke.
+- `aphrollo gate stats` counts the reported form under its own `reported` reason in the mutation
+  stage line, not as a red, and the post-merge retro no longer counts it as a gate refusal.
+
 ## 1.5.2 - 2026-10-03
 
 The event log can no longer slow a hook down, and no longer loses the record after a torn one.

@@ -115,8 +115,12 @@ func TestMutantsAtCommitStage_ASurvivorIsReportedAndTheCommitGoesThrough(t *test
 	if s.count() != 2 {
 		t.Errorf("go test ran %d times, want 2", s.count())
 	}
-	if log := gateLogText(t, cfgDir); !strings.Contains(log, "mutants-refused:tested=2,caught=0,unviable=0,missed=2") {
-		t.Errorf("gate.log = %q, want the survivors counted in the log", log)
+	log := gateLogText(t, cfgDir)
+	if !strings.Contains(log, "mutants-reported:tested=2,caught=0,unviable=0,missed=2") {
+		t.Errorf("gate.log = %q, want the survivors counted under mutants-reported", log)
+	}
+	if strings.Contains(log, "mutants-refused:") {
+		t.Errorf("gate.log = %q, a commit that went through is logged as refused", log)
 	}
 }
 

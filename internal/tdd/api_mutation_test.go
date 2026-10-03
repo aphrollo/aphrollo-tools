@@ -14,4 +14,4 @@ type MutantOutcome = mutation.MutantOutcome
 
 func judgeMutants(p0 MutantsConfig, p1 []MutantOutcome) Verdict { return mutation.JudgeMutants(p0, p1) }
 
-func measureLogVerdict(p0 Verdict) string { return mutation.MeasureLogVerdict(p0) }
+func measureLogVerdict(p0 Verdict, p1 bool) string { return mutation.MeasureLogVerdict(p0, p1) }

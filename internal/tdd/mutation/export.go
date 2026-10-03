@@ -26,7 +26,7 @@ func IsCommitSource(p0 string) bool { return isCommitSource(p0) }
 
 func JudgeMutants(p0 MutantsConfig, p1 []MutantOutcome) Verdict { return judgeMutants(p0, p1) }
 
-func MeasureLogVerdict(p0 Verdict) string { return measureLogVerdict(p0) }
+func MeasureLogVerdict(p0 Verdict, p1 bool) string { return measureLogVerdict(p0, p1) }
 
 func MeasureTempDir(p0 string) string { return measureTempDir(p0) }
 

@@ -196,7 +196,7 @@ func TestMeasure_AnUnacceptedSurvivorInAConsumedRunnerVerdictRefusesTheMergeByNa
 	}))
 	var log strings.Builder
 
-	v, err := MeasureLane(root, MutantsConfig{AtMerge: true}, MeasureOpts{Base: base, Log: &log})
+	v, err := MeasureLane(root, MutantsConfig{AtMerge: true, AtMergeBlock: true}, MeasureOpts{Base: base, Log: &log})
 
 	if err != nil {
 		t.Fatalf("MeasureLane: %v", err)
