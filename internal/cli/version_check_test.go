@@ -99,6 +99,25 @@ func TestVersionCheck_ARepoThatHadNoVersionYetTakesItsFirstOneAsMajor(t *testing
 	}
 }
 
+// A branch behind its base is judged on what the branch itself changes: the
+// base moved on with its own bump (1.0.0 -> 1.0.1), and a `version: none` PR
+// that never touched VERSION is not blamed for it (PR #1132).
+func TestVersionCheck_JudgesTheBranchFromWhereItForkedNotFromTheMovedBase(t *testing.T) {
+	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
+	fork := lane.base
+	versionGit(t, lane.dir, "checkout", "-q", "-b", "trunk")
+	lane.commit(map[string]string{versionPath: "1.0.1\n", changelogPath: changelogWith("1.0.1", "1.0.0")})
+	trunkTip := strings.TrimSpace(versionGit(t, lane.dir, "rev-parse", "HEAD"))
+	versionGit(t, lane.dir, "checkout", "-q", "-b", "pr", fork)
+	lane.commit(map[string]string{"README.md": "x\n"})
+	lane.base = trunkTip
+
+	code, stdout, stderr := lane.check("Fixes a typo.\n\nversion: none\n")
+	if code != 0 || stdout != "version: ok (1.0.0 -> 1.0.0)\n" || stderr != "" {
+		t.Fatalf("version check = (%d, %q, %q), want (0, \"version: ok (1.0.0 -> 1.0.0)\\n\", \"\")", code, stdout, stderr)
+	}
+}
+
 func TestVersionCheck_RefusesABodyWithNoVersionLine(t *testing.T) {
 	lane := newVersionLane(t, map[string]string{versionPath: "1.0.0\n", changelogPath: changelogWith("1.0.0")})
 	lane.commit(map[string]string{"README.md": "x\n"})
