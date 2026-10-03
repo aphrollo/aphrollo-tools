@@ -27,6 +27,8 @@ type PRInfo struct {
 	MergeStateStatus string `json:"mergeStateStatus"`
 	// HeadSHA is the commit GitHub currently holds as the PR's head.
 	HeadSHA string `json:"-"`
+	// BaseRef is the branch the PR merges into; empty when GitHub did not say.
+	BaseRef string `json:"-"`
 }
 
 // prStateWord maps a gh PR to the canonical lifecycle word the rlndx kanban git

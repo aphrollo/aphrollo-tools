@@ -98,6 +98,9 @@ type ghAPIPull struct {
 		Ref string `json:"ref"`
 		SHA string `json:"sha"`
 	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
 }
 
 // state renders the same three-way vocabulary GraphQL's `state` field used:
@@ -135,7 +138,7 @@ func (p *ghAPIPull) info() *PRInfo {
 	return &PRInfo{
 		Number: p.Number, URL: p.HTMLURL, State: p.state(),
 		IsDraft: p.Draft, Mergeable: p.mergeableWord(), MergeStateStatus: p.mergeStateStatus(),
-		HeadSHA: p.Head.SHA,
+		HeadSHA: p.Head.SHA, BaseRef: p.Base.Ref,
 	}
 }
 

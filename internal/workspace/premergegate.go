@@ -38,6 +38,18 @@ var premergeGate = func(t *Target, head string, verdict *tdd.CIVerdict, log io.W
 	return tdd.GatePRMergeReusingCI(t.Worktree, head, run, log, *verdict)
 }
 
+// premergeGateQueued is premergeGate for a PR a merge queue will land. The
+// queue tests the PR on the branch as it is when the PR's turn comes, so a
+// verdict for an older base is no reason to refuse (tdd.GatePRMergeForQueue);
+// without a GitHub verdict it is the same gate as premergeGate's.
+var premergeGateQueued = func(t *Target, head string, verdict *tdd.CIVerdict, log io.Writer) error {
+	run := tdd.RunSuite(tdd.DefaultPrecommitTimeout)
+	if verdict == nil {
+		return tdd.GatePRMerge(t.Worktree, head, run, log)
+	}
+	return tdd.GatePRMergeForQueue(t.Worktree, head, run, log, *verdict)
+}
+
 // ghVerdictChecks reads the check runs of one commit for the gate to take in
 // place of its own suites. A read that fails is no checks, which the gate
 // answers by running everything locally: never a pass. A package var so tests

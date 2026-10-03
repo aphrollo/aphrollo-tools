@@ -385,3 +385,75 @@ func redCheck(name string) CIVerdictCheck {
 	c.Passed = false
 	return c
 }
+
+// A merge queue tests every PR on the branch it will land on, so a PR whose
+// green verdict is for an older base is not stale there: the queue builds the
+// current merge and judges it itself. The gate keeps what needs no CI verdict.
+func TestGatePRMergeForQueue_AStaleVerdictIsNotRefused(t *testing.T) {
+	cases := []struct {
+		name    string
+		refTree string
+		refTime time.Time
+	}{
+		{name: "trunk moved past what CI tested", refTree: "0000000000000000000000000000000000000001", refTime: ciBefore},
+		{name: "merge ref rebuilt after the checks began", refTime: ciBefore.Add(time.Hour)},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root, trunk := ciReuseLane(t, mutantsInCI)
+			tree := tc.refTree
+			if tree == "" {
+				tree = mergedTreeOf(t, root, trunk)
+			}
+			stubCIMergeRef(t, tree, tc.refTime)
+
+			var seen []gateRun
+			var log strings.Builder
+			v := ciVerdictOf(t, root, passedCheck("test"), passedCheck("test-windows (cli)"))
+			err := GatePRMergeForQueue(root, "", recordRuns(&seen, SuiteResult{Passed: true}), &log, v)
+
+			if err != nil {
+				t.Fatalf("a stale verdict must not refuse a PR the merge queue will test: %v", err)
+			}
+			if len(seen) != 0 {
+				t.Errorf("ran %d local suite(s); the queue's own run is the judge of the current merge", len(seen))
+			}
+			if !strings.Contains(log.String(), "merge queue") {
+				t.Errorf("log must say the merge queue tests this PR on the current %s:\n%s", trunk, log.String())
+			}
+		})
+	}
+}
+
+// What the stale refusal used to carry stays: the merged tree's own laws and
+// docs are judged locally, because CI's per-PR jobs judge the diff, not the merge.
+func TestGatePRMergeForQueue_StillJudgesTheMergedTreesDocsOnAStaleVerdict(t *testing.T) {
+	root, _ := ciReuseLane(t, mutantsInCI)
+	write(t, root, "go.mod", "module notes\n")
+	write(t, root, "NOTES.md", "See `crates/a/src/gone_missing.rs` for the details.\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "a doc citing a file that is not there")
+	stubCIMergeRef(t, "0000000000000000000000000000000000000001", ciBefore)
+
+	err := GatePRMergeForQueue(root, "", recordRuns(new([]gateRun), SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, passedCheck("test")))
+
+	if err == nil || !strings.Contains(err.Error(), "gone_missing.rs") {
+		t.Fatalf("a dangling doc reference in the merged tree must refuse under a queue too, got %v", err)
+	}
+}
+
+// A verdict that never stood (a red shard, a missing check) is not made good by
+// the queue: the gate runs the local suite exactly as it does without one.
+func TestGatePRMergeForQueue_ARedShardStillRunsTheLocalSuite(t *testing.T) {
+	root, trunk := ciReuseLane(t, mutantsInCI)
+	stubCIMergeRef(t, mergedTreeOf(t, root, trunk), ciBefore)
+
+	var seen []gateRun
+	v := ciVerdictOf(t, root, passedCheck("test"), redCheck("test-windows (cli)"))
+	if err := GatePRMergeForQueue(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, v); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) == 0 {
+		t.Fatal("a red windows shard ran no local suite under a queue")
+	}
+}

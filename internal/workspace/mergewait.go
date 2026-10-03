@@ -313,26 +313,40 @@ func notStartedError(branch string, head *PRHead, idle []CheckRun) error {
 }
 
 // MergeWait waits until every check on the lane PR's current head has
-// concluded green, then merges it through Merge.Apply — the same CI read,
-// pre-merge gate and gh merge a plain `workspace merge` runs.
+// concluded green, then merges it through Merge.Apply's steps — the same CI
+// read, pre-merge gate and gh merge a plain `workspace merge` runs. On a base
+// branch with a merge queue the PR is enqueued instead, and MergeWait then waits
+// until the queue has merged it (or says why it did not).
 func MergeWait(t *Target, method string, deleteBranch bool, o WaitOpts, stdout, stderr io.Writer) error {
+	m, q, err := mergeWaitStart(t, method, deleteBranch, o, stdout, stderr)
+	if err != nil || q == nil {
+		return err
+	}
+	return m.awaitMerged(q, o, stdout, stderr)
+}
+
+// mergeWaitStart is MergeWait up to GitHub taking the PR: it waits for the
+// head's checks, runs the gates, and then merges (a nil Enqueued) or enqueues
+// the PR (the Enqueued it left in the queue, not yet merged).
+func mergeWaitStart(t *Target, method string, deleteBranch bool, o WaitOpts, stdout, stderr io.Writer) (*Merge, *Enqueued, error) {
 	m, err := MergePlan(t, method, deleteBranch)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	m.CI = o.CI
 	choice, err := chooseCI(t.Worktree, o.CI)
 	if err != nil {
-		return fmt.Errorf("refusing to merge %s: %w", t.Branch, err)
+		return nil, nil, fmt.Errorf("refusing to merge %s: %w", t.Branch, err)
 	}
 	if choice.mode != tdd.CILocal {
 		// Under auto an outage is not an answer: Apply reads the head's checks
 		// once more and falls back to local CI, naming the outage as its reason.
 		if err := waitForGreen(t, o, stdout); err != nil && (choice.mode != tdd.CIAuto || !isCIUnavailable(err)) {
-			return err
+			return nil, nil, err
 		}
 	}
-	return m.Apply(stdout, stderr)
+	q, err := m.land(stdout, stderr)
+	return m, q, err
 }
 
 // QueueItem is one PR of a merge queue: its head as planned and the lane
@@ -455,6 +469,7 @@ func runQueue(mainRepo string, prior *tdd.MergeQueueRecord, items []QueueItem, m
 		return err
 	}
 	var refused []string
+	var inQueue []enqueuedPR
 	for i, it := range items {
 		if it.Problem != "" {
 			fmt.Fprintf(stdout, "[refuse] PR #%d (%s): %s\n", it.PR, it.Branch, it.Problem)
@@ -464,7 +479,8 @@ func runQueue(mainRepo string, prior *tdd.MergeQueueRecord, items []QueueItem, m
 		}
 		fmt.Fprintf(stdout, "PR #%d (%s) in %s\n", it.PR, it.Branch, it.Lane)
 		t := &Target{Worktree: it.Lane, Branch: it.Branch, MainRepo: mainRepo, RepoName: filepath.Base(mainRepo)}
-		if err := MergeWait(t, method, deleteBranch, o, stdout, stderr); err != nil {
+		m, q, err := mergeWaitStart(t, method, deleteBranch, o, stdout, stderr)
+		if err != nil {
 			settleQueuePR(rec, it.PR, tdd.MergeQueueRefused, stderr)
 			var rest []string
 			for _, r := range items[i+1:] {
@@ -474,12 +490,63 @@ func runQueue(mainRepo string, prior *tdd.MergeQueueRecord, items []QueueItem, m
 			if len(rest) > 0 {
 				msg += "\nnot attempted: " + strings.Join(rest, " ")
 			}
+			if len(inQueue) > 0 {
+				msg += "\nalready in the merge queue, not waited for: " + strings.Join(prList(inQueue), " ")
+			}
 			return &queueStopError{msg: msg, err: err}
 		}
+		if q != nil {
+			// In GitHub's merge queue, not merged yet: the next PR is enqueued
+			// behind it, and every one is waited for once all are in.
+			inQueue = append(inQueue, enqueuedPR{it: it, m: m, q: q})
+			continue
+		}
 		settleQueuePR(rec, it.PR, tdd.MergeQueueMerged, stderr)
+	}
+	if err := awaitEnqueued(rec, inQueue, o, stdout, stderr); err != nil {
+		return err
 	}
 	if len(refused) > 0 {
 		return fmt.Errorf("refused: %s", strings.Join(refused, " "))
 	}
 	return nil
+}
+
+// enqueuedPR is a PR of a queue run that GitHub's merge queue holds.
+type enqueuedPR struct {
+	it QueueItem
+	m  *Merge
+	q  *Enqueued
+}
+
+func prList(prs []enqueuedPR) []string {
+	var out []string
+	for _, e := range prs {
+		out = append(out, fmt.Sprintf("#%d", e.it.PR))
+	}
+	return out
+}
+
+// awaitEnqueued waits for each PR of a merge queue to be merged, in the order
+// they were enqueued. One the queue drops does not stop the wait for the rest:
+// they are in the queue, and each is reported as it ends. The error names every
+// PR that did not merge and keeps the first failure's kind underneath.
+func awaitEnqueued(rec *tdd.MergeQueueRecord, prs []enqueuedPR, o WaitOpts, stdout, stderr io.Writer) error {
+	var failed []string
+	var first error
+	for _, e := range prs {
+		if err := e.m.awaitMerged(e.q, o, stdout, stderr); err != nil {
+			settleQueuePR(rec, e.it.PR, tdd.MergeQueueRefused, stderr)
+			failed = append(failed, fmt.Sprintf("PR #%d (%s): %v", e.it.PR, e.it.Branch, err))
+			if first == nil {
+				first = err
+			}
+			continue
+		}
+		settleQueuePR(rec, e.it.PR, tdd.MergeQueueMerged, stderr)
+	}
+	if first == nil {
+		return nil
+	}
+	return &queueStopError{msg: "merge queue did not merge every PR:\n" + strings.Join(failed, "\n"), err: first}
 }

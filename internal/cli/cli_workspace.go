@@ -102,6 +102,14 @@ Operator / outside-use verbs (pass [repo] [branch] to target a worktree):
                             It judges and merges the PR head GitHub holds; a
                             lane not at that head, or with uncommitted changes,
                             exits 2 before judging (push first).
+                            Where the PR's base branch has a merge queue, GitHub
+                            takes no direct merge: the PR is enqueued instead,
+                            bound to the judged head, a CI verdict for an older
+                            base is not refused (the queue tests the current
+                            merge), and one line says where it stands. --wait
+                            waits until the queue has merged it, or exits 1
+                            naming the failing job when the queue removed it;
+                            --wait <pr>... enqueues every PR before waiting.
 
 The worktree lands at <repo-parent>/.worktrees/<repo-name>/<branch-slug> — the
 same layout aphrollo-dev uses, so a created worktree can later be claimed. The
@@ -290,7 +298,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		rebase = fs.Bool("rebase", false, "rebase-merge")
 		keep   = fs.Bool("keep-branch", false, "keep the PR branch (default: delete it)")
 		into   = fs.String("into", "", "base dir for worktrees (with positional <repo> <branch>)")
-		wait   = fs.Bool("wait", false, "wait for every check on the PR's current head, then merge; with PR numbers, merge them as a serial queue")
+		wait   = fs.Bool("wait", false, "wait for every check on the PR's current head, then merge (or, behind a merge queue, wait until the queue has merged it); with PR numbers, merge them in order, enqueuing them all at once behind a merge queue")
 		tmo    = fs.Duration("timeout", workspace.DefaultWaitOpts().Timeout, "with --wait: how long to wait for checks before giving up")
 		resume = fs.Bool("resume", false, "with --wait: merge the PRs a stopped merge queue in this repo left pending")
 		ciMode = fs.String("ci", "", "CI that judges the merge: auto | local | github (default: ci in aphrollo.toml, else auto)")
