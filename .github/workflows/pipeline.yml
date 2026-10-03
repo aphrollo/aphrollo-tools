@@ -3,19 +3,16 @@ name: Pipeline
 # CI quality gate for aphrollo-tools, mirroring aphrollo-agents/pipeline.yml so
 # every Go repo on the box is gated the same way. The repo is public, so every
 # job a pull_request event can run uses a GitHub-hosted runner (ubuntu-latest):
-# a fork's code never reaches the production host. Only `deploy`, which must
-# touch the host, is self-hosted, and it is guarded to a push to main or a
-# manual dispatch. Nothing here reads state left on the box: each job builds
+# a fork's code never reaches the production host. The one self-hosted job,
+# `deploy`, lives in deploy.yml. Nothing here reads state left on the box: each job builds
 # the CLI from its own checkout and installs the tools it calls.
 #
-# DEPLOY: this workflow installs /usr/local/bin/aphrollo on merge to main, the
-# same way the Go services deploy themselves. The check jobs run on BOTH a PR
-# and a push to main -- a push resolves its diff base from `github.event.before`
-# rather than a PR base. After them the `deploy` job builds
-# the binary + runs deploy/deploy-prod.sh, which stages a release under
-# /opt/aphrollo-cli, smoke-tests it, and atomically swaps the `current` symlink.
-# No daemon, no sudo, no manual deploy-infra step. See deploy/README.md for the
-# release layout and the one-time aphrollo-infra prerequisites.
+# DEPLOY: /usr/local/bin/aphrollo installs on merge to main from deploy.yml,
+# which the `release` job below dispatches once the tag step is done. The
+# deploy is not a job here: it waits on the one self-hosted runner, and a run
+# held open by it queues every later push to main, so their releases would be
+# cancelled and never tagged. See deploy/README.md for the release layout and
+# the one-time aphrollo-infra prerequisites.
 
 on:
   # Draft PRs run NO CI: the check jobs below gate on `pull_request.draft != true`,
@@ -34,9 +31,8 @@ on:
 permissions:
   contents: read
 
-# Cancel superseded PR runs. Push-to-main runs are NOT cancelled so a deploy in
-# flight is not preempted by a follow-up commit; the deploy job has its own
-# cancel-in-progress: false group below.
+# Cancel superseded PR runs. Push-to-main runs are NOT cancelled so a release
+# in flight is not preempted by a follow-up commit.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -240,7 +236,7 @@ jobs:
 
   test:
     # Checks run on both a PR and a push to main (see the header note above):
-    # `deploy` runs behind them either way, via an always()+needs-result guard
+    # `release` runs behind them either way, via an always()+needs-result guard
     # (mirrors aphrollo-api/pipeline.yml) rather than the checks standing down
     # on push.
     if: github.event.pull_request.draft != true
@@ -1109,14 +1105,14 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: ./bin/aphrollo tdd --help >/dev/null && ./bin/aphrollo --help >/dev/null
 
-  # On merge to main (and manual dispatch), build + install /usr/local/bin/aphrollo.
+  # On merge to main (and manual dispatch), tag and hand off to deploy.yml.
   # Checks run on push too (see the header note above), so this uses the same
   # always()+needs-result guard as aphrollo-api regardless: run after they are
   # all green, but a red one means this never fires. A manual workflow_dispatch
   # stays gated behind the same guard.
   # A tag per release: when the merge that just landed carries a new
   # internal/buildinfo/VERSION, tag that commit v<VERSION> and push it. A
-  # version already tagged is [skip]. `aphrollo update` and `deploy` below both
+  # version already tagged is [skip]. `aphrollo update` and deploy.yml both
   # follow the newest of these tags, not the tip of main, so a box only ever
   # runs a version a consumer was told about (CHANGELOG.md).
   release:
@@ -1126,6 +1122,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: write
+      actions: write
     concurrency:
       group: release-tag-aphrollo-cli
       cancel-in-progress: false
@@ -1137,49 +1134,15 @@ jobs:
         run: bash deploy/tag-release.sh
         env:
           GITHUB_SHA: ${{ github.sha }}
-
-  deploy:
-    needs: [release, test, lint, scan, workflow-pins]
-    # Only a push to main or a manual dispatch by a writer can schedule this
-    # job onto the host; a pull_request event never satisfies the guard.
-    if: ${{ always() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
-    runs-on: self-hosted
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    concurrency:
-      group: deploy-prod-aphrollo-cli
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-      # The box runs the newest release tag, not the commit that triggered this
-      # run: a merge that does not bump VERSION redeploys the tag it already ran.
-      - name: Check out the newest release tag
-        id: tag
-        run: |
-          tag=$(bash deploy/newest-tag.sh)
-          git checkout --detach "$tag"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version-file: go.mod
-          # false: on the self-hosted runner the Go module + build caches already
-          # persist on $HOME between jobs, so setup-go's remote cache is redundant —
-          # and its post-job save tars+uploads ~5GB that stalls the upload (~98.7%),
-          # wedging the run. The persistent disk is the cache.
-          cache: false
-      # The -X stamps are the ones `aphrollo update` sets (selfinstall.go's
-      # buildArgs): without them `aphrollo version` prints unstamped and the
-      # hourly behind-origin/main check has nothing to compare, so this box
-      # would never notice a stale binary.
-      - name: Build
-        run: go build -trimpath -buildvcs=false -ldflags="-s -w -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.commit=${{ steps.tag.outputs.sha }} -X github.com/aphrollo/aphrollo-tools/internal/buildinfo.builtAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -o bin/aphrollo ./cmd/aphrollo
-      - name: Deploy
+      # The deploy is its own workflow (deploy.yml) so a host that is down can
+      # never hold this run open: queued, it would stall every later push to
+      # main, and GitHub cancels all but the newest pending run, so their
+      # releases would never be tagged. A tag pushed with GITHUB_TOKEN starts
+      # no workflow; a workflow_dispatch made with it does.
+      - name: Dispatch the deploy
+        run: gh workflow run deploy.yml --ref main
         env:
-          GITHUB_SHA: ${{ steps.tag.outputs.sha }}
-        run: ./deploy/deploy-prod.sh
+          GH_TOKEN: ${{ github.token }}
 
   # Judges the MERGED TREE itself (#372): every check above judges a PR
   # against ITS OWN base, so a lane that tightens a baseline and a lane that

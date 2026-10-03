@@ -244,6 +244,7 @@ deferred_widen_test.go                             postedit
 deferred_windows.go                                postedit
 deferred_windows_suite.go                          suite     # created by P2
 deferred_windows_test.go                           postedit
+deploy_workflow_pin_test.go                         tdd
 demote.go                                          escape
 demote_rate_test.go                                escape
 demote_test.go                                     escape

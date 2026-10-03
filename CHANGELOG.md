@@ -19,6 +19,19 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.4.2 - 2026-10-03
+
+Release tags no longer wait on the deploy host.
+
+### What you will notice
+
+- A release tag is created as soon as a merge's checks pass, even while the
+  self-hosted deploy host is down. Before, a queued deploy held the pipeline run
+  open, later runs were cancelled, and versions 1.2.1, 1.3.0 and 1.3.1 were never
+  tagged, so `aphrollo update` found nothing new.
+- The deploy runs from its own workflow, dispatched by the release step; a newer
+  release replaces a deploy still waiting for the host.
+
 ## 1.4.1 - 2026-10-03
 
 The merge gate is stricter about which CI checks it will take in place of a local run.
