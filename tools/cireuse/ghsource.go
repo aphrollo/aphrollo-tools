@@ -11,7 +11,8 @@ import (
 )
 
 // treeArtifact is the artifact the pipeline's `changes` job uploads on a pull
-// request: one file, `tree`, holding the tree its checkout tested.
+// request and on a merge group: one file, `tree`, holding the tree its
+// checkout tested.
 const treeArtifact = "tested-tree"
 
 // ghSource is Source over the gh CLI, which carries the job's GH_TOKEN.
@@ -69,7 +70,7 @@ func (g *ghSource) Pulls(sha string) ([]Pull, error) {
 	return pulls, nil
 }
 
-func (g *ghSource) Runs(headSHA string) ([]Run, error) {
+func (g *ghSource) Runs(event, headSHA string) ([]Run, error) {
 	var raw struct {
 		Runs []struct {
 			ID             int64  `json:"id"`
@@ -86,7 +87,7 @@ func (g *ghSource) Runs(headSHA string) ([]Run, error) {
 			} `json:"head_repository"`
 		} `json:"workflow_runs"`
 	}
-	if err := g.get(&raw, "repos/%s/actions/workflows/%s/runs?event=pull_request&head_sha=%s&per_page=100", g.Repo, path.Base(g.Workflow), headSHA); err != nil {
+	if err := g.get(&raw, "repos/%s/actions/workflows/%s/runs?event=%s&head_sha=%s&per_page=100", g.Repo, path.Base(g.Workflow), event, headSHA); err != nil {
 		return nil, err
 	}
 	runs := make([]Run, 0, len(raw.Runs))

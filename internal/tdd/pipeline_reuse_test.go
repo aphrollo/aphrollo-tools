@@ -156,9 +156,9 @@ func TestPipeline_ReuseRequirementsNameRealJobsAndStepsAndCoverTheSkippedJobs(t 
 	}
 }
 
-// The tool reads the tree the pull request's run tested from an artifact that
-// run uploaded, so the upload is a pull-request-only step of `changes`, which
-// checks out the same merge commit every job of the run does.
+// The tool reads the tree a run tested from an artifact that run uploaded, so
+// the upload is a step of `changes` for a pull request and for a merge group,
+// which check out the same commit every job of the run does, and for no push.
 func TestPipeline_PullRequestRunPublishesTheTreeItTested(t *testing.T) {
 	t.Parallel()
 	job := pipelineJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"), "changes")
@@ -174,7 +174,14 @@ func TestPipeline_PullRequestRunPublishesTheTreeItTested(t *testing.T) {
 	i := strings.Index(job, "name: tested-tree")
 	step := job[:i]
 	step = step[strings.LastIndex(step, "      - "):]
-	if !strings.Contains(step, "uses: actions/upload-artifact@") || !strings.Contains(step, "if: github.event_name == 'pull_request'") {
-		t.Errorf("the upload is not a pull-request-only upload-artifact step:\n%s", step)
+	const cond = "if: github.event_name == 'pull_request' || github.event_name == 'merge_group'\n"
+	if !strings.Contains(step, "uses: actions/upload-artifact@") || !strings.Contains(step, cond) {
+		t.Errorf("the upload is not a pull_request and merge_group upload-artifact step:\n%s", step)
+	}
+	j := strings.Index(job, "git rev-parse HEAD^{tree} > tested-tree/tree")
+	record := job[:j]
+	record = record[strings.LastIndex(record, "      - "):]
+	if !strings.Contains(record, cond) {
+		t.Errorf("the tree is not recorded on a merge_group run, so the queue's verdict has no tree to match:\n%s", record)
 	}
 }

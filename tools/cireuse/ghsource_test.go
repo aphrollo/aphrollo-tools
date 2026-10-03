@@ -65,7 +65,7 @@ func TestGHSource_RunsAsksForThePullRequestRunsOfTheHeadAndReadsEachField(t *tes
 		   "head_repository": {"full_name": "o/r"}}
 		]}`,
 	})
-	got, err := src.Runs("def")
+	got, err := src.Runs("pull_request", "def")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,6 +73,27 @@ func TestGHSource_RunsAsksForThePullRequestRunsOfTheHeadAndReadsEachField(t *tes
 		Status: "completed", Conclusion: "success", HeadSHA: "def", HeadRepo: "o/r", URL: "https://github.com/o/r/actions/runs/900"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("runs = %+v, want %+v", got, want)
+	}
+}
+
+func TestGHSource_RunsAsksForTheEventAndHeadItIsGiven(t *testing.T) {
+	t.Parallel()
+	src, stub := newStub(map[string]string{
+		"api repos/o/r/actions/workflows/pipeline.yml/runs?event=merge_group&head_sha=abc&per_page=100": `{"total_count": 1, "workflow_runs": [
+		  {"id": 950, "run_number": 9, "run_attempt": 1, "event": "merge_group", "path": ".github/workflows/pipeline.yml",
+		   "status": "completed", "conclusion": "success", "head_sha": "abc", "html_url": "https://github.com/o/r/actions/runs/950",
+		   "head_repository": {"full_name": "o/r"}}
+		]}`,
+	})
+	got, err := src.Runs("merge_group", "abc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != 950 || got[0].Event != "merge_group" || got[0].HeadSHA != "abc" {
+		t.Errorf("runs = %+v, want the one merge_group run 950 on abc", got)
+	}
+	if len(stub.calls) != 1 {
+		t.Errorf("gh called %d times, want 1: %v", len(stub.calls), stub.calls)
 	}
 }
 
@@ -137,7 +158,7 @@ func TestGHSource_AFailedCallIsReportedNotSwallowed(t *testing.T) {
 	if _, err := src.Pulls("abc"); err == nil || !strings.Contains(err.Error(), "unexpected gh call") {
 		t.Errorf("Pulls error = %v, want the gh failure", err)
 	}
-	if _, err := src.Runs("def"); err == nil {
+	if _, err := src.Runs("pull_request", "def"); err == nil {
 		t.Error("Runs swallowed the gh failure")
 	}
 	if _, err := src.Jobs(1); err == nil {

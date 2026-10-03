@@ -117,10 +117,10 @@ func TestPipeline_NeverCancelsAMergeGroupRun(t *testing.T) {
 	}
 }
 
-// The push that lands a queue entry must not take a verdict a merge_group run
-// never recorded, and a queue run must test its own tree: the reuse step is
-// push-only and the tree upload is pull_request-only, so a merge_group run
-// neither reuses nor publishes.
+// A queue run must test its own tree, never reuse another run's verdict: the
+// reuse step is push-only. It does publish the tree it tested (see
+// TestPipeline_PullRequestRunPublishesTheTreeItTested), which is
+// what lets the push that fast-forwards main to the group's head reuse it.
 func TestPipeline_AMergeGroupRunTestsItsOwnTree(t *testing.T) {
 	t.Parallel()
 	job := pipelineJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"), "changes")

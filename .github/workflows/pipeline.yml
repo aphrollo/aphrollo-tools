@@ -177,29 +177,33 @@ jobs:
           else
             echo "refactor=false" >> "$GITHUB_OUTPUT"
           fi
-      # A pull request's run publishes the tree its checkout tested (every
-      # job of a run checks out the same merge commit), so the push that
-      # lands the pull request can tell whether it holds that very tree.
+      # A pull request's or merge group's run publishes the tree its checkout
+      # tested (every job of a run checks out the same commit), so the push
+      # that lands it can tell whether it holds that very tree. The queue
+      # fast-forwards main to the group's head, so that push's tree is the
+      # group's.
       - name: Record the tree this run tested
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         run: mkdir -p tested-tree && git rev-parse HEAD^{tree} > tested-tree/tree
       - name: Publish the tree this run tested
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tested-tree
           path: tested-tree/tree
           retention-days: 30
           if-no-files-found: error
-      # A push to main whose tree the merged pull request's own run already
-      # tested green does not run the suites again: `reuse=true` stands the
-      # test, test-windows, gate-env, lint and benchmarks jobs down, and
-      # `release` still runs behind the skipped jobs. tools/cireuse says yes
-      # only for a merged pull request whose merge commit is this one, a
-      # first-attempt successful pipeline run on its head from this
-      # repository, a successful run of each step named below in the jobs
-      # named (the job concluding success is not enough: a skipped job does),
-      # and a recorded tested tree equal to this commit's. Anything else, a
+      # A push to main whose tree an earlier run already tested green does
+      # not run the suites again: `reuse=true` stands the test, test-windows,
+      # gate-env, lint and benchmarks jobs down, and `release` still runs
+      # behind the skipped jobs. tools/cireuse says yes only for a
+      # first-attempt successful pipeline run from this repository, a
+      # successful run of each step named below in the jobs named (the job
+      # concluding success is not enough: a skipped job does), and a recorded
+      # tested tree equal to this commit's. The run is the merge group's whose
+      # head is this very commit (the queue fast-forwards main to it; the
+      # earlier commits of a larger group have no run of their own), else the
+      # merged pull request's whose merge commit is this one. Anything else, a
       # lookup that failed, or a binary that was never built leaves the output
       # false and the full suite runs as before. scan is not reused:
       # govulncheck reads a vulnerability database that moves without the tree.
