@@ -108,6 +108,15 @@ var trampoline = sync.OnceValues(func() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return buildTrampoline(dir)
+})
+
+// buildTrampoline compiles the trampoline into dir and answers the path of the
+// executable.
+func buildTrampoline(dir string) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(trampolineSource), 0o644); err != nil {
 		return "", err
 	}
@@ -117,8 +126,11 @@ var trampoline = sync.OnceValues(func() (string, error) {
 	exe := filepath.Join(dir, "shim.exe")
 	cmd := exec.Command("go", "build", "-o", exe, ".")
 	cmd.Dir = dir
+	// The module is a throwaway: a go.work above the temp dir, or one the
+	// environment names, lists other modules and go refuses this one.
+	cmd.Env = append(os.Environ(), "GOWORK=off")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("building the sh trampoline: %v\n%s", err, out)
 	}
 	return exe, nil
-})
+}

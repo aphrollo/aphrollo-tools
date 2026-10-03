@@ -19,6 +19,19 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.5.4 - 2026-10-03
+
+The commit gate judges what `git commit -a` and `git commit <paths>` stage.
+
+### What you will notice
+
+- `git commit -a` and `git commit <paths>` are no longer refused by the commit gate with
+  `Unable to create ... index.lock: File exists`. The gate now reads the staged tree from the index
+  the commit is building, so the checkout the dependency-graph laws query, fail-first and the
+  mutation diffs all see what the commit will hold.
+- A write the harvest polls on Windows retries a rename that a reader's open handle blocked for up
+  to a second, instead of failing with `Access is denied`.
+
 ## 1.5.3 - 2026-10-03
 
 A mutation survivor a repo only reports is no longer logged as a refusal.

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"time"
 )
 
 // normalizeProjectPath is the identity two mentions of the same project
@@ -33,11 +32,6 @@ func projectKey(root string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-const (
-	renameAttempts   = 100
-	renameRetryEvery = 5 * time.Millisecond
-)
-
 // writeFileAtomic publishes a file by rename, so a reader polling for it
 // sees either the old content or the whole new content — never the middle of
 // a write. The harvest polls the result file every 200 ms; a truncated read
@@ -59,13 +53,9 @@ func writeFileAtomic(path string, data []byte) error {
 	}
 	// Windows refuses to replace a file another process has open, and the
 	// harvest polls this very path — so retry briefly before giving up.
-	var rerr error
-	for range renameAttempts {
-		if rerr = os.Rename(name, path); rerr == nil {
-			return nil
-		}
-		time.Sleep(renameRetryEvery)
+	err = retryRename(func() error { return os.Rename(name, path) }, renameRetryable, renameBound)
+	if err != nil {
+		os.Remove(name)
 	}
-	os.Remove(name)
-	return rerr
+	return err
 }

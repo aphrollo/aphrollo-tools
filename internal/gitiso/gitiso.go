@@ -110,6 +110,8 @@ func homeLayout(fake string) map[string]string {
 //   - sends CLAUDE_CONFIG_DIR, where the gate keeps its state, under root, and
 //     points core.hooksPath at an empty dir so no repo hook a test reaches runs;
 //   - switches git's post-commit auto maintenance off.
+//   - sets GOWORK=off, so no go.work of the box, the runner or a directory above
+//     the temp root is in view of a `go` a test spawns in a throwaway module.
 //
 // The Go toolchain's cache locations are pinned where they resolve now, so
 // moving the home does not make every `go` a test spawns rebuild the world.
@@ -120,7 +122,7 @@ func Isolate(root string) (home string, err error) {
 	if err := os.MkdirAll(tmp, 0o755); err != nil {
 		return "", err
 	}
-	env := map[string]string{"TMPDIR": tmp, "TMP": tmp, "TEMP": tmp, "GOTMPDIR": tmp}
+	env := map[string]string{"TMPDIR": tmp, "TMP": tmp, "TEMP": tmp, "GOTMPDIR": tmp, "GOWORK": "off"}
 	for name, path := range homeLayout(home) {
 		if err := os.MkdirAll(path, 0o755); err != nil {
 			return "", err

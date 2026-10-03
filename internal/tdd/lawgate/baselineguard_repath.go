@@ -63,7 +63,7 @@ func gitBatchBlobs(repoRoot, ref string, rels []string) map[string]string {
 		stdin.WriteString(ref + ":" + rel + "\n")
 	}
 	cmd := exec.Command(gitBinary(), "-C", repoRoot, "cat-file", "--batch")
-	cmd.Env = cleanGitEnv()
+	cmd.Env = cleanGitEnvFor(repoRoot)
 	cmd.Stdin = strings.NewReader(stdin.String())
 	out, err := cmd.Output() // stderr-ok: a failed batch read reads as "content unknown" for every candidate below, never surfaced
 	if err != nil {

@@ -219,3 +219,22 @@ func UndercoverRepo(t *testing.T, on bool) string {
 	Write(t, root, "Cargo.toml", manifest)
 	return root
 }
+
+// CommitAIndexRepo is a repository mid `git commit -a`: f.txt is v1 in HEAD and
+// in the default index, v2 on disk and in the temporary index the commit would
+// build, and GIT_INDEX_FILE names that index, as a pre-commit hook sees it.
+// Only a git call that honours the variable reads v2 from ":f.txt".
+func CommitAIndexRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	GitInit(t, repo)
+	Write(t, repo, "f.txt", "v1\n")
+	GitAddAll(t, repo)
+	CommitAll(t, repo)
+	Write(t, repo, "f.txt", "v2\n")
+	temp := filepath.Join(repo, ".git", "next-index-test.lock")
+	t.Setenv("GIT_INDEX_FILE", temp)
+	GitDo(t, repo, "read-tree", "HEAD")
+	GitDo(t, repo, "add", "f.txt")
+	return repo
+}

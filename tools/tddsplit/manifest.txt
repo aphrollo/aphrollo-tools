@@ -66,6 +66,7 @@ baselineguard_gitx.go                              gitx      # created by P2
 baselineguard_lane.go                              lawgate
 baselineguard_lane_test.go                         lawgate
 baselineguard_merge_test.go                        lawgate
+baselineguard_commita_test.go                      lawgate
 baselineguard_repath.go                            lawgate
 baselineguard_repath_test.go                       lawgate
 baselineguard_scanview.go                          lawgate
@@ -448,6 +449,7 @@ gitgate_test.go                                    install
 gitpathlimit_other.go                              core
 gitpathlimit_windows.go                            core
 gitplumbing.go                                     gitx
+gitplumbing_commita_test.go                        gitx
 gitplumbing_stdout_test.go                         gitx
 gitspawn_test.go                                    gitx
 gitstaged_batch_unix_test.go                       gitx
@@ -522,6 +524,7 @@ mask_test.go                                       core
 mechanical.go                                      precommit
 mechanical_test.go                                 precommit
 mechcache.go                                       suite
+mechcache_commita_test.go                          suite
 mechcache_concurrent_test.go                       suite
 mechcache_covers_test.go                           suite
 mechcache_ignored_test.go                          suite
@@ -655,6 +658,7 @@ mutants_measure_rerun.go                           mutation
 mutants_measure_test.go                            mutation
 mutants_measure_tree.go                            mutation
 mutants_measure_tree_batch_unix_test.go            mutation
+mutants_measure_tree_commita_test.go               mutation
 mutants_measure_tree_test.go                       mutation
 mutants_measure_verdict_test.go                    mutation
 mutants_memcap_test.go                             mutation
@@ -912,12 +916,19 @@ ratchetreadme.go                                   tdd
 ratchetreadme_test.go                              tdd
 ratchetschema_test.go                              lawgate
 ratchetstage_baselinehint_test.go                  lawgate
+ratchetstage_commita_test.go                       lawgate
 ratchetstage_rename_test.go                        lawgate
 ratchetstage_stagedgraph_test.go                   lawgate
 ratchetstage_stagedview_test.go                    lawgate
 ratchetstage_test.go                               lawgate
 ratchettracked_test.go                             lawgate
 redsnippet_test.go                                 postedit
+renameretry.go                                     core
+renameretry_other.go                               core
+renameretry_other_own_test.go                      core
+renameretry_own_test.go                            core
+renameretry_windows.go                             core
+renameretry_windows_own_test.go                    core
 replayworkflow_pin_test.go                         tdd
 repos.go                                           tddtest
 retro.go                                           merge
@@ -1174,8 +1185,6 @@ Outcome                                       classify.go                  class
 Outcome.IsRed                                 classify.go                  classify_core.go
 normalizeProjectPath                          deferred.go                  deferred_core.go
 projectKey                                    deferred.go                  deferred_core.go
-renameAttempts                                deferred.go                  deferred_core.go
-renameRetryEvery                              deferred.go                  deferred_core.go
 writeFileAtomic                               deferred.go                  deferred_core.go
 InfraFailed                                   deferred_edit.go             deferred_edit_suite.go
 headSHAFor                                    deferred_edit.go             deferred_edit_failfirst.go
