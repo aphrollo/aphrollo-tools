@@ -132,12 +132,23 @@ func TestMerge_GateIsHandedGitHubsCheckVerdictWhenGitHubJudged(t *testing.T) {
 	stubSync(t, func(string, bool, io.Writer, io.Writer) error { return nil })
 	ghVerdictChecks = func(wt, sha string) []CheckRun {
 		return []CheckRun{
-			{Name: "test", SHA: "abc", Status: "completed", Conclusion: "success", StartedAt: "2026-10-03T10:00:00Z"},
+			{Name: "test", SHA: "abc", Status: "completed", Conclusion: "success", StartedAt: "2026-10-03T10:00:00Z",
+				App: "github-actions", URL: "https://github.com/o/r/actions/runs/77/job/1"},
 			{Name: "test-windows (cli)", SHA: "abc", Status: "completed", Conclusion: "failure"},
 			{Name: "lint", SHA: "old", Status: "completed", Conclusion: "success"},
 			{Name: "docs", SHA: "abc", Status: "completed", Conclusion: "skipped"},
 		}
 	}
+	runReads := 0
+	prevRun := ghRunInfo
+	ghRunInfo = func(wt string, id int64) (runInfo, error) {
+		runReads++
+		if id != 77 {
+			t.Errorf("asked about run %d, want 77", id)
+		}
+		return runInfo{Workflow: "pipeline.yml", Attempt: 2}, nil
+	}
+	t.Cleanup(func() { ghRunInfo = prevRun })
 	var got *tdd.CIVerdict
 	stubPremergeGate(t, func(tgt *Target, v *tdd.CIVerdict, log io.Writer) error { got = v; return nil })
 
@@ -156,6 +167,14 @@ func TestMerge_GateIsHandedGitHubsCheckVerdictWhenGitHubJudged(t *testing.T) {
 	want := map[string]bool{"test": true, "test-windows (cli)": false, "docs": false}
 	if len(passed) != len(want) || passed["test"] != true || passed["test-windows (cli)"] != false || passed["docs"] != false {
 		t.Errorf("checks = %v, want %v (a check on another commit is not this head's, and skipped is not passed)", passed, want)
+	}
+	for _, c := range got.Checks {
+		if c.Name == "test" && (c.App != "github-actions" || c.Workflow != "pipeline.yml" || c.Attempt != 2) {
+			t.Errorf("test check = %+v, want app github-actions, workflow pipeline.yml, attempt 2", c)
+		}
+	}
+	if runReads != 1 {
+		t.Errorf("read %d runs, want 1 (only the Actions check has one)", runReads)
 	}
 	if got.Checks[0].Started.IsZero() {
 		t.Errorf("the start time of %q was dropped", got.Checks[0].Name)
