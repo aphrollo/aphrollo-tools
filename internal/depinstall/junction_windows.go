@@ -12,11 +12,16 @@ import (
 )
 
 // verbatimCmdLine gives the child the command line it carries, as is: the hook
-// that sets it runs before the child starts, after run has set up the guard.
+// that sets it runs before the child starts, after run has set up the guard,
+// so it adds to the attributes run set (the suspended start that lets the
+// child join its job before it runs) and never replaces them.
 type verbatimCmdLine string
 
 func (l verbatimCmdLine) Before(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{CmdLine: string(l)}
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.CmdLine = string(l)
 }
 func (verbatimCmdLine) Started(int) {}
 func (verbatimCmdLine) Ended()      {}

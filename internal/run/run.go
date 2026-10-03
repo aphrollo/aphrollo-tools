@@ -1,11 +1,12 @@
 // Package run owns every child process. A light child (git plumbing, a
-// formatter) gets a timeout and the plain environment. A heavy child (a
+// formatter) gets a timeout, the plain environment, and a guard that ends its
+// whole process tree when the timeout or Close does: a Windows job object that
+// kills on close with no breakaway, a process group on unix. A heavy child (a
 // build, a test run, lint, local CI, mutation) also gets a governor slot, the
-// sealed environment, and a guard that ends its whole process tree: a Windows
-// job object that kills on close with no breakaway, a process group on unix.
-// Whatever ends a child (Close, the timeout, or its own exit) ends what it
-// started, so a test binary stuck in kernel exit or an MSYS grandchild that
-// outlives `taskkill /T` is not left holding the box's memory.
+// sealed environment, and the same guard ending its tree whenever the child
+// ends, its own exit included, so a test binary stuck in kernel exit or an
+// MSYS grandchild that outlives `taskkill /T` is not left holding the box's
+// memory.
 package run
 
 import (
@@ -173,9 +174,9 @@ type guardError struct{ err error }
 func (g guardError) Error() string { return "run: could not guard the child: " + g.err.Error() }
 func (g guardError) Unwrap() error { return g.err }
 
-// plainTree is what a heavy child runs under when its guard could not be set
-// up: its own tree, ended by walking from its pid, with the timeout still
-// armed. It is the light child's guard, and no job nor group.
+// plainTree is what a child runs under when its guard could not be set up:
+// its own tree, ended by walking from its pid, with the timeout still armed.
+// It is no job nor group.
 type plainTree struct{ pid int }
 
 func (p *plainTree) attach(child *os.Process) error { p.pid = child.Pid; return nil }
@@ -188,9 +189,10 @@ func (p *plainTree) finish()      {}
 func (p *plainTree) peak() uint64 { return 0 }
 
 // start runs the child under its guard. A guard that cannot be set up never
-// fails a heavy child: the box could not give one, which says nothing about
-// the code the child runs, so the child runs unguarded, with its timeout, and
-// Unguarded says why.
+// fails a child: the box could not give one, which says nothing about the code
+// the child runs, so the child runs on its own tree walk, with its timeout. A
+// heavy child's Unguarded says why; a light child, many and short, says
+// nothing.
 func start(spec Spec, env []string, heavy bool) (*Child, error) {
 	cmd := command(spec, env)
 	t, err := prepareGuard(cmd, heavy, spec.MemoryMB)
@@ -202,16 +204,15 @@ func start(spec Spec, env []string, heavy bool) (*Child, error) {
 		}
 		err = ge.err
 	}
-	if !heavy {
-		return nil, err
-	}
 	cmd = command(spec, env)
 	cmd.SysProcAttr = proc.TreeAttrs()
 	c, serr := launch(cmd, &plainTree{}, spec)
 	if serr != nil {
 		return nil, serr
 	}
-	c.unguarded = err
+	if heavy {
+		c.unguarded = err
+	}
 	return c, nil
 }
 

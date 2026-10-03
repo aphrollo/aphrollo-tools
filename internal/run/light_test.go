@@ -82,29 +82,97 @@ func TestLightRun_TimeoutEndsTheChildAndSaysSo(t *testing.T) {
 	}
 }
 
-// A light child's guard walks the tree from its pid, which does not reach an
-// MSYS grandchild on Windows; only the heavy child's job does. So the chain
-// here is the test binary's own, and the shell chain is proved for the heavy.
+// A light child is held in a job like a heavy one, so a cancel reaches the
+// MSYS grandchildren that walking the tree from the pid misses.
 func TestLightRunCtx_CancelEndsTheChildAndItsGrandchild(t *testing.T) {
-	pidFile := filepath.Join(t.TempDir(), "pids")
-	spec := chains()[0].spec(t, pidFile, false)
-	spec.Timeout = 5 * time.Minute
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- LightRunCtx(ctx, spec) }()
+	for _, ch := range chains() {
+		t.Run(ch.name, func(t *testing.T) {
+			pidFile := filepath.Join(t.TempDir(), "pids")
+			spec := ch.spec(t, pidFile, false)
+			spec.Timeout = 5 * time.Minute
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- LightRunCtx(ctx, spec) }()
 
-	waitFor(t, "the tree to come up", func() bool { return len(readPids(pidFile)) >= 2 })
-	pids := readPids(pidFile)
-	watch(t, pids)
-	cancel()
+			waitFor(t, "the tree to come up", func() bool { return len(readPids(pidFile)) >= ch.pids })
+			pids := readPids(pidFile)
+			watch(t, pids)
+			cancel()
 
-	select {
-	case <-done:
-	case <-time.After(30 * time.Second):
-		t.Fatal("LightRunCtx did not return within 30 s of its context ending")
+			select {
+			case <-done:
+			case <-time.After(30 * time.Second):
+				t.Fatal("LightRunCtx did not return within 30 s of its context ending")
+			}
+			assertTreeGone(t, pids)
+		})
 	}
-	assertTreeGone(t, pids)
+}
+
+// A light child that times out takes its whole tree with it, MSYS
+// grandchildren included: on Windows walking the tree from the pid missed them
+// under load and left them running after the timeout.
+func TestLightRun_TimeoutEndsTheWholeTree(t *testing.T) {
+	for _, ch := range chains() {
+		t.Run(ch.name, func(t *testing.T) {
+			pidFile := filepath.Join(t.TempDir(), "pids")
+			spec := ch.spec(t, pidFile, false)
+			spec.Timeout = 10 * time.Second
+
+			err := LightRun(spec)
+
+			if !errors.Is(err, ErrTimeout) {
+				t.Fatalf("err = %v, want ErrTimeout", err)
+			}
+			pids := readPids(pidFile)
+			watch(t, pids)
+			if len(pids) < ch.pids {
+				t.Fatalf("the tree recorded %d pids before the timeout, want %d: it never came up", len(pids), ch.pids)
+			}
+			assertTreeGone(t, pids)
+		})
+	}
+}
+
+// A guard a box refuses says nothing about the child, and a light child is too
+// many and too short to announce it: it runs, with its timeout, and says
+// nothing.
+func TestLightRun_AGuardThatCannotBeSetUpRunsTheChildInSilence(t *testing.T) {
+	withGuard(t, func(*exec.Cmd, bool, int64) (tree, error) { return nil, errors.New("no job object for this process") })
+	var errb bytes.Buffer
+	spec := helperSpec(t, "exit3")
+	spec.Stderr = &errb
+
+	err := LightRun(spec)
+
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 3 {
+		t.Fatalf("err = %v, want the child's own exit status 3: it ran", err)
+	}
+	if errb.Len() != 0 {
+		t.Errorf("stderr = %q, want nothing about the guard", errb.String())
+	}
+}
+
+func TestStartLight_AGuardThatCannotBeSetUpStillEndsTheChildAtItsTimeoutAndReportsNoReason(t *testing.T) {
+	withGuard(t, func(*exec.Cmd, bool, int64) (tree, error) { return nil, errors.New("no job object for this process") })
+	spec := helperSpec(t, "sleep")
+	spec.Timeout = 300 * time.Millisecond
+	c, err := StartLight(spec)
+	if err != nil {
+		t.Fatalf("StartLight with a guard that cannot be built = %v, want the child run", err)
+	}
+	pid := c.Pid()
+	t.Cleanup(func() { forceKill(pid) })
+
+	if err := waitWithin(t, c); !errors.Is(err, ErrTimeout) {
+		t.Fatalf("Wait = %v, want ErrTimeout", err)
+	}
+	if c.Unguarded() != nil {
+		t.Errorf("Unguarded = %v, want nil: a light child gives no notice", c.Unguarded())
+	}
+	waitFor(t, "the child to be gone", func() bool { return !alive(pid) })
 }
 
 func TestHeavyRun_TimeoutEndsTheWholeTreeAndSaysTheChildGaveNoAnswer(t *testing.T) {

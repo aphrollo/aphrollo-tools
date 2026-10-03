@@ -2,6 +2,7 @@ package gc
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -43,27 +44,24 @@ func TestGCLightCombined_CarriesStdoutAndStderrInOrder(t *testing.T) {
 	}
 }
 
+// The child is runtest's shell chain, which records the Windows pid of each
+// of its three processes: a shell's own $$ is an MSYS pid, and asking the OS
+// about it names some other process or none.
 func TestGCLightRun_TimeoutEndsTheChild(t *testing.T) {
 	bash := gcBashOrSkip(t)
-	pidFile := filepath.Join(t.TempDir(), "pid")
+	dir := t.TempDir()
+	script := filepath.Join(dir, "chain.sh")
+	if err := os.WriteFile(script, []byte(runtest.BashChain), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pidFile := filepath.Join(dir, "pids")
 	start := time.Now()
-	err := gcLightRun(run.Spec{Name: bash, Args: []string{"-c", `echo $$ > "$0"; exec sleep 600`, filepath.ToSlash(pidFile)}, Timeout: 3 * time.Second})
+	err := gcLightRun(run.Spec{Name: bash, Args: []string{filepath.ToSlash(script), filepath.ToSlash(pidFile), "wait"}, Timeout: 10 * time.Second})
 	if !errors.Is(err, run.ErrTimeout) {
 		t.Fatalf("err = %v, want the timeout that ended the child", err)
 	}
-	if elapsed := time.Since(start); elapsed > 30*time.Second {
-		t.Fatalf("a child given 3s held the sweep for %s", elapsed)
+	if elapsed := time.Since(start); elapsed > 60*time.Second {
+		t.Fatalf("a child given 10s held the sweep for %s", elapsed)
 	}
-	pids := runtest.ReadPids(pidFile)
-	t.Cleanup(func() {
-		for _, pid := range pids {
-			runtest.ForceKill(pid)
-		}
-	})
-	if len(pids) == 0 {
-		t.Fatal("the child never recorded its pid, so nothing is proven")
-	}
-	if !runtest.AllGone(pids, 20*time.Second) {
-		t.Errorf("the child %v outlived its timeout", pids)
-	}
+	runtest.RequireTreeGone(t, pidFile, 3)
 }
