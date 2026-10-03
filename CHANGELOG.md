@@ -19,6 +19,20 @@ through unjudged. A command that would write to the repo refuses with that line
 and exit 1. A `requires` the binary cannot read is refused the same way, with
 the form that works.
 
+## 1.4.3 - 2026-10-03
+
+An edit to a Go test file runs that file's package, not the directory's whole subtree.
+
+### What you will notice
+
+- Editing a test file in `internal/tdd` used to run `go test ./internal/tdd/...`, every subpackage's
+  suite, for one edit; it now runs `go test ./internal/tdd`, the package and its external test
+  package. A package with subpackages (`internal/cli`, `internal/ratchet`) gets the same cut.
+- A run that is already going for the identical request (same checkout, command, HEAD and tree
+  state, process alive) is not started a second time by another hook or session. The edit's line
+  reads `BUILDING (deferred; ... the identical run for this tree state is already running, not
+  started again; ...)`, and `aphrollo gate status --wait` waits on the run that is going.
+
 ## 1.4.2 - 2026-10-03
 
 Release tags no longer wait on the deploy host.
