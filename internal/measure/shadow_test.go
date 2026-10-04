@@ -155,18 +155,49 @@ func TestOverrideAbout_NamesTheRulesOwnWall(t *testing.T) {
 	}
 }
 
-// A lane name used again after its merge is another lane: what happens to the
-// second does not decide the first.
+// A lane name used again after its merge is another lane, from its first edit,
+// fire or lane.opened on: what happens to the second does not decide the first.
 func TestShadow_AReusedLaneNameIsANewLaneAfterItsMerge(t *testing.T) {
 	events := []tdd.Event{
 		blockAt(0, "x"), ev(100, "x", "merge", verdictDetail("ok")),
-		ev(200, "x", "ci", verdictDetail("red")), // the recreated lane's
+		ev(150, "x", "edit", detail("edit", "e1")), // the lane is opened again
+		ev(200, "x", "ci", verdictDetail("red")),   // the recreated lane's
 		blockAt(300, "x"), ev(400, "x", "ci", verdictDetail("red")),
 	}
 	got := shadowRule(t, computeShadow(events, Options{}), "deny-law-edit")
 	want := ShadowRule{Rule: "deny-law-edit", Fires: 2, Stricter: 2, Passes: 1, Catches: 1}
 	if got != want {
 		t.Errorf("got %+v, want %+v: the first fire passed at its own lane's merge, the second was caught by its own red", got, want)
+	}
+
+	// A fire of the name, or its lane.opened, is the opening too.
+	for name, opening := range map[string]tdd.Event{"a fire": blockAt(150, "x"), "lane.opened": ev(150, "x", "lane.opened", detail())} {
+		evs := []tdd.Event{blockAt(0, "x"), ev(100, "x", "merge", verdictDetail("ok")), opening, ev(200, "x", "ci", verdictDetail("red"))}
+		if r := shadowRule(t, computeShadow(evs, Options{}), "deny-law-edit"); r.Passes < 1 {
+			t.Errorf("%s: %+v, want the first fire to pass: the red follows a new opening", name, r)
+		}
+	}
+}
+
+// What makes a catch is made after the merge by definition: an escape or a red CI
+// run of the lane once it landed is a catch, within the horizon, and nothing
+// arriving leaves the pass.
+func TestShadow_AnEscapeOrRedCIAfterTheMergeIsStillACatch(t *testing.T) {
+	merged := ev(100, "x", "merge", verdictDetail("ok"))
+	for name, c := range map[string]struct {
+		after []tdd.Event
+		want  ShadowRule
+	}{
+		"an escape":                  {[]tdd.Event{ev(200, "x", "escape", verdictDetail("missed-in-ci"))}, ShadowRule{Catches: 1}},
+		"a red CI run":               {[]tdd.Event{ev(200, "x", "ci", verdictDetail("red"))}, ShadowRule{Catches: 1}},
+		"nothing":                    {nil, ShadowRule{Passes: 1}},
+		"an escape past the horizon": {[]tdd.Event{ev(ShadowHorizonDays*24*3600+500, "x", "escape", verdictDetail("late"))}, ShadowRule{Passes: 1}},
+		"another lane's escape":      {[]tdd.Event{ev(200, "y", "escape", verdictDetail("elsewhere"))}, ShadowRule{Passes: 1}},
+	} {
+		got := shadowRule(t, computeShadow(append([]tdd.Event{blockAt(0, "x"), merged}, c.after...), Options{}), "deny-law-edit")
+		if got.Catches != c.want.Catches || got.Passes != c.want.Passes || got.Open != 0 || got.Wrong != 0 {
+			t.Errorf("%s: %+v, want catches %d passes %d", name, got, c.want.Catches, c.want.Passes)
+		}
 	}
 }
 
@@ -194,18 +225,7 @@ func TestShadow_AFireInThePrimaryCheckoutStaysOpen(t *testing.T) {
 	}
 }
 
-// An event that names another worktree is not this lane's, whatever its name.
-func TestShadow_AnEventFromAnotherWorktreeOfTheNameDoesNotJoin(t *testing.T) {
-	other := ev(60, "x", "ci", verdictDetail("red"))
-	other.Root = "/w/elsewhere"
-	same := ev(70, "y", "ci", verdictDetail("red"))
-	same.Root = "/w/y"
-	events := []tdd.Event{blockAt(0, "x"), other, blockAt(0, "y"), same}
-	got := shadowRule(t, computeShadow(events, Options{}), "deny-law-edit")
-	if got.Catches != 1 || got.Open != 1 {
-		t.Errorf("got %+v, want only the red of the same worktree to be a catch", got)
-	}
-}
+// ratchet: test_removed TestShadow_AnEventFromAnotherWorktreeOfTheNameDoesNotJoin: the log carries no worktree root to tell two checkouts of a name apart, so the lane's name bounded by its merge is the identity, proved by TestShadow_AReusedLaneNameIsANewLaneAfterItsMerge
 
 func TestShadow_ARateNeedsTenFiresAndSaysSoBelow(t *testing.T) {
 	var nine, ten []tdd.Event
@@ -286,12 +306,13 @@ func TestShadow_TextPrintsTheWindowsAndEveryCount(t *testing.T) {
 		"  note                " + shadowNotes[0],
 		"  note                " + shadowNotes[1],
 		"  note                " + shadowNotes[2],
+		"  note                " + shadowNotes[3],
 		"  wrong block         an override of the same rule within 10 min of the fire on its lane",
 		"  catch / pass        a later commit gate refusal, red CI or escape / the lane's merge, within " + strconv.Itoa(ShadowHorizonDays) + " days",
-		"deny-law-edit          2 fires  agree 1  would-be block 1  softer 0 (0 held out)  mismatch 0  not comparable 0  held out 1",
+		"deny-law-edit          2 fires  agree 1  would-be block 1  softer 0 (0 held out)  mismatch 0  not comparable 0  unjudged 0  held out 1",
 		"                       would-be blocks: catches 1  wrong 0  passes 0  open 0",
 		"                       under 10 fires: no rate",
-		"rerun-suite            1 fires  agree 0  would-be block 0  softer 1 (0 held out)  mismatch 0  not comparable 0  held out 0",
+		"rerun-suite            1 fires  agree 0  would-be block 0  softer 1 (0 held out)  mismatch 0  not comparable 0  unjudged 0  held out 0",
 		"                       under 10 fires: no rate",
 		"",
 	}, "\n")
@@ -363,6 +384,8 @@ func TestShadow_SaysItIsOneSidedAndOnDefaultConfig(t *testing.T) {
 		"agreement is overstated",
 		"trellis acting alone is seen only for a waived primary-checkout write",
 		"default config",
+		"not the value of a would-be block",
+		"escape comment is not logged as an override",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text does not say %q:\n%s", want, text)
@@ -373,43 +396,38 @@ func TestShadow_SaysItIsOneSidedAndOnDefaultConfig(t *testing.T) {
 	}
 }
 
-// A run both sides read alike writes no event: its agreement is a run.result the
-// recorded runs do not account for.
-func TestShadow_PlainRunAgreementsAreRunResultsMinusTheRecordedRuns(t *testing.T) {
-	run := func(sec float64) tdd.Event { return ev(sec, "a", "run.result", verdictDetail("green")) }
-	recorded := func(sec float64, rule, relation string) tdd.Event {
-		return ev(sec, "a", "shadow", detail("rule", rule, "relation", relation, "hook", "posttooluse-run"))
+// ratchet: test_removed TestShadow_PlainRunAgreementsAreRunResultsMinusTheRecordedRuns: agreement is no longer derived from run.result, proved by TestShadow_RunAgreementCountsShadowEventsAndUnjudgedRunsNeverAgree
+
+// The fold counts shadow events alone: a run result with no shadow event beside it
+// is no agreement, and a run no verdict was made of is counted unjudged.
+func TestShadow_RunAgreementCountsShadowEventsAndUnjudgedRunsNeverAgree(t *testing.T) {
+	run := func(sec float64, relation string) tdd.Event {
+		return ev(sec, "a", "shadow", detail("rule", "run-verdict", "relation", relation, "hook", "posttooluse-run"))
 	}
+	result := func(sec float64) tdd.Event { return ev(sec, "a", "run.result", verdictDetail("green")) }
 	events := []tdd.Event{
-		run(0), run(1), run(2), run(3), run(4),
-		recorded(5, "run-verdict", "verdict-mismatch"),
-		recorded(6, "not-tested", "agree"),
-		shadowAt(7, "a", "rerun-suite", "trellis-softer"), // a PreToolUse record is not a run
+		result(0), result(1), result(2), // no shadow event beside them: not counted
+		run(3, "agree"), run(4, "agree"), run(5, "agree"), run(6, "verdict-mismatch"),
+		run(7, "not-comparable"), run(8, "unjudged"), run(9, "unjudged"),
+		shadowAt(10, "a", "rerun-suite", "trellis-softer"), // a PreToolUse record is not a run
 	}
 	s := computeShadow(events, Options{})
 	got := shadowRule(t, s, "run-verdict")
-	want := ShadowRule{Rule: "run-verdict", Fires: 4, Agree: 3, Mismatch: 1}
+	want := ShadowRule{Rule: "run-verdict", Fires: 7, Agree: 3, Mismatch: 1, NotComparable: 1, Unjudged: 2}
 	if got != want {
-		t.Errorf("run-verdict = %+v, want %+v: 5 results minus 2 recorded runs agree, plus the 1 recorded mismatch", got, want)
+		t.Errorf("run-verdict = %+v, want %+v", got, want)
 	}
-	if r := shadowRule(t, s, "not-tested"); r.Fires != 1 || r.Agree != 1 {
-		t.Errorf("not-tested = %+v, want its recorded agreement", r)
+	if s.Fires != 8 {
+		t.Errorf("total fires = %d, want 8 shadow events", s.Fires)
 	}
-	if s.Fires != 6 {
-		t.Errorf("total fires = %d, want 6 (3 derived + 2 recorded runs + 1 rerun)", s.Fires)
-	}
-
-	// More recorded runs than results never makes a negative agreement.
-	few := computeShadow([]tdd.Event{run(0), recorded(1, "run-verdict", "verdict-mismatch"), recorded(2, "not-tested", "agree")}, Options{})
-	if r := shadowRule(t, few, "run-verdict"); r.Agree != 0 || r.Fires != 1 {
-		t.Errorf("run-verdict = %+v, want no derived agreement and its one mismatch", r)
+	if !strings.Contains(s.Text(), "unjudged 2") {
+		t.Errorf("text does not print the unjudged count:\n%s", s.Text())
 	}
 
-	// Results outside the window are not counted.
+	// Results outside the window are not counted, and neither are runs.
 	const day = 24 * 3600
-	old := []tdd.Event{run(0), run(1), run(39 * day), recorded(39*day+1, "run-verdict", "verdict-mismatch")}
-	win := computeShadow(old, Options{Window: 7 * day * time.Second})
-	if r := shadowRule(t, win, "run-verdict"); r.Agree != 0 || r.Fires != 1 {
-		t.Errorf("windowed run-verdict = %+v, want the old results left out", r)
+	win := computeShadow([]tdd.Event{run(0, "agree"), run(39*day, "unjudged")}, Options{Window: 7 * day * time.Second})
+	if r := shadowRule(t, win, "run-verdict"); r.Agree != 0 || r.Unjudged != 1 || r.Fires != 1 {
+		t.Errorf("windowed run-verdict = %+v, want only the run inside the window", r)
 	}
 }

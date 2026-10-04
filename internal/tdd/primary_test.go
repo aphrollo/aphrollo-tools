@@ -410,8 +410,7 @@ func TestPrimaryLanding_SaysWhereACallLandsThatTheWallBlockedOrAWaiverLetBy(t *t
 	inLane := editPayload(t, "Edit", filepath.Join(linked, "main.go"), "w1")
 	bash := bashPayload(t, "w1", primary, "echo hi > notes.txt")
 	landing := func(raw []byte) string {
-		PrimaryCheckoutDecision(raw) // the wall first, as the hook runs it
-		return PrimaryLanding(raw)
+		return JudgePrimary(raw).Landing(raw) // the wall first, as the hook runs it
 	}
 	wantPrimary := func(what, got string) {
 		t.Helper()

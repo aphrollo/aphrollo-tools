@@ -377,15 +377,24 @@ func redRunOf(v store.Verdict, unit string) (store.RunVerdict, bool) {
 
 // queueShadowRun holds, for the shadow record, what the kernel makes of a finished
 // run beside aphrollo's line for it (word is the verdict word it logged, "" when
-// its line is no verdict). It reads nothing: res is the result the harvest has
-// already read, taken before the harvest adjusts it, and the record is written by
-// shadow.Flush after the hook has answered.
-func queueShadowRun(j DeferredJob, out PhaseOutcome, res SuiteResult, root, word string) {
-	if word == "" {
-		return
-	}
-	verdict, cause, ok := phaseVerdictOf(j.Phase, res, out)
-	shadow.QueueRun(shadow.Source{Root: root, Actor: j.Session, Key: out.TreeKey}, func() (shadow.RunFact, bool) {
+// its line is no verdict). Every run is held, the foreground one and the harvested
+// alike; one that is no verdict on either side is recorded as unjudged. It reads
+// nothing: res is the result already read, taken before any adjustment, and the
+// record is written by shadow.Flush after the hook has answered.
+func queueShadowRun(phase string, out PhaseOutcome, res SuiteResult, root, session, word string) {
+	verdict, cause, ok := phaseVerdictOf(phase, res, out)
+	ok = ok && word != ""
+	shadow.QueueRun(shadow.Source{Root: root, Actor: session, Key: out.TreeKey}, func() (shadow.RunFact, bool) {
 		return shadow.RunFact{Word: word, Verdict: verdict, Cause: cause}, ok
 	})
+}
+
+// queueForegroundRun is queueShadowRun for a run the hook itself ran to its end,
+// which carries no phase outcome: the exit it would have is read from the result.
+func queueForegroundRun(res SuiteResult, root, session, word string) {
+	out := PhaseOutcome{}
+	if !res.Passed {
+		out.ExitCode = 1
+	}
+	queueShadowRun("run", out, res, root, session, word)
 }

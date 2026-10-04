@@ -20,11 +20,12 @@ type preShadow struct {
 	bash bool
 
 	facts []shadow.Fact
+	laws  []tdd.LawFinding // the findings already noted, one fact each
 
-	// The primary-checkout wall is recorded lazily: where its write lands is a
-	// question for the record, not for the hook.
-	primaryBlocked bool // the wall blocked the call
-	primaryWaived  bool // a waiver let the call by the wall unlooked at
+	// The primary-checkout wall's judgement of the call, read once: whether it
+	// blocked or a waiver covers the call. Where a write lands is a question for the
+	// record, not for the hook.
+	primary tdd.PrimaryJudgement
 
 	// final is what the call came to once every judgement was folded: a waived
 	// call a later judgement blocked was blocked.
@@ -50,8 +51,6 @@ func (p *preShadow) wall(d tdd.Decision) {
 		return
 	}
 	switch d.Policy {
-	case "primary-checkout":
-		p.primaryBlocked = true
 	case "discard-bash":
 		p.add(shadow.Discard(shadow.Block))
 	case "direct-pr-open":
@@ -61,14 +60,16 @@ func (p *preShadow) wall(d tdd.Decision) {
 	}
 }
 
-// passedWalls notes that no wall blocked the call: a write a primary-edits waiver
-// let through is one the wall never looked at.
-func (p *preShadow) passedWalls() { p.primaryWaived = true }
-
-// law notes each finding of the law engine over the edit, by its own severity: a
-// deny finding is the deny-law-edit rule, a warn finding the warn-law rule.
+// law notes the findings of the law engine over the edit, by their own severity: a
+// deny finding is the deny-law-edit rule, a warn finding the warn-law rule. The
+// engine reports one finding per hit; a law that hit twenty lines is one fact of
+// the call, for the kernel reads the law, not how often it matched.
 func (p *preShadow) law(found []tdd.LawFinding) {
 	for _, f := range found {
+		if slices.Contains(p.laws, f) {
+			continue
+		}
+		p.laws = append(p.laws, f)
 		actual := shadow.Warn
 		if f.Deny {
 			actual = shadow.Block
@@ -90,20 +91,32 @@ func actionOf(d tdd.Decision) shadow.Action {
 	return shadow.Allow
 }
 
+// primaryBlocked is whether the primary-checkout wall blocked the call.
+func (p *preShadow) primaryBlocked() bool { return p.primary.Decision.Action == tdd.Block }
+
+// hasWork is whether the call yielded anything to record: a fact, a block of the
+// primary wall, or a waiver whose landing is yet to be resolved.
+func (p *preShadow) hasWork() bool {
+	return len(p.facts) > 0 || p.primaryBlocked() || p.primary.Waived
+}
+
 // record writes the facts the call yielded, after the hook's answer is written:
 // record-only and bounded by shadow.Budget, so the hook waits at most that long
 // and never fails on it.
 func (p *preShadow) record() {
 	src, ok := hookSource(p.raw)
-	if !ok || (len(p.facts) == 0 && !p.primaryBlocked && !p.primaryWaived) {
+	// A call with no fact and nothing the primary wall judged has nothing to record,
+	// and starts no goroutine.
+	if !ok || !p.hasWork() {
 		return
 	}
+	blocked := p.primaryBlocked()
 	shadow.RecordFacts(src, func() []shadow.Fact {
 		facts := slices.Clone(p.facts)
-		if p.primaryBlocked || p.primaryWaived {
-			if root := tdd.PrimaryLanding(p.raw); root != "" {
+		if blocked || p.primary.Waived {
+			if root := p.primary.Landing(p.raw); root != "" {
 				actual := shadow.Block
-				if !p.primaryBlocked {
+				if !blocked {
 					actual = p.final
 				}
 				f := shadow.PrimaryWrite(p.tool(), actual)

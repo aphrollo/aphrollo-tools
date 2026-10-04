@@ -94,13 +94,14 @@ func TestPrimaryLanding_ResolvesOnceAndSpawnsNoGit(t *testing.T) {
 	writes3 := bashPayload(t, "pl1", linked, "echo a > "+p+"/a.txt; echo b > "+p+"/b.txt; echo c > "+p+"/c.txt")
 
 	// Blocked: the wall resolves the first target; the landing reuses it.
-	if d := PrimaryCheckoutDecision(writes3); d.Action != Block {
+	j := JudgePrimary(writes3)
+	if d := j.Decision; d.Action != Block {
 		t.Fatalf("setup: the wall should block writes into the primary checkout, got %+v", d)
 	}
 	asked()
 	spawns()
-	if got := PrimaryLanding(writes3); got == "" || filepath.Clean(got) != filepath.Clean(primary) {
-		t.Errorf("PrimaryLanding after a block = %q, want the primary root %q", got, primary)
+	if got := j.Landing(writes3); got == "" || filepath.Clean(got) != filepath.Clean(primary) {
+		t.Errorf("Landing after a block = %q, want the primary root %q", got, primary)
 	}
 	if n := asked(); len(n) != 0 {
 		t.Errorf("PrimaryLanding after a block asked %v again, want it answered from the wall's own resolution", n)
@@ -111,10 +112,13 @@ func TestPrimaryLanding_ResolvesOnceAndSpawnsNoGit(t *testing.T) {
 
 	// Waived: three writes into one directory are one question, and no git process.
 	t.Setenv(PrimaryEditsEnv, "1")
-	PrimaryCheckoutDecision(writes3)
+	jw := JudgePrimary(writes3)
+	if !jw.Waived || jw.Decision.Action == Block {
+		t.Fatalf("setup: the waiver should let the call by and say so, got %+v", jw)
+	}
 	asked()
 	spawns()
-	if got := PrimaryLanding(writes3); got == "" || filepath.Clean(got) != filepath.Clean(primary) {
+	if got := jw.Landing(writes3); got == "" || filepath.Clean(got) != filepath.Clean(primary) {
 		t.Errorf("PrimaryLanding of a waived call = %q, want the primary root %q", got, primary)
 	}
 	if n := asked(); len(n) != 1 {
@@ -127,12 +131,17 @@ func TestPrimaryLanding_ResolvesOnceAndSpawnsNoGit(t *testing.T) {
 	// Not waived and not blocked: it lands nowhere and asks nothing.
 	t.Setenv(PrimaryEditsEnv, "")
 	inLane := editPayload(t, "Edit", filepath.Join(linked, "main.go"), "pl2")
-	PrimaryCheckoutDecision(inLane)
+	jl := JudgePrimary(inLane)
 	asked()
-	if got := PrimaryLanding(inLane); got != "" {
+	if got := jl.Landing(inLane); got != "" {
 		t.Errorf("PrimaryLanding of a write into a lane = %q, want none", got)
 	}
 	if n := asked(); len(n) != 0 {
 		t.Errorf("a call that is not waived asked %v of the landing", n)
+	}
+
+	// A judgement is a value of its own call: judging another leaves it as it was.
+	if got := j.Landing(writes3); got == "" || filepath.Clean(got) != filepath.Clean(primary) {
+		t.Errorf("the first call's landing after two more judgements = %q, want the primary root %q", got, primary)
 	}
 }

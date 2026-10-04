@@ -116,11 +116,11 @@ func TestJudgeRun_GuidesAndMismatches(t *testing.T) {
 		{"both green", RunFact{"green", kernel.VerdictGreen, ""}, "run-verdict", "", Agree, true},
 		{"both red, aphrollo names the missing impl", RunFact{"red-missing-impl", kernel.VerdictRed, ""}, "run-verdict", "", Agree, true},
 		{"a pass with warnings is green", RunFact{"green-with-warnings", kernel.VerdictGreen, ""}, "run-verdict", "", Agree, true},
-		{"aphrollo calls an empty pass green, trellis did not test", RunFact{"writing-test", kernel.VerdictNotTested, "skipped"}, "not-tested", "not-tested", VerdictMismatch, true},
-		{"both not tested for a timeout", RunFact{"timeout", kernel.VerdictNotTested, "timeout"}, "not-tested", "not-tested", Agree, true},
-		{"not tested for different causes", RunFact{"infra-failed", kernel.VerdictNotTested, "skipped"}, "not-tested", "not-tested", VerdictMismatch, true},
-		{"bogus red on both sides", RunFact{"red-bogus", kernel.VerdictRedBogus, ""}, "run-result", "red-bogus", Agree, true},
-		{"aphrollo red, trellis bogus", RunFact{"red", kernel.VerdictRedBogus, ""}, "run-result", "red-bogus", VerdictMismatch, true},
+		{"aphrollo calls an empty pass green, trellis did not test", RunFact{"writing-test", kernel.VerdictNotTested, "skipped"}, "run-verdict", "not-tested", VerdictMismatch, true},
+		{"both not tested for a timeout", RunFact{"timeout", kernel.VerdictNotTested, "timeout"}, "run-verdict", "not-tested", Agree, true},
+		{"not tested for different causes", RunFact{"infra-failed", kernel.VerdictNotTested, "skipped"}, "run-verdict", "not-tested", VerdictMismatch, true},
+		{"bogus red on both sides", RunFact{"red-bogus", kernel.VerdictRedBogus, ""}, "run-verdict", "red-bogus", Agree, true},
+		{"aphrollo red, trellis bogus", RunFact{"red", kernel.VerdictRedBogus, ""}, "run-verdict", "red-bogus", VerdictMismatch, true},
 		{"aphrollo bogus where the kernel input can only say red", RunFact{"red-bogus", kernel.VerdictRed, ""}, "run-verdict", "", NotComparable, true},
 		{"a word that is no verdict is not recorded", RunFact{"queue-waiting", kernel.VerdictGreen, ""}, "", "", "", false},
 	}
@@ -202,7 +202,7 @@ func TestRecordRun_WritesTheClassesAndCauses(t *testing.T) {
 	if len(*got) != 1 {
 		t.Fatalf("wrote %d events, want 1", len(*got))
 	}
-	want := map[string]string{"hook": "posttooluse-run", "rule": "not-tested", "trellis": "guide", "aphrollo": "timeout",
+	want := map[string]string{"hook": "posttooluse-run", "rule": "run-verdict", "trellis": "guide", "aphrollo": "timeout",
 		"relation": "agree", "key": "tree1", "guide": "not-tested", "trellis_verdict": "not-tested", "aphrollo_verdict": "not-tested",
 		"cause": "timeout", "aphrollo_cause": "timeout", "wt": root}
 	if d := (*got)[0].Detail; !reflect.DeepEqual(d, want) {
@@ -359,25 +359,37 @@ func TestTakeWaited_ReportsTheTimeSpentWaitingOnRecordsOnce(t *testing.T) {
 	}
 }
 
-// Only a run that says something is written: a plain agreeing run is derived by
-// the fold from the run results, so it costs no event.
-func TestFlush_WritesOnlyRunsThatDisagreeOrCarryAGuide(t *testing.T) {
+// ratchet: test_removed TestFlush_WritesOnlyRunsThatDisagreeOrCarryAGuide: every run is written now, proved by TestFlush_WritesEveryRunAndCountsWhatItCouldNotJudgeApart
+
+// Every run is written, an agreeing one too, so the fold counts shadow events alone;
+// a run with no verdict word, or that the kernel could not read, is written as
+// unjudged and never as agreement.
+func TestFlush_WritesEveryRunAndCountsWhatItCouldNotJudgeApart(t *testing.T) {
 	got := capture(t)
-	for _, f := range []RunFact{
-		{Word: "green", Verdict: kernel.VerdictGreen},                              // agree, no guide: not written
-		{Word: "red-missing-impl", Verdict: kernel.VerdictRed},                     // agree, no guide: not written
-		{Word: "writing-test", Verdict: kernel.VerdictNotTested, Cause: "skipped"}, // mismatch: written
-		{Word: "red-bogus", Verdict: kernel.VerdictRed},                            // not comparable: written
-		{Word: "timeout", Verdict: kernel.VerdictNotTested, Cause: "timeout"},      // agree with a guide: written
+	for _, f := range []struct {
+		RunFact
+		ok bool
+	}{
+		{RunFact{Word: "green", Verdict: kernel.VerdictGreen}, true},
+		{RunFact{Word: "red-missing-impl", Verdict: kernel.VerdictRed}, true},
+		{RunFact{Word: "writing-test", Verdict: kernel.VerdictNotTested, Cause: "skipped"}, true},
+		{RunFact{Word: "", Verdict: kernel.VerdictGreen}, true},
+		{RunFact{Word: "green"}, false},
+		{RunFact{Word: "queue-waiting", Verdict: kernel.VerdictGreen}, true},
 	} {
-		QueueRun(Source{Root: t.TempDir(), Key: f.Word}, func() (RunFact, bool) { return f, true })
+		key := f.Word + "|" + string(f.Verdict)
+		QueueRun(Source{Root: t.TempDir(), Key: key}, func() (RunFact, bool) { return f.RunFact, f.ok })
 	}
 	Flush()
-	var keys []string
+	var rel []string
 	for _, e := range *got {
-		keys = append(keys, e.Detail["key"])
+		rel = append(rel, e.Detail["relation"])
+		if e.Detail["rule"] != "run-verdict" || e.Detail["hook"] != "posttooluse-run" || e.Cmd != "" {
+			t.Errorf("event %+v is not a compact run-verdict record", e)
+		}
 	}
-	if !reflect.DeepEqual(keys, []string{"writing-test", "red-bogus", "timeout"}) {
-		t.Errorf("recorded runs %v, want only writing-test, red-bogus and timeout", keys)
+	want := []string{"agree", "agree", "verdict-mismatch", "unjudged", "unjudged", "unjudged"}
+	if !reflect.DeepEqual(rel, want) {
+		t.Errorf("relations %v, want %v", rel, want)
 	}
 }

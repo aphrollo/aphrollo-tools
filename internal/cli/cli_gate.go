@@ -496,6 +496,13 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 // also tells obs, a collector for the shadow record, what each judgement found;
 // obs is only ever written to.
 func gatePreToolUse(raw []byte, stderr io.Writer, obs *preShadow) tdd.Decision {
+	// The primary-checkout wall is judged first and answers what it resolved, so the
+	// shadow record asks nothing of the repository again.
+	obs.primary = tdd.JudgePrimary(raw)
+	if d := obs.primary.Decision; d.Action == tdd.Block {
+		tdd.LogEditDecision(raw, d)
+		return d
+	}
 	for _, wall := range preToolUseWalls {
 		if decision := wall(raw); decision.Action == tdd.Block {
 			tdd.LogEditDecision(raw, decision)
@@ -503,7 +510,6 @@ func gatePreToolUse(raw []byte, stderr io.Writer, obs *preShadow) tdd.Decision {
 			return decision
 		}
 	}
-	obs.passedWalls()
 
 	// A redundant whole-suite invocation (`go test`, `cargo test`, `cargo
 	// nextest run`, no narrowing) is judged before the snapshot/diff pair

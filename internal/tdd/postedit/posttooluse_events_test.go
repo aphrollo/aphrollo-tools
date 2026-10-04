@@ -100,9 +100,11 @@ func harvestRun(t *testing.T, root, session, log string, exit int, tree string) 
 	return line
 }
 
-// A run both sides read alike writes no shadow event: the fold derives those
-// agreements from the run results.
-func TestHarvest_AnAgreeingRunWritesNoShadowEvent(t *testing.T) {
+// ratchet: test_removed TestHarvest_AnAgreeingRunWritesNoShadowEvent: an agreeing run is written now, proved by TestHarvest_AnAgreeingRunWritesACompactShadowEvent
+
+// A run both sides read alike is written too, so the fold counts shadow events
+// alone: agreement is the share of those that agree.
+func TestHarvest_AnAgreeingRunWritesACompactShadowEvent(t *testing.T) {
 	shadow.Flush() // another test's queued run is not this one's
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("TRELLIS_DATA", t.TempDir())
@@ -113,8 +115,30 @@ func TestHarvest_AnAgreeingRunWritesNoShadowEvent(t *testing.T) {
 		t.Fatalf("harvest = %q, want the red line", line)
 	}
 	shadow.Flush()
-	if got := eventsOfKind(root, "shadow"); len(got) != 0 {
-		t.Errorf("an agreeing red wrote %d shadow events, want none: %+v", len(got), got)
+	got := eventsOfKind(root, "shadow")
+	if len(got) != 1 {
+		t.Fatalf("an agreeing red wrote %d shadow events, want 1: %+v", len(got), got)
+	}
+	if d := got[0].Detail; d["relation"] != "agree" || d["rule"] != "run-verdict" || d["hook"] != "posttooluse-run" || d["key"] != "tree-red" || got[0].Cmd != "" {
+		t.Errorf("shadow detail = %v, want an agreeing run-verdict under tree-red with no command", d)
+	}
+}
+
+// A run the hook ran to its end in the foreground is shadowed like a harvested one.
+func TestPostEdit_AForegroundRunIsShadowedAfterTheAnswer(t *testing.T) {
+	shadow.Flush()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := mkProject(t, "go.mod")
+
+	PostEdit(postPayload("Edit", filepath.Join(root, "widget.go")), fakeRun(true, "ok\nPASS"))
+	if n := len(eventsOfKind(root, "shadow")); n != 0 {
+		t.Fatalf("%d shadow events written before the flush, want none", n)
+	}
+	shadow.Flush()
+	got := eventsOfKind(root, "shadow")
+	if len(got) != 1 || got[0].Detail["relation"] != "agree" || got[0].Detail["hook"] != "posttooluse-run" {
+		t.Errorf("shadow events = %+v, want one agreeing run record", got)
 	}
 }
 

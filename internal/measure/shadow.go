@@ -39,6 +39,7 @@ type ShadowRule struct {
 	SoftHeldOut   int    `json:"trellis_softer_held_out"`
 	Mismatch      int    `json:"verdict_mismatch"`
 	NotComparable int    `json:"not_comparable"`
+	Unjudged      int    `json:"unjudged"`
 	HeldOut       int    `json:"held_out"`
 	Catches       int    `json:"would_be_catches"`
 	Wrong         int    `json:"would_be_wrong"`
@@ -68,7 +69,8 @@ type Shadow struct {
 var shadowNotes = []string{
 	"observed only where a hook acted: no fact exists where aphrollo did nothing, so agreement is overstated, and trellis acting alone is seen only for a waived primary-checkout write",
 	"the kernel ran on its default config: aphrollo declares no rule pins or isolation setting to read, so the levels are the kernel's own",
-	"run-verdict agreements are derived, approximately: run.result events minus the runs recorded here",
+	"would-be-block outcomes (wrong, catch, pass) currently come only from waived primary-checkout writes, which mostly stay open, and a law's escape comment is not logged as an override: this data measures agreement, softer and verdict classes, not the value of a would-be block",
+	"a run both sides read alike is an agreeing shadow event; a run no verdict was made of is counted unjudged and never as agreement",
 }
 
 // ComputeShadow folds the shadow events of the window. What follows a fire is
@@ -80,19 +82,12 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 		out.Window = "last " + windowText(o.Window)
 	}
 	rules := map[string]*ShadowRule{}
-	var runResults, runRecorded int
 	for i, e := range s.evs {
 		if !s.in(e.at) {
 			continue
 		}
-		if e.Kind == "run.result" {
-			runResults++
-		}
 		if e.Kind != "shadow" {
 			continue
-		}
-		if e.Detail["hook"] == "posttooluse-run" {
-			runRecorded++
 		}
 		rule := e.Detail["rule"]
 		if rule == "" {
@@ -133,19 +128,9 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 			r.Mismatch++
 		case "not-comparable":
 			r.NotComparable++
+		case "unjudged":
+			r.Unjudged++
 		}
-	}
-	// A run both sides read alike writes no event: those agreements are the run
-	// results the recorded ones do not account for.
-	if plain := runResults - runRecorded; plain > 0 {
-		r := rules["run-verdict"]
-		if r == nil {
-			r = &ShadowRule{Rule: "run-verdict"}
-			rules["run-verdict"] = r
-		}
-		r.Fires += plain
-		r.Agree += plain
-		out.Fires += plain
 	}
 	for _, r := range rules {
 		out.Rules = append(out.Rules, *r)
@@ -168,42 +153,47 @@ const (
 // makes it wrong, whatever else follows; else a commit gate refusal, red CI or
 // escape on the lane makes it a catch; else the lane's merge makes it a pass.
 //
-// The scan stops at the lane's first merge after the fire: a lane name used again
-// afterwards is another lane. A fire on no lane, or in the primary checkout (its
-// name is the trunk's, shared by every change made there, and the gate's events
-// carry no root to tell them apart), is never joined and stays open. Events on no
-// lane never join. An event that names a worktree other than the fire's is not
-// the same lane's.
+// The lane's name, bounded by its merge, is the identity: the events carry no
+// worktree root to tell two checkouts of one name apart. A merge ends what leads
+// to a wrong block, but not what can still make a catch: an escape or a red CI
+// run is made after the merge by definition, so the scan goes on within the
+// horizon for them, and stops at the lane's next opening, its first edit, shadow
+// fire or lane.opened after the merge, which is another lane of the same name.
+// The result stays a pass only if nothing of the kind arrives. A fire on no lane,
+// or in the primary checkout (its name is the trunk's, shared by every change
+// made there), is never joined and stays open.
 func followOf(evs []stamped, i int) follow {
 	fire := evs[i]
 	if fire.Lane == "" || fire.Detail["primary"] == "true" || isTrunkLane(fire.Lane) {
 		return followOpen
 	}
-	wt := fire.Detail["wt"]
-	caught := false
+	caught, merged := false, false
 	for _, e := range evs[i+1:] {
 		if e.at.Sub(fire.at) > shadowHorizon {
 			break
 		}
-		if e.Lane != fire.Lane || (wt != "" && e.Root != "" && e.Root != wt) {
+		if e.Lane != fire.Lane {
 			continue
 		}
+		if merged && (e.Kind == "edit" || e.Kind == "shadow" || e.Kind == "lane.opened") {
+			break
+		}
 		switch {
-		case e.Kind == "override" && !isAllowedRerun(e) && e.at.Sub(fire.at) <= WrongBlockWindow && overrideAbout(e, fire):
+		case !merged && e.Kind == "override" && !isAllowedRerun(e) && e.at.Sub(fire.at) <= WrongBlockWindow && overrideAbout(e, fire):
 			return followWrong
 		case e.Kind == "commit_gate_result" && e.Verdict == "blocked",
 			e.Kind == "ci" && e.Verdict == "red",
 			e.Kind == "escape" && e.Verdict != "false-positive":
 			caught = true
 		case e.Kind == "merge" && e.Verdict == "ok":
-			if caught {
-				return followCatch
-			}
-			return followPass
+			merged = true
 		}
 	}
-	if caught {
+	switch {
+	case caught:
 		return followCatch
+	case merged:
+		return followPass
 	}
 	return followOpen
 }
@@ -257,8 +247,8 @@ func (s Shadow) Text() string {
 	p("%-22s%s", "  wrong block", fmt.Sprintf("an override of the same rule within %.0f min of the fire on its lane", WrongBlockWindow.Minutes()))
 	p("%-22s%s", "  catch / pass", fmt.Sprintf("a later commit gate refusal, red CI or escape / the lane's merge, within %d days", ShadowHorizonDays))
 	for _, r := range s.Rules {
-		p("%-22s %d fires  agree %d  would-be block %d  softer %d (%d held out)  mismatch %d  not comparable %d  held out %d",
-			r.Rule, r.Fires, r.Agree, r.Stricter, r.Softer, r.SoftHeldOut, r.Mismatch, r.NotComparable, r.HeldOut)
+		p("%-22s %d fires  agree %d  would-be block %d  softer %d (%d held out)  mismatch %d  not comparable %d  unjudged %d  held out %d",
+			r.Rule, r.Fires, r.Agree, r.Stricter, r.Softer, r.SoftHeldOut, r.Mismatch, r.NotComparable, r.Unjudged, r.HeldOut)
 		if r.Stricter > 0 {
 			p("%swould-be blocks: catches %d  wrong %d  passes %d  open %d", cont, r.Catches, r.Wrong, r.Passes, r.Open)
 		}

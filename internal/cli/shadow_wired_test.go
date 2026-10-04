@@ -284,10 +284,9 @@ func TestRun_PreToolUse_ShadowsATellBranchInAnUndercoverRepo(t *testing.T) {
 	}
 }
 
-// A deny law that fires on an edit is a fact of the deny-law-edit rule, named by
-// its law, and agrees with the gate's block.
-func TestRun_PreToolUse_ShadowsADenyLawFindingOnAnEdit(t *testing.T) {
-	gateConfigDir(t)
+// denyLawRepo is a repo with one deny law, no-forbidden, over every .txt file.
+func denyLawRepo(t *testing.T) string {
+	t.Helper()
 	dir := gitInit(t, map[string]string{"aphrollo.toml": "[aphrollo]\n"})
 	writeFile(t, filepath.Join(dir, ".ratchet", "laws", "no-forbidden.toml"), `
 name = "no-forbidden"
@@ -304,16 +303,30 @@ kind = "regex-absent"
 pattern = "FORBIDDEN"
 `)
 	writeFile(t, filepath.Join(dir, ".ratchet", "baselines", "no-forbidden.txt"), "")
+	return dir
+}
+
+func writeNotesPayload(t *testing.T, dir, content string) string {
+	t.Helper()
 	b, err := json.Marshal(map[string]any{
 		"tool_name": "Write", "session_id": "cli-law", "cwd": dir,
-		"tool_input": map[string]any{"file_path": filepath.Join(dir, "notes.txt"), "content": "FORBIDDEN\n"},
+		"tool_input": map[string]any{"file_path": filepath.Join(dir, "notes.txt"), "content": content},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return string(b)
+}
+
+// A deny law that fires on an edit is a fact of the deny-law-edit rule, named by
+// its law, and agrees with the gate's block.
+func TestRun_PreToolUse_ShadowsADenyLawFindingOnAnEdit(t *testing.T) {
+	gateConfigDir(t)
+	dir := denyLawRepo(t)
+	b := writeNotesPayload(t, dir, "FORBIDDEN\n")
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"gate", "pretooluse"}, strings.NewReader(string(b)), &out, &errb); code != 2 {
+	if code := Run([]string{"gate", "pretooluse"}, strings.NewReader(b), &out, &errb); code != 2 {
 		t.Fatalf("exit code = %d, want 2: a deny law blocks the write\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
 	}
 	got := shadowEvents(dir)
@@ -322,5 +335,59 @@ pattern = "FORBIDDEN"
 	}
 	if d := got[0].Detail; d["rule"] != "deny-law-edit" || d["live_rule"] != "ratchet:no-forbidden" || d["aphrollo"] != "block" || d["relation"] != "agree" {
 		t.Errorf("shadow detail = %v, want deny-law-edit by ratchet:no-forbidden, agreed", d)
+	}
+}
+
+// A law that hits twenty lines is one fact of the call: one event, not twenty.
+func TestRun_PreToolUse_AFindingPerHitIsOneShadowEventPerLaw(t *testing.T) {
+	gateConfigDir(t)
+	dir := denyLawRepo(t)
+	b := writeNotesPayload(t, dir, strings.Repeat("FORBIDDEN\n", 20))
+
+	var out, errb bytes.Buffer
+	if code := Run([]string{"gate", "pretooluse"}, strings.NewReader(b), &out, &errb); code != 2 {
+		t.Fatalf("exit code = %d, want 2\nstdout:%s\nstderr:%s", code, out.String(), errb.String())
+	}
+	if got := shadowEvents(dir); len(got) != 1 || got[0].Detail["live_rule"] != "ratchet:no-forbidden" {
+		t.Errorf("20 hits of one law wrote %d shadow events %+v, want 1", len(got), got)
+	}
+}
+
+func TestPreShadow_AFindingRepeatedByHitIsOneFactPerLawAndSeverity(t *testing.T) {
+	p := newPreShadow([]byte(`{"tool_name":"Write"}`))
+	var found []tdd.LawFinding
+	for range 20 {
+		found = append(found, tdd.LawFinding{Law: "a", Deny: true})
+	}
+	found = append(found, tdd.LawFinding{Law: "a", Deny: false}, tdd.LawFinding{Law: "b", Deny: true})
+	p.law(found)
+	if len(p.facts) != 3 {
+		t.Errorf("%d facts, want 3: a as deny, a as warn, b as deny: %+v", len(p.facts), p.facts)
+	}
+}
+
+// A call with nothing to record starts no record at all: the hook neither spawns the
+// writer nor waits for it. A waived call is judged once and is the one that has work.
+func TestPreShadow_ACallWithNothingToRecordHasNoWork(t *testing.T) {
+	gateConfigDir(t)
+	raw := []byte(bashPayloadIn(t, t.TempDir(), "echo hi"))
+	t.Setenv("APHROLLO_PRIMARY_EDITS", "")
+
+	p := newPreShadow(raw)
+	p.primary = tdd.JudgePrimary(raw)
+	if p.hasWork() {
+		t.Error("a call that no wall judged and no rule read has work to record")
+	}
+	shadow.TakeWaited()
+	p.record()
+	if w := shadow.TakeWaited(); w != 0 {
+		t.Errorf("a call with nothing to record waited %v on a record", w)
+	}
+
+	t.Setenv("APHROLLO_PRIMARY_EDITS", "1")
+	p = newPreShadow(raw)
+	p.primary = tdd.JudgePrimary(raw)
+	if !p.hasWork() {
+		t.Error("a waived call has no work, want its landing resolved inside the record")
 	}
 }

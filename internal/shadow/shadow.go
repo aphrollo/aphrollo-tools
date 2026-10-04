@@ -52,6 +52,9 @@ const (
 	// VerdictMismatch is a run whose verdict class trellis reads differently from
 	// aphrollo's line.
 	VerdictMismatch Relation = "verdict-mismatch"
+	// Unjudged is a run no verdict was made of: aphrollo's line for it names none, or
+	// the kernel's reading of it is no verdict. Counted apart, never as agreement.
+	Unjudged Relation = "unjudged"
 	// NotComparable is a run aphrollo classed in a way the kernel's verdict input
 	// cannot express (a bogus red): counted apart, never as a mismatch.
 	NotComparable Relation = "not-comparable"
@@ -242,9 +245,6 @@ func JudgeRun(f RunFact, lane string) (Record, bool) {
 			r.Guide, r.Trellis = fx.Detail, "guide"
 		}
 	}
-	if d.Rule != "" {
-		r.Rule = d.Rule
-	}
 	switch {
 	case actual == kernel.VerdictRedBogus && verdictClass(f.Verdict) == kernel.VerdictRed:
 		// phaseVerdict reads every failing run as a red and cannot say bogus.
@@ -369,8 +369,9 @@ func QueueRun(s Source, fact func() (RunFact, bool)) {
 	queue.Unlock()
 }
 
-// Flush writes one shadow event for each queued run, inside one budget, and
-// empties the queue. A run whose fact reports false is not recorded.
+// Flush writes one shadow event for each queued run, agreeing ones too, inside
+// one budget, and empties the queue. A run whose fact reports false, or whose
+// word names no verdict, is written as unjudged.
 func Flush() {
 	queue.Lock()
 	runs := queue.runs
@@ -382,18 +383,20 @@ func Flush() {
 	bounded(func() {
 		for _, q := range runs {
 			f, ok := q.fact()
-			if !ok {
-				continue
-			}
 			lane := core.LaneOf(q.src.Root)
-			if r, ok := JudgeRun(f, lane); ok && r.worth() {
-				appendEvent(r.event(q.src, lane))
+			r, judged := Record{}, false
+			if ok {
+				r, judged = JudgeRun(f, lane)
 			}
+			if !judged {
+				r = unjudgedRun(f.Word)
+			}
+			appendEvent(r.event(q.src, lane))
 		}
 	})
 }
 
-// worth reports whether a run's record says anything the log does not already:
-// a run both sides read alike, with no guide for it, is the plain case and is not
-// written; the fold derives those agreements from the run results themselves.
-func (r Record) worth() bool { return r.Relation != Agree || r.Guide != "" }
+// unjudgedRun is the record of a run nothing could be judged of.
+func unjudgedRun(word string) Record {
+	return Record{Hook: HookRun, Rule: "run-verdict", Actual: word, Relation: Unjudged}
+}
