@@ -54,6 +54,14 @@ type PullRequests interface {
 	MarkReady(branch string) error
 	// Summary is the PR with this number as the retrospective reads it.
 	Summary(number int) (*Summary, error)
+	// PRBody is the body of the PR ref names (a number, URL or branch).
+	PRBody(ref string) (string, error)
+	// PRClosure is what the PR ref names says it closes and the two ends of its
+	// diff: its body, every commit message in it, and the base and head commits.
+	PRClosure(ref string) (*PRFacts, error)
+	// PRDiff is the full patch of the PR ref names. An error carries the host's
+	// own words, so a caller can tell a diff too large to serve.
+	PRDiff(ref string) (string, error)
 }
 
 // Checks reads what CI said about a commit.
@@ -70,6 +78,9 @@ type Checks interface {
 	RunFailedJobs(id int64, attempt int) ([]string, error)
 	// RunFirstAttempt is how the first attempt of a run ended.
 	RunFirstAttempt(id int64) (status, conclusion string, err error)
+	// CheckState is the newest check run named name on the commit sha; found is
+	// false when the commit has none.
+	CheckState(sha, name string) (status, conclusion string, found bool, err error)
 }
 
 // Landing puts a PR on its base branch and reads where a queued PR stands.
@@ -111,6 +122,11 @@ type Runs interface {
 	JobLog(job int64) ([]byte, error)
 	// RunLog is the failed-step log of a whole run.
 	RunLog(run int64) ([]byte, error)
+	// ArtifactRun is the id of the run that published the newest artifact called
+	// name; found is false when none has.
+	ArtifactRun(name string) (run int64, found bool, err error)
+	// DownloadArtifact puts the artifact called name that run published into dir.
+	DownloadArtifact(run int64, name, dir string) error
 }
 
 // Issues opens issues in a repository's tracker.
@@ -120,6 +136,11 @@ type Issues interface {
 	OpenIssue(IssueRequest) (url string, err error)
 	// EnsureLabel creates a label that may not exist yet; it is idempotent.
 	EnsureLabel(name, colour, description string) error
+	// ListIssues is the issues of the host's own repository that match q, newest
+	// first, carrying the fields q asks for.
+	ListIssues(IssueQuery) ([]Issue, error)
+	// Issue is one issue, by number, with its labels and body.
+	Issue(number string) (*Issue, error)
 }
 
 // Reach says what this box can reach of the host.
@@ -316,6 +337,42 @@ type IssueRequest struct {
 	Body   string
 	Repo   string
 	Labels []string
+}
+
+// IssueQuery says which issues to list. State is open, closed or all. A Label
+// is one label (several would be read as all-of, so a caller asks once per
+// label). Limit is the page size, gh's own when zero. Fields name what each issue carries, spelled
+// as GitHub does: number, title, body, state, closedAt, labels; a field not asked
+// for is left zero, and a listing of everything is not asked for by accident.
+type IssueQuery struct {
+	Label  string
+	State  string
+	Limit  int
+	Fields []string
+}
+
+// Issue is an issue as a listing carries it.
+type Issue struct {
+	Number   int
+	Title    string
+	Body     string
+	State    string
+	ClosedAt time.Time // zero when the issue is open or the host gave no date
+	Labels   []string
+}
+
+// PRFacts is what a PR says it closes and the ends of its diff.
+type PRFacts struct {
+	Body    string
+	Commits []CommitText
+	Base    string
+	Head    string
+}
+
+// CommitText is the message of one commit in a PR.
+type CommitText struct {
+	Headline string
+	Body     string
 }
 
 // Probe is what this box can reach of the host right now.

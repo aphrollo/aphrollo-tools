@@ -18,6 +18,7 @@ import (
 // that a verdict nobody measured is never presented as a routine outcome.
 // The mutation stage is judged by its own rule here.
 func TestMeasure_GoOnWindowsSaysTheMergeCarriesNoMutationEvidence(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))

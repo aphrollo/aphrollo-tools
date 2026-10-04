@@ -182,6 +182,7 @@ pattern = "\.clamp\("
 // escape this guard closes: a law's scope widened in the SAME commit that
 // carries the baseline row the widening now reaches — adopted, not rejected.
 func TestBaselineGuard_AllowsARaiseWhenTheLawsScopeChangedInTheSameCommit(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	widenedLaw := strings.Replace(nanGuardLawText,
 		`include = ["crates/**/*.rs"]`, `include = ["crates/**/*.rs", "tools/**/*.rs"]`, 1)
 	root := lawAndBaselineRepo(t, nanGuardLawText, "crates/a.rs | let a = x.clamp(0.0, 1.0);\n",
@@ -273,6 +274,7 @@ func TestBaselineGuard_RefusesAHandRaiseWithNoCatchUpMerge(t *testing.T) {
 // merge brought in. Trunk never had the law, so the lane owns the baseline
 // and re-writing it with the ratchet is adoption, not a hand raise.
 func TestBaselineGuard_AllowsARaiseOnTheCommitRightAfterAGenuineCatchUpMerge(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := t.TempDir()
 	gitInit(t, root)
 	mustWrite(t, filepath.Join(root, "crates", "a.rs"), "let a = x.clamp(0.0, 1.0);\n")

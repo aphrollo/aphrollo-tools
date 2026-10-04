@@ -3,7 +3,6 @@ package escape
 // pr_closes_test.go carries the mutation-proof coverage for this file.
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"regexp"
@@ -149,15 +148,5 @@ func checkBodyCloses(body, subject string, w io.Writer) bool {
 
 // prBody reads one PR's body through gh.
 func prBody(repo, pr string) (string, error) {
-	out, err := runGh(repo, "pr", "view", pr, "--json", "body")
-	if err != nil {
-		return "", err
-	}
-	var doc struct {
-		Body string `json:"body"`
-	}
-	if err := json.Unmarshal([]byte(firstJSONObject(out)), &doc); err != nil {
-		return "", fmt.Errorf("reading PR #%s: %w", pr, err)
-	}
-	return doc.Body, nil
+	return gitHubHost(repo, 0).PRBody(pr)
 }

@@ -72,6 +72,7 @@ func TestGoWideningSteps_ClimbToTheImportersWhoseTestsReachThePackage(t *testing
 // importers' tests run inside the same budget, and their verdict is the line.
 func TestPostEdit_DeferredGoEditInATestlessPackage_RunsTheImportersTests(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkGoModule(t)
 	defer stubGoTestReach(t, func(_, dir string) ([]string, error) {

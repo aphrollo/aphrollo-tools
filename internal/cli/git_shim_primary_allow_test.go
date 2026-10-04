@@ -37,6 +37,7 @@ func primaryBashPayload(t *testing.T, session, cwd, cmd string) []byte {
 }
 
 func TestGitShim_AllowPrimaryCoversTheBashHookAndTheShimForOneCommand(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := gateConfigDir(t)
 	primary, _, cfg := primaryShimRepo(t)
 	const session = "s-primary-bash-then-shim"

@@ -1,11 +1,12 @@
 package escape
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 )
 
 // A check that refuses more work every week is doing one of two things:
@@ -123,23 +124,13 @@ func RecordDemoteCandidates(repo string, candidates []DemoteCandidate, w io.Writ
 // A gh that cannot answer yields none, which at worst opens one duplicate —
 // never a lost signal.
 func openFalsePositiveTitles(repo string) []string {
-	out, err := runGh(repo, "issue", "list", "--label", FalsePositiveKind, "--state", "open", "--json", "title")
+	issues, err := gitHubHost(repo, 0).ListIssues(host.IssueQuery{Label: FalsePositiveKind, State: "open", Fields: []string{"title"}})
 	if err != nil {
 		return nil
 	}
-	var docs []struct {
-		Title string `json:"title"`
-	}
-	start, end := strings.Index(out, "["), strings.LastIndex(out, "]")
-	if start < 0 || end < start {
-		return nil
-	}
-	if json.Unmarshal([]byte(out[start:end+1]), &docs) != nil {
-		return nil
-	}
-	titles := make([]string, 0, len(docs))
-	for _, d := range docs {
-		titles = append(titles, d.Title)
+	titles := make([]string, 0, len(issues))
+	for _, is := range issues {
+		titles = append(titles, is.Title)
 	}
 	return titles
 }

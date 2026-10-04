@@ -38,7 +38,8 @@ type Options struct {
 	// Origin is the URL of the origin remote, read when owner and repo are
 	// needed. A git read, kept out of this package.
 	Origin func() string
-	// Timeout bounds one gh call; DefaultTimeout when zero.
+	// Timeout bounds one gh call; DefaultTimeout when zero, no bound when
+	// negative (a verb a person types and watches run).
 	Timeout time.Duration
 	// Runner is gh itself; the real one when nil. Tests answer for it.
 	Runner Runner
@@ -68,7 +69,7 @@ var _ host.Host = (*GitHub)(nil)
 // New is a GitHub host for the repository dir sits in.
 func New(o Options) *GitHub {
 	g := &GitHub{dir: o.Dir, origin: o.Origin, timeout: o.Timeout, runner: o.Runner, deadline: o.Deadline}
-	if g.timeout <= 0 {
+	if g.timeout == 0 {
 		g.timeout = DefaultTimeout
 	}
 	if g.runner == nil {
@@ -94,6 +95,10 @@ func (g *GitHub) Within(d time.Duration) host.Host {
 func ExecRunner(dir string, timeout time.Duration, args ...string) ([]byte, error) {
 	return execRunner(context.Background(), nil)(dir, timeout, args...)
 }
+
+// EnvRunner is ExecRunner in env, for a caller whose environment carries more
+// than the GIT_* scrub (a marker the queue shims read).
+func EnvRunner(env []string) Runner { return execRunner(context.Background(), env) }
 
 // execRunner is ExecRunner under ctx and env (the scrubbed one when nil).
 func execRunner(ctx context.Context, env []string) Runner {
@@ -134,7 +139,14 @@ func (g *GitHub) gh(args ...string) ([]byte, error) {
 		if left <= 0 {
 			return nil, fmt.Errorf("gh %s: the time allowed for this run of calls is spent", strings.Join(args, " "))
 		}
-		t = min(t, left)
+		if t <= 0 {
+			t = left
+		} else {
+			t = min(t, left)
+		}
+	}
+	if t < 0 {
+		t = 0
 	}
 	return g.runner(g.dir, t, args...)
 }

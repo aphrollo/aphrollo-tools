@@ -159,6 +159,7 @@ func TestBashEdit_GetsWhatAnEditGets(t *testing.T) {
 // A law is judged on the bytes the commit will carry: a hit that gofmt removes
 // is no refusal.
 func TestPostBash_JudgesTheLawsOnTheFormattedBytes(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	noInlineLint(t)
 	root := lawRepo(t)
@@ -213,6 +214,7 @@ func TestPostBash_RecordsEveryChangedFileInTheLedger(t *testing.T) {
 }
 
 func TestPostBash_RecordsTheFilesOfARootItDidNotRun(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
 	noInlineLint(t)
@@ -269,6 +271,7 @@ func TestPostBash_ADeletedFileIsNoEdit(t *testing.T) {
 // Smells are judged over the lines the command added against HEAD, as an
 // Edit's are over the lines it adds.
 func TestPostBash_SmellsAreJudgedOverTheLinesTheCommandAdded(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	noInlineLint(t)
 	root := lawRepo(t)
@@ -318,6 +321,7 @@ func TestPostBash_RunsEveryPackageTheCommandChanged(t *testing.T) {
 // The edit-time linter runs once per package over every changed file in it,
 // and its findings ride on the gate line.
 func TestPostBash_LintsTheChangedGoFilesOncePerPackage(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := lawRepo(t)
 	prevLook, prevLoad, prevRun, prevSpawn := lintEditLook, lintEditLoad, lintEditRun, lintEditSpawnFn

@@ -35,6 +35,7 @@ func eventsOfKind(evs []tdd.Event, kind string) []tdd.Event {
 // A precommit run is one commit_gate_result, whatever number of stage lines it
 // also logged: counting runs must never count stages too.
 func TestGatePrecommit_EmitsOneResultEventDistinctFromItsStageEvents(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	managedBlockCommit(t, false)
 
 	if code := Run([]string{"gate", "precommit"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); code != 1 {
@@ -54,6 +55,7 @@ func TestGatePrecommit_EmitsOneResultEventDistinctFromItsStageEvents(t *testing.
 }
 
 func TestGatePremerge_EmitsAMergeGateResultEvent(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	managedBlockCommit(t, true)
 
 	if code := Run([]string{"gate", "premerge"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
@@ -67,6 +69,7 @@ func TestGatePremerge_EmitsAMergeGateResultEvent(t *testing.T) {
 }
 
 func TestGatePrepush_EmitsAPushEvent(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	managedBlockCommit(t, true)
 	empty, err := os.CreateTemp(t.TempDir(), "stdin")
 	if err != nil {
@@ -97,6 +100,7 @@ func TestGatePrepush_EmitsAPushEvent(t *testing.T) {
 // A filed report is one feedback event naming the tracker and never the title
 // or body the person wrote.
 func TestGateFeedback_EmitsAFeedbackEventWithoutTheText(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo, _ := stubIssueRepo(t, "https://github.com/o/tools/issues/5")
 
 	code := Run([]string{"gate", "feedback", "stage rejected token SECRET99", "--repo", repo, "--upstream", "o/tools"},

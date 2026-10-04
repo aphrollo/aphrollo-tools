@@ -26,6 +26,7 @@ func readString(t *testing.T, path string) string {
 // the edit hook, and the edit's gate line says so: the commit gate's gofmt
 // stage then has nothing left to refuse.
 func TestPostEdit_GofmtFormatsAnUnformattedGoEditAndSaysSo(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	src := filepath.Join(root, "widget.go")
@@ -44,6 +45,7 @@ func TestPostEdit_GofmtFormatsAnUnformattedGoEditAndSaysSo(t *testing.T) {
 // A red summary runs over several lines; the note belongs on the first, the
 // gate line, never tacked onto the end of the runner's output snippet.
 func TestPostEdit_GofmtNoteSitsOnTheGateLineOfAMultiLineRed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	src := filepath.Join(root, "widget.go")
@@ -63,6 +65,7 @@ func TestPostEdit_GofmtNoteSitsOnTheGateLineOfAMultiLineRed(t *testing.T) {
 // With nothing to test (no project around the file) the edit still changed
 // the file, so the note is the whole line rather than lost.
 func TestPostEdit_GofmtNoteStandsAloneWhenNothingRan(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	src := filepath.Join(t.TempDir(), "loose.go")
 	mustWrite(t, src, unformattedGo)
@@ -80,6 +83,7 @@ func TestPostEdit_GofmtNoteStandsAloneWhenNothingRan(t *testing.T) {
 // Files the hook must leave byte-for-byte alone, and whose gate line must not
 // claim a format that did not happen.
 func TestPostEdit_GofmtLeavesFilesItMustNotTouch(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cases := []struct {
 		name, file, content string
 	}{
@@ -109,6 +113,7 @@ func TestPostEdit_GofmtLeavesFilesItMustNotTouch(t *testing.T) {
 
 // A CRLF checkout keeps its line endings: the file is formatted, not converted.
 func TestPostEdit_GofmtKeepsCRLFLineEndings(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	src := filepath.Join(root, "widget.go")
@@ -124,6 +129,7 @@ func TestPostEdit_GofmtKeepsCRLFLineEndings(t *testing.T) {
 // A tool call that failed changed nothing the agent meant, so nothing is
 // formatted either.
 func TestPostEdit_GofmtSkipsAFailedToolCall(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	src := filepath.Join(root, "widget.go")

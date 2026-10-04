@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,6 +135,7 @@ func TestRunCargoShim_BypassRunsWhileAnotherBuildHoldsTheLock(t *testing.T) {
 // makes it tolerable is that every use is COUNTED — a bypass nobody can see
 // is a bypass nobody manages.
 func TestQueueBypass_IsLoggedOncePerProcess(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := gateConfigDir(t)
 	t.Setenv("CARGO_TARGET_DIR", filepath.Join(t.TempDir(), "target"))
 	markGateRun(t)
@@ -158,7 +158,7 @@ func TestQueueBypass_IsLoggedOncePerProcess(t *testing.T) {
 // countGateLogVerdict counts the lines whose verdict field is want.
 func countGateLogVerdict(t *testing.T, cfg, want string) int {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	data, err := gateLogBytes(t)
 	if err != nil {
 		return 0
 	}

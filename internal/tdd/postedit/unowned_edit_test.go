@@ -31,6 +31,7 @@ func recordEditRuns(ran *[]string) SuiteRunner {
 }
 
 func TestPostEdit_RootScriptInVirtualCargoWorkspace_RunsNoBuild(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := virtualWorkspace(t)
@@ -53,6 +54,7 @@ func TestPostEdit_RootScriptInVirtualCargoWorkspace_RunsNoBuild(t *testing.T) {
 }
 
 func TestPostEdit_RootScriptInVirtualCargoWorkspace_DeferredPathSpawnsNoBuild(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := virtualWorkspace(t)
 	write(t, root, "scratch_edit.py", "print('probe')\n")

@@ -16,6 +16,7 @@ import (
 const goTreeEditPassed = "=== RUN   TestSomething\n--- PASS: TestSomething (0.00s)\nPASS\nok  \texample.com/m/internal/tdd/merge\t0.012s\n"
 
 func TestPostEdit_GoEditsInAPackageTree_ScheduleOnlyThatPackage(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cases := []struct{ name, file, want string }{
 		{"test file in a leaf package", "internal/tdd/merge/x_test.go", "go test ./internal/tdd/merge"},
 		{"source file in a leaf package", "internal/tdd/merge/x.go", "go test ./internal/tdd/merge"},

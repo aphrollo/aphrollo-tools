@@ -39,6 +39,14 @@ type Fake struct {
 	RunLogFn          func(run int64) ([]byte, error)
 	OpenIssueFn       func(IssueRequest) (string, error)
 	EnsureLabelFn     func(name, colour, description string) error
+	ListIssuesFn      func(IssueQuery) ([]Issue, error)
+	IssueFn           func(number string) (*Issue, error)
+	PRBodyFn          func(ref string) (string, error)
+	PRClosureFn       func(ref string) (*PRFacts, error)
+	PRDiffFn          func(ref string) (string, error)
+	CheckStateFn      func(sha, name string) (string, string, bool, error)
+	ArtifactRunFn     func(name string) (int64, bool, error)
+	DownloadFn        func(run int64, name, dir string) error
 	ProbeValue        Probe
 
 	mu    sync.Mutex
@@ -292,6 +300,70 @@ func (f *Fake) EnsureLabel(name, colour, description string) error {
 		return nil
 	}
 	return f.EnsureLabelFn(name, colour, description)
+}
+
+func (f *Fake) ListIssues(q IssueQuery) ([]Issue, error) {
+	f.note("ListIssues")
+	if f.ListIssuesFn == nil {
+		return nil, nil
+	}
+	return f.ListIssuesFn(q)
+}
+
+func (f *Fake) Issue(number string) (*Issue, error) {
+	f.note("Issue")
+	if f.IssueFn == nil {
+		return nil, nil
+	}
+	return f.IssueFn(number)
+}
+
+func (f *Fake) PRBody(ref string) (string, error) {
+	f.note("PRBody")
+	if f.PRBodyFn == nil {
+		return "", nil
+	}
+	return f.PRBodyFn(ref)
+}
+
+func (f *Fake) PRClosure(ref string) (*PRFacts, error) {
+	f.note("PRClosure")
+	if f.PRClosureFn == nil {
+		return nil, nil
+	}
+	return f.PRClosureFn(ref)
+}
+
+func (f *Fake) PRDiff(ref string) (string, error) {
+	f.note("PRDiff")
+	if f.PRDiffFn == nil {
+		return "", nil
+	}
+	return f.PRDiffFn(ref)
+}
+
+func (f *Fake) CheckState(sha, name string) (string, string, bool, error) {
+	f.note("CheckState")
+	if f.CheckStateFn == nil {
+		return "", "", false, nil
+	}
+	return f.CheckStateFn(sha, name)
+}
+
+func (f *Fake) ArtifactRun(name string) (int64, bool, error) {
+	f.note("ArtifactRun")
+	if f.ArtifactRunFn == nil {
+		return 0, false, nil
+	}
+	return f.ArtifactRunFn(name)
+}
+
+func (f *Fake) DownloadArtifact(run int64, name, dir string) error {
+	f.note("DownloadArtifact")
+	if f.DownloadFn == nil {
+		return nil
+	}
+	return f.DownloadFn(run, name, dir)
 }
 
 func (f *Fake) Probe(bool) Probe { return f.ProbeValue }

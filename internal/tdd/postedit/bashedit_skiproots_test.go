@@ -55,6 +55,7 @@ func TestSkippedRootsPhrase_NamesThemAllWhenThereAreFew(t *testing.T) {
 // going to get a run either way, so naming it "skipped" reports a coverage
 // gap that isn't one.
 func TestPostBash_DeferredSkipNamesOnlyARootWithAFileThatWouldHaveRun(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
 	gitRoot := t.TempDir()

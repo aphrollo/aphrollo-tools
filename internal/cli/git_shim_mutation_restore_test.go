@@ -41,6 +41,7 @@ func readFixtureFile(t *testing.T, path string) string {
 }
 
 func TestGitShim_MutationProofRestoresTheWorkingStateNotHEAD(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := gateConfigDir(t)
 	repo, cfg, file := mutationProofRepo(t, "s-mutation-restore")
 	if _, err := tdd.HoldMutation(file); err != nil {

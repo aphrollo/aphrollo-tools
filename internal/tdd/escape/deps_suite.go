@@ -3,7 +3,9 @@
 package escape
 
 import (
+	host "github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	suite "github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
+	time "time"
 )
 
 const Green = suite.Green
@@ -32,11 +34,11 @@ func gateSuiteProof() *suiteProofLedger { return suite.GateSuiteProof() }
 
 func gcStatePath(p0 string) string { return suite.GcStatePath(p0) }
 
+func gitHubHost(p0 string, p1 time.Duration) host.Host { return suite.GitHubHost(p0, p1) }
+
 func gitRead(p0 string, p1 ...string) (string, error) { return suite.GitRead(p0, p1...) }
 
 func hasGitHubRemote(p0 string) bool { return suite.HasGitHubRemote(p0) }
-
-func runGh(p0 string, p1 ...string) (string, error) { return suite.RunGh(p0, p1...) }
 
 func stampProvenSuite(p0 string) { suite.StampProvenSuite(p0) }
 

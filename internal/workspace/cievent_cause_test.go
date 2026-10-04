@@ -28,6 +28,7 @@ func TestCICause_NamesTheClassOfTheFailedChecks(t *testing.T) {
 }
 
 func TestMergeWait_ARedFirstRunRecordsItsCause(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cases := []struct{ check, want string }{
 		{"go test", "test"},
 		{"mutants-verdict", "mutation"},
@@ -50,6 +51,7 @@ func TestMergeWait_ARedFirstRunRecordsItsCause(t *testing.T) {
 }
 
 func TestMergeWait_AGreenFirstRunHasNoCause(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	pr := &fakePR{number: 11, branch: "lane/a", steps: []ciStep{
 		{head: newSHA, checks: []CheckRun{run("go test", newSHA, "completed", "success")}},
@@ -69,6 +71,7 @@ func TestMergeWait_AGreenFirstRunHasNoCause(t *testing.T) {
 // The status a push or merge reads carries the cause from the failed checks'
 // names, and the event the push records keeps it.
 func TestPushApply_ARedCIStatusKeepsItsCauseOnTheEvent(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	repo := pushedLane(t)
 	stubGH(t,

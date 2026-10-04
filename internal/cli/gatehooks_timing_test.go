@@ -38,6 +38,7 @@ func runHook(t *testing.T, hook string, payload map[string]any) {
 // Every Claude hook run leaves a hook.timing event: which hook, how long, and
 // who called it. The userpromptsubmit ones are the message boundaries.
 func TestGateHook_EachRunWritesAHookTimingEventForItsActor(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := hookRepo(t)
 
 	runHook(t, "userpromptsubmit", map[string]any{"session_id": "s1", "cwd": repo, "prompt": "hello"})
@@ -56,6 +57,7 @@ func TestGateHook_EachRunWritesAHookTimingEventForItsActor(t *testing.T) {
 }
 
 func TestGateHook_APayloadThatIsNotJSONStillGetsItsTiming(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateConfigDir(t)
 
 	Run([]string{"gate", "sessionend"}, strings.NewReader("{broken"), &bytes.Buffer{}, &bytes.Buffer{})

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
+	"strconv"
 	"time"
 )
 
@@ -58,13 +58,12 @@ func fetchRunnerReport(root, tree string) (report RunnerReport, absent string) {
 	// thousand. `.artifacts[0]` is the newest: a tree re-measured by a
 	// re-run publishes a second artifact under the same name, and the later
 	// run is the one to read.
-	runID, err := runGhTimeout(root, runnerFetchTimeout, "api",
-		"repos/{owner}/{repo}/actions/artifacts?per_page=1&name="+name,
-		"--jq", ".artifacts[0].workflow_run.id // empty")
+	h := gitHubHost(root, runnerFetchTimeout)
+	run, found, err := h.ArtifactRun(name)
 	if err != nil {
 		return RunnerReport{}, "the published measurements could not be listed: " + err.Error()
 	}
-	if runID = strings.TrimSpace(runID); runID == "" {
+	if !found {
 		return RunnerReport{}, "no run has published a measurement of this tree yet (no artifact " + name + ")"
 	}
 	dir, err := os.MkdirTemp("", "mutants-verdict-")
@@ -72,8 +71,8 @@ func fetchRunnerReport(root, tree string) (report RunnerReport, absent string) {
 		return RunnerReport{}, "nowhere to download the measurement to: " + err.Error()
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
-	if _, err := runGhTimeout(root, runnerFetchTimeout, "run", "download", runID, "-n", name, "-D", dir); err != nil {
-		return RunnerReport{}, "the measurement published by run " + runID + " could not be downloaded: " + err.Error()
+	if err := h.DownloadArtifact(run, name, dir); err != nil {
+		return RunnerReport{}, "the measurement published by run " + strconv.FormatInt(run, 10) + " could not be downloaded: " + err.Error()
 	}
 	return readRunnerReport(filepath.Join(dir, runnerReportFile))
 }

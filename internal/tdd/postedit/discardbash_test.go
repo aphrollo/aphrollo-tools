@@ -242,9 +242,12 @@ func TestDiscardBashDecision_ArmedAllowDoesNotSpendADifferentCommand(t *testing.
 	}
 }
 
+// ratchet: test_removed TestDiscardBashDecision_ArmedUseIsLoggedWithTheCommand: an override event drops the typed command (it can hold a secret), so the trail names the verdict only; TestDiscardBashDecision_ArmedUseIsLogged holds that
 // The arm's use is a decision worth a trail: without a logged line, nobody
-// can tell an armed pass from a bug that let a discard through unnoticed.
-func TestDiscardBashDecision_ArmedUseIsLoggedWithTheCommand(t *testing.T) {
+// can tell an armed pass from a bug that let a discard through unnoticed. The
+// event names the verdict; the typed command stays off it.
+func TestDiscardBashDecision_ArmedUseIsLogged(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("CLAUDE_SESSION_ID", "s-arm-log")
@@ -258,9 +261,8 @@ func TestDiscardBashDecision_ArmedUseIsLoggedWithTheCommand(t *testing.T) {
 	}
 
 	requireLoggedVerdict(t, cfg, discardBashArmUsedVerdict)
-	text := gateLogText(t, cfg)
-	if !strings.Contains(text, cmd) {
-		t.Fatalf("gate.log = %q, want it to name the command %q that spent the arm", text, cmd)
+	if text := gateLogText(t, cfg); strings.Contains(text, cmd) {
+		t.Fatalf("the log = %q, want the typed command %q kept off the event", text, cmd)
 	}
 }
 

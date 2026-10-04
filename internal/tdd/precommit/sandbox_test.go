@@ -5,12 +5,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // sandbox is the directory that holds every t.TempDir() this test creates:
@@ -67,11 +67,7 @@ var errNoNode = errors.New("not found")
 // nothing was logged yet.
 func gateLogAll(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(StateDir(), "gate.log"))
-	if err != nil {
-		return ""
-	}
-	return string(data)
+	return tddtest.GateLogContentShared(t)
 }
 
 // withNodeMissing states that no node is on PATH, for this test's roots.

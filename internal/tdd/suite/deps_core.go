@@ -37,8 +37,6 @@ func cargoPackageName(p0 string) string { return core.CargoPackageName(p0) }
 
 func dedupeSorted(p0 []string) []string { return core.DedupeSorted(p0) }
 
-func fitRunes(p0 string, p1 int) string { return core.FitRunes(p0, p1) }
-
 func isCodeFile(p0 string) bool { return core.IsCodeFile(p0) }
 
 func isComponentFile(p0 string) bool { return core.IsComponentFile(p0) }

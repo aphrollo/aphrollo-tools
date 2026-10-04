@@ -179,6 +179,7 @@ func TestLoadEditLedger_IsPerCheckout(t *testing.T) {
 
 // The edit hook is what fills the ledger: one edit record plus its verdict.
 func TestPostEdit_RecordsTheEditAndItsVerdict(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	write(t, root, "src/widget.rs", ledgerWidgetWithTest)
 	PostEdit(postPayload("Edit", filepath.Join(root, "src/widget.rs")),

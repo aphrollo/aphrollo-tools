@@ -24,6 +24,7 @@ func ciOf(t *testing.T) []tdd.Event { t.Helper(); return ofKind(emitted(t), "ci"
 // run's red is recorded when the merge reads CI, at the run's own time, so it
 // is the lane's first ci event and its cause is the failed job's.
 func TestMergeApply_ARedFirstRunOfAnEarlierHeadIsRecordedAtItsOwnTime(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	firstRunWorld(t, []prRun{
 		{ID: 2, SHA: "4628333b", Status: "completed", Conclusion: "success", CreatedAt: "2026-10-03T20:17:22Z"},
 		{ID: 3, SHA: "4628333b", Status: "completed", Conclusion: "success", CreatedAt: "2026-10-03T20:17:22Z"},
@@ -46,6 +47,7 @@ func TestMergeApply_ARedFirstRunOfAnEarlierHeadIsRecordedAtItsOwnTime(t *testing
 }
 
 func TestMergeApply_AFirstRunStillRunningOrCancelledIsNotRecorded(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	for name, run := range map[string]prRun{
 		"running":   {ID: 1, SHA: "aaaa1111", Status: "in_progress", CreatedAt: "2026-10-03T19:43:33Z"},
 		"cancelled": {ID: 1, SHA: "aaaa1111", Status: "completed", Conclusion: "cancelled", CreatedAt: "2026-10-03T19:43:33Z"},
@@ -66,6 +68,7 @@ func TestMergeApply_AFirstRunStillRunningOrCancelledIsNotRecorded(t *testing.T) 
 
 // A first run that passed is recorded too, once: the second read dedups by sha.
 func TestMergeApply_AGreenFirstRunIsRecordedOnce(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	firstRunWorld(t, []prRun{{ID: 1, SHA: "bbbb2222", Status: "completed", Conclusion: "success", CreatedAt: "2026-10-03T19:43:33Z"}}, nil)
 	for range 2 {
 		if _, err := applyMerge(t, ""); err != nil {
@@ -86,6 +89,7 @@ func TestMergeApply_AGreenFirstRunIsRecordedOnce(t *testing.T) {
 // Another run of the first head still going does not hide the run of it that
 // already failed: the head is red, and a later green is not the first.
 func TestMergeApply_AFailedRunOfTheFirstHeadIsRedWhileAnotherRunIsStillGoing(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	firstRunWorld(t, []prRun{
 		{ID: 1, SHA: "cccc3333", Status: "completed", Conclusion: "failure", CreatedAt: "2026-10-03T19:43:33Z"},
 		{ID: 2, SHA: "cccc3333", Status: "in_progress", CreatedAt: "2026-10-03T19:43:34Z"},
@@ -108,6 +112,7 @@ func TestMergeApply_AFailedRunOfTheFirstHeadIsRedWhileAnotherRunIsStillGoing(t *
 // The runs are asked for by the PR's own number, so a reused branch name or a
 // busy branch's page limit cannot make another PR's run the first one.
 func TestMergeApply_TheFirstRunsAreAskedForByThePRNumber(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	firstRunWorld(t, nil, nil)
 	var gotBranch string
 	var gotPR int
@@ -123,6 +128,7 @@ func TestMergeApply_TheFirstRunsAreAskedForByThePRNumber(t *testing.T) {
 // A first-head failure fixed with `gh run rerun` lists as the green of its
 // latest attempt; the first attempt is what "first run" means.
 func TestMergeApply_AFirstRunFailureFixedByARerunIsStillRed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	firstRunWorld(t, []prRun{
 		{ID: 1, SHA: "eeee5555", Status: "completed", Conclusion: "success", CreatedAt: "2026-10-03T19:43:33Z", Attempt: 2},
 	}, []string{"test"})

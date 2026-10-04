@@ -104,6 +104,7 @@ func TestStageSuiteVerdict_KeepsAZeroSelectionOutOfTheSettledVerdicts(t *testing
 // Serial: sets the process-wide env var GOTMPDIR (tddtest.VerdictWordTmp).
 func TestMechanical_ZeroTestCrate_IsRelabelledButStillLands(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeCargoRepo(t)
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 1 }\n")
 	gitDo(t, root, "add", ".")

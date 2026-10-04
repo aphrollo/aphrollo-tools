@@ -17,6 +17,7 @@ const typedSecret = "curl -H 'Authorization: Bearer s3cr3t' https://x"
 var userTextStages = []string{"bash", "preedit", "session", "prepr", "git", "probe-discard", "sessionstart", "state", "buildlock", "retro"}
 
 func TestAppendGateLog_NoTypedCommandReachesAnEventFromAnyStageOutsideTheAllowlist(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEvents(t)
 	repo := eventsTestRepo(t)
 	for _, stage := range userTextStages {
@@ -36,6 +37,7 @@ func TestAppendGateLog_NoTypedCommandReachesAnEventFromAnyStageOutsideTheAllowli
 }
 
 func TestAppendGateLog_AGateConstructedCommandStaysOnTheEventsOfItsStages(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEvents(t)
 	repo := eventsTestRepo(t)
 	for stage := range cmdStages {

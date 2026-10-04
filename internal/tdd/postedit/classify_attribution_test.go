@@ -78,6 +78,7 @@ const projectReadsLimit = "pub fn limit() -> u32 {\n" +
 	"}\n"
 
 func TestPostEditFile_ASourceEditThatBreaksAnotherSourceFileIsRedNotMissingImpl(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := probeCrate(t, "pub const UNUSED: u32 = 1;\n", projectReadsLimit)
@@ -95,6 +96,7 @@ func TestPostEditFile_ASourceEditThatBreaksAnotherSourceFileIsRedNotMissingImpl(
 // The harvest of a deferred phase judges the same output the same way: it is
 // where a heavy crate's verdict actually lands.
 func TestEditResultAdvisory_ASourceEditThatBreaksAnotherSourceFileIsRedNotMissingImpl(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := probeCrate(t, "pub const UNUSED: u32 = 1;\n", projectReadsLimit)
@@ -119,6 +121,7 @@ func TestEditResultAdvisory_ASourceEditThatBreaksAnotherSourceFileIsRedNotMissin
 // The same-hook deferred path: the build phase finished inside the budget
 // and failed, so its log is judged before the hook returns.
 func TestPostEdit_DeferredBuildThatBreaksAnotherSourceFileIsRedNotMissingImpl(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := probeCrate(t, "pub const UNUSED: u32 = 1;\n", projectReadsLimit)
@@ -150,6 +153,7 @@ func TestPostEdit_DeferredBuildThatBreaksAnotherSourceFileIsRedNotMissingImpl(t 
 // function nobody has written yet. The call sits below a blank line inside
 // the test module, so where a line starts is counted over every line above.
 func TestPostEditFile_AnInlineTestCallingAMissingFunctionStaysMissingImpl(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	project := "pub fn limit() -> u32 {\n" +
@@ -178,6 +182,7 @@ func TestPostEditFile_AnInlineTestCallingAMissingFunctionStaysMissingImpl(t *tes
 // A sibling file a `#[cfg(test)] #[path]` declaration mounts is test code as
 // a whole, though it carries no #[cfg(test)] of its own.
 func TestPostEditFile_AMountedTestFileCallingAMissingFunctionStaysMissingImpl(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	project := "pub fn limit() -> u32 {\n" +
@@ -204,6 +209,7 @@ func TestPostEditFile_AMountedTestFileCallingAMissingFunctionStaysMissingImpl(t 
 // beside a source file's missing const does not turn that const into a
 // symbol under test.
 func TestPostEditFile_AnotherErrorInTheTestsDoesNotLendItsLocation(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	project := strings.Replace(projectReadsLimit,
@@ -226,6 +232,7 @@ func TestPostEditFile_AnotherErrorInTheTestsDoesNotLendItsLocation(t *testing.T)
 // used from production code, or quoted in a failing test's own message, is
 // not one.
 func TestPostEditFile_GoMissingSymbolIsACleanRedOnlyFromATestFile(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cases := []struct {
 		name   string
 		output string
@@ -238,6 +245,7 @@ func TestPostEditFile_GoMissingSymbolIsACleanRedOnlyFromATestFile(t *testing.T) 
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("TRELLIS_DATA", t.TempDir())
 			cfg := t.TempDir()
 			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 			root := makeGoRepo(t)

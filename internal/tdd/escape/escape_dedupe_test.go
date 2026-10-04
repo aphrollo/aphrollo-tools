@@ -54,6 +54,7 @@ func overrideSyncFixture(t *testing.T, at time.Time) (repo string, candidates []
 // the close of the issue that already answered it, so the sync has nothing
 // new to say and must say nothing.
 func TestRecordOverrideCandidates_OpensNoSecondIssueWhenTheEvidencePredatesAClose(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	evidenceAt := time.Now().UTC().Add(-4 * 24 * time.Hour)
 	repo, cands := overrideSyncFixture(t, evidenceAt)
@@ -74,6 +75,7 @@ func TestRecordOverrideCandidates_OpensNoSecondIssueWhenTheEvidencePredatesAClos
 // and it refused correct work AGAIN afterwards. That is a fix that did not
 // hold, which is the loudest signal this loop produces — it gets filed.
 func TestRecordOverrideCandidates_FilesAgainWhenTheOverrideRecursAfterTheClose(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	evidenceAt := time.Now().UTC().Add(-2 * time.Hour)
 	repo, cands := overrideSyncFixture(t, evidenceAt)
@@ -91,6 +93,7 @@ func TestRecordOverrideCandidates_FilesAgainWhenTheOverrideRecursAfterTheClose(t
 // title says. The title guard alone missed this: it matches the stage name in
 // a title, and the fingerprint is what identifies the miss.
 func TestRecordOverrideCandidates_OpensNoSecondIssueWhileOneIsStillOpen(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	evidenceAt := time.Now().UTC().Add(-2 * time.Hour)
 	repo, cands := overrideSyncFixture(t, evidenceAt)
@@ -113,6 +116,7 @@ func TestRecordOverrideCandidates_OpensNoSecondIssueWhileOneIsStillOpen(t *testi
 // candidate stamped with its oldest line would stay suppressed through a
 // recurrence that happened yesterday.
 func TestOverrideCandidates_StampTheNewestSightingNotTheFirst(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	now := time.Now().UTC()
 	first := now.Add(-5 * 24 * time.Hour)
 	log := gateLines(first,
@@ -138,6 +142,7 @@ func TestOverrideCandidates_StampTheNewestSightingNotTheFirst(t *testing.T) {
 // spellings drift the lookup matches nothing and every sync files a duplicate
 // — the guard would be there and do nothing.
 func TestRecordOverrideCandidates_FileTheIssueUnderTheFingerprintTheGuardLooksFor(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo, cands := overrideSyncFixture(t, time.Now().UTC().Add(-time.Hour))
 	argv := stubGhScript(t, map[string]string{
@@ -157,6 +162,7 @@ func TestRecordOverrideCandidates_FileTheIssueUnderTheFingerprintTheGuardLooksFo
 // A recorder that goes quiet is indistinguishable from one that is broken, so
 // a suppression names the issue that made it.
 func TestRecordOverrideCandidates_SayWhichIssueSuppressedTheCandidate(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	evidenceAt := time.Now().UTC().Add(-4 * 24 * time.Hour)
 	repo, cands := overrideSyncFixture(t, evidenceAt)
@@ -173,6 +179,7 @@ func TestRecordOverrideCandidates_SayWhichIssueSuppressedTheCandidate(t *testing
 // NOW: a workflow failing this minute postdates any close, so a closed issue
 // carrying the fingerprint must not silence it.
 func TestRecordCIEscape_RecordsAgainWhenAClosedIssueCarriesTheFingerprint(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := makeGitHubRepo(t)
 	commitWithGreenGateNote(t, repo, "a tree the local gate proved")

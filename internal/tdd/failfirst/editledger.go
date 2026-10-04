@@ -102,7 +102,7 @@ func recordEdit(root, file string) string {
 	if len(kept) != len(lines) {
 		kept = capLedger(append(kept, ledgerLine{Edit: &e}))
 		if err := rewriteLedger(path, kept); err != nil {
-			warnGateLogUnwritable(fmt.Sprintf("edit ledger %s: %v", path, err))
+			warnEventLogUnwritable(fmt.Sprintf("edit ledger %s: %v", path, err))
 		}
 		return e.ID
 	}
@@ -347,21 +347,21 @@ func rewriteLedger(path string, lines []ledgerLine) error {
 func appendLedgerLine(path string, l ledgerLine) {
 	data, err := json.Marshal(l)
 	if err != nil {
-		warnGateLogUnwritable(fmt.Sprintf("edit ledger %s: %v", path, err))
+		warnEventLogUnwritable(fmt.Sprintf("edit ledger %s: %v", path, err))
 		return
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		warnGateLogUnwritable(fmt.Sprintf("edit ledger %s: %v", path, err))
+		warnEventLogUnwritable(fmt.Sprintf("edit ledger %s: %v", path, err))
 		return
 	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		warnGateLogUnwritable(fmt.Sprintf("edit ledger %s: %v", path, err))
+		warnEventLogUnwritable(fmt.Sprintf("edit ledger %s: %v", path, err))
 		return
 	}
 	defer f.Close()
 	if _, err := f.Write(append(data, '\n')); err != nil {
-		warnGateLogUnwritable(fmt.Sprintf("edit ledger %s: %v", path, err))
+		warnEventLogUnwritable(fmt.Sprintf("edit ledger %s: %v", path, err))
 	}
 }
 

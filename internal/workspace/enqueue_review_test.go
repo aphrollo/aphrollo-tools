@@ -264,6 +264,7 @@ func TestMergeQueue_AnUnreadableHeadAfterTheEnqueueIsReported(t *testing.T) {
 // The queue's own run of the PR failed: the removal is a red the measures
 // count, written as a ci event of the queue's.
 func TestMergeWait_AQueueRemovalForFailedChecksRecordsARedCIEvent(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	_, q := newQueueWorld(t, CIStatus{State: "green", SHA: "abc"})
 	q.pre = []*QueueEntry{nil, nil}
 	q.polls = []qPoll{{"OPEN", nil}}
@@ -287,6 +288,7 @@ func TestMergeWait_AQueueRemovalForFailedChecksRecordsARedCIEvent(t *testing.T) 
 
 // A removal for another reason (a push to the PR, a dequeue) is not a red run.
 func TestMergeWait_AQueueRemovalForAnotherReasonRecordsNoCIEvent(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	_, q := newQueueWorld(t, CIStatus{State: "green", SHA: "abc"})
 	q.pre = []*QueueEntry{nil, nil}
 	q.polls = []qPoll{{"OPEN", nil}}

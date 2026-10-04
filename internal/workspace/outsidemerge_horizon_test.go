@@ -28,6 +28,7 @@ func plantSweptThrough(t *testing.T, repo string, at time.Time) {
 // record to be matched against: the verb may well have recorded it. It is
 // unknown, never an outside merge, and no escape is emitted for it.
 func TestSyncSince_AMergeFromBeforeTheRetainedLogIsUnknownNotOutside(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	clone := repoWithOrigin(t)
 	seed := revOf(t, clone, "HEAD")
@@ -51,6 +52,7 @@ func TestSyncSince_AMergeFromBeforeTheRetainedLogIsUnknownNotOutside(t *testing.
 }
 
 func TestSyncSince_AMergeAfterTheSweptMonthsIsStillRecorded(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	clone := repoWithOrigin(t)
 	seed := revOf(t, clone, "HEAD")

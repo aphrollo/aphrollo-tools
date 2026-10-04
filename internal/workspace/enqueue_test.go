@@ -286,6 +286,7 @@ func TestMergeQueue_TheLocalChecksStillRefuseBeforeEnqueueing(t *testing.T) {
 }
 
 func TestMergeQueue_AFailedEnqueueKeepsItsKindAndRecordsNothing(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	_, q := newQueueWorld(t, CIStatus{State: "green", SHA: "abc"})
 	q.enqErr = &JudgedHeadError{Msg: "PR head moved after it was judged (merge bound to c0ffee0) — merge again to judge the new head"}
 
@@ -304,6 +305,7 @@ func TestMergeQueue_AFailedEnqueueKeepsItsKindAndRecordsNothing(t *testing.T) {
 // that it queued it so the trunk move that takes the merge in is not counted as
 // one made outside the verb.
 func TestMergeQueue_QueuedPRIsRecordedSoItsMergeIsNotCountedAsOutside(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	newQueueWorld(t, CIStatus{State: "green", SHA: "abc"})
 
 	if _, err := applyMerge(t, ""); err != nil {

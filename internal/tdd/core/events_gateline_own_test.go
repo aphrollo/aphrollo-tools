@@ -109,6 +109,7 @@ func TestReadGateEntries_AWindowOpeningMidMonthStillReadsThatMonthsFile(t *testi
 
 // Where an edit's run stands is no run and no stage timing: the events say so.
 func TestAppendGateLog_QueueBookkeepingIsAQueueEventAndNoNotTestedRun(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEvents(t)
 	repo := eventsTestRepo(t)
 	for _, verdict := range []string{"queue-waiting", "queue-started", "deferred-restart"} {

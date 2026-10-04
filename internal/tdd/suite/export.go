@@ -3,6 +3,7 @@
 package suite
 
 import (
+	host "github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	time "time"
 )
 
@@ -172,6 +173,8 @@ func GateSuiteProof() *suiteProofLedger { return gateSuiteProof() }
 
 func GcStatePath(p0 string) string { return gcStatePath(p0) }
 
+func GitHubHost(p0 string, p1 time.Duration) host.Host { return gitHubHost(p0, p1) }
+
 func GitRead(p0 string, p1 ...string) (string, error) { return gitRead(p0, p1...) }
 
 func GoPackageDir(p0 string, p1 string) string { return goPackageDir(p0, p1) }
@@ -268,12 +271,6 @@ func RetainSuiteOutput(p0 string, p1 string, p2 string, p3 string, p4 SuiteResul
 
 func RunCargoLocked(p0 SuiteRunner, p1 Runner, p2 string, p3 time.Duration, p4 time.Duration, p5 time.Duration) (SuiteResult, time.Duration, bool) {
 	return runCargoLocked(p0, p1, p2, p3, p4, p5)
-}
-
-func RunGh(p0 string, p1 ...string) (string, error) { return runGh(p0, p1...) }
-
-func RunGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
-	return runGhTimeout(p0, p1, p2...)
 }
 
 func RunnerDir(p0 Runner, p1 string) string { return runnerDir(p0, p1) }

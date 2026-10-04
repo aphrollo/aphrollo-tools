@@ -43,6 +43,7 @@ on:
       - "internal/tomlsubset/**"
       - "internal/argvbatch/**"
       - "internal/depinstall/**"
+      - "internal/integrate/**"
       - "internal/proc/**"
       - "internal/run/**"
       - "internal/rootseam/**"

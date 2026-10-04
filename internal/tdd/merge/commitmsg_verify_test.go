@@ -12,6 +12,7 @@ import (
 // committed, not just the words.
 func TestCommitMsg_RejectsAVerificationClaimWithNoGreenSuiteForTheTree(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "next.go", "package m\n")
 	gitDo(t, root, "add", ".")
@@ -32,6 +33,7 @@ func TestCommitMsg_RejectsAVerificationClaimWithNoGreenSuiteForTheTree(t *testin
 // in this pre-commit run actually went green on the tree being committed.
 func TestCommitMsg_AllowsAVerificationClaimWhenTheGreenSuiteStampMatchesTheTree(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "next.go", "package m\n")
 	gitDo(t, root, "add", ".")
@@ -59,6 +61,7 @@ const claimBody = "Add the missing configuration constant\n\n" +
 // record CLAUDE.md and the tdd skill require in the body.
 func TestVerificationClaim_CacheHitOnAGreenTreeIsAccepted(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "next.go", "package m\n")
 	gitDo(t, root, "add", ".")
@@ -83,6 +86,7 @@ func TestVerificationClaim_CacheHitOnAGreenTreeIsAccepted(t *testing.T) {
 // refused.
 func TestVerificationClaim_CacheHitOnATimeoutTreeIsStillRefused(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "next.go", "package m\n")
 	gitDo(t, root, "add", ".")
@@ -108,6 +112,7 @@ func TestVerificationClaim_CacheHitOnATimeoutTreeIsStillRefused(t *testing.T) {
 // the tree being committed, so the claim has nothing to stand on.
 func TestVerificationClaim_CacheHitDoesNotResolveToAFilteredGreenOnAMovedTree(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "next.go", "package m\n")
 	gitDo(t, root, "add", ".")
@@ -133,6 +138,7 @@ func TestVerificationClaim_CacheHitDoesNotResolveToAFilteredGreenOnAMovedTree(t 
 // holds for the tree.
 func TestVerificationClaim_CacheHitWithNoOwedSuiteIsRefused(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := t.TempDir()
 	gitInit(t, root)
 	write(t, root, "README.md", "tool\n")
@@ -158,6 +164,7 @@ func TestVerificationClaim_CacheHitWithNoOwedSuiteIsRefused(t *testing.T) {
 // crate, and #591 refuses again in exactly the monorepo shape it came from.
 func TestVerificationClaim_CacheHitResolvesAtTheCrateRootNotTheRepoRoot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 	// Committed on its own: a staged workspace manifest opens a second root
 	// group at the repo root, which owes a suite of its own.
@@ -194,6 +201,7 @@ func TestVerificationClaim_CacheHitResolvesAtTheCrateRootNotTheRepoRoot(t *testi
 // on the commit's own verdict rather than on whichever hook ran last.
 func TestVerificationClaim_AnAmendThatKeepsTheTreeKeepsTheCommitsGreenNote(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -213,6 +221,7 @@ func TestVerificationClaim_AnAmendThatKeepsTheTreeKeepsTheCommitsGreenNote(t *te
 // index is a tree no suite ran on, and the note on HEAD says nothing about it.
 func TestVerificationClaim_AnAmendThatChangesTheTreeDoesNotInheritTheNote(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")
@@ -235,6 +244,7 @@ func TestVerificationClaim_AnAmendThatChangesTheTreeDoesNotInheritTheNote(t *tes
 // nothing it can stand on.
 func TestVerificationClaim_AnAmendOfAnUnprovenCommitIsStillRefused(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "internal/x/x.go", "package x\n\nfunc X() int { return 1 }\n")
 	gitDo(t, root, "add", ".")

@@ -112,6 +112,7 @@ func TestMeasureLane_ALeakingRunIsRefusedWithWhatChanged(t *testing.T) {
 }
 
 func TestMutantsAtCommitStage_ALeakingRunBlocksTheCommitWithWhatChanged(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitStage(t, "")
 	rec := recordGitWorldChanges(t)
 	scriptGo(t, func(goCall) (int, string) {

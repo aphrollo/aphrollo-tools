@@ -169,6 +169,7 @@ func TestForeignBuildAdvisory_AFailureNamingNoForeignCrateHasNothingToSay(t *tes
 // verdict: the stand-down line names the crate, and the InfraFailed verdict is
 // logged so it is counted, not just printed.
 func TestForeignBuildAdvisory_AForeignLinkFailureIsLoggedAndReported(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := t.TempDir()

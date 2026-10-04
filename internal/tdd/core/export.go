@@ -169,6 +169,6 @@ func TryLockExclusive(p0 *os.File) bool { return tryLockExclusive(p0) }
 
 func WaivedForSession(p0 string, p1 string) bool { return waivedForSession(p0, p1) }
 
-func WarnGateLogUnwritable(p0 string) { warnGateLogUnwritable(p0) }
+func WarnEventLogUnwritable(p0 string) { warnEventLogUnwritable(p0) }
 
 func WriteFileAtomic(p0 string, p1 []byte) error { return writeFileAtomic(p0, p1) }

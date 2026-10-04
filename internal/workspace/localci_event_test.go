@@ -21,6 +21,7 @@ func withHead(t *testing.T, sha string) {
 }
 
 func TestMergeCI_ALocalGreenEmitsTheSettledCIEventNamingLocal(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	newCIWorld(t, tdd.CILocal, CIStatus{})
 	withHead(t, "sha-green-local")
 	if _, err := applyMerge(t, ""); err != nil {
@@ -33,6 +34,7 @@ func TestMergeCI_ALocalGreenEmitsTheSettledCIEventNamingLocal(t *testing.T) {
 }
 
 func TestMergeCI_ALocalRedEmitsARedEventAndASetupRefusalEmitsNone(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	w := newCIWorld(t, tdd.CILocal, CIStatus{})
 	withHead(t, "sha-red-local")
 	localCI = func(*Target, string, io.Writer) (tdd.LocalCIVerdict, error) {
@@ -56,6 +58,7 @@ func TestMergeCI_ALocalRedEmitsARedEventAndASetupRefusalEmitsNone(t *testing.T) 
 }
 
 func TestMergeCI_AGithubGreenEventNamesGithub(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	newCIWorld(t, tdd.CIGithub, CIStatus{State: "green", SHA: "sha-gh"})
 	withHead(t, "sha-gh")
 	if _, err := applyMerge(t, ""); err != nil {

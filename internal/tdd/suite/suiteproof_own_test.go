@@ -191,6 +191,7 @@ func TestSuiteTouchedNames_ListsTheScopedPackagesSortedOrTheCommand(t *testing.T
 // TestReportSuitesNotRun_LogsTheStandDown pins the log line: the verdict word
 // the gate stats count.
 func TestReportSuitesNotRun_LogsTheStandDown(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	reportSuitesNotRun("precommit", t.TempDir(), "package", goPkgA, []string{"./a"})

@@ -81,6 +81,7 @@ func TestCargoNestedTestFileReachable_AFileIsReachedOnlyThroughItsDirectorysModR
 // TestNotCompiledTerminal_AnUnreachedNestedFileInAPassingCargoRunIsNotCompiled
 // pins the verdict: logged, and the advisory names the file.
 func TestNotCompiledTerminal_AnUnreachedNestedFileInAPassingCargoRunIsNotCompiled(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := t.TempDir()

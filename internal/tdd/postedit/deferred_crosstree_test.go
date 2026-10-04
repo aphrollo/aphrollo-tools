@@ -38,6 +38,7 @@ func finishedRedJob(t *testing.T, session, root, failing string) {
 }
 
 func TestPostEdit_ReportsAnotherTreesFinishedJobOnceNamingItsTreeAndCommand(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	crateA := mkProject(t, "Cargo.toml")
 	crateB := mkProject(t, "Cargo.toml")
@@ -66,6 +67,7 @@ func TestPostEdit_ReportsAnotherTreesFinishedJobOnceNamingItsTreeAndCommand(t *t
 // call is a shell command that changed nothing must still carry the verdict
 // an earlier edit left running.
 func TestPostBash_ReportsAnEarlierEditsFinishedJobWhenTheCommandChangedNothing(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	crateA := mkProject(t, "Cargo.toml")
 	finishedRedJob(t, "sess-post", crateA, "tests::a_breaks")
@@ -95,6 +97,7 @@ func TestPostBash_ReportsAnEarlierEditsFinishedJobWhenTheCommandChangedNothing(t
 // check reads the line with that path neutralised.
 func TestPostEdit_AnotherTreesFinishedBuildStartsItsRunNamingTheCommand(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
 	crateA := mkProject(t, "Cargo.toml")
@@ -155,6 +158,7 @@ func TestWithCommand_NamesTheCommandOnTheHeadlineOfAMultiLineVerdict(t *testing.
 // it is reported once, labelled as measured on an earlier tree state, and
 // its record goes with it.
 func TestPostEdit_ReportsAnotherTreesStaleRedLabelledAsAnEarlierTreeState(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	crateA := mkProject(t, "Cargo.toml")
 	crateB := mkProject(t, "Cargo.toml")

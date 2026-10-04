@@ -37,6 +37,7 @@ func stubLsRemote(t *testing.T, fn func(ctx context.Context) (string, error)) {
 // never even fire.
 func TestBinaryBehindLine_SilentWhenUnstamped(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, "")
 
 	called := false
@@ -57,6 +58,7 @@ func TestBinaryBehindLine_SilentWhenUnstamped(t *testing.T) {
 // they tell an operator what to run and against what evidence.
 func TestBinaryBehindLine_NamesBothShasWhenOriginMoved(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 	stubLsRemote(t, func(ctx context.Context) (string, error) {
 		return originHead, nil
@@ -71,6 +73,7 @@ func TestBinaryBehindLine_NamesBothShasWhenOriginMoved(t *testing.T) {
 // A binary already at the tip of main has nothing to say.
 func TestBinaryBehindLine_SilentAtHead(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 	stubLsRemote(t, func(ctx context.Context) (string, error) {
 		return stampedCommit, nil
@@ -85,6 +88,7 @@ func TestBinaryBehindLine_SilentAtHead(t *testing.T) {
 // turn; the cache is what keeps this to one call an hour.
 func TestBinaryBehindLine_AsksTheRemoteOncePerHour(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 
 	calls := 0
@@ -110,6 +114,7 @@ func TestBinaryBehindLine_AsksTheRemoteOncePerHour(t *testing.T) {
 // the budget is silence, not an error, and the call returns promptly.
 func TestBinaryBehindLine_SilentWhenTheRemoteExceedsTheBudget(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 	stubLsRemote(t, func(ctx context.Context) (string, error) {
 		<-ctx.Done()
@@ -133,6 +138,7 @@ func TestBinaryBehindLine_SilentWhenTheRemoteExceedsTheBudget(t *testing.T) {
 // asked again, and clears the moment a lookup after the backoff succeeds.
 func TestBinaryBehindLine_BacksOffTenMinutesAfterAFailedLookup(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 
 	calls := 0
@@ -173,6 +179,7 @@ func TestBinaryBehindLine_BacksOffTenMinutesAfterAFailedLookup(t *testing.T) {
 // advice that cannot work: the merge's own deploy is what ships the fix.
 func TestBinaryBehindLine_WhenInstallIsNotWritable_NamesTheDeployPipelineInstead(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 	stubLsRemote(t, func(ctx context.Context) (string, error) {
 		return originHead, nil
@@ -185,13 +192,14 @@ func TestBinaryBehindLine_WhenInstallIsNotWritable_NamesTheDeployPipelineInstead
 	}
 }
 
-func gateLogContent(t *testing.T) string { t.Helper(); return tddtest.GateLogContent(t, GateLogPath()) }
+func gateLogContent(t *testing.T) string { t.Helper(); return tddtest.GateLogContent(t, "") }
 
 // A command failure (not a timeout) must never be silent in the ledger: it
 // is recorded once through appendGateLog, distinguishable from a timeout, and
 // the user-facing return value is untouched.
 func TestBinaryBehindLine_RecordsAStanddownOnCommandFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 	stubLsRemote(t, func(ctx context.Context) (string, error) {
 		return "", errors.New("network unreachable")
@@ -213,6 +221,7 @@ func TestBinaryBehindLine_RecordsAStanddownOnCommandFailure(t *testing.T) {
 // different problems (a hung remote vs. a rejected one) with different fixes.
 func TestBinaryBehindLine_RecordsAStanddownOnTimeoutDistinctFromFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 	stubLsRemote(t, func(ctx context.Context) (string, error) {
 		<-ctx.Done()
@@ -236,6 +245,7 @@ func TestBinaryBehindLine_RecordsAStanddownOnTimeoutDistinctFromFailure(t *testi
 // start, only when the state actually CHANGES.
 func TestBinaryBehindLine_RecordsTheStanddownOnceAcrossRepeatedSameFailures(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 	stubLsRemote(t, func(ctx context.Context) (string, error) {
 		return "", errors.New("network unreachable")
@@ -256,6 +266,7 @@ func TestBinaryBehindLine_RecordsTheStanddownOnceAcrossRepeatedSameFailures(t *t
 // transition is what gets logged, and going healthy resets it.
 func TestBinaryBehindLine_RecordsAgainAfterARecoveryThenANewFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 
 	calls := 0
@@ -281,6 +292,7 @@ func TestBinaryBehindLine_RecordsAgainAfterARecoveryThenANewFailure(t *testing.T
 // transition": going healthy is as much a state change as going unhealthy.
 func TestBinaryBehindLine_RecordsRecoveryAfterAFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 
 	calls := 0
@@ -306,6 +318,7 @@ func TestBinaryBehindLine_RecordsRecoveryAfterAFailure(t *testing.T) {
 // to the user.
 func TestBinaryBehindLine_RecordsNoTokenOnAPlainSuccess(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 	stubLsRemote(t, func(ctx context.Context) (string, error) {
 		return originHead, nil
@@ -327,6 +340,7 @@ func TestBinaryBehindLine_RecordsNoTokenOnAPlainSuccess(t *testing.T) {
 // mattered.
 func TestRecordBinaryBehindFailure_StillLogsWhenPathIsEmpty(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 
 	recordBinaryBehindFailure("", binaryBehindCache{}, time.Now(), binaryBehindStanddownFailed)
 
@@ -338,6 +352,7 @@ func TestRecordBinaryBehindFailure_StillLogsWhenPathIsEmpty(t *testing.T) {
 // The line must reach the session, not just the unit under test.
 func TestHandleSessionStart_CarriesTheBehindLine(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 	stubLsRemote(t, func(ctx context.Context) (string, error) {
 		return originHead, nil

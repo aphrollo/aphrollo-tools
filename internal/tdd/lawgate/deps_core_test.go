@@ -10,6 +10,4 @@ const Allow = core.Allow
 
 type gateEntry = core.GateEntry
 
-func GateLogPath() string { return core.GateLogPath() }
-
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }

@@ -7,16 +7,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // loggedText reads whatever the gate has logged this test, "" when nothing has.
 func loggedText(t *testing.T) string {
 	t.Helper()
-	data, err := os.ReadFile(GateLogPath())
-	if err != nil {
-		return ""
-	}
-	return string(data)
+	return tddtest.GateLogContent(t, "")
 }
 
 // Every state file the gate writes carries the schema it was written at, so a
@@ -92,6 +90,7 @@ func TestSessionStateIsPublishedAtomically(t *testing.T) {
 // overwriting it would destroy the other binary's state — so it reads as
 // ABSENT and stays untouched on disk.
 func TestLoadSessionTreatsANewerSchemaFileAsAbsentAndLogsOnce(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	path := filepath.Join(StateDir(), "newer.json")
@@ -123,6 +122,7 @@ func TestLoadSessionTreatsANewerSchemaFileAsAbsentAndLogsOnce(t *testing.T) {
 // Corrupt JSON (a torn write, a killed process) is kept for inspection rather
 // than silently discarded: the rename says what happened and leaves the bytes.
 func TestLoadSessionRenamesCorruptStateInsteadOfDiscardingIt(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	path := filepath.Join(StateDir(), "torn.json")
@@ -220,28 +220,18 @@ func TestMechCacheTreatsANewerFileAsAbsent(t *testing.T) {
 	}
 }
 
-// gate.log is append-only text, so its schema rides in a sibling file. A
-// reader that meets a newer one reports that instead of tallying lines whose
-// shape it cannot vouch for.
-func TestGateLogStampsItsSchemaBesideTheLog(t *testing.T) {
+// ratchet: test_removed TestGateLogStampsItsSchemaBesideTheLog: nothing writes gate.log or its stamp any more; the reader of a newer stamp is held by TestGateLogNewerSchema_ReadsAStampFromAnewerBinary
+// A binary that wrote gate.log left its schema in a sibling file. A reader that
+// meets a newer one reports that instead of tallying lines whose shape it
+// cannot vouch for.
+func TestGateLogNewerSchema_ReadsAStampFromAnewerBinary(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	AppendGateLog("postedit", "/repo", "go test ./...", "green", 0)
-
-	data, err := os.ReadFile(GateLogPath() + ".meta")
-	if err != nil {
-		t.Fatalf("reading the log's schema stamp: %v", err)
+	if got, ok := GateLogNewerSchema(); ok {
+		t.Fatalf("no stamp at all reads as newer (%d)", got)
 	}
-	var meta map[string]any
-	if err := json.Unmarshal(data, &meta); err != nil {
+	if err := os.MkdirAll(filepath.Dir(GateLogPath()), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if meta["schema"] != float64(StateSchema) {
-		t.Fatalf("schema = %v, want %d", meta["schema"], StateSchema)
-	}
-	if got, ok := GateLogNewerSchema(); ok {
-		t.Fatalf("our own log reads as newer (%d)", got)
-	}
-
 	if err := os.WriteFile(GateLogPath()+".meta", []byte(`{"schema":99}`), 0o600); err != nil {
 		t.Fatal(err)
 	}

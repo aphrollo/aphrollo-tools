@@ -20,6 +20,7 @@ import (
 // Serial: sets the process-wide env var GOTMPDIR.
 func TestPostEdit_GoTestFileWithNoTestYet_PrintsWritingTestNeverGreen(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkGoModule(t)
 	write(t, root, "internal/proc/proc_test.go", "package proc\n")

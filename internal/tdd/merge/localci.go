@@ -1,7 +1,6 @@
 package merge
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -100,7 +99,7 @@ func LocalCIWith(laneWorktree string, log io.Writer, run CIRunOptions) (LocalCIV
 	if err != nil {
 		return LocalCIVerdict{}, err
 	}
-	if storedGreen(tree) {
+	if storedGreen(laneWorktree, tree) {
 		fmt.Fprintf(log, "ci local: merge result %s already judged green — reusing that verdict\n", tree)
 		return LocalCIVerdict{Tree: tree, Reused: true}, nil
 	}
@@ -225,21 +224,12 @@ func ciCheckout(lane, commit string) (string, func(), error) {
 	return wt, func() { prGateRemoveCheckout(lane, wt) }, nil
 }
 
-// storedGreen reports whether gate.log holds a green local CI verdict for tree.
-func storedGreen(tree string) bool {
-	path := GateLogPath()
-	if path == "" {
-		return false
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
+// storedGreen reports whether the event log holds a green local CI verdict for
+// tree, recorded under root's repository.
+func storedGreen(root, tree string) bool {
 	want := "local-ci:" + tree
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		if e, ok := parseGateLine(sc.Text()); ok && e.Stage == ciStage && e.Cmd == want && e.Verdict == "green" {
+	for _, e := range readGateEntries(root, time.Time{}) {
+		if e.Stage == ciStage && e.Cmd == want && e.Verdict == "green" {
 			return true
 		}
 	}

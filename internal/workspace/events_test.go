@@ -78,6 +78,7 @@ func pushedLane(t *testing.T) (repo string) {
 // pending. Only a settled state is an event, it names the commit and PR, and a
 // re-push of the unchanged lane does not record it again.
 func TestPushApply_RecordsASettledCIEventOncePerCommit(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	repo := pushedLane(t)
 	stubGH(t,
@@ -109,6 +110,7 @@ func TestPushApply_RecordsASettledCIEventOncePerCommit(t *testing.T) {
 }
 
 func TestPushApply_PendingCIIsNotAnEvent(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	repo := pushedLane(t)
 	stubGH(t,
@@ -128,6 +130,7 @@ func TestPushApply_PendingCIIsNotAnEvent(t *testing.T) {
 }
 
 func TestMergeApply_RecordsTheMergeAndTheCIItRead(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	stubMerge(t,
 		func(wt, branch string) (*PRInfo, error) {
@@ -157,6 +160,7 @@ func TestMergeApply_RecordsTheMergeAndTheCIItRead(t *testing.T) {
 }
 
 func TestPRApply_RecordsAPROpenedEvent(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	repo := repoWithRemote(t)
 	stubGH(t,
@@ -183,6 +187,7 @@ func TestPRApply_RecordsAPROpenedEvent(t *testing.T) {
 // merge --wait reads CI to its end on the PR's head: that settled green is the
 // ci event, recorded once even though Merge.Apply reads the same commit again.
 func TestMergeWait_RecordsTheSettledGreenOnceForTheHead(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	pr := &fakePR{number: 11, branch: "lane/a", steps: []ciStep{
 		{head: newSHA, checks: []CheckRun{run("go test", newSHA, "in_progress", "")}},
 		{head: newSHA, checks: []CheckRun{run("go test", newSHA, "completed", "success")}},
@@ -202,6 +207,7 @@ func TestMergeWait_RecordsTheSettledGreenOnceForTheHead(t *testing.T) {
 }
 
 func TestMergeWait_RecordsARedCIEventWhenAFirstRunFails(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	pr := &fakePR{number: 13, branch: "lane/c", steps: []ciStep{
 		{head: newSHA, checks: []CheckRun{run("go test", newSHA, "completed", "failure")}},
 	}}
@@ -221,6 +227,7 @@ func TestMergeWait_RecordsARedCIEventWhenAFirstRunFails(t *testing.T) {
 
 // A push before any PR exists still records the settled result, with no pr.
 func TestPushApply_CIEventHasNoPRWhenNoneExists(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	repo := pushedLane(t)
 	stubGH(t,

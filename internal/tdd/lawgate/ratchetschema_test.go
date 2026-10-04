@@ -9,6 +9,7 @@ import (
 // on stderr and leaves `ratchet-law-newer:<law>` in gate.log, so `gate stats`
 // can count a rule this binary is too old to enforce fully.
 func TestRatchetStageLogsALawFromANewerSchema(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := lawTree(t, "deny")

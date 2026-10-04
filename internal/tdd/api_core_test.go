@@ -12,8 +12,6 @@ type fingerprint = core.Fingerprint
 
 type projectState = core.ProjectState
 
-func GateLogPath() string { return core.GateLogPath() }
-
 func SetPidRunningForTest(p0 func(pid int) bool) func() { return core.SetPidRunningForTest(p0) }
 
 func computeFingerprint(p0 string) *fingerprint { return core.ComputeFingerprint(p0) }

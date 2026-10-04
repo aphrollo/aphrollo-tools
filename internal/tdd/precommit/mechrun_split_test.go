@@ -96,6 +96,7 @@ func TestMechanical_ATwentyPackageMergeIsRunAsSeveralRunsAndEachPackageOnce(t *t
 // and does not claim nothing was tested, since the runs before it were.
 // Serial: sets APHROLLO_MECH_PARALLEL so the runs go one after another.
 func TestMechanical_ASplitMergeWhoseRunTimesOutIsRefusedNamingThePackages(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("APHROLLO_MECH_PARALLEL", "1")
 	root := twentyPackageMerge(t)

@@ -50,6 +50,7 @@ func lastPostEditVerdict(t *testing.T, root string) string {
 // the rerun must go through.
 func TestPostEdit_RunnerTimeoutsOnlyIsATimeoutAndItsTargetedRerunIsAllowed(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")

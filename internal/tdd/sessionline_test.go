@@ -3,10 +3,11 @@ package tdd
 import (
 	"encoding/json"
 	"io"
-	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // The open points are on GitHub now, which means a session never sees them
@@ -14,6 +15,7 @@ import (
 // nothing is waiting on a build.
 func TestIssueSummaryLineCountsOpenIssuesByLabel(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := makeGitHubRepo(t)
 	stubGhScript(t, map[string]string{
 		"issue list": `[{"labels":[{"name":"physics"}]},{"labels":[{"name":"netcode"}]},{"labels":[{"name":"physics"}]}]`,
@@ -34,6 +36,7 @@ func TestIssueSummaryLineCountsOpenIssuesByLabel(t *testing.T) {
 // terminal before; the line stays plain ASCII so it renders everywhere.
 func TestIssueSummaryLine_IsASCIIOnly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := makeGitHubRepo(t)
 	stubGhScript(t, map[string]string{
 		"issue list": `[{"labels":[{"name":"physics"}]}]`,
@@ -55,6 +58,7 @@ func TestIssueSummaryLine_IsASCIIOnly(t *testing.T) {
 // the line free.
 func TestIssueSummaryLineServesTheCacheWithinTheHour(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := makeGitHubRepo(t)
 	log := stubGhScript(t, map[string]string{"issue list": `[{"labels":[{"name":"physics"}]}]`})
 
@@ -84,6 +88,7 @@ func TestIssueSummaryLineServesTheCacheWithinTheHour(t *testing.T) {
 // with no separate cache or schedule of its own (issue #113).
 func TestIssueSummaryLine_ReconcilesAClosedEscapeWithinTheSameFetch(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := makeGitHubRepo(t)
 	if err := appendEscape(EscapeRecord{
 		ID: "x", Kind: EscapeKind, Reason: "already fixed",
@@ -109,6 +114,7 @@ func TestIssueSummaryLine_ReconcilesAClosedEscapeWithinTheSameFetch(t *testing.T
 // it prints nothing and leaves one line in gate.log.
 func TestIssueSummaryLineIsSilentAndLoggedOnceWhenTheFetchFails(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := makeGitHubRepo(t)
 	stubGhScript(t, map[string]string{"issue list": ""})
 	t.Setenv("GH_STUB_ISSUE_LIST_FAIL", "gh: could not resolve host")
@@ -122,11 +128,8 @@ func TestIssueSummaryLineIsSilentAndLoggedOnceWhenTheFetchFails(t *testing.T) {
 	if line := issueSummaryLine(repo, at.Add(time.Minute)); line != "" {
 		t.Fatalf("a failed fetch stays silent, got %q", line)
 	}
-	data, err := os.ReadFile(GateLogPath())
-	if err != nil {
-		t.Fatalf("no gate.log written: %v", err)
-	}
-	if n := strings.Count(string(data), issuesFetchFailedVerdict); n != 1 {
+	data := tddtest.GateLogContent(t, "")
+	if n := strings.Count(data, issuesFetchFailedVerdict); n != 1 {
 		t.Errorf("gate.log carries %s %d times, want 1:\n%s", issuesFetchFailedVerdict, n, data)
 	}
 }
@@ -135,6 +138,7 @@ func TestIssueSummaryLineIsSilentAndLoggedOnceWhenTheFetchFails(t *testing.T) {
 // process at every session start to learn that.
 func TestIssueSummaryLineIsEmptyWithoutAGitHubRemote(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("PATH", "")
 	if line := issueSummaryLine(t.TempDir(), time.Now()); line != "" {
 		t.Errorf("no remote means no line, got %q", line)
@@ -146,6 +150,7 @@ func TestIssueSummaryLineIsEmptyWithoutAGitHubRemote(t *testing.T) {
 // build.
 func TestSessionStartCarriesTheIssueSummaryLine(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	// The detached sweep would still hold the fixture's directory when the
 	// test tries to remove it.
 	t.Cleanup(SetGCSpawnForTest(func(string) {}))
@@ -173,6 +178,7 @@ func jsonString(s string) string {
 // silent, cached, one log line — not as a stalled prompt.
 func TestIssueSummaryLineGivesUpOnASlowFetch(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := makeGitHubRepo(t)
 	stubGhScript(t, map[string]string{"issue list": `[{"labels":[]}]`})
 	t.Setenv("GH_STUB_SLEEP_MS", "3000")
@@ -191,8 +197,7 @@ func TestIssueSummaryLineGivesUpOnASlowFetch(t *testing.T) {
 	if elapsed > 2*time.Second {
 		t.Fatalf("the fetch waited %s — the deadline did not fire", elapsed)
 	}
-	data, err := os.ReadFile(GateLogPath())
-	if err != nil || !strings.Contains(string(data), issuesFetchFailedVerdict) {
-		t.Errorf("a timed-out fetch must be logged like any other failure: %v", err)
+	if data := tddtest.GateLogContent(t, ""); !strings.Contains(data, issuesFetchFailedVerdict) {
+		t.Errorf("a timed-out fetch must be logged like any other failure:\n%s", data)
 	}
 }

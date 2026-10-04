@@ -23,6 +23,7 @@ func queueTarget() *Target {
 var queueWait = WaitOpts{Interval: 30 * time.Second, Timeout: 10 * time.Minute}
 
 func TestMergeWait_QueueWaitsForMergedAndPrintsEachChangeOnce(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	w, q := newQueueWorld(t, CIStatus{State: "green", SHA: "abc"})
 	q.pre = []*QueueEntry{nil, {Position: 2, Total: 2, State: "QUEUED"}}
 	q.polls = []qPoll{

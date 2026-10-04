@@ -180,6 +180,7 @@ func TestRatchetStage_UnknownMatcherKindDoesNotBlockTheCommit(t *testing.T) {
 // same way every other stand-down in gate.log is (denyVerdictPrefixes'
 // "standdown-" prefix).
 func TestRatchetStage_UnknownMatcherKindIsLoggedAsAStandDown(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := lawTree(t, "deny")
 	addFixtures(t, root)

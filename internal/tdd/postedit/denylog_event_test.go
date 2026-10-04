@@ -33,6 +33,7 @@ func goRepo(t *testing.T, name, branch string) string {
 // the gate.log line needs the space-free token, the event does not, and a
 // token names a directory that does not exist, so repo and lane were lost.
 func TestLogOverride_EventKeepsTheRealPathOfASpacedProject(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := goRepo(t, "my proj", "lane/spaced")
 
 	LogOverride("override-off", "sess", repo)
@@ -50,6 +51,7 @@ func TestLogOverride_EventKeepsTheRealPathOfASpacedProject(t *testing.T) {
 // to and the override the refusal offered: "which rules fire, and could the
 // agent have waived them" is a count of that event.
 func TestLogEditDecision_ADenyEventNamesRuleCauseAndOfferedOverride(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := goRepo(t, "proj", "main")
 	file := filepath.Join(repo, "a_test.go")
 	raw, err := json.Marshal(map[string]any{"tool_input": map[string]string{"file_path": file}})
@@ -82,6 +84,7 @@ func TestLogEditDecision_ADenyEventNamesRuleCauseAndOfferedOverride(t *testing.T
 }
 
 func TestLogBashSuiteDecision_ADenyEventNamesTheWallAndItsSwitch(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := goRepo(t, "proj", "main")
 	raw, err := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": repo, "tool_input": map[string]string{"command": "go test ./..."}})
 	if err != nil {

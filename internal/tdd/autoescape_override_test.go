@@ -11,6 +11,7 @@ import (
 // exception, not a check being talked past — and the pairing is the only
 // thing that tells the two apart.
 func TestAWaiverWithNoPrecedingDenialIsNotACandidate(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	now := time.Now().UTC()
 	log := gateLines(now, "preedit root a_test.go smell-escape:test-sleep")
 	if got := OverrideCandidates(strings.NewReader(log), now); len(got) != 0 {
@@ -161,6 +162,7 @@ func TestTheEscapeIssueBodyCarriesItsFingerprint(t *testing.T) {
 // fingerprint is the record — and one issue per CI re-run is exactly the
 // noise the dedupe exists to prevent.
 func TestCIEscapeWithAnOpenIssueCarryingItsFingerprintOpensNoSecond(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	gitDo(t, root, "remote", "add", "origin", "https://github.com/o/r.git")
@@ -184,6 +186,7 @@ func TestCIEscapeWithAnOpenIssueCarryingItsFingerprintOpensNoSecond(t *testing.T
 // A different red on the same job is a different miss, and an open issue for
 // the first must not silence it.
 func TestCIEscapeWithAnUnrelatedOpenIssueStillRecords(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	gitDo(t, root, "remote", "add", "origin", "https://github.com/o/r.git")

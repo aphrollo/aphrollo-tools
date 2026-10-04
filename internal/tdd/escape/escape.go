@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 )
 
 // An ESCAPE is a red that arrived after a local green: CI failed on a commit
@@ -369,13 +371,14 @@ func syncClosedEscapes(repo string) int {
 func closedEscapeIssues(repo string) map[int]bool {
 	closed := map[int]bool{}
 	for _, label := range []string{EscapeKind, FalsePositiveKind} {
-		out, err := runGh(repo, "issue", "list", "--label", label,
-			"--state", "all", "--limit", "1000", "--json", "number,state")
+		issues, err := gitHubHost(repo, 0).ListIssues(host.IssueQuery{Label: label, State: "all", Limit: 1000, Fields: []string{"number", "state"}})
 		if err != nil {
 			continue
 		}
-		for number := range closedIssueNumbers(out) {
-			closed[number] = true
+		for _, is := range issues {
+			if strings.EqualFold(is.State, "CLOSED") {
+				closed[is.Number] = true
+			}
 		}
 	}
 	return closed
@@ -415,30 +418,6 @@ func githubSlugFromURL(link string) string {
 		return ""
 	}
 	return strings.ToLower(parts[0] + "/" + strings.TrimSuffix(parts[1], ".git"))
-}
-
-// closedIssueNumbers reads a `gh issue list --json number,state` payload into
-// the numbers currently CLOSED. nil for a payload that does not parse — a
-// fetch that failed reconciles nothing rather than guessing.
-func closedIssueNumbers(out string) map[int]bool {
-	start, end := strings.Index(out, "["), strings.LastIndex(out, "]")
-	if start < 0 || end < start {
-		return nil
-	}
-	var docs []struct {
-		Number int    `json:"number"`
-		State  string `json:"state"`
-	}
-	if json.Unmarshal([]byte(out[start:end+1]), &docs) != nil {
-		return nil
-	}
-	closed := map[int]bool{}
-	for _, d := range docs {
-		if strings.EqualFold(d.State, "CLOSED") {
-			closed[d.Number] = true
-		}
-	}
-	return closed
 }
 
 // ListEscapes prints the records, oldest first: only the open ones by

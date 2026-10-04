@@ -13,6 +13,7 @@ import (
 // as the merge the verb queued (the lane's, no escape), not as an outside one,
 // so the lane's speed ends at the merge.
 func TestSync_ARecordedQueuedPRThatTrunkTookInIsMergedOnItsLaneNotOutside(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	clone := repoWithOrigin(t)
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: clone, Lane: "lane/q", Verdict: "queued",
@@ -66,6 +67,7 @@ func queueDropWorld(t *testing.T, rem QueueRemoval) *int {
 // wait saw it, so the next sync reads the queued-but-unmerged PRs' timelines
 // and records the red on the PR's lane, once.
 func TestSync_AQueuedPRTheQueueDroppedForFailedChecksIsRecordedRedOnItsLane(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	clone := repoWithOrigin(t)
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: clone, Lane: "lane/q", Verdict: "queued",
@@ -92,6 +94,7 @@ func TestSync_AQueuedPRTheQueueDroppedForFailedChecksIsRecordedRedOnItsLane(t *t
 // A PR still in the queue, dropped for another reason, or already merged by the
 // verb is not read or recorded as a red.
 func TestSync_AQueuedPRNotDroppedForFailedChecksRecordsNoRed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	clone := repoWithOrigin(t)
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: clone, Lane: "lane/q", Verdict: "queued", Detail: map[string]string{"pr": "1200"}})
@@ -128,6 +131,7 @@ func TestPRNumber_ARevertNamesItsOwnPRNotTheRevertedOne(t *testing.T) {
 // Dropped for failed checks, queued again by hand and merged: the newest queue
 // event is the merge, but the lane still had a red queue run.
 func TestSync_AQueuedPRDroppedThenRequeuedAndMergedKeepsItsRed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	clone := repoWithOrigin(t)
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: clone, Lane: "lane/q", Verdict: "queued",

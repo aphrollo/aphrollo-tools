@@ -20,6 +20,7 @@ import (
 // test that does not exist.
 func TestPostEdit_SpawnFailureIsReportedNotDeferred(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 	prev := spawnPhaseFn
@@ -161,6 +162,7 @@ func TestWritePhaseResult_RoundTripsThroughTheAtomicWrite(t *testing.T) {
 // single file's hash cannot see an edit to any OTHER file, so a job started
 // before an unrelated change still looked current at harvest time.
 func TestPostEditDeferred_RecordsTheWorktreeIdentity(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
 	gitInit(t, root)

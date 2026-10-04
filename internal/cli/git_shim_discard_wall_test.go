@@ -39,7 +39,7 @@ func discardWallFixture(t *testing.T) (repo string, cfg gitShimConfig) {
 // (gateConfigDir) collected.
 func readGateLog(t *testing.T, cfgDir string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(cfgDir, "gate-state", "gate.log"))
+	data, err := gateLogBytes(t)
 	if err != nil {
 		return ""
 	}
@@ -47,6 +47,7 @@ func readGateLog(t *testing.T, cfgDir string) string {
 }
 
 func TestGitShim_RefusesResetHardWithUncommittedWork(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := gateConfigDir(t)
 	repo, cfg := discardWallFixture(t)
 
@@ -251,6 +252,7 @@ func TestGitShim_BranchDeleteMissingBranchLetsGitsOwnErrorThrough(t *testing.T) 
 }
 
 func TestGitShim_OneShotAllowPassesExactlyOneCommand(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := gateConfigDir(t)
 	repo, cfg := discardWallFixture(t)
 	const session = "s-discard-oneshot"
@@ -317,6 +319,7 @@ func TestGitShim_OneShotExpiresAfterFiveMinutes(t *testing.T) {
 // override costs nothing that cannot be recovered. The unstaged case is the
 // next test's, and is refused.
 func TestGitShim_EnvOverridePassesAndIsLogged(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := gateConfigDir(t)
 	repo, cfg := discardWallFixture(t)
 	writeFixtureFile(t, repo, "seed.txt", []string{"seed", "dirty"})
@@ -340,6 +343,7 @@ func TestGitShim_EnvOverridePassesAndIsLogged(t *testing.T) {
 // marker's job is to get past the wall deliberately; it was a blanket yes to
 // an unbounded loss the caller never saw a number for.
 func TestGitShim_EnvOverrideRefusesWhenItWouldDestroyUnstagedWork(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := gateConfigDir(t)
 	repo, cfg := discardWallFixture(t)
 	writeFixtureFile(t, repo, "seed.txt", []string{"seed", "hand-written-work"})
@@ -375,6 +379,7 @@ func TestGitShim_EnvOverrideRefusesWhenItWouldDestroyUnstagedWork(t *testing.T) 
 // marker's whole contract: it is distinct from APHROLLO_DISCARD, it prints
 // the files it is about to destroy BEFORE git runs, and it is counted.
 func TestGitShim_UnstagedMarkerNamesWhatItDestroysThenRuns(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := gateConfigDir(t)
 	repo, cfg := discardWallFixture(t)
 	writeFixtureFile(t, repo, "seed.txt", []string{"seed", "hand-written-work"})
@@ -455,6 +460,7 @@ func TestGitShim_PathRestoreRefusalNamesProbeDiscard(t *testing.T) {
 // whichever of the two checks it first, and before markDiscardBashSpent /
 // ConsumeDiscardBashSpent the second side always found nothing left.
 func TestGitShim_OneShotAllowCoversTheBashHookAndTheShimForOneCommand(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := gateConfigDir(t)
 	repo, cfg := discardWallFixture(t)
 	const session = "s-discard-bash-then-shim"

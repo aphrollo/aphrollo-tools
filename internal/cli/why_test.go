@@ -45,6 +45,7 @@ func whyRepo(t *testing.T) (repo string, denySeq, runSeq int64) {
 }
 
 func TestWhy_replaysADenyAndARunFromTheRepoLog(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo, denySeq, runSeq := whyRepo(t)
 	code, out, errOut := runWhyCmd(t, strconv.FormatInt(denySeq, 10), "--repo", repo)
 	if code != 0 || errOut != "" {
@@ -63,6 +64,7 @@ func TestWhy_replaysADenyAndARunFromTheRepoLog(t *testing.T) {
 }
 
 func TestWhy_jsonIsTheWhyReportAndAFlagMayFollowTheSeq(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo, denySeq, _ := whyRepo(t)
 	code, out, errOut := runWhyCmd(t, strconv.FormatInt(denySeq, 10), "--json", "--repo", repo)
 	if code != 0 {
@@ -78,6 +80,7 @@ func TestWhy_jsonIsTheWhyReportAndAFlagMayFollowTheSeq(t *testing.T) {
 }
 
 func TestWhy_aSeqTheLogLacksIsOneLineNamingTheSeqAndTheLog(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo, _, _ := whyRepo(t)
 	code, out, errOut := runWhyCmd(t, "424242", "--repo", repo)
 	if code != 1 || out != "" {
@@ -90,6 +93,7 @@ func TestWhy_aSeqTheLogLacksIsOneLineNamingTheSeqAndTheLog(t *testing.T) {
 }
 
 func TestWhy_refusesWhatItCannotRead(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo, denySeq, _ := whyRepo(t)
 	seq := strconv.FormatInt(denySeq, 10)
 	for name, args := range map[string][]string{

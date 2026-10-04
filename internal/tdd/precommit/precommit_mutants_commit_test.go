@@ -51,6 +51,7 @@ func TestPrecommit_ASurvivingMutantOfAnAddedLineRefusesTheCommit(t *testing.T) {
 
 // Serial: installs a process-wide test override (SetCommitExecForTest).
 func TestPrecommit_MutantsTheTestsKillPassTheCommit(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitMutationRepo(t, true)
 	t.Cleanup(SetCommitExecForTest(func(_ context.Context, _ string, _ []string, argv []string, log io.Writer) (int, error) {
 		for _, a := range argv {
@@ -76,6 +77,7 @@ func TestPrecommit_MutantsTheTestsKillPassTheCommit(t *testing.T) {
 // A repo that never declared the key is not measured and not told anything.
 // Serial: installs a process-wide test override (SetCommitExecForTest).
 func TestPrecommit_TheCommitMutationStageIsInertWhenUndeclared(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitMutationRepo(t, false)
 	t.Cleanup(SetCommitExecForTest(func(context.Context, string, []string, []string, io.Writer) (int, error) {
 		t.Error("a mutant was run in a repo that declares no mutants-at-commit")

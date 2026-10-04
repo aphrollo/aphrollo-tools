@@ -155,6 +155,7 @@ func TestGatePRMerge_RatchetLawOnlyTheMergedTreeBreaksRefusesWithoutMutantsAtMer
 // merged-tree judgment on: a repo gated in for ratchet is not thereby gated
 // into a mutation measurement it never declared.
 func TestGatePRMerge_MutantsStageStaysOffWithoutItsOwnDeclaration(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	root := t.TempDir()

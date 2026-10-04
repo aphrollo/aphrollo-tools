@@ -12,6 +12,7 @@ import (
 // came back as "writing-test" (zero tests seen) and a red one named no test
 // and carried no snippet.
 func TestPostEdit_ForegroundPhaseReportsItsOutput(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 	done := &PhaseOutcome{ExitCode: 0, Seconds: 1}

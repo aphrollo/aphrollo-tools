@@ -62,6 +62,7 @@ func postPayload(tool, file string) []byte { return tddtest.PostPayload(tool, fi
 // "there was nothing to test" (checked separately in
 // TestPostEdit_SkipsNonActionable).
 func TestPostEdit(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	src := filepath.Join(root, "widget.go")
@@ -91,6 +92,7 @@ func TestPostEdit(t *testing.T) {
 }
 
 func TestPostEdit_SkipsNonActionable(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 
@@ -116,6 +118,7 @@ func TestPostEdit_SkipsNonActionable(t *testing.T) {
 }
 
 func TestPostEdit_StampsState(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	src := filepath.Join(root, "widget.go")
@@ -195,6 +198,7 @@ func TestPostEdit_TimeoutBackoff_SkipsAfterTwoConsecutiveTimeouts(t *testing.T) 
 // still under budget. That is exactly the production case this test pins:
 // occasional/flaky timeouts alternating with completions never accumulate.
 func TestPostEdit_TimeoutBackoff_CompletedRunResetsStreak(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := makeGoRepo(t)
 	src := filepath.Join(root, "widget.go")

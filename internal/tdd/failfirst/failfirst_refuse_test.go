@@ -12,6 +12,7 @@ import (
 // land. A stage whose whole purpose is to prove a staged test goes RED must
 // refuse instead, naming the elapsed time and a command the session can run.
 func TestFailFirstStage_RefusesWhenTheProofRunOutlivedItsBudget(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeGoRepo(t)
@@ -52,6 +53,7 @@ func TestFailFirstStage_RefusesWhenTheProofRunOutlivedItsBudget(t *testing.T) {
 // killed run — nothing about the tests is known to be slow — so it is refused
 // with the command that names what holds the box.
 func TestFailFirstStage_RefusesWhenNoBuildSlotEverCameFree(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	withIsolatedBuildLock(t)
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

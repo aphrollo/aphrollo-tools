@@ -66,6 +66,7 @@ func recordGoRuns(t *testing.T) func() []goRun {
 }
 
 func TestMutantsAtCommitStage_AModuleInASubdirectoryIsMeasuredFromThatDirectory(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := nestedCommitStage(t, "")
 	runs := recordGoRuns(t)
 
@@ -115,6 +116,7 @@ func TestMutantsAtCommitStage_ASubdirectoryModuleSurvivorIsAcceptedByItsRepoPath
 // A commit that stages no file of a Go module has nothing to measure, and
 // says so without calling the repo a non-module.
 func TestMutantsAtCommitStage_AStagedFileOutsideEveryModuleStandsDown(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := nestedCommitStage(t, "")
 	gitDo(t, root, "reset", "-q", "backend-go/gate/gate.go")
 	write(t, root, "docs/note.go", "package docs\n\nfunc F(n int) bool { return n > 1 }\n")

@@ -17,6 +17,7 @@ import (
 // gate itself captured is the answer; every test below is about those bytes
 // still being there afterwards.
 func TestPostEdit_RetainsTheOutputOfTheRunItMade(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	src := filepath.Join(root, "widget.go")

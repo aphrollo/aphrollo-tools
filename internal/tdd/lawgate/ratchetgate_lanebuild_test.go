@@ -180,6 +180,7 @@ func TestRatchetFixtureStage_AsksTheLaneOnlyAboutTheLawsTheCommitStages(t *testi
 // build failure would reinstate the hole in its worst form: unprovable rows
 // landing unproven.
 func TestRatchetFixtureStage_BlocksWhenTheLanesOwnBuildFails(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := lawEngineRepo(t, "nan-guard")

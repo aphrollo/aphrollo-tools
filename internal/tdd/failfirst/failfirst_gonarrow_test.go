@@ -1,12 +1,12 @@
 package failfirst
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // TestNarrowFailFirstTests_GoRunFilterNamesTheStagedTests pins issue #567: the
@@ -71,6 +71,7 @@ func TestGoRunFilter_AnchorsAndQuotesEveryName(t *testing.T) {
 // reading of the log into thinking the proof ran the full suite. The line must
 // record the argv the proof actually executed.
 func TestFailFirstStage_LogsTheArgvItActuallyRan(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeGoRepo(t)
@@ -106,7 +107,7 @@ func TestFailFirstStage_LogsTheArgvItActuallyRan(t *testing.T) {
 	if !strings.Contains(stderr, wantCmd) {
 		t.Fatalf("stage line must name the argv it ran (%q), got: %s", wantCmd, stderr)
 	}
-	logData, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	logData, err := tddtest.GateLogBytes(t)
 	if err != nil {
 		t.Fatalf("gate.log not written: %v", err)
 	}

@@ -16,7 +16,7 @@ import (
 // exactly how #394's own hooks-dir refusal surfaced three frames away as a
 // missing gate.log line instead of as the refusal that caused it.
 func TestAppendGateLog_WarnsWhenTheStateDirCannotBeCreated(t *testing.T) {
-	resetAppendGateLogWarnForTest()
+	resetEventLogWarnForTest()
 	base := t.TempDir()
 	// gate-state must be a FILE, so os.MkdirAll(dir, ...) fails with "not a
 	// directory" rather than succeeding over an existing empty dir.
@@ -24,12 +24,13 @@ func TestAppendGateLog_WarnsWhenTheStateDirCannotBeCreated(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", base)
+	t.Setenv("TRELLIS_DATA", filepath.Join(base, "gate-state"))
 
 	stderr := captureStderr(t, func() {
 		AppendGateLog("precommit", "/some/repo", "gate", "green", 0)
 	})
 
-	if !strings.Contains(stderr, "gate.log is not being written") {
+	if !strings.Contains(stderr, "the event log is not being written") {
 		t.Fatalf("appendGateLog's failure was not reported on stderr, got:\n%s", stderr)
 	}
 }
@@ -38,19 +39,20 @@ func TestAppendGateLog_WarnsWhenTheStateDirCannotBeCreated(t *testing.T) {
 // unwritable for a whole session does not bury the one useful line under a
 // screenful of identical repeats.
 func TestAppendGateLog_WarnsOnlyOncePerProcess(t *testing.T) {
-	resetAppendGateLogWarnForTest()
+	resetEventLogWarnForTest()
 	base := t.TempDir()
 	if err := os.WriteFile(filepath.Join(base, "gate-state"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", base)
+	t.Setenv("TRELLIS_DATA", filepath.Join(base, "gate-state"))
 
 	stderr := captureStderr(t, func() {
 		AppendGateLog("precommit", "/some/repo", "gate", "green", 0)
 		AppendGateLog("postedit", "/some/repo", "gate", "green", 0)
 	})
 
-	if n := strings.Count(stderr, "gate.log is not being written"); n != 1 {
+	if n := strings.Count(stderr, "the event log is not being written"); n != 1 {
 		t.Fatalf("warning printed %d time(s) across two failed writes, want 1:\n%s", n, stderr)
 	}
 }
@@ -61,6 +63,7 @@ func TestAppendGateLog_WarnsOnlyOncePerProcess(t *testing.T) {
 // "inconclusive" silently vanished for every reader, including `gate stats`,
 // the one place an operator most needs a fail-open to read correctly.
 func TestAppendGateLog_RoundTripsAVerdictContainingASpace(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 

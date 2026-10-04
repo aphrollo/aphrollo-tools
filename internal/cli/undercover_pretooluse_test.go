@@ -12,7 +12,8 @@ import (
 // pretooluse` refuses a Bash command that would create a tell-named branch
 // before it runs, and counts the denial under its own policy.
 func TestRun_PreToolUse_DeniesATellBranchInAnUndercoverRepo(t *testing.T) {
-	cfg := gateConfigDir(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	gateConfigDir(t)
 	dir := t.TempDir()
 	gitInitRepo(t, dir)
 	if err := os.WriteFile(filepath.Join(dir, "aphrollo.toml"), []byte("[aphrollo]\nundercover = true\n"), 0o644); err != nil {
@@ -27,7 +28,7 @@ func TestRun_PreToolUse_DeniesATellBranchInAnUndercoverRepo(t *testing.T) {
 	if reason := denyReason(t, out.Bytes()); !strings.Contains(reason, `"lane/claude-fix"`) {
 		t.Fatalf("the deny must quote the branch name, got: %s", reason)
 	}
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	data, err := gateLogBytes(t)
 	if err != nil {
 		t.Fatalf("gate.log not written: %v", err)
 	}

@@ -12,9 +12,13 @@ import (
 
 // The events a binary before the one that moved the readers wrote carry no
 // command and no root, so a reader that matches on them starts from nothing
-// after the upgrade. gate.log is still written (the merge readers use it), so
-// the history from before the first complete event is read from there, once:
-// the two never overlap, and the fallback goes with the gate.log writer.
+// after the upgrade. gate.log is no longer written; the history from before the
+// first complete event is read from the file once, and the two never overlap.
+//
+// REMOVAL: delete this file, its callers and the pin's allowlist row after
+// 2026-11-05. The longest window any reader looks back is the budget floor's 30
+// days, so by then every line this reads is older than any window and the
+// fallback returns nothing.
 
 // legacyTailBytes bounds how much of the end of gate.log is read.
 const legacyTailBytes = 4 << 20

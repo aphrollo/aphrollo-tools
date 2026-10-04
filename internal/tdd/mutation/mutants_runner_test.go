@@ -24,6 +24,7 @@ import (
 // gate reports it exactly as it reports a measurement that never happened
 // (issue #697).
 func TestMeasure_ARunnerVerdictMeasuredOnADifferentTreeIsNotConsumed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))
@@ -71,6 +72,7 @@ func TestMeasure_ARunnerVerdictMeasuredOnADifferentTreeIsNotConsumed(t *testing.
 // one step further on, where a tree nobody could read refuses rather than
 // passes.
 func TestMeasure_ATreeGitCannotIdentifyConsumesNoRunnerVerdictAtAll(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))
@@ -141,6 +143,7 @@ func TestMeasure_ARunnerVerdictNamingNoTreeIsNotConsumed(t *testing.T) {
 // by the same finishMeasure a local run's are — one judge, whichever box
 // produced the outcomes.
 func TestMeasure_ARunnerVerdictMeasuredOnThisTreeIsConsumed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))
@@ -183,6 +186,7 @@ func TestMeasure_ARunnerVerdictMeasuredOnThisTreeIsConsumed(t *testing.T) {
 // measurement to a box that can make it is worth nothing if the answer it
 // brings back cannot stop anything.
 func TestMeasure_AnUnacceptedSurvivorInAConsumedRunnerVerdictRefusesTheMergeByName(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))
@@ -222,6 +226,7 @@ func TestMeasure_AnUnacceptedSurvivorInAConsumedRunnerVerdictRefusesTheMergeByNa
 // that cannot measure must still be able to merge, and a gate that refused
 // every merge on runner availability would be traded away within a week.
 func TestMeasure_NoRunnerVerdictForThisTreeIsNotMeasuredAndBlocksNothing(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))
