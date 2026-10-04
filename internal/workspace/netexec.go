@@ -1,11 +1,9 @@
 package workspace
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -52,37 +50,4 @@ func networkTimeoutErr(deadlineHit bool, timeout time.Duration, name string, arg
 		return err
 	}
 	return fmt.Errorf("%s %s: timed out after %s — check network connectivity/credentials and retry", name, strings.Join(args, " "), timeout)
-}
-
-// ghOutput runs a gh subcommand under ghTimeout, in dir, returning just
-// stdout (mirroring exec.Cmd.Output).
-func ghOutput(dir string, args ...string) ([]byte, error) {
-	var out bytes.Buffer
-	// stderr-ok: callers classify gh's stdout; this error text reaches no reader
-	err := networkRun(dir, nil, ghTimeout, &out, nil, "gh", args...)
-	return out.Bytes(), err
-}
-
-// ghCombinedOutput runs a gh subcommand under ghTimeout, in dir, returning
-// STDOUT ONLY — every caller parses this as DATA (JSON `gh pr view`/`gh api`
-// output), and CombinedOutput used to fold a stderr-only line (an update
-// notice, a deprecation warning, a proxy or auth note) straight into that
-// data while gh still exited 0, breaking the JSON parse (#883). On failure
-// the returned bytes come from *exec.ExitError's own captured Stderr instead
-// — every caller's error-diagnostic path already reads that byte slice, so
-// behaviour there is unchanged, just no longer polluted by stdout noise on
-// the success path.
-func ghCombinedOutput(dir string, args ...string) ([]byte, error) {
-	var stdout, stderr bytes.Buffer
-	err := networkRun(dir, nil, ghTimeout, &stdout, &stderr, "gh", args...)
-	out := stdout.Bytes()
-	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			out = stderr.Bytes()
-		} else {
-			out = nil
-		}
-	}
-	return out, err
 }

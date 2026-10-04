@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -28,37 +29,7 @@ var mergeMethods = map[string]bool{"squash": true, "merge": true, "rebase": true
 // refuses (a headMoved refusal) when the head is anything else by then, so a push
 // between judgement and merge can never land a tree nobody judged.
 var ghMergePR = func(wt, branch, method, sha string) error {
-	owner, repo, ok := githubOwnerRepo(wt)
-	if !ok {
-		return fmt.Errorf("origin is not a github remote in %s", wt)
-	}
-	n, found, err := ghAPIFindPR(wt, branch)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return fmt.Errorf("gh api pulls: no PR found for %s", branch)
-	}
-	args := []string{"api", fmt.Sprintf("repos/%s/%s/pulls/%d/merge", owner, repo, n),
-		"-X", "PUT", "-f", "merge_method=" + method, "-f", "sha=" + sha}
-	if method != "rebase" {
-		// A rebase writes no merge commit; the others get this verb's own
-		// subject so GitHub's "Merge pull request #N from <branch>" never
-		// carries the branch name into history.
-		title, err := ghCombinedOutput(wt, "api", fmt.Sprintf("repos/%s/%s/pulls/%d", owner, repo, n), "--jq", ".title")
-		if err != nil {
-			return fmt.Errorf("gh api pulls title: %v: %s", err, strings.TrimSpace(string(title)))
-		}
-		args = append(args, "-f", "commit_title="+mergeSubject(string(title), n))
-	}
-	out, err := ghCombinedOutput(wt, args...)
-	if err != nil {
-		if moved := headMoved(out, sha); moved != nil {
-			return moved
-		}
-		return fmt.Errorf("gh api pulls merge: %v\n%s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	return hostFor(wt).Merge(host.MergeRequest{Branch: branch, Method: method, Head: sha})
 }
 
 // undercoverMethod is the method the undercover judgment is made for. A merge
@@ -73,17 +44,7 @@ func undercoverMethod(method string, queued bool) string {
 
 // mergeSubject is the subject every merge this verb makes carries: the PR's
 // title and number, never git's or GitHub's default line naming the branch.
-func mergeSubject(title string, n int) string {
-	title = strings.TrimSpace(title)
-	if title == "" {
-		return fmt.Sprintf("Pull request #%d", n)
-	}
-	suffix := fmt.Sprintf("(#%d)", n)
-	if strings.HasSuffix(title, suffix) {
-		return title
-	}
-	return title + " " + suffix
-}
+func mergeSubject(title string, n int) string { return host.MergeSubject(title, n) }
 
 // remoteBranchAlreadyGone reports whether a failed `git push origin --delete`
 // means the branch was already absent on the remote rather than that the
@@ -320,16 +281,14 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 		if m.MethodSet {
 			fmt.Fprintf(stdout, "note: --%s is ignored: the %s merge queue sets the merge method\n", m.Method, base)
 		}
-		return m.enqueue(pr, head, base, stdout)
 	}
-	merge := func() error { return ghMergePR(m.Target.Worktree, m.Target.Branch, m.Method, head) }
+	subject, message := "", ""
 	if useBody {
-		merge = func() error {
-			return ghMergePRBody(m.Target.Worktree, m.Target.Branch, m.Method, mergeSubject(prTitle, pr.Number), body, head)
-		}
+		subject, message = mergeSubject(prTitle, pr.Number), body
 	}
-	if err := merge(); err != nil {
-		return nil, err
+	q, err := m.landOnBase(pr, head, base, subject, message, useBody, stdout)
+	if err != nil || q != nil {
+		return q, err
 	}
 	return nil, m.landed(pr.Number, pr.URL, m.Method, stdout, stderr)
 }

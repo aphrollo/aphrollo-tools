@@ -1,9 +1,7 @@
 package workspace
 
 import (
-	"fmt"
 	"io"
-	pathpkg "path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -62,30 +60,10 @@ var ghVerdictChecks = func(wt, sha string) []CheckRun {
 	return runs
 }
 
-// runInfo is what the Actions run behind a check says about itself.
-type runInfo struct {
-	Workflow string // the workflow file's base name, such as pipeline.yml
-	Attempt  int
-}
-
 // ghRunInfo reads the workflow file and attempt of one Actions run. A package
 // var so tests state what Actions answered without a network.
 var ghRunInfo = func(wt string, id int64) (runInfo, error) {
-	out, err := ghCombinedOutput(wt, "api", "repos/{owner}/{repo}/actions/runs/"+strconv.FormatInt(id, 10),
-		"--jq", `.path + " " + (.run_attempt | tostring)`)
-	if err != nil {
-		return runInfo{}, err
-	}
-	path, attempt, ok := strings.Cut(strings.TrimSpace(string(out)), " ")
-	if !ok {
-		return runInfo{}, fmt.Errorf("unreadable run: %q", out)
-	}
-	path, _, _ = strings.Cut(path, "@")
-	n, err := strconv.Atoi(attempt)
-	if err != nil {
-		return runInfo{}, err
-	}
-	return runInfo{Workflow: pathpkg.Base(path), Attempt: n}, nil
+	return hostFor(wt).RunInfo(id)
 }
 
 var actionsRunRe = regexp.MustCompile(`/actions/runs/(\d+)`)

@@ -44,7 +44,7 @@ var ghViewPRStatus = ghViewPRStatusReal
 // reporting the branch as unmerged and un-PR'd (the shape ghViewPR had until
 // #348).
 func ghViewPRStatusReal(wt, branch string) (*PRStatus, error) {
-	p, err := ghAPIViewByBranch(wt, branch)
+	p, err := hostFor(wt).PRByBranch(branch)
 	if err != nil {
 		return nil, err
 	}
@@ -53,18 +53,18 @@ func ghViewPRStatusReal(wt, branch string) (*PRStatus, error) {
 	}
 	s := &PRStatus{
 		Number:           p.Number,
-		State:            p.state(),
-		IsDraft:          p.Draft,
+		State:            p.State,
+		IsDraft:          p.IsDraft,
 		MergedAt:         p.MergedAt,
-		Mergeable:        p.mergeableWord(),
-		MergeStateStatus: p.mergeStateStatus(),
+		Mergeable:        p.Mergeable,
+		MergeStateStatus: p.MergeStateStatus,
 	}
 	// REST's single-pull response carries no statusCheckRollup (a GraphQL-only
 	// aggregate) — reuse ghChecksAt, the same commits/{sha}/check-runs +
 	// .../status REST reader `merge --wait` already relies on, to rebuild the
 	// pass/fail/pending tally from the PR's actual head commit.
-	if p.state() == "OPEN" {
-		runs, err := ghChecksAt(wt, p.Head.SHA)
+	if p.State == "OPEN" {
+		runs, err := ghChecksAt(wt, p.HeadSHA)
 		if err != nil {
 			return nil, err
 		}

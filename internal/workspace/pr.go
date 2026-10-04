@@ -1,11 +1,12 @@
 package workspace
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -73,43 +74,26 @@ var ghViewPR = ghViewPRReal
 // ITS error as "no PR" would open a duplicate PR on a branch that already has
 // one.
 func ghViewPRReal(wt, branch string) (*PRInfo, error) {
-	p, err := ghAPIViewByBranch(wt, branch)
+	p, err := hostFor(wt).PRByBranch(branch)
 	if err != nil {
 		return nil, err
 	}
-	if p == nil {
-		return nil, nil // absence-ok: REST's list-pulls returned no entry for branch
-	}
-	return p.info(), nil
+	return prInfoOf(p), nil // nil when the host has no PR for the branch
 }
 
 var (
 	ghCreatePR = func(wt string, req PRCreate) (*PRInfo, error) {
-		owner, repo, ok := githubOwnerRepo(wt)
-		if !ok {
-			return nil, fmt.Errorf("origin is not a github remote in %s", wt)
-		}
 		title, body := req.Title, req.Body
 		if title == "" {
 			// REST has no --fill; approximate gh's own derivation from the
 			// branch's commits (fillTitleBody).
 			title, body = fillTitleBody(wt, req.Base, req.Branch)
 		}
-		args := []string{"api", "repos/" + owner + "/" + repo + "/pulls", "-X", "POST",
-			"-f", "base=" + req.Base, "-f", "head=" + req.Branch,
-			"-f", "title=" + title, "-f", "body=" + body}
-		if req.Draft {
-			args = append(args, "-F", "draft=true")
-		}
-		out, err := ghCombinedOutput(wt, args...)
+		p, err := hostFor(wt).OpenPR(host.OpenRequest{Base: req.Base, Branch: req.Branch, Title: title, Body: body, Draft: req.Draft})
 		if err != nil {
-			return nil, fmt.Errorf("gh api pulls (create): %v\n%s", err, strings.TrimSpace(string(out)))
+			return nil, err
 		}
-		var p ghAPIPull
-		if err := json.Unmarshal(out, &p); err != nil {
-			return nil, fmt.Errorf("parsing gh api pulls (create): %w", err)
-		}
-		return p.info(), nil
+		return prInfoOf(p), nil
 	}
 )
 

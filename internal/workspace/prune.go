@@ -178,14 +178,14 @@ func PrunePlan(repoArg string) (*Prune, error) {
 // "no PR". The real implementation shells gh in the worktree, where gh resolves
 // the repo from origin.
 var ghPRState = func(wt, branch string) (string, error) {
-	p, err := ghAPIViewByBranch(wt, branch)
+	p, err := hostFor(wt).PRByBranch(branch)
 	if err != nil {
 		return "", err
 	}
 	if p == nil {
 		return "", nil // absence-ok: REST's list-pulls returned no entry for branch
 	}
-	return p.state(), nil
+	return p.State, nil
 }
 
 // ghPRHeadOid is the seam over `gh pr view <branch> --json headRefOid` — a
@@ -197,14 +197,14 @@ var ghPRState = func(wt, branch string) (string, error) {
 // after the merge — see #163: `git status --porcelain` alone cannot make that
 // distinction, since new commits leave the tree clean again.
 var ghPRHeadOid = func(wt, branch string) (string, error) {
-	p, err := ghAPIViewByBranch(wt, branch)
+	p, err := hostFor(wt).PRByBranch(branch)
 	if err != nil {
 		return "", fmt.Errorf("gh api pulls (head=%s): %w", branch, err)
 	}
 	if p == nil {
 		return "", fmt.Errorf("gh api pulls: no PR found for %s", branch)
 	}
-	return p.Head.SHA, nil
+	return p.HeadSHA, nil
 }
 
 // localHeadSHA returns the worktree's current HEAD commit.

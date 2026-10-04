@@ -2,26 +2,31 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 )
 
-// recordFirstGhCall swaps the ci verb's gh seam for one that records the
-// first argv it is asked to run and refuses it, so a test sees how the
-// arguments were read without any call reaching the network.
+// recordFirstGhCall swaps the ci verb's host for the GitHub adapter over a
+// runner that records the first argv it is asked to run and refuses it, so a
+// test sees how the arguments were read without any call reaching the network.
 func recordFirstGhCall(t *testing.T) *string {
 	t.Helper()
 	first := new(string)
-	prev := ciGh
-	ciGh = func(_ context.Context, args ...string) ([]byte, error) {
-		if *first == "" {
-			*first = strings.Join(args, " ")
-		}
-		return []byte("refused by the test"), errors.New("exit status 1")
+	prev := ciHost
+	ciHost = func() host.Runs {
+		return github.New(github.Options{Dir: t.TempDir(), Runner: func(_ string, _ time.Duration, args ...string) ([]byte, error) {
+			if *first == "" {
+				*first = strings.Join(args, " ")
+			}
+			return []byte("refused by the test"), errors.New("exit status 1")
+		}})
 	}
-	t.Cleanup(func() { ciGh = prev })
+	t.Cleanup(func() { ciHost = prev })
 	return first
 }
 
@@ -76,18 +81,4 @@ func TestRunCIWhy_RefusesAmbiguousOrMalformedTargets(t *testing.T) {
 	}
 }
 
-// execGh is the verb's one real call onto gh. A gh that fails must come back
-// as an error carrying what gh printed — never as an empty success the
-// explainer would then read as "nothing to report".
-func TestExecGh_AFailingGhIsAnErrorCarryingItsOwnOutput(t *testing.T) {
-	routeGhStub(t, ghRoute{Match: "run view 42", Exit: 1, Out: "HTTP 404: Not Found"})
-
-	out, err := execGh(context.Background(), "run", "view", "42")
-
-	if err == nil {
-		t.Fatalf("a gh that exited 1 came back as success, output %q", out)
-	}
-	if !strings.Contains(string(out), "HTTP 404: Not Found") {
-		t.Errorf("output = %q, want gh's own words for why it failed", out)
-	}
-}
+// ratchet: test_removed TestExecGh_AFailingGhIsAnErrorCarryingItsOwnOutput: execGh moved into the GitHub adapter's transport; its failing-gh-keeps-its-output reads are proven there (JobLog and jsonOf fold gh's output into the error) and by TestWhy_AnyOtherLogFetchFailureIsAnError.

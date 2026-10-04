@@ -1,11 +1,11 @@
 package workspace
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 	"github.com/aphrollo/aphrollo-tools/internal/undercover"
 )
@@ -19,35 +19,14 @@ import (
 
 // ghPRText is the seam over the PR's title and body as they landed.
 var ghPRText = func(wt, branch string) (title, body string, err error) {
-	out, err := ghCombinedOutput(wt, "pr", "view", "--json", "title,body", "--", branch)
-	if err != nil {
-		return "", "", fmt.Errorf("gh pr view %s: %v: %s", branch, err, strings.TrimSpace(string(out)))
-	}
-	var pr struct{ Title, Body string }
-	if err := json.Unmarshal(out, &pr); err != nil {
-		return "", "", fmt.Errorf("parsing gh pr view: %w", err)
-	}
-	return pr.Title, pr.Body, nil
+	return hostFor(wt).PRText(branch)
 }
 
 // ghMergePRBody is ghMergePR with an explicit commit subject and body.
-// sha is the judged PR head: gh refuses the merge when the head is another
+// sha is the judged PR head: the merge is refused when the head is another
 // commit by then (see ghMergePR).
 var ghMergePRBody = func(wt, branch, method, subject, body, sha string) error {
-	out, err := ghCombinedOutput(wt, mergeBodyArgs(method, subject, body, sha, branch)...)
-	if err != nil {
-		if moved := headMoved(out, sha); moved != nil {
-			return moved
-		}
-		return fmt.Errorf("gh pr merge: %v\n%s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// mergeBodyArgs is gh's argv for a merge with an explicit subject and body,
-// bound to the head sha that was judged.
-func mergeBodyArgs(method, subject, body, sha, branch string) []string {
-	return []string{"pr", "merge", "--" + method, "--subject", subject, "--body", body, "--match-head-commit", sha, "--", branch}
+	return hostFor(wt).Merge(host.MergeRequest{Branch: branch, Method: method, Head: sha, Subject: subject, Body: body, UseBody: true})
 }
 
 // undercoverMerge judges the PR before it merges. useBody reports that the
