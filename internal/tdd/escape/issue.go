@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
@@ -201,8 +202,12 @@ func resetLabelCache() { labelEnsured.Clear() }
 
 // issueHost is the code host the issue is opened against: GitHub through the
 // gh in dir. A seam so a test hands the writer a host of its own.
+// issueCeiling bounds one gh call of the issue writer. A human watches these run,
+// so the bound is only a ceiling for a call that never answers.
+const issueCeiling = 10 * time.Minute
+
 var issueHost = func(dir string) host.Issues {
-	return github.New(github.Options{Dir: dir})
+	return github.New(github.Options{Dir: dir, Timeout: issueCeiling})
 }
 
 // ensureLabel creates the label the issue is about to ask for. A fresh
