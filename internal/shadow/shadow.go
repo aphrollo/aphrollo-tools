@@ -386,9 +386,14 @@ func Flush() {
 				continue
 			}
 			lane := core.LaneOf(q.src.Root)
-			if r, ok := JudgeRun(f, lane); ok {
+			if r, ok := JudgeRun(f, lane); ok && r.worth() {
 				appendEvent(r.event(q.src, lane))
 			}
 		}
 	})
 }
+
+// worth reports whether a run's record says anything the log does not already:
+// a run both sides read alike, with no guide for it, is the plain case and is not
+// written; the fold derives those agreements from the run results themselves.
+func (r Record) worth() bool { return r.Relation != Agree || r.Guide != "" }

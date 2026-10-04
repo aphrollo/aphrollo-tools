@@ -100,20 +100,38 @@ func harvestRun(t *testing.T, root, session, log string, exit int, tree string) 
 	return line
 }
 
-// A harvested run is shadowed: beside the line aphrollo prints, one shadow event
-// holds the kernel's reading of the same run, filed under the tree the run judged.
-// It is queued while the hook builds its answer and written only by the flush
-// after the answer is out.
-// ratchet: test_removed TestHarvest_ARunVerdictIsShadowedBesideTheGateLine: renamed; it now also pins that the record waits for the flush
-func TestHarvest_ARunVerdictIsShadowedAfterTheAnswer(t *testing.T) {
+// A run both sides read alike writes no shadow event: the fold derives those
+// agreements from the run results.
+func TestHarvest_AnAgreeingRunWritesNoShadowEvent(t *testing.T) {
 	shadow.Flush() // another test's queued run is not this one's
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := mkProject(t, "go.mod")
 
-	line := harvestRun(t, root, "s-shadow", "--- FAIL: TestWidget (0.00s)\n    widget_test.go:9: want 1\nFAIL\n", 1, "tree-red")
+	line := harvestRun(t, root, "s-agree", "--- FAIL: TestWidget (0.00s)\n    widget_test.go:9: want 1\nFAIL\n", 1, "tree-red")
 	if !strings.Contains(line, "red") {
 		t.Fatalf("harvest = %q, want the red line", line)
+	}
+	shadow.Flush()
+	if got := eventsOfKind(root, "shadow"); len(got) != 0 {
+		t.Errorf("an agreeing red wrote %d shadow events, want none: %+v", len(got), got)
+	}
+}
+
+// phaseVerdict reads every failing run as a red and cannot say bogus. A run the
+// gate calls red-bogus must not be filed as a mismatch of that reading: it is
+// not comparable, and says both classes. The record is queued while the hook
+// builds its answer and written only by the flush after the answer is out, and
+// carries no command and the tree the run judged.
+// ratchet: test_removed TestHarvest_ARunVerdictIsShadowedAfterTheAnswer: its ordering check moved here, since an agreeing run now writes no event
+func TestHarvest_ABogusRedIsNotComparableNeverAMismatch(t *testing.T) {
+	shadow.Flush()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := mkProject(t, "go.mod")
+
+	if line := harvestRun(t, root, "s-bogus", "ImportError: cannot import name widget\nFAIL\n", 1, "tree-bogus"); !strings.Contains(line, "bogus") {
+		t.Fatalf("harvest = %q, want the gate's red-bogus line", line)
 	}
 	if n := len(eventsOfKind(root, "shadow")); n != 0 {
 		t.Fatalf("%d shadow events written before the answer was out, want none until the flush", n)
@@ -125,35 +143,11 @@ func TestHarvest_ARunVerdictIsShadowedAfterTheAnswer(t *testing.T) {
 		t.Fatalf("%d shadow events, want 1: %+v", len(got), got)
 	}
 	d := got[0].Detail
-	if d["hook"] != "posttooluse-run" || d["key"] != "tree-red" || d["trellis_verdict"] != "red" || d["relation"] != "agree" || d["aphrollo"] != "red" {
-		t.Errorf("shadow detail = %v, want a posttooluse-run record of tree-red where both read a red", d)
+	if d["relation"] != "not-comparable" || d["aphrollo"] != "red-bogus" || d["aphrollo_verdict"] != "red-bogus" || d["trellis_verdict"] != "red" || d["key"] != "tree-bogus" {
+		t.Errorf("shadow detail = %v, want not-comparable: aphrollo red-bogus where the kernel's input can only say red, under tree-bogus", d)
 	}
 	if got[0].Cmd != "" {
 		t.Errorf("a shadow event carries no command: %+v", got[0])
-	}
-}
-
-// phaseVerdict reads every failing run as a red and cannot say bogus. A run the
-// gate calls red-bogus must not be filed as a mismatch of that reading: it is
-// not comparable, and says both classes.
-func TestHarvest_ABogusRedIsNotComparableNeverAMismatch(t *testing.T) {
-	shadow.Flush()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("TRELLIS_DATA", t.TempDir())
-	root := mkProject(t, "go.mod")
-
-	if line := harvestRun(t, root, "s-bogus", "ImportError: cannot import name widget\nFAIL\n", 1, "tree-bogus"); !strings.Contains(line, "bogus") {
-		t.Fatalf("harvest = %q, want the gate's red-bogus line", line)
-	}
-	shadow.Flush()
-
-	got := eventsOfKind(root, "shadow")
-	if len(got) != 1 {
-		t.Fatalf("%d shadow events, want 1: %+v", len(got), got)
-	}
-	d := got[0].Detail
-	if d["relation"] != "not-comparable" || d["aphrollo"] != "red-bogus" || d["aphrollo_verdict"] != "red-bogus" || d["trellis_verdict"] != "red" {
-		t.Errorf("shadow detail = %v, want not-comparable: aphrollo red-bogus where the kernel's input can only say red", d)
 	}
 }
 

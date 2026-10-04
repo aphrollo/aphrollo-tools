@@ -283,6 +283,9 @@ func TestShadow_TextPrintsTheWindowsAndEveryCount(t *testing.T) {
 	}
 	want := strings.Join([]string{
 		"shadow fires          3 (whole log)",
+		"  note                " + shadowNotes[0],
+		"  note                " + shadowNotes[1],
+		"  note                " + shadowNotes[2],
 		"  wrong block         an override of the same rule within 10 min of the fire on its lane",
 		"  catch / pass        a later commit gate refusal, red CI or escape / the lane's merge, within " + strconv.Itoa(ShadowHorizonDays) + " days",
 		"deny-law-edit          2 fires  agree 1  would-be block 1  softer 0 (0 held out)  mismatch 0  not comparable 0  held out 1",
@@ -347,5 +350,66 @@ func TestExplain_ADenySaysHowManyShadowFiresItsLiveRuleHas(t *testing.T) {
 	}
 	if got := explain(t, events, 2).Shadow; got != ShadowNoFires {
 		t.Errorf("shadow of a deny no shadowed rule reads = %q, want %q", got, ShadowNoFires)
+	}
+}
+
+// The report says what its numbers are not: observation is one-sided, and the
+// kernel runs on its defaults.
+func TestShadow_SaysItIsOneSidedAndOnDefaultConfig(t *testing.T) {
+	s := computeShadow([]tdd.Event{shadowAt(0, "a", "rerun-suite", "agree")}, Options{})
+	text := s.Text()
+	for _, want := range []string{
+		"observed only where a hook acted",
+		"agreement is overstated",
+		"trellis acting alone is seen only for a waived primary-checkout write",
+		"default config",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text does not say %q:\n%s", want, text)
+		}
+	}
+	if len(s.Notes) == 0 {
+		t.Error("the notes are not in the JSON form")
+	}
+}
+
+// A run both sides read alike writes no event: its agreement is a run.result the
+// recorded runs do not account for.
+func TestShadow_PlainRunAgreementsAreRunResultsMinusTheRecordedRuns(t *testing.T) {
+	run := func(sec float64) tdd.Event { return ev(sec, "a", "run.result", verdictDetail("green")) }
+	recorded := func(sec float64, rule, relation string) tdd.Event {
+		return ev(sec, "a", "shadow", detail("rule", rule, "relation", relation, "hook", "posttooluse-run"))
+	}
+	events := []tdd.Event{
+		run(0), run(1), run(2), run(3), run(4),
+		recorded(5, "run-verdict", "verdict-mismatch"),
+		recorded(6, "not-tested", "agree"),
+		shadowAt(7, "a", "rerun-suite", "trellis-softer"), // a PreToolUse record is not a run
+	}
+	s := computeShadow(events, Options{})
+	got := shadowRule(t, s, "run-verdict")
+	want := ShadowRule{Rule: "run-verdict", Fires: 4, Agree: 3, Mismatch: 1}
+	if got != want {
+		t.Errorf("run-verdict = %+v, want %+v: 5 results minus 2 recorded runs agree, plus the 1 recorded mismatch", got, want)
+	}
+	if r := shadowRule(t, s, "not-tested"); r.Fires != 1 || r.Agree != 1 {
+		t.Errorf("not-tested = %+v, want its recorded agreement", r)
+	}
+	if s.Fires != 6 {
+		t.Errorf("total fires = %d, want 6 (3 derived + 2 recorded runs + 1 rerun)", s.Fires)
+	}
+
+	// More recorded runs than results never makes a negative agreement.
+	few := computeShadow([]tdd.Event{run(0), recorded(1, "run-verdict", "verdict-mismatch"), recorded(2, "not-tested", "agree")}, Options{})
+	if r := shadowRule(t, few, "run-verdict"); r.Agree != 0 || r.Fires != 1 {
+		t.Errorf("run-verdict = %+v, want no derived agreement and its one mismatch", r)
+	}
+
+	// Results outside the window are not counted.
+	const day = 24 * 3600
+	old := []tdd.Event{run(0), run(1), run(39 * day), recorded(39*day+1, "run-verdict", "verdict-mismatch")}
+	win := computeShadow(old, Options{Window: 7 * day * time.Second})
+	if r := shadowRule(t, win, "run-verdict"); r.Agree != 0 || r.Fires != 1 {
+		t.Errorf("windowed run-verdict = %+v, want the old results left out", r)
 	}
 }

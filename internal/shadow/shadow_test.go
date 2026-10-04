@@ -353,3 +353,26 @@ func TestTakeWaited_ReportsTheTimeSpentWaitingOnRecordsOnce(t *testing.T) {
 		t.Errorf("a prompt writer was waited on for %v", w)
 	}
 }
+
+// Only a run that says something is written: a plain agreeing run is derived by
+// the fold from the run results, so it costs no event.
+func TestFlush_WritesOnlyRunsThatDisagreeOrCarryAGuide(t *testing.T) {
+	got := capture(t)
+	for _, f := range []RunFact{
+		{Word: "green", Verdict: kernel.VerdictGreen},                              // agree, no guide: not written
+		{Word: "red-missing-impl", Verdict: kernel.VerdictRed},                     // agree, no guide: not written
+		{Word: "writing-test", Verdict: kernel.VerdictNotTested, Cause: "skipped"}, // mismatch: written
+		{Word: "red-bogus", Verdict: kernel.VerdictRed},                            // not comparable: written
+		{Word: "timeout", Verdict: kernel.VerdictNotTested, Cause: "timeout"},      // agree with a guide: written
+	} {
+		QueueRun(Source{Root: t.TempDir(), Key: f.Word}, func() (RunFact, bool) { return f, true })
+	}
+	Flush()
+	var keys []string
+	for _, e := range *got {
+		keys = append(keys, e.Detail["key"])
+	}
+	if !reflect.DeepEqual(keys, []string{"writing-test", "red-bogus", "timeout"}) {
+		t.Errorf("recorded runs %v, want only writing-test, red-bogus and timeout", keys)
+	}
+}

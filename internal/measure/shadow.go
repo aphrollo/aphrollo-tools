@@ -59,21 +59,40 @@ func (r ShadowRule) Rate() string {
 type Shadow struct {
 	Window string       `json:"window"`
 	Fires  int          `json:"fires"`
+	Notes  []string     `json:"notes"`
 	Rules  []ShadowRule `json:"rules"`
+}
+
+// shadowNotes say what the numbers are not: they are read from facts the hooks
+// recorded, and the kernel is not running as it will once it decides.
+var shadowNotes = []string{
+	"observed only where a hook acted: no fact exists where aphrollo did nothing, so agreement is overstated, and trellis acting alone is seen only for a waived primary-checkout write",
+	"the kernel ran on its default config: aphrollo declares no rule pins or isolation setting to read, so the levels are the kernel's own",
+	"run-verdict agreements are derived, approximately: run.result events minus the runs recorded here",
 }
 
 // ComputeShadow folds the shadow events of the window. What follows a fire is
 // read from the whole log, not only the window.
 func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 	s := newScope(events, now, o)
-	out := Shadow{Window: "whole log"}
+	out := Shadow{Window: "whole log", Notes: shadowNotes}
 	if o.Window > 0 {
 		out.Window = "last " + windowText(o.Window)
 	}
 	rules := map[string]*ShadowRule{}
+	var runResults, runRecorded int
 	for i, e := range s.evs {
-		if e.Kind != "shadow" || !s.in(e.at) {
+		if !s.in(e.at) {
 			continue
+		}
+		if e.Kind == "run.result" {
+			runResults++
+		}
+		if e.Kind != "shadow" {
+			continue
+		}
+		if e.Detail["hook"] == "posttooluse-run" {
+			runRecorded++
 		}
 		rule := e.Detail["rule"]
 		if rule == "" {
@@ -115,6 +134,18 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 		case "not-comparable":
 			r.NotComparable++
 		}
+	}
+	// A run both sides read alike writes no event: those agreements are the run
+	// results the recorded ones do not account for.
+	if plain := runResults - runRecorded; plain > 0 {
+		r := rules["run-verdict"]
+		if r == nil {
+			r = &ShadowRule{Rule: "run-verdict"}
+			rules["run-verdict"] = r
+		}
+		r.Fires += plain
+		r.Agree += plain
+		out.Fires += plain
 	}
 	for _, r := range rules {
 		out.Rules = append(out.Rules, *r)
@@ -220,6 +251,9 @@ func (s Shadow) Text() string {
 	p := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
 	const cont = "                       " // under a row's first count
 	p("%-22s%d (%s)", "shadow fires", s.Fires, s.Window)
+	for _, n := range s.Notes {
+		p("%-22s%s", "  note", n)
+	}
 	p("%-22s%s", "  wrong block", fmt.Sprintf("an override of the same rule within %.0f min of the fire on its lane", WrongBlockWindow.Minutes()))
 	p("%-22s%s", "  catch / pass", fmt.Sprintf("a later commit gate refusal, red CI or escape / the lane's merge, within %d days", ShadowHorizonDays))
 	for _, r := range s.Rules {
