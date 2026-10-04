@@ -43,9 +43,9 @@ func dedupeSorted(p0 []string) []string { return core.DedupeSorted(p0) }
 
 func maskTokens(p0 string, p1 bool, p2 bool, p3 bool) string { return core.MaskTokens(p0, p1, p2, p3) }
 
-func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
-
 func quotedWords(p0 string) []string { return core.QuotedWords(p0) }
+
+func readGateEntries(p0 string, p1 time.Time) []gateEntry { return core.ReadGateEntries(p0, p1) }
 
 func removeGateWorktree(p0 string, p1 string) { core.RemoveGateWorktree(p0, p1) }
 

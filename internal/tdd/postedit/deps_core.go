@@ -92,9 +92,9 @@ func mask(p0 string) string { return core.Mask(p0) }
 
 func normalizeProjectPath(p0 string) string { return core.NormalizeProjectPath(p0) }
 
-func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
-
 func projectKey(p0 string) string { return core.ProjectKey(p0) }
+
+func readGateEntries(p0 string, p1 time.Time) []gateEntry { return core.ReadGateEntries(p0, p1) }
 
 func readStateJSON(p0 string, p1 any) (bool, bool) { return core.ReadStateJSON(p0, p1) }
 

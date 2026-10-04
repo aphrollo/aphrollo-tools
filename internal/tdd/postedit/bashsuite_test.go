@@ -1,7 +1,6 @@
 package postedit
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,25 +10,15 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
-// seedGateLogEntry writes one gate.log line by hand, at a chosen age.
-// appendGateLog can only stamp "now", and a test about what a refusal SAYS
+// seedGateLogEntry records one gate stage line by hand, at a chosen age.
+// AppendGateLog can only stamp "now", and a test about what a refusal SAYS
 // about a verdict's age needs an age it did not have to wait for.
 func seedGateLogEntry(t *testing.T, cfg, stage, root, verdict string, age time.Duration) {
 	t.Helper()
-	dir := filepath.Join(cfg, "gate-state")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	line := fmt.Sprintf("%s %s %s go test ./... %s 1.0s\n",
-		time.Now().Add(-age).UTC().Format(time.RFC3339), stage, root, verdict)
-	f, err := os.OpenFile(filepath.Join(dir, "gate.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer f.Close()
-	if _, err := f.WriteString(line); err != nil {
-		t.Fatal(err)
-	}
+	AppendEvent(Event{
+		Kind: "gate", Root: root, Stage: stage, Cmd: "go test ./...", Verdict: verdict, Secs: 1,
+		At: time.Now().Add(-age).UTC().Format("2006-01-02T15:04:05.000Z07:00"),
+	})
 }
 
 func bashSuiteRoot(t *testing.T) string { t.Helper(); return tddtest.BashSuiteRoot(t) }

@@ -43,10 +43,6 @@ func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration)
 	core.AppendGateLog(p0, p1, p2, p3, p4)
 }
 
-func GateLogNewerSchema() (int, bool) { return core.GateLogNewerSchema() }
-
-func GateLogPath() string { return core.GateLogPath() }
-
 func LogToken(p0 string) string { return core.LogToken(p0) }
 
 func MergeRejectedMarkerPath(p0 string) string { return core.MergeRejectedMarkerPath(p0) }
@@ -63,11 +59,13 @@ func WriteMergeRejectedMarker(p0 string, p1 string) { core.WriteMergeRejectedMar
 
 func formatElapsedSecs(p0 time.Duration) string { return core.FormatElapsedSecs(p0) }
 
+func gateLinesSince(p0 time.Time) string { return core.GateLinesSince(p0) }
+
 func loadSession(p0 string) (*sessionState, string) { return core.LoadSession(p0) }
 
-func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
-
 func plural(p0 int) string { return core.Plural(p0) }
+
+func readGateEntries(p0 string, p1 time.Time) []gateEntry { return core.ReadGateEntries(p0, p1) }
 
 func repoStateKey(p0 string) string { return core.RepoStateKey(p0) }
 

@@ -4,6 +4,7 @@ package escape
 
 import (
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
+	time "time"
 )
 
 const Source = core.Source
@@ -20,8 +21,6 @@ func AppendEvent(p0 Event) { core.AppendEvent(p0) }
 
 func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }
 
-func GateLogPath() string { return core.GateLogPath() }
-
 func StateDir() string { return core.StateDir() }
 
 func aphrolloTomlString(p0 string, p1 string) (string, bool) { return core.AphrolloTomlString(p0, p1) }
@@ -31,6 +30,8 @@ func dedupeSorted(p0 []string) []string { return core.DedupeSorted(p0) }
 func firstLine(p0 string) string { return core.FirstLine(p0) }
 
 func fitRunes(p0 string, p1 int) string { return core.FitRunes(p0, p1) }
+
+func gateLinesSince(p0 time.Time) string { return core.GateLinesSince(p0) }
 
 func normalizeRepoSpelling(p0 string) string { return core.NormalizeRepoSpelling(p0) }
 

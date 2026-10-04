@@ -156,13 +156,34 @@ func readEventsSince(root string, since time.Time) []Event {
 	if dir == "" {
 		return out
 	}
+	return append(out, readEventDirSince(dir, since)...)
+}
+
+// readEventDirSince reads the month files of one repo's state directory from
+// the month of since on, oldest first.
+func readEventDirSince(dir string, since time.Time) []Event {
+	var out []Event
 	names, _ := filepath.Glob(filepath.Join(dir, "events-*.jsonl"))
 	sort.Strings(names)
 	for _, name := range names {
-		if !since.IsZero() && eventFileMonth(name).Before(since) {
+		if !since.IsZero() && !eventFileMonth(name).AddDate(0, 1, 0).After(since) {
 			continue
 		}
 		out = append(out, readEventFile(name, eventFileMonth(name))...)
+	}
+	return out
+}
+
+// readEventFileIfRecent reads the older single-file log when it was last
+// written at or after since, keeping the vocabulary mapping readEventsSince does.
+func readEventFileIfRecent(path string, since time.Time) []Event {
+	fi, err := os.Stat(path)
+	if err != nil || fi.ModTime().Before(since) {
+		return nil
+	}
+	var out []Event
+	for _, e := range readEventFile(path, time.Time{}) {
+		out = append(out, legacyEvent(e))
 	}
 	return out
 }

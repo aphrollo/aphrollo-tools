@@ -15,3 +15,5 @@ type sessionState = core.SessionState
 func GateLogPath() string { return core.GateLogPath() }
 
 func loadSession(p0 string) (*sessionState, string) { return core.LoadSession(p0) }
+
+func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }

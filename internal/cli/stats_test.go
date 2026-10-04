@@ -2,8 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -16,19 +14,16 @@ import (
 // narrows the window. Without it, the only measure of pipeline health was
 // scrolling thousands of gate.log lines.
 func TestTDDStats_ReadsTheGateLog(t *testing.T) {
-	cfg := gateConfigDir(t)
-	dir := filepath.Join(cfg, "gate-state")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	gateConfigDir(t)
 	now := time.Now().UTC()
-	line := func(at time.Time, verdict string) string {
-		return at.Format(time.RFC3339) + " precommit D:/repo/crates/server cargo test -p server " + verdict + " 5s\n"
+	stage := func(at time.Time, verdict string) {
+		tdd.AppendEvent(tdd.Event{
+			Kind: "gate", Stage: "precommit", Root: "D:/repo/crates/server", Cmd: "cargo test -p server",
+			Verdict: verdict, Secs: 5, At: at.Format("2006-01-02T15:04:05.000Z07:00"),
+		})
 	}
-	log := line(now.Add(-time.Hour), "green") + line(now.Add(-200*time.Hour), "timeout-rejected")
-	if err := os.WriteFile(filepath.Join(dir, "gate.log"), []byte(log), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	stage(now.Add(-time.Hour), "green")
+	stage(now.Add(-200*time.Hour), "timeout-rejected")
 
 	var out, errBuf bytes.Buffer
 	if code := runGate([]string{"stats", "--since", "1d"}, strings.NewReader(""), &out, &errBuf); code != 0 {
@@ -49,5 +44,4 @@ func TestTDDStats_ReadsTheGateLog(t *testing.T) {
 	if !strings.Contains(out.String(), "2 entries") {
 		t.Fatalf("with no window the whole log counts:\n%s", out.String())
 	}
-	_ = tdd.GateLogPath()
 }

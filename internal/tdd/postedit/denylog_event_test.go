@@ -60,10 +60,10 @@ func TestLogEditDecision_ADenyEventNamesRuleCauseAndOfferedOverride(t *testing.T
 		policy, override string
 		want             map[string]string
 	}{
-		{"test-sleep", "real-time:", map[string]string{"rule": "test-sleep", "cause": "smell", "override": "real-time:"}},
-		{"test-skip", "", map[string]string{"rule": "test-skip", "cause": "smell", "override": "none"}},
-		{"ratchet:no-todo", "law-escape-comment", map[string]string{"rule": "ratchet:no-todo", "cause": "law", "override": "law-escape-comment"}},
-		{"primary-checkout", "", map[string]string{"rule": "primary-checkout", "cause": "wall", "override": "none"}},
+		{"test-sleep", "real-time:", map[string]string{"rule": "test-sleep", "cause": "smell", "file": "a_test.go", "override": "real-time:"}},
+		{"test-skip", "", map[string]string{"rule": "test-skip", "cause": "smell", "file": "a_test.go", "override": "none"}},
+		{"ratchet:no-todo", "law-escape-comment", map[string]string{"rule": "ratchet:no-todo", "cause": "law", "file": "a_test.go", "override": "law-escape-comment"}},
+		{"primary-checkout", "", map[string]string{"rule": "primary-checkout", "cause": "wall", "file": "a_test.go", "override": "none"}},
 	}
 
 	for _, c := range cases {

@@ -4,10 +4,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
+	"strings"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
 
 // runGateStats is `aphrollo tdd stats`: one table of gate.log, so pipeline
@@ -29,36 +30,18 @@ func runGateStats(args []string, stdout, stderr io.Writer) int {
 		cutoff = time.Now().UTC().Add(-age)
 	}
 
-	path := tdd.GateLogPath()
-	if path == "" {
-		fmt.Fprintln(stderr, "aphrollo tdd stats: no state dir, so no gate log")
+	if core.StateRoot() == "" {
+		fmt.Fprintln(stderr, "aphrollo tdd stats: no state dir, so no event log")
 		return 1
 	}
-	// A log written by a newer binary may carry line shapes this one parses
-	// wrong; a wrong tally is worse than no tally, so it says so and stops.
-	if schema, newer := tdd.GateLogNewerSchema(); newer {
-		fmt.Fprintf(stderr, "aphrollo tdd stats: gate.log is at schema %d, this binary reads %d — not counted\n",
-			schema, tdd.StateSchema)
-		return 1
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo tdd stats: %v\n", err)
-		return 1
-	}
-	defer f.Close()
-
-	fmt.Fprint(stdout, tdd.RenderGateStats(tdd.GateStats(f, cutoff)))
+	// The stage lines come from the repos' event logs, which keep 16 weeks: a
+	// report over "the whole log" covers what is retained, and says so.
+	fmt.Fprint(stdout, tdd.RenderGateStats(tdd.GateStats(strings.NewReader(tdd.GateLines(cutoff)), cutoff)))
 
 	// The demotion trend is a THREE-WEEK question, so it re-reads the log
 	// rather than riding on --since: a report narrowed to a day would
 	// otherwise silently answer it with one day of data.
-	trend, err := os.Open(path)
-	if err != nil {
-		return 0
-	}
-	defer trend.Close()
-	fmt.Fprint(stdout, tdd.DemoteCandidateLines(tdd.DemoteCandidates(trend, time.Now().UTC())))
+	fmt.Fprint(stdout, tdd.DemoteCandidateLines(tdd.DemoteCandidates(strings.NewReader(tdd.GateLines(time.Time{})), time.Now().UTC())))
 	// Naming the candidates is as far as a REPORT goes. Opening the
 	// false-positive issues for them is a write to somebody's tracker, and it
 	// belongs to the verb that already talks to GitHub —

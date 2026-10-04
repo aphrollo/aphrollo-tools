@@ -1,11 +1,8 @@
 package lock
 
 import (
-	"bufio"
 	"fmt"
 	"math"
-	"os"
-	"path/filepath"
 	"sort"
 	"time"
 )
@@ -27,7 +24,7 @@ import (
 // The load reading keeps its job — deciding whether to START work, which is
 // what the build slot is for — and loses the one it was never evidence
 // for: how long the work TAKES. That question already has evidence on disk.
-// gate.log records every run's stage, command and duration, so the budget is
+// the event log records every run's stage, command and duration, so the budget is
 // floored at what this same stage running this same command is recorded to
 // need, and the load may only ever shrink it down to that floor.
 //
@@ -97,14 +94,14 @@ func cappedFloor(floor, stageBudget time.Duration) time.Duration {
 // budget cannot deliver.
 func (f suiteFloor) RefusalNote(stageBudget time.Duration) string {
 	if f.Budget <= 0 {
-		return fmt.Sprintf("floor: none — gate.log holds no completed run of this command at this stage, so the %.0fs stage budget stood as configured. The first run that finishes records one.",
+		return fmt.Sprintf("floor: none — the event log holds no completed run of this command at this stage, so the %.0fs stage budget stood as configured. The first run that finishes records one.",
 			stageBudget.Seconds())
 	}
 	capped := ""
 	if f.Budget > stageBudget {
 		capped = fmt.Sprintf(", capped at the %.0fs stage budget", stageBudget.Seconds())
 	}
-	return fmt.Sprintf("floor: %.0fs — this suite's own record in gate.log (p90 %.1fs over %d completed run%s, ×%.2g margin)%s. "+
+	return fmt.Sprintf("floor: %.0fs — this suite's own record in the event log (p90 %.1fs over %d completed run%s, ×%.2g margin)%s. "+
 		"The run above already had at least that long, so an immediate retry gets the same budget and not a bigger one: free the box, or make the suite smaller.",
 		cappedFloor(f.Budget, stageBudget).Seconds(), f.StatSecs, f.Runs, plural(f.Runs), suiteFloorMargin, capped)
 }
@@ -125,7 +122,7 @@ func recordedSuiteFloor(stage, cmd string) suiteFloor {
 }
 
 // recordedSuiteSecs is every completed run of this stage and command in
-// gate.log within window, in log order (which is append order, so the tail
+// the event logs within window, in log order (which is append order, so the tail
 // is the most recent), bounded to the last suiteFloorSamples of them. A line
 // this reader cannot parse is skipped rather than guessed at, exactly as
 // GateStats treats one: the log is append-only text written by several
@@ -138,22 +135,10 @@ func recordedSuiteSecs(stage, cmd string, window time.Duration) []float64 {
 // the same completed-run, same-window, last-suiteFloorSamples rule, for a
 // caller that identifies its work by more than one stage and command.
 func recordedSecsWhere(picks func(gateEntry) bool, window time.Duration) []float64 {
-	dir := StateDir()
-	if dir == "" {
-		return nil
-	}
-	f, err := os.Open(filepath.Join(dir, "gate.log"))
-	if err != nil {
-		return nil
-	}
-	defer f.Close()
 	now := time.Now()
 	var secs []float64
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		e, ok := parseGateLine(sc.Text())
-		if !ok || !picks(e) {
+	for _, e := range readAllGateEntries(now.Add(-window)) {
+		if !picks(e) {
 			continue
 		}
 		// A run that never finished, or never ran, is not evidence about

@@ -18,4 +18,6 @@ func GateLogPath() string { return core.GateLogPath() }
 
 func ReadEvents(p0 string) []Event { return core.ReadEvents(p0) }
 
+func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
+
 func readFileShared(p0 string) ([]byte, error) { return core.ReadFileShared(p0) }

@@ -27,12 +27,12 @@ func ensureSharedSubdir(p0 string) error { return core.EnsureSharedSubdir(p0) }
 
 func gateLogStageToken(p0 string) string { return core.GateLogStageToken(p0) }
 
-func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
-
 func pidRunningFn(p0 int) bool { return core.PidRunningFn(p0) }
 
 func plural(p0 int) string { return core.Plural(p0) }
 
 func primaryCheckoutRoot(p0 string) string { return core.PrimaryCheckoutRoot(p0) }
+
+func readAllGateEntries(p0 time.Time) []gateEntry { return core.ReadAllGateEntries(p0) }
 
 func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }

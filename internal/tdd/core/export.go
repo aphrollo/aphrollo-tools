@@ -75,6 +75,8 @@ func FormatDays(p0 time.Duration) string { return formatDays(p0) }
 
 func FormatElapsedSecs(p0 time.Duration) string { return formatElapsedSecs(p0) }
 
+func GateLinesSince(p0 time.Time) string { return gateLinesSince(p0) }
+
 func GateLogStageToken(p0 string) string { return gateLogStageToken(p0) }
 
 func GateWorktreeDir(p0 string) string { return gateWorktreeDir(p0) }
@@ -117,7 +119,11 @@ func ProjectKey(p0 string) string { return projectKey(p0) }
 
 func QuotedWords(p0 string) []string { return quotedWords(p0) }
 
+func ReadAllGateEntries(p0 time.Time) []gateEntry { return readAllGateEntries(p0) }
+
 func ReadFileShared(p0 string) ([]byte, error) { return readFileShared(p0) }
+
+func ReadGateEntries(p0 string, p1 time.Time) []gateEntry { return readGateEntries(p0, p1) }
 
 func ReadStagedTree(p0 string, p1 string) (string, error) { return readStagedTree(p0, p1) }
 

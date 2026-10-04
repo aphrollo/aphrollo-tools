@@ -1,10 +1,7 @@
 package tdd
 
 import (
-	"bufio"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -122,7 +119,7 @@ func greenRecorded(session, root string) bool {
 	if ps, ok := s.ByProject[root]; ok && isGreenVerdict(ps.Outcome) {
 		return true
 	}
-	// The gate log is the record EVERY stage writes, which is why redStands
+	// The event log is the record EVERY stage writes, which is why redStands
 	// already reads it: a green this session was not present for still proves
 	// the tree. Without this the badge would call a tree unproven that a
 	// commit gate had just measured.
@@ -141,24 +138,20 @@ func isGreenVerdict(verdict string) bool {
 // lastVerdictFor is the last verdict any stage logged for this project, or ""
 // when the log has nothing to say about it.
 func lastVerdictFor(root string) string {
-	dir := StateDir()
-	if dir == "" {
-		return ""
-	}
-	f, err := os.Open(filepath.Join(dir, "gate.log"))
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
 	last := ""
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.Root, root) {
+	for _, e := range recentGateEntries(root) {
+		if sameProject(e.Root, root) {
 			last = e.Verdict
 		}
 	}
 	return last
+}
+
+// recentGateEntries is root's repo's stage lines from the month before this
+// one on: the badge answers about the present, and renders on every prompt, so
+// it reads the last month's event files and not the whole history.
+func recentGateEntries(root string) []gateEntry {
+	return readGateEntries(root, time.Now().AddDate(0, -1, 0))
 }
 
 // redStands reports whether the session's recorded red for THIS project is
@@ -191,27 +184,15 @@ func redStands(session, root string, now time.Time) bool {
 }
 
 // greenLoggedSince reports whether any gate stage logged a green outcome for
-// this project at or after `at`. The gate log is the one record every stage
+// this project at or after `at`. The event log is the one record every stage
 // writes -- post-edit, pre-commit, pre-merge-commit and the post-Bash harvest
 // alike -- so reading it is how the badge sees a green it was not present for.
 // `at` is inclusive: the log stamps whole seconds, and a commit gate that
 // cleared a red within the same second still cleared it.
 // twin: internal/tdd/statusline.go#lastRunQueued
 func greenLoggedSince(root string, at time.Time) bool {
-	dir := StateDir()
-	if dir == "" {
-		return false
-	}
-	f, err := os.Open(filepath.Join(dir, "gate.log"))
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		e, ok := parseGateLine(sc.Text())
-		if !ok || e.At.Before(at) || !sameProject(e.Root, root) {
+	for _, e := range readGateEntries(root, at) {
+		if e.At.Before(at) || !sameProject(e.Root, root) {
 			continue
 		}
 		if strings.HasPrefix(e.Verdict, "green") {
@@ -254,20 +235,9 @@ func deferredBuildRunning(session, root string, now time.Time) bool {
 // QUEUED-SKIPPED: the suite never started, which is the outcome most easily
 // mistaken for a quiet green. A later run of any kind clears it.
 func lastRunQueued(root string) bool {
-	dir := StateDir()
-	if dir == "" {
-		return false
-	}
-	f, err := os.Open(filepath.Join(dir, "gate.log"))
-	if err != nil {
-		return false
-	}
-	defer f.Close()
 	last := ""
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		if e, ok := parseGateLine(sc.Text()); ok && sameProject(e.Root, root) {
+	for _, e := range recentGateEntries(root) {
+		if sameProject(e.Root, root) {
 			last = e.Verdict
 		}
 	}

@@ -42,7 +42,7 @@ func TestSuiteFloor_RefusalNote_NoRecordSaysSo(t *testing.T) {
 func TestSuiteFloor_RefusalNote_NamesTheRecordBehindTheFloor(t *testing.T) {
 	f := suiteFloor{Budget: 300 * time.Second, StatSecs: 200, Runs: 4}
 	note := f.RefusalNote(500 * time.Second)
-	for _, want := range []string{"floor: 300s", "200.0s", "4 completed run", "gate.log"} {
+	for _, want := range []string{"floor: 300s", "200.0s", "4 completed run", "event log"} {
 		if !strings.Contains(note, want) {
 			t.Fatalf("note = %q, want it to contain %q", note, want)
 		}

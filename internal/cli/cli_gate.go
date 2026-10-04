@@ -63,7 +63,7 @@ Subcommands:
                     failure, yellow running, gray off), with a tag inside the
                     brackets when yellow needs naming; wired into settings.json
                     by init
-  stats             Tally gate.log by stage and outcome (--since 7d), and the open
+  stats             Tally the gate stage lines (event logs) by stage and outcome (--since 7d), and the open
                     escape count
   output            Read-only: print the TEXT of the last settled suite run the
                     gate made for this repo root — header (when, which stage,
@@ -327,7 +327,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	}
 	if args[0] == "stats" {
-		// Read-only report over gate.log: pipeline health as a number.
+		// Read-only report over the gate stage lines in the event logs: pipeline health as a number.
 		return runGateStats(args[1:], stdout, stderr)
 	}
 	if args[0] == "output" {

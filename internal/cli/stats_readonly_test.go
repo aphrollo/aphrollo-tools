@@ -115,21 +115,16 @@ func ghCalls(t *testing.T, log string) string {
 // window is its own age rather than a quiet week.
 func risingDenials(t *testing.T, cfg, repo string) {
 	t.Helper()
-	dir := filepath.Join(cfg, "gate-state")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
 	now := time.Now().UTC()
-	var b strings.Builder
 	for week, n := range map[int]int{3: 1, 2: 1, 1: 4, 0: 9} {
 		for range n {
 			at := now.Add(-time.Duration(week)*7*24*time.Hour - time.Hour)
-			fmt.Fprintf(&b, "%s precommit %s cargo test -p server pretooluse-denied:test-sleep 5s\n",
-				at.Format(time.RFC3339), tdd.LogToken(repo))
+			tdd.AppendEvent(tdd.Event{
+				Kind: "deny", Stage: "precommit", Root: repo, Verdict: "pretooluse-denied:test-sleep", Secs: 5,
+				Detail: map[string]string{"file": tdd.LogToken(repo)},
+				At:     at.Format("2006-01-02T15:04:05.000Z07:00"),
+			})
 		}
-	}
-	if err := os.WriteFile(filepath.Join(dir, "gate.log"), []byte(b.String()), 0o600); err != nil {
-		t.Fatal(err)
 	}
 }
 

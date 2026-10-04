@@ -1,8 +1,10 @@
 package core
 
 import (
+	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -30,6 +32,10 @@ type gateEntry struct {
 	Cmd     string
 	Verdict string
 	Secs    float64
+	// File is the file or session a deny, an override or a session line is
+	// about. The command of such a line is what someone typed and is not
+	// recorded; this field is the one thing of it the escape reports read.
+	File string
 }
 
 // parseGateLine reads "<ts> <stage> <root> <cmd...> <verdict> <secs>s". The
@@ -77,3 +83,87 @@ func parseGateLine(line string) (gateEntry, bool) {
 // trailing duration field) even if an earlier field — the command — carries
 // quotes of its own (issue #467).
 var quotedVerdict = regexp.MustCompile(`^\S+ \S+ \S+ .* "((?:[^"\\]|\\.)*)" \S+$`)
+
+// gateEntryOf is the entry a gate stage line's event stands for; ok is false
+// for every other event. A stage line is the event AppendGateLogDetail writes:
+// it names a stage. The prepush "push" event names one too but is no stage line.
+// An event written before the root was kept falls back to its repo.
+func gateEntryOf(e Event) (gateEntry, bool) {
+	if e.Stage == "" || e.Kind == "push" {
+		return gateEntry{}, false
+	}
+	at, err := time.Parse(time.RFC3339, e.At)
+	if err != nil {
+		return gateEntry{}, false // absence-ok: an event whose time does not parse is no stage line
+	}
+	root := e.Root
+	if root == "" {
+		root = e.Repo
+	}
+	return gateEntry{At: at, Stage: e.Stage, Root: root, Cmd: e.Cmd, Verdict: e.Verdict, Secs: e.Secs, File: e.Detail["file"]}, true
+}
+
+// entriesOf maps events to entries, keeping those at or after since.
+func entriesOf(events []Event, since time.Time) []gateEntry {
+	var out []gateEntry
+	for _, ev := range events {
+		if e, ok := gateEntryOf(ev); ok && !e.At.Before(since) {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// readGateEntries is the stage lines of the repository root belongs to since
+// since (the zero time: all), oldest first. They come from the repo's event
+// log: that, not gate.log, is where the gate records what every stage did.
+func readGateEntries(root string, since time.Time) []gateEntry {
+	return entriesOf(readEventsSince(root, since), since)
+}
+
+// readAllGateEntries is readGateEntries over every repository the box keeps a
+// log for, oldest first: the older single-file log and each directory under
+// <state root>/state.
+func readAllGateEntries(since time.Time) []gateEntry {
+	var events []Event
+	if dir := StateDir(); dir != "" {
+		events = append(events, readEventFileIfRecent(filepath.Join(dir, "events.jsonl"), since)...)
+	}
+	if root := StateRoot(); root != "" {
+		dirs, _ := filepath.Glob(filepath.Join(root, "state", "*"))
+		for _, d := range dirs {
+			events = append(events, readEventDirSince(d, since)...)
+		}
+	}
+	entries := entriesOf(events, since)
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].At.Before(entries[j].At) })
+	return entries
+}
+
+// formatGateLine renders an entry as the line gate.log kept:
+// "<RFC3339> <stage> <root> <cmd...> <verdict> <secs>s". The text parsers of the
+// escape reports still read that shape, so they are fed lines rendered from
+// events rather than a second log. A line with no command of its own carries its
+// File in that place, where the reports look for it.
+func formatGateLine(e gateEntry) string {
+	cmd := e.Cmd
+	if cmd == "" {
+		cmd = e.File
+	}
+	return fmt.Sprintf("%s %s %s %s %s %.1fs\n",
+		e.At.UTC().Format(time.RFC3339), e.Stage, LogToken(e.Root), cmd, quoteVerdict(e.Verdict), e.Secs)
+}
+
+// gateEntryLines renders entries, oldest first, as gate.log lines.
+func gateEntryLines(entries []gateEntry) string {
+	var b strings.Builder
+	for _, e := range entries {
+		b.WriteString(formatGateLine(e))
+	}
+	return b.String()
+}
+
+// gateLinesSince is every repo's stage lines since since (the zero time: all),
+// rendered as gate.log lines and oldest first, for the text parsers of the
+// escape reports (stats, the demotion trend, the override scan).
+func gateLinesSince(since time.Time) string { return gateEntryLines(readAllGateEntries(since)) }
