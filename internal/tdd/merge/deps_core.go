@@ -22,19 +22,17 @@ func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration)
 	core.AppendGateLog(p0, p1, p2, p3, p4)
 }
 
-func GateLogPath() string { return core.GateLogPath() }
-
 func LogToken(p0 string) string { return core.LogToken(p0) }
 
 func SessionID() string { return core.SessionID() }
 
 func StateDir() string { return core.StateDir() }
 
-func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
-
 func pidRunningFn(p0 int) bool { return core.PidRunningFn(p0) }
 
 func primaryCheckoutRoot(p0 string) string { return core.PrimaryCheckoutRoot(p0) }
+
+func readGateEntries(p0 string, p1 time.Time) []gateEntry { return core.ReadGateEntries(p0, p1) }
 
 func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }
 

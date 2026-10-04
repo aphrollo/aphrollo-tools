@@ -65,7 +65,7 @@ func TestGateMutantsTestmap_IsSilentWhereItHasNothingToDo(t *testing.T) {
 // the key happens to lie in the directory: what makes them inert is that
 // there is no repository, not that nothing declared the key.
 func TestGateMutantsVerbs_OutsideARepositoryIgnoreAStrayDeclaration(t *testing.T) {
-	cfg := gateConfigDir(t)
+	gateConfigDir(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "aphrollo.toml"), []byte("[aphrollo]\nmutants-at-commit = true\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -85,7 +85,7 @@ func TestGateMutantsVerbs_OutsideARepositoryIgnoreAStrayDeclaration(t *testing.T
 	if data, err := os.ReadFile(done); err != nil || strings.TrimSpace(string(data)) != "ok" {
 		t.Errorf("edit result = %q (%v), want ok", data, err)
 	}
-	if log, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log")); err == nil && strings.Contains(string(log), "mutants") {
+	if log, err := gateLogBytes(t); err == nil && strings.Contains(string(log), "mutants") {
 		t.Errorf("a run happened outside a repository:\n%s", log)
 	}
 }

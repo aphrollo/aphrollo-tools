@@ -66,20 +66,16 @@ func isolateRetro(t *testing.T, session string) {
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 }
 
-// logGate appends gate.log lines for root, one per "<RFC3339> <stage> <verdict>".
+// logGate records stage lines for root as events, one per "<RFC3339> <stage> <verdict>".
 func logGate(t *testing.T, root string, entries ...string) {
 	t.Helper()
-	dir := StateDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	var b strings.Builder
 	for _, e := range entries {
 		f := strings.Fields(e)
-		b.WriteString(f[0] + " " + f[1] + " " + LogToken(root) + " go test ./x " + f[2] + " 1.0s\n")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "gate.log"), []byte(b.String()), 0o600); err != nil {
-		t.Fatal(err)
+		at, err := time.Parse(time.RFC3339, f[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		AppendEvent(Event{At: at.UTC().Format("2006-01-02T15:04:05.000Z07:00"), Kind: "gate", Root: root, Stage: f[1], Cmd: "go test ./x", Verdict: f[2], Secs: 1})
 	}
 }
 

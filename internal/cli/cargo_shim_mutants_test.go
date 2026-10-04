@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -158,7 +157,7 @@ func TestQueueBypass_IsLoggedOncePerProcess(t *testing.T) {
 // countGateLogVerdict counts the lines whose verdict field is want.
 func countGateLogVerdict(t *testing.T, cfg, want string) int {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	data, err := gateLogBytes(t)
 	if err != nil {
 		return 0
 	}

@@ -169,7 +169,7 @@ func isDenyLine(stage, verdict string) bool {
 // typed, or from a token the line only needs for display, and may hold a secret,
 // so its command stays off the event. A stage is added here only when none of
 // its call sites passes typed text.
-var cmdStages = map[string]bool{"postedit": true, "precommit": true, premergeDisplayName: true, premergeLogToken: true, "mutants": true, "commitmsg": true}
+var cmdStages = map[string]bool{"postedit": true, "precommit": true, premergeDisplayName: true, premergeLogToken: true, "mutants": true, "commitmsg": true, "ci": true}
 
 // eventCmd is the command an event may carry: the gate's own, never one that
 // was typed. A deny or an override line's command is whatever the user or the

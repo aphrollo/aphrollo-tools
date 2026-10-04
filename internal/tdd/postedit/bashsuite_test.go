@@ -34,6 +34,7 @@ func decideBash(t *testing.T, session, cwd, command string) Decision {
 func TestDecideBashSuite_DeniesUnnarrowedWholeSuiteWithAFreshVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
@@ -52,6 +53,7 @@ func TestDecideBashSuite_DeniesUnnarrowedWholeSuiteWithAFreshVerdict(t *testing.
 func TestDecideBashSuite_AllowsWholeSuiteWhenNoFreshVerdictExists(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 
 	d := decideBash(t, "s1", root, "go test ./...")
@@ -67,6 +69,7 @@ func TestDecideBashSuite_AllowsWholeSuiteWhenNoFreshVerdictExists(t *testing.T) 
 func TestDecideBashSuite_AllowsANarrowedRerunAfterAFreshVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./...", "timeout", 0)
 
@@ -85,6 +88,7 @@ func TestDecideBashSuite_AllowsANarrowedRerunAfterAFreshVerdict(t *testing.T) {
 func TestDecideBashSuite_AllowsACargoPackageNarrowedRerun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "cargo test", "timeout", 0)
 
@@ -99,6 +103,7 @@ func TestDecideBashSuite_AllowsACargoPackageNarrowedRerun(t *testing.T) {
 func TestDecideBashSuite_AllowsACargoNextestPackageNarrowedRerun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "cargo nextest run", "queued-skipped", 0)
 
@@ -113,6 +118,7 @@ func TestDecideBashSuite_AllowsACargoNextestPackageNarrowedRerun(t *testing.T) {
 func TestDecideBashSuite_DeniesUnnarrowedCargoNextestWithAFreshVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("precommit", root, "cargo nextest run", "red", 0)
 
@@ -131,6 +137,7 @@ func TestDecideBashSuite_DeniesUnnarrowedCargoNextestWithAFreshVerdict(t *testin
 func TestDecideBashSuite_DenyReasonNamesTheExistingVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
@@ -150,6 +157,7 @@ func TestDecideBashSuite_DenyReasonNamesTheExistingVerdict(t *testing.T) {
 func TestDecideBashSuite_AllowsAndCountsADeliberateSoak(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 
 	raw := bashPayload(t, "s1", root, "SOAK_SECS=600 go test ./...")
@@ -170,6 +178,7 @@ func TestDecideBashSuite_AllowsAndCountsADeliberateSoak(t *testing.T) {
 func TestDecideBashSuite_CountsANarrowedRerunBesideAFreshVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./...", "timeout", 0)
 
@@ -191,6 +200,7 @@ func TestDecideBashSuite_CountsANarrowedRerunBesideAFreshVerdict(t *testing.T) {
 func TestDecideBashSuite_DoesNotCountAnOrdinaryNarrowedRerun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 
 	raw := bashPayload(t, "s1", root, "go test -run TestWidget ./...")
@@ -199,8 +209,8 @@ func TestDecideBashSuite_DoesNotCountAnOrdinaryNarrowedRerun(t *testing.T) {
 		t.Fatal("a narrowed rerun must still be judged")
 	}
 	LogBashSuiteDecision(raw, d)
-	if _, err := os.Stat(filepath.Join(cfg, "gate-state", "gate.log")); err == nil {
-		t.Fatalf("an ordinary narrowed rerun must not write gate.log:\n%s", gateLogText(t, cfg))
+	if got := tddtest.GateLogContent(t, ""); got != "" {
+		t.Fatalf("an ordinary narrowed rerun must not log a gate line:\n%s", got)
 	}
 }
 
@@ -209,6 +219,7 @@ func TestDecideBashSuite_DoesNotCountAnOrdinaryNarrowedRerun(t *testing.T) {
 func TestDecideBashSuite_JudgesPowerShellLikeBash(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
@@ -238,6 +249,7 @@ func TestDecideBashSuite_IgnoresCommandsThatAreNotTestRunners(t *testing.T) {
 func TestDecideBashSuite_DeniesANarrowedRerunBesideAFreshGreen(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./internal/tdd", "green", 0)
 
@@ -253,6 +265,7 @@ func TestDecideBashSuite_DeniesANarrowedRerunBesideAFreshGreen(t *testing.T) {
 func TestDecideBashSuite_DeniesANarrowedRerunBesideAFreshRed(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./internal/tdd", "red", 0)
 
@@ -269,6 +282,7 @@ func TestDecideBashSuite_DeniesANarrowedRerunBesideAFreshRed(t *testing.T) {
 func TestDecideBashSuite_AllowsANarrowedRerunAfterAnAbandonedDeferredJob(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./internal/tdd", DeferredAbandoned, 0)
 
@@ -285,6 +299,7 @@ func TestDecideBashSuite_AllowsANarrowedRerunAfterAnAbandonedDeferredJob(t *test
 func TestDecideBashSuite_NarrowedDenyReasonNamesTheVerdictAndItsAge(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	seedGateLogEntry(t, cfg, "postedit", root, "green", 2*time.Minute)
 
@@ -312,6 +327,7 @@ func TestDecideBashSuite_NarrowedDenyReasonNamesTheVerdictAndItsAge(t *testing.T
 func TestDecideBashSuite_NarrowedDenyReasonNamesTheHonestRoutesBeforeTheMutationMarker(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
@@ -339,6 +355,7 @@ func TestDecideBashSuite_NarrowedDenyReasonNamesTheHonestRoutesBeforeTheMutation
 func TestDecideBashSuite_AllowsAndCountsNextestIgnoredOnlyRun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
 
@@ -362,6 +379,7 @@ func TestDecideBashSuite_AllowsAndCountsNextestIgnoredOnlyRun(t *testing.T) {
 func TestDecideBashSuite_AllowsAndCountsCargoTestIgnoredOnlyRun(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "cargo test -p widgets", "green", 0)
 
@@ -384,6 +402,7 @@ func TestDecideBashSuite_AllowsAndCountsCargoTestIgnoredOnlyRun(t *testing.T) {
 func TestDecideBashSuite_BlocksNextestRunIgnoredAll(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
 
@@ -398,6 +417,7 @@ func TestDecideBashSuite_BlocksNextestRunIgnoredAll(t *testing.T) {
 func TestDecideBashSuite_BlocksCargoTestIncludeIgnored(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "cargo test -p widgets", "green", 0)
 
@@ -413,6 +433,7 @@ func TestDecideBashSuite_BlocksCargoTestIncludeIgnored(t *testing.T) {
 func TestDecideBashSuite_StillBlocksAnOrdinaryNarrowedRerunBesideAFreshGreen(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "cargo nextest run -p forge_lab", "green", 0)
 
@@ -429,6 +450,7 @@ func TestDecideBashSuite_StillBlocksAnOrdinaryNarrowedRerunBesideAFreshGreen(t *
 func TestDecideBashSuite_NarrowedDenyReasonDoesNotNameADifferentCheckoutEscape(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./...", "green", 0)
 
@@ -454,6 +476,7 @@ func TestDecideBashSuite_NarrowedDenyReasonDoesNotNameADifferentCheckoutEscape(t
 func TestDecideBashSuite_AllowsAndCountsAMarkedMutationProof(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	AppendGateLog("postedit", root, "go test ./internal/tdd", "green", 0)
 
@@ -499,6 +522,7 @@ func TestHasMutationProofMarker_IgnoresTheWordInsideAPath(t *testing.T) {
 // that never was left a session with no test result at all.
 func TestPostEdit_AGoSuiteWhoseGoIsNotOnThePathIsSkippedAndTheRerunStaysAllowed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := mkProject(t, "go.mod")
 	t.Setenv("PATH", t.TempDir())
 
@@ -521,6 +545,7 @@ func TestPostEdit_AGoSuiteWhoseGoIsNotOnThePathIsSkippedAndTheRerunStaysAllowed(
 func TestDecideBashSuite_ReadsAFreshVerdictFromGateLogWhenTheEventsHoldNone(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := bashSuiteRoot(t)
 	if err := os.MkdirAll(StateDir(), 0o700); err != nil {

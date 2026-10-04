@@ -1,10 +1,11 @@
 package failfirst
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // These tests drive the commit gate's inline-Rust path (#714) the way a
@@ -38,6 +39,7 @@ func noSuite(t *testing.T) SuiteRunner {
 // returning its stderr and the gate.log contents.
 func inlineFailFirst(t *testing.T, root string, srcs ...string) (string, string) {
 	t.Helper()
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gitDo(t, root, "add", ".")
 	if len(srcs) == 0 {
 		srcs = []string{"src/widget.rs"}
@@ -49,8 +51,7 @@ func inlineFailFirst(t *testing.T, root string, srcs ...string) (string, string)
 	if res.Blocked {
 		t.Fatalf("the inline-test path never blocks, got: %s", res.Message)
 	}
-	logData, _ := os.ReadFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "gate-state", "gate.log"))
-	return stderr, string(logData)
+	return stderr, tddtest.GateLogContent(t, "")
 }
 
 func requireInconclusive(t *testing.T, stderr string) {

@@ -2,8 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,14 +19,14 @@ func TestRun_TDD_PreToolUseDenialIsRecorded(t *testing.T) {
 	// checkout — which is exactly where the merge gate runs it, so it blocked
 	// every merge touching this package.
 	t.Chdir(t.TempDir())
-	cfg := gateConfigDir(t)
+	gateConfigDir(t)
 	var out, errb bytes.Buffer
 	stdin := strings.NewReader(`{"tool_name":"Write","tool_input":{"file_path":"a_test.go","content":"assert x == x"}}`)
 
 	if code := Run([]string{"tdd", "pretooluse"}, stdin, &out, &errb); code != 2 {
 		t.Fatalf("exit code = %d, want 2 (blocked)", code)
 	}
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	data, err := gateLogBytes(t)
 	if err != nil {
 		t.Fatalf("gate.log not written: %v", err)
 	}
@@ -44,7 +42,7 @@ func TestRun_TDD_PreToolUseDenialIsRecorded(t *testing.T) {
 func TestRun_TDD_PreToolUseAllowsAShellSourceWrite(t *testing.T) {
 	dir := gitInit(t, map[string]string{"aphrollo.toml": "[aphrollo]\n"})
 	t.Chdir(dir)
-	cfg := gateConfigDir(t)
+	gateConfigDir(t)
 	var out, errb bytes.Buffer
 	payload := `{"tool_name":"Bash","session_id":"s-wire","cwd":` + strconv.Quote(dir) +
 		`,"tool_input":{"command":"echo package x > x.go"}}`
@@ -52,7 +50,7 @@ func TestRun_TDD_PreToolUseAllowsAShellSourceWrite(t *testing.T) {
 	if code := Run([]string{"tdd", "pretooluse"}, strings.NewReader(payload), &out, &errb); code != 0 {
 		t.Fatalf("exit code = %d, want 0 (allowed); stdout %q", code, out.String())
 	}
-	data, _ := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	data, _ := gateLogBytes(t)
 	if strings.Contains(string(data), "pretooluse-denied") {
 		t.Fatalf("a shell source write must record no denial, gate.log:\n%s", data)
 	}

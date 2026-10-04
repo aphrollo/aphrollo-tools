@@ -39,7 +39,7 @@ func mutantsBeforePRRepo(t *testing.T) string {
 }
 
 func TestRun_PreToolUse_DeniesADirectPRCreate(t *testing.T) {
-	cfg := gateConfigDir(t)
+	gateConfigDir(t)
 	dir := mutantsBeforePRRepo(t)
 
 	var out, errb bytes.Buffer
@@ -50,7 +50,7 @@ func TestRun_PreToolUse_DeniesADirectPRCreate(t *testing.T) {
 	if reason := denyReason(t, out.Bytes()); !strings.Contains(reason, "aphrollo workspace pr") {
 		t.Fatalf("the deny must name `aphrollo workspace pr`, got: %s", reason)
 	}
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	data, err := gateLogBytes(t)
 	if err != nil {
 		t.Fatalf("gate.log not written: %v", err)
 	}

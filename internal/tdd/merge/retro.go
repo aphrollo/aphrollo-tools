@@ -1,10 +1,8 @@
 package merge
 
 import (
-	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -79,16 +77,8 @@ func readRetroLane(worktree, branch string) retroLane {
 		}
 	}
 	until := retroNow()
-	f, err := os.Open(GateLogPath())
-	if err != nil {
-		return lane
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		e, ok := parseGateLine(sc.Text())
-		if !ok || !sameProject(e.Root, worktree) || e.At.Before(since) || e.At.After(until) {
+	for _, e := range readGateEntries(worktree, since) {
+		if !sameProject(e.Root, worktree) || e.At.Before(since) || e.At.After(until) {
 			continue
 		}
 		lane.gate = append(lane.gate, e)

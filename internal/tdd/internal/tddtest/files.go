@@ -2,9 +2,15 @@ package tddtest
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -115,29 +121,116 @@ func CaptureStderr(t *testing.T, fn func()) string {
 	return buf.String()
 }
 
-// GateLogText returns everything gate.log holds under a per-test state dir.
+// GateLogText returns the gate's stage lines as the retired gate.log kept them
+// ("<RFC3339> <stage> <root> <cmd> <verdict> <secs>s"), rendered from the
+// event logs under the isolated state root. The tests that read a gate line by
+// its shape keep doing so; the file itself is no longer written. It fails the
+// test when no stage line was recorded at all.
 func GateLogText(t *testing.T, cfg string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
-	if err != nil {
-		t.Fatalf("gate.log not written: %v", err)
+	text := GateLogContent(t, cfg)
+	if text == "" {
+		t.Fatalf("no gate stage line was recorded under %s", stateRoot())
 	}
-	return string(data)
+	return text
 }
 
-// GateLogContent reads the whole gate.log at path, "" when nothing was ever
-// logged (no state dir, so path is "", or nothing appended).
-func GateLogContent(t *testing.T, path string) string {
+// GateLogContent is GateLogText without the failure: "" when no stage line was
+// recorded. The argument is accepted for the callers that pass the state dir
+// they believe the log is in; the event logs live under the state root.
+func GateLogContent(t *testing.T, _ string) string {
 	t.Helper()
-	if path == "" {
+	type rec struct {
+		V       int               `json:"v"`
+		At      string            `json:"at"`
+		Kind    string            `json:"kind"`
+		Repo    string            `json:"repo"`
+		Stage   string            `json:"stage"`
+		Verdict string            `json:"verdict"`
+		Secs    float64           `json:"secs"`
+		Cmd     string            `json:"cmd"`
+		Root    string            `json:"root"`
+		Detail  map[string]string `json:"detail"`
+	}
+	root := stateRoot()
+	if root == "" {
 		return ""
 	}
-	data, err := os.ReadFile(path)
+	files, _ := filepath.Glob(filepath.Join(root, "state", "*", "events-*.jsonl"))
+	var recs []rec
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		for _, line := range bytes.Split(data, []byte("\n")) {
+			var r rec
+			if len(bytes.TrimSpace(line)) == 0 || json.Unmarshal(line, &r) != nil || r.Stage == "" || r.Kind == "push" {
+				continue
+			}
+			recs = append(recs, r)
+		}
+	}
+	sort.SliceStable(recs, func(i, j int) bool { return recs[i].At < recs[j].At })
+	var b strings.Builder
+	for _, r := range recs {
+		at, err := time.Parse(time.RFC3339, r.At)
+		if err != nil {
+			continue
+		}
+		who := r.Root
+		if who == "" {
+			who = r.Repo
+		}
+		cmd := r.Cmd
+		if cmd == "" {
+			cmd = r.Detail["file"]
+		}
+		verdict := r.Verdict
+		if strings.ContainsAny(verdict, " \t\n") {
+			verdict = strconv.Quote(verdict)
+		}
+		fmt.Fprintf(&b, "%s %s %s %s %s %.1fs\n", at.UTC().Format(time.RFC3339), r.Stage, logToken(who), cmd, verdict, r.Secs)
+	}
+	return b.String()
+}
+
+// logToken is core.LogToken: a field of a gate line has no whitespace of its own.
+func logToken(s string) string {
+	if s = strings.Join(strings.Fields(s), "_"); s == "" {
+		return "-"
+	}
+	return s
+}
+
+// stateRoot is core.StateRoot: where the event logs live. The tddtest package
+// sits below core, so the rule is stated here too, and core's tests hold the
+// two to the same answer.
+func stateRoot() string {
+	if dir := os.Getenv("TRELLIS_DATA"); dir != "" {
+		if abs, err := filepath.Abs(dir); err == nil {
+			return abs
+		}
+		return dir
+	}
+	// goos-ok: mirrors core.StateRoot, which TestStateRoot_TddtestStatesTheSameRule holds this to
+	if runtime.GOOS == "windows" {
+		if dir := os.Getenv("LOCALAPPDATA"); dir != "" {
+			return filepath.Join(dir, "trellis")
+		}
+	}
+	if dir := os.Getenv("XDG_STATE_HOME"); dir != "" {
+		return filepath.Join(dir, "trellis")
+	}
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return string(data)
+	return filepath.Join(home, ".local", "state", "trellis")
 }
+
+// StateRoot is stateRoot for the test that holds it to core's.
+func StateRoot() string { return stateRoot() }
 
 // PutFakeNextest prepends a dir holding a fake cargo-nextest executable to
 // PATH. The binary is never executed — only exec.LookPath's verdict matters.
@@ -152,4 +245,15 @@ func PutFakeNextest(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// GateLogBytes is GateLogContent shaped like the os.ReadFile of the retired
+// gate.log it replaces: an error when no stage line was recorded.
+func GateLogBytes(t *testing.T) ([]byte, error) {
+	t.Helper()
+	text := GateLogContent(t, "")
+	if text == "" {
+		return nil, os.ErrNotExist
+	}
+	return []byte(text), nil
 }

@@ -23,6 +23,7 @@ func postEditVerdicts(t *testing.T, cfg string) []string {
 // (issue #593). It belongs with TIMEOUT and the spawn/slot failures: the code
 // was not tested.
 func TestPostEditFile_CountsALinkFailureInAnUntouchedCrateAsInfraNotRed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeCargoRepo(t)
@@ -50,6 +51,7 @@ func TestPostEditFile_CountsALinkFailureInAnUntouchedCrateAsInfraNotRed(t *testi
 // without it the harvest cannot tell whose crate failed, and classified the
 // same foreign link failure as RED.
 func TestEditResultAdvisory_CountsALinkFailureInAnUntouchedCrateAsInfraNotRed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeCargoRepo(t)
@@ -79,6 +81,7 @@ func TestEditResultAdvisory_CountsALinkFailureInAnUntouchedCrateAsInfraNotRed(t 
 // deleting a symbol its own bench or test still references breaks the link,
 // and that is this session's to fix. The infra class must not swallow it.
 func TestPostEditFile_KeepsALinkFailureInTheEditedCrateRed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeCargoRepo(t)

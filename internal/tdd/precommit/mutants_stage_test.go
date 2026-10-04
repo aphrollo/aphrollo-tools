@@ -324,6 +324,7 @@ func TestMutantsStage_AnUnpinnedSurvivorIsReportedAndTheMergeGoesOn(t *testing.T
 // reason, so a box missing the tool is not filed as a lane with a survivor.
 // Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMutantsStage_RunnerThatNeverStartedIsARefusal(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := mergeStageFixture(t)
 	declareMutantsAtMerge(t, root)
 	stubMutantsExec(t, func(context.Context, int, measuredCall) (int, error) {
@@ -454,6 +455,7 @@ func TestMechanical_RunsTheMeasurementAfterTheSuitesNotBefore(t *testing.T) {
 // MERGE, not a docs-only commit: the fast path is what has to hold here.
 // Serial: installs a process-wide test override (SetFreeSpaceForTest).
 func TestMechanical_DocsOnlyMergeNeverMeasures(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))

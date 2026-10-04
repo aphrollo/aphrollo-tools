@@ -282,8 +282,8 @@ func TestCommitPlan_NoVerifyWithoutReasonRejected(t *testing.T) {
 	}
 }
 
-// A --no-verify commit logs "override-no-verify" to gate.log carrying the
-// stated reason, the same verdict token the git shim's own hooks-bypass door
+// A --no-verify commit records "override-no-verify" in the event log, the
+// same verdict token the git shim's own hooks-bypass door
 // writes (issue #314) -- so a hatch that used to leave no trace anywhere now
 // shows up in `gate stats` regardless of which of the two doors was used.
 func TestCommit_NoVerifyLogsOverrideTokenWithReason(t *testing.T) {
@@ -298,16 +298,12 @@ func TestCommit_NoVerifyLogsOverrideTokenWithReason(t *testing.T) {
 	if err := c.Apply(&out, &errb); err != nil {
 		t.Fatalf("Apply: %v\n%s", err, errb.String())
 	}
-	data, err := os.ReadFile(filepath.Join(tdd.StateDir(), "gate.log"))
-	if err != nil {
-		t.Fatalf("reading gate.log: %v", err)
-	}
-	log := string(data)
+	log := tdd.GateLines(time.Time{})
 	if !strings.Contains(log, "override-no-verify") {
-		t.Fatalf("gate.log missing the override-no-verify token:\n%s", log)
+		t.Fatalf("the event log is missing the override-no-verify token:\n%s", log)
 	}
-	if !strings.Contains(log, "verifying_a_false-positive_gate_rejection") {
-		t.Fatalf("gate.log missing the stated reason:\n%s", log)
+	if strings.Contains(log, "verifying_a_false-positive_gate_rejection") {
+		t.Fatalf("the stated reason is typed text and stays off the event:\n%s", log)
 	}
 }
 

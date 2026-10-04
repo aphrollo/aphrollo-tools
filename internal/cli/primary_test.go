@@ -70,7 +70,7 @@ func denyReason(t *testing.T, payload []byte) string {
 }
 
 func TestRun_PreToolUse_DeniesAWriteIntoThePrimaryCheckout(t *testing.T) {
-	cfg := gateConfigDir(t)
+	gateConfigDir(t)
 	primary, _ := primaryWorktreeRepo(t)
 
 	var out, errb bytes.Buffer
@@ -85,7 +85,7 @@ func TestRun_PreToolUse_DeniesAWriteIntoThePrimaryCheckout(t *testing.T) {
 	if !strings.Contains(reason, "git worktree add -b lane/<name>") {
 		t.Fatalf("the deny must carry the runnable recipe, got: %s", reason)
 	}
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	data, err := gateLogBytes(t)
 	if err != nil {
 		t.Fatalf("gate.log not written: %v", err)
 	}

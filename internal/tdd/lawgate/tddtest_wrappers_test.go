@@ -14,7 +14,7 @@ func gateLineFields(line string) (stage, verdict string, ok bool) {
 	return e.Stage, e.Verdict, ok
 }
 
-func gateLogContent(t *testing.T) string { t.Helper(); return tddtest.GateLogContent(t, GateLogPath()) }
+func gateLogContent(t *testing.T) string { t.Helper(); return tddtest.GateLogContent(t, "") }
 
 func gitDo(t *testing.T, dir string, args ...string) { t.Helper(); tddtest.GitDo(t, dir, args...) }
 

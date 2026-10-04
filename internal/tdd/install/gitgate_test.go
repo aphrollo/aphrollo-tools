@@ -264,6 +264,7 @@ func TestUnsafeHooksDirReason_AcceptsADurableDir(t *testing.T) {
 // reading the missing dir as someone else's and refusing, which is what
 // forced a manual `git config --global --unset core.hooksPath` on this box.
 func TestInstallGitGate_ReclaimsADanglingHooksPath(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateGitConfig(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	parent := t.TempDir()
@@ -304,6 +305,7 @@ func TestInstallGitGate_ReclaimsADanglingHooksPath(t *testing.T) {
 // does not exist (neither was ever created), which a genuinely deleted
 // directory's parent would not exhibit.
 func TestInstallGitGate_RefusesAnUnreachableHooksPathRatherThanReclaimingIt(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateGitConfig(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()

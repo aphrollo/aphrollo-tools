@@ -39,7 +39,7 @@ func discardWallFixture(t *testing.T) (repo string, cfg gitShimConfig) {
 // (gateConfigDir) collected.
 func readGateLog(t *testing.T, cfgDir string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(cfgDir, "gate-state", "gate.log"))
+	data, err := gateLogBytes(t)
 	if err != nil {
 		return ""
 	}

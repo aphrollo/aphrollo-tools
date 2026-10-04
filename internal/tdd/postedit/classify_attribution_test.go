@@ -226,6 +226,7 @@ func TestPostEditFile_AnotherErrorInTheTestsDoesNotLendItsLocation(t *testing.T)
 // used from production code, or quoted in a failing test's own message, is
 // not one.
 func TestPostEditFile_GoMissingSymbolIsACleanRedOnlyFromATestFile(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cases := []struct {
 		name   string
 		output string
@@ -238,6 +239,7 @@ func TestPostEditFile_GoMissingSymbolIsACleanRedOnlyFromATestFile(t *testing.T) 
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("TRELLIS_DATA", t.TempDir())
 			cfg := t.TempDir()
 			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 			root := makeGoRepo(t)

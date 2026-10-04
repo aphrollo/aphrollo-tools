@@ -1,12 +1,11 @@
 package merge
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // verificationClaimPattern flags a commit-msg BODY that claims the change
@@ -156,27 +155,15 @@ func readCurrentGreenSuiteStamp(repoRoot string) (string, bool) {
 	return strings.TrimSpace(string(data)), true
 }
 
-// lastPrecommitVerdict returns the most recent precommit-stage verdict
-// gate.log recorded for root, skipping Precommit's own unconditional "ran"
+// lastPrecommitVerdict returns the most recent precommit-stage verdict the
+// event log recorded for root, skipping Precommit's own unconditional "ran"
 // marker (precommitmarker.go) — that marker exists to prove the gate fired
 // at all, not to say what it found, so surfacing it here would quote "ran"
 // back at every rejection regardless of what actually happened.
 func lastPrecommitVerdict(root string) string {
-	dir := StateDir()
-	if dir == "" {
-		return ""
-	}
-	f, err := os.Open(filepath.Join(dir, "gate.log"))
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
 	last := ""
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		e, ok := parseGateLine(sc.Text())
-		if !ok || e.Stage != "precommit" || e.Verdict == "ran" || !sameProject(e.Root, root) {
+	for _, e := range readGateEntries(root, time.Time{}) {
+		if e.Stage != "precommit" || e.Verdict == "ran" || !sameProject(e.Root, root) {
 			continue
 		}
 		last = e.Verdict

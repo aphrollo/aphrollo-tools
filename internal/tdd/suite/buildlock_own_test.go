@@ -2,7 +2,6 @@ package suite
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,12 +16,13 @@ import (
 func TestLogLockWait_OnlyAWaitPastTheThresholdIsLogged(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Cleanup(SetLockWaitLogThresholdForTest(time.Second))
 	root := t.TempDir()
 	r := Runner{Cmd: "cargo", Args: []string{"test"}}
 
 	logLockWait("precommit", root, r, 500*time.Millisecond)
-	if got := tddtest.GateLogContent(t, filepath.Join(cfg, "gate-state", "gate.log")); got != "" {
+	if got := tddtest.GateLogContent(t, ""); got != "" {
 		t.Fatalf("a short wait was logged:\n%s", got)
 	}
 	logLockWait("precommit", root, r, 2*time.Second)

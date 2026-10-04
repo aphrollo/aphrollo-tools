@@ -3,8 +3,6 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -30,7 +28,7 @@ func discardBashPayload(t *testing.T, cmd string) string {
 }
 
 func TestRun_PreToolUse_DeniesARealDiscardingGitInvocation(t *testing.T) {
-	cfg := gateConfigDir(t)
+	gateConfigDir(t)
 
 	var out, errb bytes.Buffer
 	stdin := strings.NewReader(discardBashPayload(t, "git checkout -- f"))
@@ -41,7 +39,7 @@ func TestRun_PreToolUse_DeniesARealDiscardingGitInvocation(t *testing.T) {
 	if !strings.Contains(reason, "forbidden: they discard uncommitted work") {
 		t.Fatalf("the deny must name the discard-wall directive, got: %s", reason)
 	}
-	data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log"))
+	data, err := gateLogBytes(t)
 	if err != nil {
 		t.Fatalf("gate.log not written: %v", err)
 	}

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // ratchet: test_removed TestLocalCI_RunsTheSuitesOfARepoThatDeclaresNothing: local CI now runs the repo's own workflow, not the merge gate's suites; TestLocalCI_RunsTheRepoWorkflowInACheckoutOfTheMergeResult covers what it ran
@@ -26,6 +28,7 @@ jobs:
 func ciLane(t *testing.T, workflow string) (root, mark string) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	mark = filepath.Join(t.TempDir(), "mark.txt")
 	t.Setenv("LOCALCI_MARK", mark)
 	root, _ = prGateLane(t)
@@ -132,8 +135,8 @@ jobs:
 	if got := marks(t, mark); got != 2 {
 		t.Errorf("the workflow ran %d time(s) over two calls, want 2", got)
 	}
-	data, _ := os.ReadFile(GateLogPath())
-	if strings.Contains(string(data), "local-ci:"+v.Tree+" green") || strings.Contains(string(data), " green ") {
+	data := tddtest.GateLogContent(t, "")
+	if strings.Contains(data, "local-ci:"+v.Tree+" green") || strings.Contains(data, " green ") {
 		t.Errorf("gate.log holds a green for a run with a refused step:\n%s", data)
 	}
 }
@@ -184,10 +187,7 @@ func TestLocalCI_RecordsTheVerdictInTheGateLogKeyedByTree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(GateLogPath())
-	if err != nil {
-		t.Fatalf("no gate.log written: %v", err)
-	}
+	data := tddtest.GateLogContent(t, "")
 	var line string
 	for _, l := range strings.Split(string(data), "\n") {
 		if strings.Contains(l, " ci ") {
@@ -209,7 +209,7 @@ func TestLocalCI_NoPullRequestWorkflowIsARefusalNotAGreen(t *testing.T) {
 	if !strings.Contains(log.String(), "ci.yml: does not run on pull_request") {
 		t.Errorf("the set-aside workflow was not named:\n%s", log.String())
 	}
-	if data, rerr := os.ReadFile(GateLogPath()); rerr == nil && strings.Contains(string(data), "local-ci:") {
+	if data := tddtest.GateLogContent(t, ""); strings.Contains(data, "local-ci:") {
 		t.Errorf("a refusal was recorded as a verdict:\n%s", data)
 	}
 }
@@ -224,6 +224,7 @@ func TestLocalCI_AnUnreadableWorkflowIsRefused(t *testing.T) {
 
 func TestLocalCI_ALaneThatDoesNotMergeCleanlyIsRefused(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, _ := makeForkedRepo(t)
 	write(t, root, "crates/a/src/lib.rs", "pub fn base() -> i32 { 111 }\n")
 	gitDo(t, root, "add", ".")
@@ -240,6 +241,7 @@ func TestLocalCI_ALaneThatDoesNotMergeCleanlyIsRefused(t *testing.T) {
 
 func TestLocalCI_ALaneTrunkAlreadyHoldsHasNothingToJudge(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, trunk := prGateLane(t)
 	gitDo(t, root, "checkout", "-q", trunk)
 	v, err := LocalCI(root, nil)

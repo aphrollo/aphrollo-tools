@@ -1,7 +1,6 @@
 package tdd
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -46,11 +45,12 @@ func TestLogEditDecision_RecordsTheDeniedPolicy(t *testing.T) {
 func TestLogEditDecision_IsSilentWhenTheEditFlows(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	raw := []byte(`{"tool_name":"Write","tool_input":{"file_path":"src/widget_test.go","content":"assert x == y"}}`)
 
 	LogEditDecision(raw, decide(t, string(raw)))
-	if _, err := os.Stat(filepath.Join(cfg, "gate-state", "gate.log")); err == nil {
-		t.Fatalf("an allowed edit must not write gate.log:\n%s", gateLogText(t, cfg))
+	if got := tddtest.GateLogContent(t, ""); got != "" {
+		t.Fatalf("an allowed edit must not log a gate line:\n%s", got)
 	}
 }
 

@@ -87,24 +87,6 @@ func gateLogMetaPath() string {
 	return path + ".meta"
 }
 
-// stampGateLogSchema writes the sibling stamp when there is none. Called on
-// every append and cheap: one Stat on a file that exists after the first log
-// line of the dir's life.
-func stampGateLogSchema() {
-	path := gateLogMetaPath()
-	if path == "" {
-		return
-	}
-	if _, err := os.Stat(path); err == nil {
-		return
-	}
-	data, err := json.Marshal(schemaStamp{Schema: StateSchema})
-	if err != nil {
-		return
-	}
-	_ = os.WriteFile(path, data, 0o600)
-}
-
 // GateLogNewerSchema reports the schema gate.log was written at when it
 // EXCEEDS this binary's, so a reader (`gate stats`) says so instead of
 // tallying lines whose shape it cannot vouch for. An absent or unreadable

@@ -2,12 +2,10 @@ package core
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
@@ -310,33 +308,11 @@ func markWorktreeWarned(session string) bool {
 	return true
 }
 
-// appendGateLogWarnOnce keeps a failed gate.log write to one line per
-// process: appendGateLog fires on every stage transition, and a screenful of
-// identical complaints would bury the one fact that matters — the trail has
-// stopped recording. Reset for tests that need to observe it more than once
-// per test binary, same as deferredSweepOnce/resetDeferredSweepForTest.
-var appendGateLogWarnOnce sync.Once
-
-func resetAppendGateLogWarnForTest() { appendGateLogWarnOnce = sync.Once{} }
-
-// warnGateLogUnwritable is the one place appendGateLog's best-effort write
-// becomes visible: it never affects the gate's actual decision, but a state
-// dir that stays unwritable for a whole session used to lose every verdict
-// with nothing said anywhere — the exact shape that let a real refusal (a
-// hooks-dir install rejected under #394) surface only as a missing gate.log
-// line in a caller three frames away, instead of as this line.
-func warnGateLogUnwritable(reason string) {
-	appendGateLogWarnOnce.Do(func() {
-		fmt.Fprintf(os.Stderr, "aphrollo gate: gate.log is not being written: %s\n", reason)
-	})
-}
-
 // quoteVerdict wraps verdict in a Go string literal (strconv.Quote) whenever
-// it carries whitespace of its own, so the line's trailing "<verdict>
-// <secs>s" stays two fields instead of splitting the verdict apart.
+// it carries whitespace of its own, so the line formatGateLine renders keeps
+// "<verdict> <secs>s" as two fields instead of splitting the verdict apart.
 // parseGateLine's quotedVerdict is the matching read side. Left bare when
-// verdict has no whitespace, so the overwhelming majority of gate.log lines
-// ("green", "red", "pretooluse-denied:foo") render exactly as before.
+// verdict has no whitespace.
 func quoteVerdict(verdict string) string {
 	if strings.ContainsAny(verdict, " \t\n") {
 		return strconv.Quote(verdict)
@@ -344,13 +320,15 @@ func quoteVerdict(verdict string) string {
 	return verdict
 }
 
-// AppendGateLog appends one line to <stateDir>/gate.log:
-// "<RFC3339> <precommit|postedit> <root> <cmd> <verdict> <secs>s" — so a
-// session (or a human) can reconstruct what every gate stage actually did,
-// not just what the LAST advisory said. Best-effort: a logging failure never
-// affects the gate's actual decision, only its trail — but that failure is
-// no longer silent, see warnGateLogUnwritable. Exported for the shims, which
-// live in another package and still have to record a decision they made.
+// AppendGateLog records what one gate stage did: a stage line, as one event of
+// the repository's event log, so a session (or a human) can reconstruct what
+// every gate stage actually did, not just what the LAST advisory said. There is
+// no gate.log any more; the event carries the stage, the root, the verdict, the
+// seconds and, for a stage whose command the gate constructed, the command.
+// Best-effort: a logging failure never affects the gate's actual decision, only
+// its trail, and that failure is not silent (warnEventLogUnwritable). Exported
+// for the shims, which live in another package and still have to record a
+// decision they made.
 func AppendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 	AppendGateLogDetail(stage, root, cmd, verdict, dur, nil)
 }
@@ -359,36 +337,11 @@ func AppendGateLog(stage, root, cmd, verdict string, dur time.Duration) {
 // line than its verdict says: detail rides on the line's event (a deny's rule
 // family and the override it offered).
 func AppendGateLogDetail(stage, root, cmd, verdict string, dur time.Duration, detail map[string]string) {
-	dir := StateDir()
-	if dir == "" {
-		warnGateLogUnwritable("no state directory (CLAUDE_CONFIG_DIR unset and no resolvable home)")
+	if StateDir() == "" {
+		warnEventLogUnwritable("no state directory (CLAUDE_CONFIG_DIR unset and no resolvable home)")
 		return
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		warnGateLogUnwritable(fmt.Sprintf("could not create %s: %v", dir, err))
-		return
-	}
-	f, err := os.OpenFile(filepath.Join(dir, "gate.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		warnGateLogUnwritable(fmt.Sprintf("could not open %s: %v", filepath.Join(dir, "gate.log"), err))
-		return
-	}
-	stampGateLogSchema()
-	defer f.Close()
 	stage = gateLogStageToken(stage)
-	// The root goes through logToken because the line is space-separated and
-	// the COMMAND in the middle already carries spaces: a root with one of
-	// its own (`C:/My Projects/borld`) split into two fields, and every
-	// reader that matches on the root -- the statusline's red-clearing and
-	// its queued state -- stopped seeing that project's entries at all. The
-	// verdict is positioned the same way (read from the END, right before
-	// the duration), so it needs the same protection -- but unlike root it
-	// legitimately carries its own spaces sometimes (failFirstStage's
-	// "inconclusive (fail-open)"), where logToken's lossy underscore
-	// substitution would just move the defect rather than fix it. quoteVerdict
-	// wraps it in a Go string literal instead, which parseGateLine's
-	// quotedVerdict unwraps byte-for-byte (issue #467).
-	_, _ = f.WriteString(formatGateLine(gateEntry{At: time.Now(), Stage: stage, Root: root, Cmd: cmd, Verdict: verdict, Secs: dur.Seconds()}))
 	kind := eventKind(stage, verdict)
 	AppendEvent(Event{Kind: kind, Root: root, Stage: stage, Cmd: eventCmd(stage, kind, cmd), Verdict: verdict, Secs: dur.Seconds(), Detail: lineEventDetail(kind, verdict, detail)})
 }

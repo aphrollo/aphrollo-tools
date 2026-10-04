@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // The commit stage judges what the staged change adds: it mutates only the
@@ -33,6 +35,7 @@ func commitStage(t *testing.T, config string) (cfgDir, root string) {
 	t.Helper()
 	cfgDir = t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Cleanup(setMutantsJobsForTest(2, "pinned"))
 	t.Cleanup(SetCommitHeadroomForTest(func(string, time.Duration) string { return "" }))
 	root = makeGoRepo(t)
@@ -168,7 +171,7 @@ func TestMutantsAtCommitStage_AnAcceptedSurvivorPasses(t *testing.T) {
 }
 
 func TestMutantsAtCommitStage_UndeclaredIsInert(t *testing.T) {
-	cfgDir, root := commitStage(t, "")
+	_, root := commitStage(t, "")
 	write(t, root, "aphrollo.toml", "[aphrollo]\nundercover = true\n")
 	s := scriptGo(t, func(goCall) (int, string) { return 0, "" })
 
@@ -177,10 +180,8 @@ func TestMutantsAtCommitStage_UndeclaredIsInert(t *testing.T) {
 	if res.Blocked || res.Message != "" || s.count() != 0 {
 		t.Errorf("an undeclared repo got %+v after %d runs, want nothing", res, s.count())
 	}
-	if _, err := os.Stat(filepath.Join(cfgDir, "gate-state", "gate.log")); err == nil {
-		if log := gateLogText(t, cfgDir); strings.Contains(log, "mutants") {
-			t.Errorf("an undeclared repo logged about mutants:\n%s", log)
-		}
+	if log := tddtest.GateLogContent(t, ""); strings.Contains(log, "mutants") {
+		t.Errorf("an undeclared repo logged about mutants:\n%s", log)
 	}
 }
 
@@ -224,6 +225,7 @@ func TestMutantsAtCommitStage_AFileWithUnstagedEditsIsNotMeasured(t *testing.T) 
 func TestMutantsAtCommitStage_ANonGoRepoStandsDown(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeCargoRepoForCommit(t)
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = true\n")
 	res := mutantsAtCommitStage("precommit", root)

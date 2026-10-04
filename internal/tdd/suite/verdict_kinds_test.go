@@ -2,11 +2,11 @@ package suite
 
 import (
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	tddtest "github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 // verdictFor is the one place a stage's raw outcome becomes a GateResult, so
@@ -15,6 +15,7 @@ import (
 // the message a session reads. A kind that stops blocking, or logs under
 // another kind's word, is a gate defect whichever stage it happens in.
 func TestVerdictFor_EachOutcomeKindBlocksLogsAndReportsItsOwnWay(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cases := []struct {
 		name        string
 		outcome     stageOutcome
@@ -51,7 +52,7 @@ func TestVerdictFor_EachOutcomeKindBlocksLogsAndReportsItsOwnWay(t *testing.T) {
 				if got.Message != "" {
 					t.Errorf("a pass carries no message, got %q", got.Message)
 				}
-				if data, err := os.ReadFile(filepath.Join(cfg, "gate-state", "gate.log")); err == nil && len(data) > 0 {
+				if data, err := tddtest.GateLogBytes(t); err == nil && len(data) > 0 {
 					t.Errorf("a pass logged a verdict:\n%s", data)
 				}
 				return

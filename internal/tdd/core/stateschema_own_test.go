@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
 type stateschemaProbe struct {
@@ -98,8 +100,14 @@ func TestGateLogNewerSchema_ReportsOnlyWhenTheStampExceedsThisBinary(t *testing.
 		t.Fatalf("no meta file yet: newer=%v schema=%d, want false", newer, schema)
 	}
 
-	// Write one log line so the meta stamp exists at the CURRENT schema.
-	AppendGateLog("precommit", "/some/repo", "gate", "green", 0)
+	// The retired file's stamp, at the CURRENT schema (nothing writes one now).
+	stamp, _ := json.Marshal(schemaStamp{Schema: StateSchema})
+	if err := os.MkdirAll(filepath.Dir(gateLogMetaPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(gateLogMetaPath(), stamp, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if schema, newer := GateLogNewerSchema(); newer {
 		t.Fatalf("stamp at current schema: newer=%v schema=%d, want false", newer, schema)
 	}
@@ -119,6 +127,7 @@ func TestGateLogNewerSchema_ReportsOnlyWhenTheStampExceedsThisBinary(t *testing.
 func TestNoteStateOnce_LogsTheVerdictAndFileOnlyOncePerPair(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 
 	// stateNoticed dedupes by (verdict, path) for the life of the PROCESS, not
 	// the life of the test — a literal path shared across every -count=N
@@ -130,10 +139,7 @@ func TestNoteStateOnce_LogsTheVerdictAndFileOnlyOncePerPair(t *testing.T) {
 	noteStateOnce("state-corrupt", path)
 	noteStateOnce("state-corrupt", path)
 
-	data, err := os.ReadFile(GateLogPath())
-	if err != nil {
-		t.Fatal(err)
-	}
+	data := []byte(tddtest.GateLogContent(t, ""))
 	if n := strings.Count(string(data), "state-corrupt:state.json"); n != 1 {
 		t.Fatalf("logged %d time(s), want 1:\n%s", n, data)
 	}
