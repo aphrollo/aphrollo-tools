@@ -24,7 +24,7 @@ import (
 // The load reading keeps its job — deciding whether to START work, which is
 // what the build slot is for — and loses the one it was never evidence
 // for: how long the work TAKES. That question already has evidence on disk.
-// the event log records every run's stage, command and duration, so the budget is
+// The event log records every run's stage, command and duration, so the budget is
 // floored at what this same stage running this same command is recorded to
 // need, and the load may only ever shrink it down to that floor.
 //

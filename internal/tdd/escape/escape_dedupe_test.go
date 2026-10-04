@@ -185,3 +185,19 @@ func TestRecordCIEscape_RecordsAgainWhenAClosedIssueCarriesTheFingerprint(t *tes
 		t.Fatal("a CI red today is evidence newer than yesterday's close — it must be recorded")
 	}
 }
+
+// A candidate filed while the evidence said "gate.log: ..." and closed must not
+// be filed again because the same line now names a different source: the
+// label is not part of what failed.
+func TestEscapeFingerprint_OldAndNewEvidenceLabelsGiveOneFingerprint(t *testing.T) {
+	const line = "pretooluse-denied:test-sleep on a_test.go, then smell-escape:real-time on the same file inside 7 days"
+	fp := func(evidence string) string {
+		return escapeFingerprint("override:test-sleep", EscapeOptions{Repo: "r", Evidence: evidence})
+	}
+	if old, now := fp("gate.log: "+line), fp("event log: "+line); old != now {
+		t.Fatalf("fingerprints differ across the label change: %s vs %s", old, now)
+	}
+	if fp("event log: "+line) == fp("event log: pretooluse-denied:test-skip on b_test.go") {
+		t.Fatal("two different candidates share a fingerprint")
+	}
+}

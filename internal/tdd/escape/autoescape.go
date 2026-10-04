@@ -60,9 +60,25 @@ func escapeDiagnostic(o EscapeOptions) string {
 		return named
 	}
 	if line := firstLine(strings.TrimSpace(o.Evidence)); line != "" {
-		return line
+		return stripEvidenceSource(line)
 	}
 	return firstLine(strings.TrimSpace(o.Reason))
+}
+
+// evidenceSources are the labels an evidence line opened with while the gate
+// kept its history in a text file and since it keeps it in the event log. The
+// label says where the line was read, not what failed, so the fingerprint
+// leaves it out: a candidate filed and closed under the old label stays the
+// same candidate.
+var evidenceSources = []string{"gate.log: ", "event log: "}
+
+func stripEvidenceSource(line string) string {
+	for _, label := range evidenceSources {
+		if rest, ok := strings.CutPrefix(line, label); ok {
+			return rest
+		}
+	}
+	return line
 }
 
 // failingListLine reads the `failing: a, b` line the mechanical rejection

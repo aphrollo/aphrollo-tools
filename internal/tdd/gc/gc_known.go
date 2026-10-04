@@ -11,8 +11,8 @@ import (
 // a session opened in a home directory sweeps no repository at all: the
 // 3.1 GB of stale `.mutants` areas and temp copies on the box issue #1005 was
 // filed against sat beside repos the sweep never looked at. The repos worth
-// sweeping are the ones the gate has worked in, and the event log already records
-// every root it judged, in the event log of its repo.
+// sweeping are the ones the gate has worked in, and the event log of each repo already
+// records every root it judged.
 
 const (
 	// knownReposWindow is how far back a repo counts as one the gate works in.

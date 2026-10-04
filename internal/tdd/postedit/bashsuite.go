@@ -261,7 +261,7 @@ func decideWholeSuite(root, cmd string) Decision {
 
 // denyWholeSuiteReason names where the answer already is, so the caller has
 // somewhere to look rather than just a refusal to reword around: the last
-// settled event log line for this root, and the status verb for the queue
+// settled line of the event log for this root, and the status verb for the queue
 // state that line does not cover.
 func denyWholeSuiteReason(root string, e gateEntry) string {
 	ago := time.Since(e.At).Round(time.Second)
