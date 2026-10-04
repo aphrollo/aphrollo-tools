@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -30,9 +31,6 @@ func mutantsAtCommitStage(displayName, repoRoot string) GateResult {
 		// every commit of every repo on the box and stays out of it.
 		return mutantsResult(false, "")
 	}
-	if !isGoModuleRepo(repoRoot) {
-		return commitStandDown(displayName, repoRoot, "this repo is not a Go module, and the commit-time run measures Go", "not-go")
-	}
 	start := commitNowFn()
 	added, err := stagedAddedLines(repoRoot)
 	if err != nil {
@@ -42,16 +40,24 @@ func mutantsAtCommitStage(displayName, repoRoot string) GateResult {
 	if err != nil {
 		return commitUnmeasured(displayName, repoRoot, "diff", err.Error())
 	}
-	return measureAddedLines(displayName, repoRoot, cfg, added, unstaged, start)
+	mods := commitModules(repoRoot, sortedFiles(added))
+	if len(mods) == 0 {
+		return commitStandDown(displayName, repoRoot, "no staged file belongs to a Go module, and the commit-time run measures Go", "not-go")
+	}
+	return measureModules(displayName, repoRoot, mods, cfg, added, unstaged, start)
 }
 
 // measureAddedLines is the stage past the reading of git: mutate the added
 // lines of the sources in added, run them, and judge. start is when the
 // stage began, since the budget counts from there. The staged change and an
-// edit's own diff both come through here.
-func measureAddedLines(displayName, repoRoot string, cfg MutantsConfig, added map[string]map[int]bool,
+// edit's own diff both come through here. prefix is the Go module's directory
+// below repoRoot ("" when the repo root is the module, else "backend-go/"):
+// added and unstaged name files relative to the module, the run is made from
+// it, and the verdict names the files by their repo paths.
+func measureAddedLines(displayName, repoRoot, prefix string, cfg MutantsConfig, added map[string]map[int]bool,
 	unstaged map[string]bool, start time.Time) GateResult {
-	mutants, notes := commitMutantsOf(repoRoot, added, unstaged)
+	root := moduleDir(repoRoot, prefix)
+	mutants, notes := commitMutantsOf(root, added, unstaged)
 	for _, note := range notes {
 		fmt.Fprintf(os.Stderr, "gate %s: mutants → %s\n", displayName, note)
 	}
@@ -69,9 +75,10 @@ func measureAddedLines(displayName, repoRoot string, cfg MutantsConfig, added ma
 	}
 	defer release()
 	jobs, _ := mutantsJobsForThisBoxFn(mutantsGoJobGB)
-	plans := commitPlans(repoRoot, mutants, added)
+	plans := commitPlans(root, mutants, added)
 	canary := watchGitWorld(repoRoot, "commit-time run")
-	runs := runCommitMutants(context.Background(), repoRoot, cfg, plans, mutants, jobs, budget-commitNowFn().Sub(start), os.Stderr)
+	runs := runCommitMutants(context.Background(), root, cfg, plans, mutants, jobs, budget-commitNowFn().Sub(start), os.Stderr)
+	repoRelative(prefix, runs)
 	if changes := canary.verify(io.Discard); len(changes) > 0 {
 		// The tests the run started reached the real git state: refuse the
 		// commit rather than judge it on what such a run said.
@@ -79,6 +86,16 @@ func measureAddedLines(displayName, repoRoot string, cfg MutantsConfig, added ma
 		return mutantsResult(true, gitWorldRefusal("commit-time run", repoRoot, changes))
 	}
 	return commitVerdict(displayName, repoRoot, cfg, runs, commitNowFn().Sub(start))
+}
+
+// sortedFiles is the files of added, sorted.
+func sortedFiles(added map[string]map[int]bool) []string {
+	files := make([]string, 0, len(added))
+	for file := range added {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	return files
 }
 
 // commitStandDown passes the commit without measuring, saying why on stderr

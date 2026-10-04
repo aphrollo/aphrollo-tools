@@ -30,7 +30,7 @@ func declaredLinesStage(gateName, repoRoot, root string, r Runner, run SuiteRunn
 // linesStage runs r in root and judges a failure against the lines the same
 // run printed on HEAD's tree, after prelude ran there. stage names it.
 func linesStage(gateName, stage, repoRoot, root string, prelude []Runner, r Runner, run SuiteRunner) GateResult {
-	res := run(r, root)
+	res := runNoticed(gateName, stage, root, r, run)
 	ran := func(Runner, string) SuiteResult { return res }
 	if res.Passed || res.TimedOut {
 		return goCheckStage(gateName, stage, root, r, ran)

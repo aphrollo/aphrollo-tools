@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/docs"
 	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
@@ -411,7 +412,7 @@ func pinnedLinterVersion(repoRoot string) string {
 // goCheckStage runs one check and turns it into a verdict, via verdictFor
 // for the outcomes it owns.
 func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateResult {
-	res := run(r, root)
+	res := runNoticed(gateName, stage, root, r, run)
 	switch {
 	case res.TimedOut:
 		return verdictFor(gateName, stage, root, cmdString(r), stageOutcome{
@@ -433,7 +434,7 @@ func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateR
 		b.WriteString(tailSnippet(res.Output))
 		return GateResult{Blocked: true, Message: b.String()}
 	default:
-		fmt.Fprintf(stderrFor(root), "gate %s: %s in %s → clean\n", gateName, stage, root)
+		fmt.Fprintf(stderrFor(root), "gate %s: %s in %s → clean (%s, %s)\n", gateName, stage, root, cmdString(r), res.Duration.Round(100*time.Millisecond))
 		return GateResult{}
 	}
 }
