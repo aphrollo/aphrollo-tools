@@ -270,7 +270,10 @@ func redSeen(session, key string) bool {
 // is gone from the disk, which no Stop in it will ever reach to clear.
 func sweepLaneState(now time.Time) int {
 	removed := 0
-	if dir := seenDir(); dir != "" {
+	for _, dir := range []string{seenDir(), lintNoticeDir(), lintLatestDir()} {
+		if dir == "" {
+			continue
+		}
 		entries, _ := os.ReadDir(dir) // absent is nothing to sweep
 		for _, e := range entries {
 			if info, err := e.Info(); err == nil && now.Sub(info.ModTime()) > seenKeep && os.Remove(filepath.Join(dir, e.Name())) == nil {

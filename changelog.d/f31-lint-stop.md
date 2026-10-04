@@ -12,3 +12,5 @@ A run's verdict is now also written to the lane's store, keyed by the worktree, 
 ### What you will notice
 
 - Stop and SubagentStop block once on a red recorded for the lane's current tree that the session has not been told of. A red of an older tree, a run that was not tested, and a red with a green beside it on the same tree all allow. When no store verdict exists, or its write failed, the checks read the session's job records as before.
+
+A lint that finishes after its run was reported is delivered at the next hook as `gate: lint <unit> in <tree> → N findings a commit would refuse: …`, once, unless a newer run of the same unit has started. A clean lint says nothing.

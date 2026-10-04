@@ -140,9 +140,32 @@ func runPhaseLint(j DeferredJob, held heldRun) {
 	case err != nil:
 		return
 	}
+	if exit == 1 {
+		// The notice is left before the finish record: a consumer that reads the
+		// record has a notice to take, so nothing is delivered twice.
+		leaveLintNotice(j, held, lintFindingsIn(lintLogPath(j, held.id)))
+	}
 	if data, err := json.Marshal(lintDone{Exit: exit}); err == nil {
 		_ = writeFileAtomic(lintDonePath(j, held.id), data)
 	}
+}
+
+// lintFindingsIn is the findings a lint log names. A "(typecheck)" line is the
+// package failing to load, which is the build's finding and the test run's to
+// report.
+func lintFindingsIn(path string) []string {
+	logged, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var findings []string
+	for line := range strings.SplitSeq(string(logged), "\n") {
+		line = strings.TrimRight(line, "\r")
+		if lintEditFinding.MatchString(line) && !strings.HasSuffix(line, "(typecheck)") {
+			findings = append(findings, line)
+		}
+	}
+	return findings
 }
 
 // lintGuidance is what a finished run's lint adds to its line: the findings
@@ -162,17 +185,7 @@ func lintGuidance(j DeferredJob, id string) string {
 	if json.Unmarshal(data, &done) != nil || done.Exit != 1 {
 		return ""
 	}
-	logged, err := os.ReadFile(lintLogPath(j, id))
-	if err != nil {
-		return ""
-	}
-	var findings []string
-	for line := range strings.SplitSeq(string(logged), "\n") {
-		line = strings.TrimRight(line, "\r")
-		if lintEditFinding.MatchString(line) && !strings.HasSuffix(line, "(typecheck)") {
-			findings = append(findings, line)
-		}
-	}
+	findings := lintFindingsIn(lintLogPath(j, id))
 	if len(findings) == 0 {
 		return ""
 	}

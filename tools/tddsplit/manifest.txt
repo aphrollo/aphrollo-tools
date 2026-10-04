@@ -514,6 +514,8 @@ killtree_test.go                                   postedit
 knownwall_test.go                                  postedit
 lintlock.go                                        lock
 lintlock_test.go                                   lock
+lintnotice.go                                      postedit
+lintnotice_test.go                                 postedit
 lintrun.go                                         postedit
 lintrun.go                                         suite
 lintrun_phase_test.go                              postedit

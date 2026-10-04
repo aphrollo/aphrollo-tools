@@ -214,6 +214,9 @@ func runPhaseHeld(j DeferredJob) heldRun {
 	start = time.Now()
 	stampDeferredStart(j.Session, j.Project, start)
 	treeKey, _ := worktreeKeyFn(j.Project) // the tree these tests judge; none outside a repo
+	if _, asked := phaseLintFn(j); asked {
+		markLatestRun(j, id) // a lint of an older run is stale from here on
+	}
 
 	// The child must know this process already holds the slot: with the
 	// cargo-queue shim on PATH, "cargo" resolves to the shim, which would

@@ -100,7 +100,11 @@ func finishedEditOutcome(j DeferredJob, out PhaseOutcome) deferredEditOutcome {
 	if out.SetupFailed {
 		return deferredEditOutcome{res: phaseSuiteResult(j, out), Infra: true, job: j}
 	}
-	return deferredEditOutcome{res: phaseSuiteResult(j, out), lint: lintGuidance(j, out.RunID), phase: out}
+	lint := lintGuidance(j, out.RunID)
+	if lint != "" {
+		removeLintNotice(j.Session, out.RunID) // said on the run's line, not again
+	}
+	return deferredEditOutcome{res: phaseSuiteResult(j, out), lint: lint, phase: out}
 }
 
 // phaseStatus is what became of a spawn: finished inside the budget, still
@@ -294,7 +298,12 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
-	return withLintGuidance(judgeEditResult(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA), lintGuidance(j, out.RunID))
+	line := judgeEditResult(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA)
+	note := lintGuidance(j, out.RunID)
+	if note != "" {
+		removeLintNotice(j.Session, out.RunID) // said on the run's line, not again
+	}
+	return withLintGuidance(line, note)
 }
 
 // judgeEditResult is editResultAdvisory's verdict half, for a finished run

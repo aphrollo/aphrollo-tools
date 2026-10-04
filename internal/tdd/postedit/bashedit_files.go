@@ -48,10 +48,10 @@ func recordBashEdits(files []string) map[string]string {
 // bashGateFinish puts the per-file notes on the gate text the roots' runs
 // made, in the order an Edit's hook does: the gofmt note, the laws judged over
 // every changed file in one pass on the formatted bytes (a shell write fires
-// no pre-edit hook, so this is the first judge that sees it), the linter's
-// findings, then a line for each smell verdict. It answers that text and the
-// detached runs to start once the harvest has been read: the deferred lint of
-// each Go file, and the mutation run over the files of a green root.
+// no pre-edit hook, so this is the first judge that sees it), then a line for
+// each smell verdict. The lint rides the roots' runs (lintrun.go), not this
+// text. It answers that text and a function to call once the harvest has been
+// read, which does nothing now that an edit starts no lint or mutation run.
 func bashGateFinish(session, root string, changed []string, formatted string, runLines, greenFiles []string) (string, func()) {
 	text := strings.Join(runLines, "\n")
 	text = withGateNote(text, formatted)
