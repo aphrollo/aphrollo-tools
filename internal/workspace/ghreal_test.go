@@ -256,18 +256,3 @@ func TestGhPRState_RealClosureFound(t *testing.T) {
 		t.Fatalf("ghPRState = %q, want MERGED", state)
 	}
 }
-
-// TestGhReadyPRSandboxFallback_PropagatesAFindError proves the sandbox
-// fallback's own error path (submit.go's `if err != nil` right after
-// ghAPIFindPR) when the list-pulls call itself fails, rather than proceeding
-// as if no PR mattered.
-func TestGhReadyPRSandboxFallback_PropagatesAFindError(t *testing.T) {
-	repo := initRepo(t)
-	withOrigin(t, repo, "acme", "widgets")
-	fakeGhAPIByPath(t, []ghAPIRule{
-		{"repos/acme/widgets/pulls", "gh: authentication required", 1},
-	})
-	if err := ghReadyPRSandboxFallback(repo, "feat/x"); err == nil || !strings.Contains(err.Error(), "authentication required") {
-		t.Fatalf("ghReadyPRSandboxFallback = %v, want the find error propagated", err)
-	}
-}

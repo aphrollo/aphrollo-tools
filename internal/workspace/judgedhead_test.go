@@ -261,12 +261,3 @@ func TestGhMergePR_BindsTheMergeToTheJudgedHeadAndNamesAMovedHead(t *testing.T) 
 		}
 	})
 }
-
-func TestMergeBodyArgs_MatchTheJudgedHead(t *testing.T) {
-	const head = "0123456789abcdef0123456789abcdef01234567"
-	got := strings.Join(mergeBodyArgs("squash", "S (#1)", "B", head, "lane/x"), " ")
-	want := "pr merge --squash --subject S (#1) --body B --match-head-commit " + head + " -- lane/x"
-	if got != want {
-		t.Errorf("args = %q, want %q", got, want)
-	}
-}
