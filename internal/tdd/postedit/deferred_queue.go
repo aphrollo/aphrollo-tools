@@ -186,7 +186,7 @@ func pumpQueue(session, root string) []string {
 		// gives up only on a run that will never finish: its process is gone, or
 		// it has outlived its own ceiling, and nothing but a hook that edits in
 		// this project would clear it.
-		if _, done := deferredResult(blocker); done || deferredJobLive(blocker, time.Now()) {
+		if _, done := deferredResult(blocker); done || deferredJobMaybeLive(blocker, time.Now()) {
 			return nil
 		}
 		for _, r := range q.Runs {
@@ -377,14 +377,10 @@ func spawnGuarded(j DeferredJob) (started, blocker DeferredJob, status phaseStat
 		return j, twin, phaseCoalesced, q
 	}
 	if cur, ok := loadDeferredJob(j.Session, j.Project); ok {
-		if _, done := deferredResult(cur); !done && deferredJobLive(cur, time.Now()) {
+		if _, done := deferredResult(cur); !done && deferredJobMaybeLive(cur, time.Now()) {
 			path := queuePath(j.Session, j.Project)
-			argv := j.Runner
-			if j.Phase == "build" {
-				argv = runArgvAfterBuild(j)
-			}
 			if path != "" {
-				req := queuedRun{Runner: argv, Dir: j.Dir, File: j.File, EditID: j.EditID, Touched: j.Touched, At: time.Now()}
+				req := queuedRun{Runner: queuedArgv(j), Dir: j.Dir, File: j.File, EditID: j.EditID, Touched: j.Touched, At: time.Now()}
 				return j, cur, phaseQueued, enqueueLocked(path, j.Project, req)
 			}
 		}
@@ -394,4 +390,39 @@ func spawnGuarded(j DeferredJob) (started, blocker DeferredJob, status phaseStat
 		return j, DeferredJob{}, phaseFailedToStart, q
 	}
 	return s, DeferredJob{}, phaseRunning, q
+}
+
+// queuedArgv is the unit a run of j is, as the queue keys it: the run's command
+// without the -timeout the deferred phase adds for the ceiling's sake (the build
+// form's run argv, for a build). Every path that queues or drops a request keys
+// it by this form, so the same run asked for twice is one entry.
+func queuedArgv(j DeferredJob) []string {
+	argv := j.Runner
+	if j.Phase == "build" {
+		argv = runArgvAfterBuild(j)
+	}
+	return withoutTimeout(argv)
+}
+
+// withoutTimeout is argv minus a -timeout=... argument.
+func withoutTimeout(argv []string) []string {
+	out := make([]string, 0, len(argv))
+	for _, a := range argv {
+		if !strings.HasPrefix(a, "-timeout=") {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// queueHeldLine logs what became of a run that was not started because another
+// run holds the slot, and says it in the hook's words: waiting at a place in the
+// queue, or not kept because the queue is full.
+func queueHeldLine(r Runner, root string, blocker DeferredJob, q queueOutcome) string {
+	if q.full {
+		AppendGateLog("postedit", root, cmdString(r), "queued-skipped", 0)
+		return queueFullLine(r, root)
+	}
+	AppendGateLog("postedit", root, cmdString(r), "queue-waiting", 0)
+	return queuedLine(r, root, activeArgv(blocker), q)
 }

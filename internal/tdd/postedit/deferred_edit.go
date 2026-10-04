@@ -251,7 +251,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 			return coalescedLine(root, startedRun), false
 		}
 		if status == phaseQueued {
-			return queuedLine(runnerFromArgv(runArgvAfterBuild(j), j.Dir), root, activeArgv(startedRun), q), false
+			return queueHeldLine(runnerFromArgv(runArgvAfterBuild(j), j.Dir), root, startedRun, q), false
 		}
 		if status == phaseRunning {
 			return buildingLine(root, "run", 0), false

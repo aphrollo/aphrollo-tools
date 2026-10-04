@@ -110,7 +110,7 @@ func activeRunLine(snap stateSnapshot, root, target, session, fileHash string) (
 	if !ok {
 		return "", false
 	}
-	if _, done := deferredResult(j); done || deferredExpired(j, time.Now()) {
+	if _, done := deferredResult(j); done || !deferredJobMaybeLive(j, time.Now()) {
 		return "", false
 	}
 	argv, dir := runnerArgv(snap.runner), runnerDir(snap.runner, root)

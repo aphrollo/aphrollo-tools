@@ -37,6 +37,11 @@ func widenDeferredSelection(narrow Runner, root, target, headSHA, fileHash, sess
 		case out.spawnFailed:
 			AppendGateLog("postedit", root, cmdString(step), InfraFailed, 0)
 			return deferredWidening{terminal: spawnFailedLine(root, "build")}
+		case out.deferred && out.logToken != "":
+			// The rung waits in the queue behind another run, or was not kept: its
+			// own line says which, not that it is building.
+			AppendGateLog("postedit", root, cmdString(step), out.logToken, 0)
+			return deferredWidening{terminal: out.notice, running: true}
 		case out.deferred:
 			AppendGateLog("postedit", root, cmdString(step), "deferred", 0)
 			return deferredWidening{terminal: wideningBuildingLine(last, step, root), running: true}

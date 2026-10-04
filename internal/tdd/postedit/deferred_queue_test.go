@@ -250,7 +250,7 @@ func TestRunEditPhases_AFreshStartBehindARunTheSlotHoldsQueuesInstead(t *testing
 	if *started != 1 {
 		t.Errorf("runs started = %d, want the running one only", *started)
 	}
-	if got := readQueue(queuePath(session, root)); len(got.Runs) != 1 || got.Runs[0].Runner[3] != "./b" {
+	if got := readQueue(queuePath(session, root)); len(got.Runs) != 1 || got.Runs[0].Runner[2] != "./b" {
 		t.Errorf("queue = %+v, want ./b waiting", got.Runs)
 	}
 }
@@ -318,5 +318,146 @@ func TestReapSessionDeferredJobs_ForgetsTheSessionsWaitingRuns(t *testing.T) {
 	}
 	if !strings.Contains(gateLogText(t, os.Getenv("CLAUDE_CONFIG_DIR")), "queued-dropped") {
 		t.Fatal("the dropped entry left no queued-dropped entry in the gate log: the edit's run just vanished")
+	}
+}
+
+// A record whose process identity was never taken (the OS query failed at spawn)
+// says nothing about its process. It is a healthy run until something shows
+// otherwise: the queue behind it is kept, and an edit queues behind it instead of
+// starting into its job record.
+func TestPumpQueue_ARunWithNoRecordedProcessIdentityIsStillGoing(t *testing.T) {
+	root, session, started := queueScene(t)
+	updateDeferredJob(session, root, func(j *DeferredJob) { j.PIDCreatedAt = time.Time{} })
+	t.Cleanup(SetProcessStartTimeForTest(func(int) (time.Time, bool) { return time.Time{}, false }))
+	editOf(t, root, session, "b", "package b\n")
+
+	lines := pumpQueue(session, root)
+
+	if len(lines) != 0 || len(readQueue(queuePath(session, root)).Runs) != 1 {
+		t.Fatalf("lines %q, queue %+v: want the entry kept behind a run that may well be alive", lines, readQueue(queuePath(session, root)).Runs)
+	}
+	file := filepath.Join(root, "c", "c.go")
+	write(t, root, "c/c.go", "package c\n")
+	out := runEditPhases(coalesceRunner("./c"), root, file, "", sourceIdentity(root, file), session, "", 0)
+	if !out.deferred || out.logToken != "queue-waiting" || *started != 1 {
+		t.Fatalf("outcome %+v, started %d: want the edit queued, nothing spawned over the live job", out, *started)
+	}
+}
+
+// A run whose process is gone is not one to queue behind: the edit is not held
+// by it and nothing waits for a run that will never finish.
+func TestPostEditDeferred_ADeadRunDoesNotHoldTheEditsBehindIt(t *testing.T) {
+	root, session, _ := queueScene(t)
+	t.Cleanup(SetProcessStartTimeForTest(func(int) (time.Time, bool) { return time.Time{}, false }))
+	file := filepath.Join(root, "b", "b.go")
+	write(t, root, "b/b.go", "package b\n")
+
+	line, held := activeRunLine(stateSnapshot{runner: coalesceRunner("./b")}, root, file, session, sourceIdentity(root, file))
+
+	if held || line != "" {
+		t.Fatalf("held=%v line %q: a dead run must not hold the edit", held, line)
+	}
+	if len(readQueue(queuePath(session, root)).Runs) != 0 {
+		t.Fatal("an entry was queued behind a dead run")
+	}
+}
+
+// A rung of the widening ladder that has to wait behind another run says so, and
+// logs it as waiting, not as a deferred build with a wait on offer.
+func TestWidenDeferredSelection_AQueuedRungSaysQueuedAndLogsIt(t *testing.T) {
+	root, session, _ := queueScene(t)
+	write(t, root, "go.mod", "module m\n\ngo 1.22\n")
+	write(t, root, "gen/gen.go", "package gen\n")
+	write(t, root, "user/user.go", "package user\n\nimport _ \"m/gen\"\n")
+	write(t, root, "user/user_test.go", "package user\n\nimport \"testing\"\n\nfunc TestAUser_Ok(t *testing.T) {}\n")
+	narrow := Runner{Cmd: "go", Args: []string{"test", "./gen"}}
+
+	w := widenDeferredSelection(narrow, root, filepath.Join(root, "gen", "gen.go"), "", "h", session, "", time.Now().Add(time.Minute), SuiteResult{})
+
+	line := tddtest.Pathless(t, w.terminal)
+	if !strings.Contains(line, "QUEUED") || strings.Contains(line, "BUILDING") || strings.Contains(line, "status --wait") {
+		t.Fatalf("line %q, want the rung queued behind the running run, and no wait offered", line)
+	}
+	if !strings.Contains(gateLogText(t, os.Getenv("CLAUDE_CONFIG_DIR")), "queue-waiting") {
+		t.Error("the queued rung was not logged as waiting")
+	}
+}
+
+// A rung that finds the queue full was not kept: QUEUED-SKIPPED, not BUILDING.
+func TestWidenDeferredSelection_AQueueFullRungSaysSkipped(t *testing.T) {
+	root, session, _ := queueScene(t)
+	write(t, root, "go.mod", "module m\n\ngo 1.22\n")
+	write(t, root, "gen/gen.go", "package gen\n")
+	write(t, root, "user/user.go", "package user\n\nimport _ \"m/gen\"\n")
+	write(t, root, "user/user_test.go", "package user\n\nimport \"testing\"\n\nfunc TestAUser_Ok(t *testing.T) {}\n")
+	for i := range maxQueuedRuns {
+		enqueueRun(session, root, queuedRun{Runner: []string{"go", "test", "./p" + string(rune('a'+i))}, Dir: root, At: time.Now()})
+	}
+	narrow := Runner{Cmd: "go", Args: []string{"test", "./gen"}}
+
+	w := widenDeferredSelection(narrow, root, filepath.Join(root, "gen", "gen.go"), "", "h", session, "", time.Now().Add(time.Minute), SuiteResult{})
+
+	if line := tddtest.Pathless(t, w.terminal); !strings.Contains(line, "QUEUED-SKIPPED") || strings.Contains(line, "BUILDING") {
+		t.Fatalf("line %q, want QUEUED-SKIPPED", line)
+	}
+	if !strings.Contains(gateLogText(t, os.Getenv("CLAUDE_CONFIG_DIR")), "queued-skipped") {
+		t.Error("the skipped rung was not logged as queued-skipped")
+	}
+}
+
+// The line and the log of a run the harvest could not start because another run
+// holds the slot: a full queue is QUEUED-SKIPPED and logged, never "place 0 of 0".
+func TestQueueHeldLine_AFullQueueIsSkippedAndAWaitingOneIsLogged(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	r := coalesceRunner("./b")
+	blocker := DeferredJob{Phase: "run", Runner: []string{"go", "test", "./a"}}
+
+	full := tddtest.Pathless(t, queueHeldLine(r, "/r", blocker, queueOutcome{full: true}))
+	waiting := tddtest.Pathless(t, queueHeldLine(r, "/r", blocker, queueOutcome{position: 2, waiting: 3}))
+
+	if !strings.Contains(full, "QUEUED-SKIPPED") || strings.Contains(full, "place") {
+		t.Errorf("full: %q", full)
+	}
+	if !strings.Contains(waiting, "place 2 of 3") {
+		t.Errorf("waiting: %q", waiting)
+	}
+	log := gateLogText(t, os.Getenv("CLAUDE_CONFIG_DIR"))
+	if !strings.Contains(log, "queued-skipped") || !strings.Contains(log, "queue-waiting") {
+		t.Errorf("gate log:\n%s\nwant both tokens", log)
+	}
+}
+
+// The run an edit queues and the run a start finds the slot held for are one
+// unit, however each spelled its command: the second request replaces the first.
+func TestQueue_TheEditPathAndTheStartPathKeyTheSameRunTheSame(t *testing.T) {
+	root, session, _ := queueScene(t)
+	editOf(t, root, session, "b", "package b\n")
+	file := filepath.Join(root, "b", "b.go")
+
+	out := runEditPhases(coalesceRunner("./b"), root, file, "", sourceIdentity(root, file), session, "", 0)
+
+	if !strings.Contains(out.notice, "replacing an older request") {
+		t.Fatalf("notice %q, want the start path to have replaced the waiting request", out.notice)
+	}
+	if got := readQueue(queuePath(session, root)); len(got.Runs) != 1 {
+		t.Fatalf("queue = %+v, want one entry for the one run", got.Runs)
+	}
+}
+
+// A wait goes on past a line that says the run is still ahead of it or going; it
+// stops at one that says the run will never start.
+func TestIsHeldLine_QueuedAndBuildingAreNotFinal(t *testing.T) {
+	cases := map[string]bool{
+		"gate: → BUILDING (deferred; x)":                         true,
+		"gate: go test ./b in /r → QUEUED (deferred; x)":         true,
+		"gate: go test ./b in /r → QUEUED-SKIPPED (deferred; x)": false,
+		"gate: go test ./b in /r → QUEUED-DROPPED (x)":           false,
+		"gate: deferred go test ./b in /r → green (3 passed)":    false,
+		"": false,
+	}
+	for line, want := range cases {
+		if got := isHeldLine(line); got != want {
+			t.Errorf("isHeldLine(%q) = %v, want %v", line, got, want)
+		}
 	}
 }
