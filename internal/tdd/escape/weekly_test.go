@@ -1,22 +1,28 @@
 package escape
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
 
-// writeGateLog plants a gate.log under the per-test state dir, creating it.
+// writeGateLog plants the stage lines of text, one gate line per row, as the
+// events the gate writes for them under a state root of the test's own.
 func writeGateLog(t *testing.T, text string) {
 	t.Helper()
-	path := GateLogPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
-		t.Fatal(err)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	for _, line := range strings.Split(text, "\n") {
+		e, ok := parseGateLine(line)
+		if !ok {
+			continue
+		}
+		ev := Event{Kind: "gate", Root: e.Root, Stage: e.Stage, Verdict: e.Verdict, Secs: e.Secs, At: e.At.UTC().Format("2006-01-02T15:04:05.000Z07:00")}
+		if isDenyVerdict(e.Verdict) || strings.HasPrefix(e.Verdict, "override-") {
+			ev.Detail = map[string]string{"file": e.Cmd}
+		} else {
+			ev.Cmd = e.Cmd
+		}
+		AppendEvent(ev)
 	}
 }
 

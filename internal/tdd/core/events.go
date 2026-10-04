@@ -19,7 +19,9 @@ const EventSchema = 1
 // machine-readable trail the targets (escapes per merged PR, pushes per PR, CI
 // green on first run, wrong denies, not-tested runs, edit-to-verdict latency)
 // are measured from. It carries metadata only: never file contents, never a
-// tool's input text, and never the command line gate.log records.
+// tool's input text. A gate stage line is the one exception: it keeps the
+// invocation (Cmd) and the root it ran in, as gate.log's line did, except the
+// command of a deny or an override, which is what someone typed.
 //
 // Kinds in use: stage lines by stage (commit_gate, merge_gate, commit_msg,
 // mutants, stage.timing, gate and the *_result of a whole run), deny, override,
@@ -42,11 +44,17 @@ type Event struct {
 	Secs    float64 `json:"secs,omitempty"`
 	// Detail holds small identifiers a kind needs (a PR number, an escape id).
 	Detail map[string]string `json:"detail,omitempty"`
-	// Root is where the event happened; AppendEvent turns it into Repo and Lane
-	// and never writes it. A Lane the caller already knows (an escape recorded
-	// from the main checkout, naming its PR's lane) is kept over the branch the
-	// root has checked out.
-	Root string `json:"-"`
+	// Cmd is the invocation a stage line records ("" for an event that is none).
+	// It is what the scope law and the stage-duration floor match a recorded
+	// run by, so the event of a gate line carries it as gate.log's line did.
+	Cmd string `json:"cmd,omitempty"`
+	// Root is where the event happened; AppendEvent turns it into Repo and Lane.
+	// A Lane the caller already knows (an escape recorded from the main
+	// checkout, naming its PR's lane) is kept over the branch the root has
+	// checked out. The event of a gate stage line keeps the root itself, which
+	// is what the readers of a worktree's own stages match on (a worktree is a
+	// project of its own, the repo is not); every other event drops it.
+	Root string `json:"root,omitempty"`
 }
 
 // AppendEvent writes one record to the log of the repository Root belongs to.
@@ -62,6 +70,9 @@ func AppendEvent(e Event) {
 	e.Repo = repo
 	if e.Lane == "" {
 		e.Lane = lane
+	}
+	if e.Stage == "" {
+		e.Root = ""
 	}
 	if e.Actor == "" {
 		e.Actor = SessionID()
@@ -137,6 +148,24 @@ func eventKind(stage, verdict string) string {
 
 func isDenyLine(stage, verdict string) bool {
 	return strings.HasPrefix(verdict, "pretooluse-denied") || (stage == "git" && strings.Contains(verdict, "-refused"))
+}
+
+// cmdStages are the stages whose command is one the gate constructed itself (a
+// suite, a build, a lint, a declared check, a fixed label): the readers of
+// recorded runs match on it. Every other stage logs from text a user or an agent
+// typed, or from a token the line only needs for display, and may hold a secret,
+// so its command stays off the event. A stage is added here only when none of
+// its call sites passes typed text.
+var cmdStages = map[string]bool{"postedit": true, "precommit": true, premergeDisplayName: true, premergeLogToken: true, "mutants": true, "commitmsg": true}
+
+// eventCmd is the command an event may carry: the gate's own, never one that
+// was typed. A deny or an override line's command is whatever the user or the
+// agent wrote, so those stay out whatever the stage.
+func eventCmd(stage, kind, cmd string) string {
+	if kind == "deny" || kind == "override" || !cmdStages[stage] {
+		return ""
+	}
+	return cmd
 }
 
 func isOverrideVerdict(verdict string) bool {

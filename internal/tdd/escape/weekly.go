@@ -41,12 +41,8 @@ func maybeWeeklyDigest(now time.Time) string {
 // weeklyDigest reads the last seven days of gate.log and renders the one
 // line. "" when there is nothing to report at all.
 func weeklyDigest(now time.Time) string {
-	f, err := os.Open(GateLogPath())
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	s := GateStats(f, now.Add(-weeklyEvery))
+	since := now.Add(-weeklyEvery)
+	s := GateStats(strings.NewReader(gateLinesSince(since)), since)
 
 	runs, green, queued := 0, 0, 0
 	for _, outcomes := range s.ByStage {

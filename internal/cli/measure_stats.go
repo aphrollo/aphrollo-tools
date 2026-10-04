@@ -30,7 +30,7 @@ escapes by class. Read-only.
                    tdd skill and each agent brief against the caps (400 for the
                    block and skill, 250 for an agent), over-cap ones marked
 
-'aphrollo gate stats' reports gate.log; this reports the event log.
+'aphrollo gate stats' reports the stage lines of the event log; this reports its measures.
 `
 
 // runStats is `aphrollo stats`: the measures of the repo's event log, or with

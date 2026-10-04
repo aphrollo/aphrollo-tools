@@ -1,11 +1,8 @@
 package postedit
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -58,7 +55,7 @@ func DecideBashSuite(raw []byte) (Decision, bool) {
 	}
 	// A soak is deliberate and rare by nature — like queue-bypass, what makes
 	// it tolerable is that every use is counted, regardless of what else the
-	// gate.log already holds for this tree.
+	// the event log already holds for this tree.
 	if hasSoakMarker(cmd) {
 		return Decision{Action: Allow, Escapes: []string{"override-bash-soak"}}, true
 	}
@@ -90,7 +87,7 @@ func DecideBashSuite(raw []byte) (Decision, bool) {
 //     the only route to an answer and must never be refused.
 //   - Nothing recent at all: allowed, uncounted. That is the ordinary
 //     single-test run a session makes while writing code, and counting it
-//     would turn gate.log into a keystroke transcript.
+//     would turn the event log into a keystroke transcript.
 //
 // A mutation proof is the one narrowed rerun that legitimately stands beside
 // a fresh green, and it says so for itself — see hasMutationProofMarker.
@@ -264,7 +261,7 @@ func decideWholeSuite(root, cmd string) Decision {
 
 // denyWholeSuiteReason names where the answer already is, so the caller has
 // somewhere to look rather than just a refusal to reword around: the last
-// settled gate.log line for this root, and the status verb for the queue
+// settled line of the event log for this root, and the status verb for the queue
 // state that line does not cover.
 func denyWholeSuiteReason(root string, e gateEntry) string {
 	ago := time.Since(e.At).Round(time.Second)
@@ -285,7 +282,7 @@ func hasSoakMarker(cmd string) bool {
 	return strings.Contains(strings.ToLower(cmd), "soak")
 }
 
-// suiteStages are the gate.log stages that actually run a project's suite —
+// suiteStages are the event-log stages that actually run a project's suite —
 // mirrors statsStages, kept as its own set here because this is a membership
 // test for freshness, not a display ordering.
 var suiteStages = map[string]bool{"postedit": true, "precommit": true, "premergecommit": true}
@@ -316,23 +313,11 @@ func lastFreshSuiteVerdict(root string, want runScope) (gateEntry, bool) {
 // (a timeout is exactly the case the narrowed escape exists for, and is not
 // itself a "fresh verdict" a whole-suite run could be denied over).
 func lastSuiteLogEntry(root string, window time.Duration) (gateEntry, bool) {
-	dir := StateDir()
-	if dir == "" {
-		return gateEntry{}, false
-	}
-	f, err := os.Open(filepath.Join(dir, "gate.log"))
-	if err != nil {
-		return gateEntry{}, false
-	}
-	defer f.Close()
 	now := time.Now()
 	var best gateEntry
 	found := false
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		e, ok := parseGateLine(sc.Text())
-		if !ok || !suiteStages[e.Stage] || !sameProject(e.Root, root) {
+	for _, e := range readGateEntries(root, now.Add(-window)) {
+		if !suiteStages[e.Stage] || !sameProject(e.Root, root) {
 			continue
 		}
 		if now.Sub(e.At) > window {

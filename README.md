@@ -131,7 +131,7 @@ no edit to a released changelog section or a merged fragment.
   cannot be read. A run that has to wait says where it stands on one line, at
   most once a minute: `gate: merge queue position 2 of 4 (est. ~11 min; holder:
   <lane> pid <n>)`, the estimate taken from the recent `go test -race` runs in
-  gate.log and left out when there are none.
+  the event log and left out when there are none.
 - **Walls:** the primary checkout is merge-only; discarding commands are
   refused (`gate allow <wall>` arms one command).
 - **Memory:** every test, suite, lint and mutation process the gate starts runs

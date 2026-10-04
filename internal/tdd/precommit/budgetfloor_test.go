@@ -200,7 +200,7 @@ func TestMechanical_TimeoutRefusalNamesTheFloorItUsedAndWhereItCameFrom(t *testi
 	if !res.Blocked {
 		t.Fatal("a merge whose suite never finished must still be refused")
 	}
-	for _, want := range []string{"450s", "300.0s", "gate.log", "box: 4 cores, load 97%"} {
+	for _, want := range []string{"450s", "300.0s", "event log", "box: 4 cores, load 97%"} {
 		if !strings.Contains(res.Message, want) {
 			t.Fatalf("message = %q, want it to name the floor it used (450s), the record it came from (300.0s in gate.log) and the box load", res.Message)
 		}

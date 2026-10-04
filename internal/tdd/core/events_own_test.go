@@ -404,9 +404,10 @@ func TestEvent_EveryFieldSurvivesTheRoundTrip(t *testing.T) {
 		V: EventSchema, Seq: 1, At: "2026-10-02T09:14:03.120Z", Lane: "lane/x", Actor: "s1/a1", Kind: "deny",
 		Repo: filepath.ToSlash(repo), Stage: "preedit", Verdict: "pretooluse-denied:r", Secs: 0.25,
 		Detail: map[string]string{"rule": "r", "cause": "smell"},
+		Root:   repo, Cmd: "go test ./pkg",
 	}
 
-	AppendEvent(Event{Root: repo, Lane: want.Lane, Actor: want.Actor, Kind: want.Kind, At: want.At, Stage: want.Stage,
+	AppendEvent(Event{Root: repo, Cmd: want.Cmd, Lane: want.Lane, Actor: want.Actor, Kind: want.Kind, At: want.At, Stage: want.Stage,
 		Verdict: want.Verdict, Secs: want.Secs, Detail: want.Detail})
 
 	got := ReadEvents(repo)

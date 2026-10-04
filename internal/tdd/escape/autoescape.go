@@ -60,9 +60,25 @@ func escapeDiagnostic(o EscapeOptions) string {
 		return named
 	}
 	if line := firstLine(strings.TrimSpace(o.Evidence)); line != "" {
-		return line
+		return stripEvidenceSource(line)
 	}
 	return firstLine(strings.TrimSpace(o.Reason))
+}
+
+// evidenceSources are the labels an evidence line opened with while the gate
+// kept its history in a text file and since it keeps it in the event log. The
+// label says where the line was read, not what failed, so the fingerprint
+// leaves it out: a candidate filed and closed under the old label stays the
+// same candidate.
+var evidenceSources = []string{"gate.log: ", "event log: "}
+
+func stripEvidenceSource(line string) string {
+	for _, label := range evidenceSources {
+		if rest, ok := strings.CutPrefix(line, label); ok {
+			return rest
+		}
+	}
+	return line
 }
 
 // failingListLine reads the `failing: a, b` line the mechanical rejection
@@ -379,7 +395,7 @@ type OverrideCandidate struct {
 // from a commit made on another box.
 var overrideVerdictPrefixes = []string{"override-off", "primary-edits"}
 
-// OverrideCandidates reads gate.log for evidence that a check was gone around
+// OverrideCandidates reads the event log for evidence that a check was gone around
 // inside the window: a session that turned the gate off, an edit that a
 // primary-checkout override let through, and — the sharpest of the three — a
 // check that DENIED an edit which then went in on a waiver for the same file.
@@ -433,7 +449,7 @@ func OverrideCandidates(r io.Reader, now time.Time) []OverrideCandidate {
 				Stage:  "override:" + check,
 				At:     e.At,
 				Reason: fmt.Sprintf("%s refused an edit that then went in on a waiver — narrow it, fix it, or demote it", check),
-				Evidence: fmt.Sprintf("gate.log: pretooluse-denied:%s on %s, then %s on the same file inside %d days",
+				Evidence: fmt.Sprintf("event log: pretooluse-denied:%s on %s, then %s on the same file inside %d days",
 					check, file, e.Verdict, int(escapeDedupeWindow.Hours()/24)),
 			})
 		default:
@@ -445,7 +461,7 @@ func OverrideCandidates(r io.Reader, now time.Time) []OverrideCandidate {
 					Stage:    "override:" + e.Verdict,
 					At:       e.At,
 					Reason:   fmt.Sprintf("a session went around the gate (%s) — a check that gets switched off is a check to narrow or fix", e.Verdict),
-					Evidence: "gate.log: " + line,
+					Evidence: "event log: " + line,
 				})
 			}
 		}

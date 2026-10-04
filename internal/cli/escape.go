@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"os"
 	"strings"
 	"time"
 
@@ -204,16 +203,7 @@ func runEscapeSync(args []string, stdout, stderr io.Writer) int {
 // already. A log it cannot read is no reason to fail the sync that already
 // succeeded, so it simply records nothing.
 func recordDemoteCandidates(root string, stdout io.Writer) int {
-	path := tdd.GateLogPath()
-	if path == "" {
-		return 0
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-	return tdd.RecordDemoteCandidates(root, tdd.DemoteCandidates(f, time.Now().UTC()), stdout)
+	return tdd.RecordDemoteCandidates(root, tdd.DemoteCandidates(strings.NewReader(tdd.GateLines(time.Time{})), time.Now().UTC()), stdout)
 }
 
 // recordOverrideCandidates opens the false-positive issue for every check the
@@ -221,16 +211,7 @@ func recordDemoteCandidates(root string, stdout io.Writer) int {
 // the demote scan: a log it cannot read is no reason to fail a sync that has
 // already succeeded.
 func recordOverrideCandidates(root string, stdout io.Writer) int {
-	path := tdd.GateLogPath()
-	if path == "" {
-		return 0
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return 0
-	}
-	defer f.Close()
-	return tdd.RecordOverrideCandidates(root, tdd.OverrideCandidates(f, time.Now().UTC()), stdout)
+	return tdd.RecordOverrideCandidates(root, tdd.OverrideCandidates(strings.NewReader(tdd.GateLines(time.Time{})), time.Now().UTC()), stdout)
 }
 
 func runEscapeVerifyClosure(args []string, stdout, stderr io.Writer) int {

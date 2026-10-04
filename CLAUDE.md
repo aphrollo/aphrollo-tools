@@ -88,7 +88,7 @@ like `systemctl` (no dry-run, no `--dry`).
   jobs never started); the verdict is a gate.log line keyed by the merge result's
   tree, and a stored green for the same tree is reused.
 - `stats` — read-only: the pipeline measures folded from the repo's event log
-  (`internal/measure`; `aphrollo gate stats` reads gate.log instead), and with
+  (`internal/measure`; `aphrollo gate stats` reads the same event log, as stage lines), and with
   `--briefs` the token length of the managed block, the tdd skill and each
   agent brief against the section-5 caps.
 - `why <seq>` — read-only: replays one deny or run result of the event log with

@@ -105,7 +105,7 @@ func RecordDemoteCandidates(repo string, candidates []DemoteCandidate, w io.Writ
 			Reason: fmt.Sprintf("%s denies more every week — demote, narrow or fix it", check),
 			Kind:   FalsePositiveKind,
 			Repo:   repo,
-			Evidence: fmt.Sprintf("gate.log: %s refusals rose in each of the last two weeks. "+
+			Evidence: fmt.Sprintf("event log: %s refusals rose in each of the last two weeks. "+
 				"Judge whether the rule is right and the code drifted, or the rule is refusing correct work.", check),
 			Fingerprint: fp,
 		}, w)
