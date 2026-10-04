@@ -48,6 +48,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 		AppendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, out.res.Duration)
 		return infraFailureLine(root, out.job, out.res), false
 	}
+	markOutcomeSeen(session, out.phase)
 	res := out.res
 	if treatAsEmptyPass(res) {
 		res.Passed = true

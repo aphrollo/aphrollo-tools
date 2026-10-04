@@ -1019,6 +1019,8 @@ runsuite_killtree_test.go                          suite
 runsuite_related.go                                suite
 runsuite_related_test.go                           suite
 runsuite_waitdelay_test.go                         suite
+runverdict.go                                      postedit
+runverdict_test.go                                 postedit
 rustmask_test.go                                   smell
 rusttestspans.go                                   suite
 rusttestspans_test.go                              suite
@@ -1111,6 +1113,7 @@ statusline_test.go                                 tdd
 statusline_unproven_test.go                        tdd
 stderrsink.go                                      precommit
 stopcheck.go                                       postedit
+stopcheck_store_test.go                            postedit
 stopcheck_task_test.go                             postedit
 stopcheck_test.go                                  postedit
 style.go                                           install

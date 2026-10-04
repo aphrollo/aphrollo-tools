@@ -193,6 +193,7 @@ func RunPhase(jobPath string) int {
 	// killable the moment it finally started.
 	start = time.Now()
 	stampDeferredStart(j.Session, j.Project, start)
+	treeKey, _ := worktreeKeyFn(j.Project) // the tree these tests judge; none outside a repo
 
 	// The child must know this process already holds the slot: with the
 	// cargo-queue shim on PATH, "cargo" resolves to the shim, which would
@@ -240,6 +241,9 @@ func RunPhase(jobPath string) int {
 	// that reached a verdict: Seconds above is the tests' alone.
 	if out.Inconclusive == "" {
 		out.LintRan, out.LintExit = runPhaseLint(j)
+	}
+	if treeKey != "" {
+		out.TreeKey, out.StoreResult = treeKey, recordPhaseVerdict(j, out, treeKey)
 	}
 	writePhaseResult(j.Result, out)
 	return 0

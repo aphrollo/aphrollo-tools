@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/kernel"
 )
 
 // A cold cargo build does not fit in an edit hook's budget: 268 post-edit
@@ -105,6 +107,12 @@ type PhaseOutcome struct {
 	// which stay the tests' alone.
 	LintRan  bool `json:"lint_ran,omitempty"`
 	LintExit int  `json:"lint_exit,omitempty"`
+	// TreeKey is the worktree key the phase ran on and StoreResult what the
+	// wrapper recorded for it in the lane's store (runverdict.go); both empty
+	// when nothing was recorded. The hook that reports the run uses them to
+	// mark a red as told, with no git spawn of its own.
+	TreeKey     string         `json:"tree_key,omitempty"`
+	StoreResult kernel.Verdict `json:"store_result,omitempty"`
 }
 
 // deferredMaxEnv bounds how long a detached phase may run before the next

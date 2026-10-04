@@ -64,7 +64,10 @@ func SetProcessStartTimeForTest(fn func(pid int) (time.Time, bool)) (restore fun
 // deferredEditOutcome is what the deferral path reports back to PostEdit:
 // either a finished SuiteResult, or a notice that a phase is still running.
 type deferredEditOutcome struct {
-	res      SuiteResult
+	res SuiteResult
+	// phase is the finished phase's outcome, whose lint and store fields the
+	// hook reads.
+	phase    PhaseOutcome
 	deferred bool
 	notice   string
 	// spawnFailed says nothing is running: reporting BUILDING there is a
@@ -97,7 +100,7 @@ func finishedEditOutcome(j DeferredJob, out PhaseOutcome) deferredEditOutcome {
 	if out.SetupFailed {
 		return deferredEditOutcome{res: phaseSuiteResult(j, out), Infra: true, job: j}
 	}
-	return deferredEditOutcome{res: phaseSuiteResult(j, out), lint: lintGuidance(j, out)}
+	return deferredEditOutcome{res: phaseSuiteResult(j, out), lint: lintGuidance(j, out), phase: out}
 }
 
 // phaseStatus is what became of a spawn: finished inside the budget, still
@@ -277,6 +280,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 // one now does too, so the NEXT harvest has something real to compare against
 // rather than always missing on a nil fingerprint.
 func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *sessionState, statePath, headSHA string) string {
+	markOutcomeSeen(j.Session, out)
 	res := phaseSuiteResult(j, out)
 	if out.SetupFailed {
 		// RunPhase's own setup failed (no build slot, no log file) before the

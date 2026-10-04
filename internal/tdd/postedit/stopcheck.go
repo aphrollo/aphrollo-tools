@@ -74,10 +74,16 @@ func DecideStop(event StopEvent, raw []byte) StopVerdict {
 		if in.StopHookActive {
 			return StopVerdict{}
 		}
+		if v := laneRedVerdict(in.SessionID, in.Cwd); v.Block {
+			return v
+		}
 		return unseenRedVerdict(in.SessionID, "")
 	case StopHookSubagentStop:
 		if in.StopHookActive || in.Cwd == "" {
 			return StopVerdict{}
+		}
+		if v := laneRedVerdict(in.SessionID, in.Cwd); v.Block {
+			return v
 		}
 		return unseenRedVerdict(in.SessionID, in.Cwd)
 	case StopHookTaskCompleted:
@@ -101,6 +107,19 @@ const (
 	unseenRedPreface = "gate: a deferred run finished red after your last hook, so you have not seen it yet. Read it before you stop:"
 	taskOpenPreface  = "gate: task kept open — its tests are red. Make them green before you mark it done:"
 )
+
+// laneRedVerdict is the lane's own answer: a red the store holds for the tree
+// cwd stands in as it is now, that session has not been told of. It reads
+// nothing, and resolves no tree, while no run of the box ended red.
+func laneRedVerdict(session, cwd string) StopVerdict {
+	if cwd == "" || !anyLaneRed() {
+		return StopVerdict{}
+	}
+	if reason := storeRedReason(session, stopTreeFn(cwd)); reason != "" {
+		return StopVerdict{Block: true, Reason: reason}
+	}
+	return StopVerdict{}
+}
 
 // unseenRedVerdict blocks once with the verdict line of every unseen red:
 // those of the whole session when lane is empty, otherwise only those in the

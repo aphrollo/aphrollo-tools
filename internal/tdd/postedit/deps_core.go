@@ -64,6 +64,8 @@ func AppendGateLogDetail(p0 string, p1 string, p2 string, p3 string, p4 time.Dur
 
 func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }
 
+func EventLogDir(p0 string) string { return core.EventLogDir(p0) }
+
 func LogToken(p0 string) string { return core.LogToken(p0) }
 
 func SessionID() string { return core.SessionID() }
