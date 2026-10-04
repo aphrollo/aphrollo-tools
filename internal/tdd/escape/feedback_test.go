@@ -3,6 +3,8 @@ package escape
 import (
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 )
 
 // A session using the gate finds gate bugs, and `gate issue` files them
@@ -46,7 +48,7 @@ func TestUpstreamRepo_HonoursTheDeclaredTrackerFromCargoMetadata(t *testing.T) {
 // routing upstream means naming the target explicitly. Without this the
 // issue lands in the reporting repo no matter what the caller intended.
 func TestIssueArgv_TargetRepoRoutesTheIssueUpstream(t *testing.T) {
-	argv := issueArgv(IssueOptions{Title: "t", Body: "b", TargetRepo: "aphrollo/aphrollo-tools"})
+	argv := github.IssueArgs(issueRequest(IssueOptions{Title: "t", Body: "b", TargetRepo: "aphrollo/aphrollo-tools"}))
 
 	joined := strings.Join(argv, " ")
 	if !strings.Contains(joined, "--repo aphrollo/aphrollo-tools") {
@@ -57,7 +59,7 @@ func TestIssueArgv_TargetRepoRoutesTheIssueUpstream(t *testing.T) {
 // ...and an ordinary issue still goes to the repo it was run in, so `gate
 // issue` is unchanged.
 func TestIssueArgv_WithoutATargetNamesNoRepo(t *testing.T) {
-	argv := issueArgv(IssueOptions{Title: "t", Body: "b"})
+	argv := github.IssueArgs(issueRequest(IssueOptions{Title: "t", Body: "b"}))
 
 	if joined := strings.Join(argv, " "); strings.Contains(joined, "--repo") {
 		t.Errorf("argv = %q, want no --repo — an ordinary issue belongs to the repo it was filed from", joined)
