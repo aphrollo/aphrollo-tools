@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/msys"
 )
 
 // The probe is the child half of VerifyNoLeak.
@@ -387,5 +389,13 @@ func TestIsolate_SendsHooksAndTheGateStateToTheRunsRoot(t *testing.T) {
 func TestIsolate_SwitchesTheGoWorkspaceOff(t *testing.T) {
 	if got := os.Getenv("GOWORK"); got != "off" {
 		t.Errorf("GOWORK = %q, want off", got)
+	}
+}
+
+// The first MSYS process of a box decides what /tmp is for every shell after
+// it, so a test binary starts its own before it moves the temp directory.
+func TestIsolate_StartsTheMSYSAnchorBeforeMovingTheTempDir(t *testing.T) {
+	if !msys.Anchored() {
+		t.Fatal("Isolate must have called msys.Anchor")
 	}
 }

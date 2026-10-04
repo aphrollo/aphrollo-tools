@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
+	"github.com/aphrollo/aphrollo-tools/internal/msys"
 )
 
 // Main isolates the calling package's run, runs it, removes what the isolation
@@ -116,6 +117,9 @@ func homeLayout(fake string) map[string]string {
 // The Go toolchain's cache locations are pinned where they resolve now, so
 // moving the home does not make every `go` a test spawns rebuild the world.
 func Isolate(root string) (home string, err error) {
+	// Before the temp directory moves: the first MSYS process of the box fixes
+	// what /tmp is for every shell after it, and it must not be one of ours.
+	msys.Anchor()
 	pinToolchainHomes()
 	tmp := filepath.Join(root, "tmp")
 	home = filepath.Join(root, "home")

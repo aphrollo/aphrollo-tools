@@ -149,6 +149,7 @@ internal/docs/       doc-reference guard: extract path citations, resolve, repor
 internal/workspace/  worktree lifecycle + git verbs
 internal/depinstall/ dependency-install rule shared by workspace create and the PR merge gate; node_modules links
 internal/gitenv/     GIT_* scrubbing, the sealed git environment for processes that run tests, maintenance-off settings
+internal/msys/       the MSYS anchor: a Windows box's first shell is ours, so no run's throwaway temp dir becomes the box's /tmp
 internal/gitiso/     TestMain isolation every package's tests run under: no GIT_* variables, temp dirs walled off from every repository, a temp home and git config; the hostile-environment probe that proves it
 internal/rootseam/   per-worktree-root tables: the gate's stderr and the probes a test states, carried by root so the tests that use them run in parallel
 internal/dev/        dev-tier control plane (systemd)

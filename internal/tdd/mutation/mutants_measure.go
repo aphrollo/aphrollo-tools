@@ -14,6 +14,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 	"github.com/aphrollo/aphrollo-tools/internal/gitenv"
+	"github.com/aphrollo/aphrollo-tools/internal/msys"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
@@ -513,6 +514,9 @@ func measureTempDir(root string) string {
 // repo declares its mutation run must set, and the nextest profile it
 // declares for them.
 func measureEnv(root string, cfg MutantsConfig) []string {
+	// The temp directory is about to move and is removed with the run: the shell
+	// tools of the box must already hold a /tmp of their own.
+	msys.Anchor()
 	tmp := measureTempDir(root)
 	_ = os.MkdirAll(tmp, 0o755)
 	// All three names, on every platform. Setting one and inheriting the
