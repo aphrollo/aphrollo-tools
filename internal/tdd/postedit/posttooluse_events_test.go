@@ -110,3 +110,35 @@ func TestHarvest_ARunVerdictIsShadowedBesideTheGateLine(t *testing.T) {
 		t.Errorf("a shadow event carries no command: %+v", got[0])
 	}
 }
+
+// phaseVerdict reads every failing run as a red and cannot say bogus. A run the
+// gate calls red-bogus must not be filed as a mismatch of that reading: it is
+// not comparable, and says both classes.
+func TestHarvest_ABogusRedIsNotComparableNeverAMismatch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := mkProject(t, "go.mod")
+	saveDeferredJob(DeferredJob{
+		Project: root, Phase: "run", Dir: root, PID: 99, Runner: []string{"go", "test", "./..."},
+		Started: time.Now(), Session: "s-bogus", File: filepath.Join(root, "widget.go"),
+	})
+	job, ok := loadDeferredJob("s-bogus", root)
+	if !ok {
+		t.Fatal("setup: the job did not load back")
+	}
+	mustWrite(t, job.Log, "ImportError: cannot import name widget\nFAIL\n")
+	writePhaseResult(job.Result, PhaseOutcome{ExitCode: 1, Seconds: 1, TreeKey: "tree-bogus"})
+
+	if line, ok := WaitDeferredEditJob(root); !ok || !strings.Contains(line, "bogus") {
+		t.Fatalf("harvest = %q, %v, want the gate's red-bogus line", line, ok)
+	}
+
+	got := eventsOfKind(root, "shadow")
+	if len(got) != 1 {
+		t.Fatalf("%d shadow events, want 1: %+v", len(got), got)
+	}
+	d := got[0].Detail
+	if d["relation"] != "not-comparable" || d["aphrollo"] != "red-bogus" || d["aphrollo_verdict"] != "red-bogus" || d["trellis_verdict"] != "red" {
+		t.Errorf("shadow detail = %v, want not-comparable: aphrollo red-bogus where the kernel's input can only say red", d)
+	}
+}

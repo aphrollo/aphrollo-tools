@@ -44,6 +44,9 @@ const (
 	// VerdictMismatch is a run whose verdict class trellis reads differently from
 	// aphrollo's line.
 	VerdictMismatch Relation = "verdict-mismatch"
+	// NotComparable is a run aphrollo classed in a way the kernel's verdict input
+	// cannot express (a bogus red): counted apart, never as a mismatch.
+	NotComparable Relation = "not-comparable"
 )
 
 // Hooks a record can come from.
@@ -79,6 +82,7 @@ type Record struct {
 	Actual   string // block, warn, allow; for a run, aphrollo's verdict word
 	Relation Relation
 	HeldOut  bool // the kernel put this fire in the holdout arm
+	Primary  bool // the fact is about the primary checkout, which has no lane of its own to join outcomes by
 	Guide    string
 	// For a run: the verdict classes each side read, and the cause.
 	TrellisVerdict, ActualVerdict, Cause, ActualCause string
@@ -177,7 +181,7 @@ func Judge(f Fact, lane string) Record {
 		rel = TrellisSofter
 	}
 	return Record{Hook: HookPre, Rule: f.Rule, LiveRule: f.LiveRule, Trellis: t, Actual: string(f.Actual),
-		Relation: rel, HeldOut: d.HeldOut}
+		Relation: rel, HeldOut: d.HeldOut, Primary: f.Event.Target == kernel.PathPrimary}
 }
 
 // RunFact is one finished run: aphrollo's verdict word for it, and the verdict
@@ -232,7 +236,11 @@ func JudgeRun(f RunFact, lane string) (Record, bool) {
 	if d.Rule != "" {
 		r.Rule = d.Rule
 	}
-	if verdictClass(f.Verdict) != verdictClass(actual) || (f.Verdict == kernel.VerdictNotTested && f.Cause != actualCause) {
+	switch {
+	case actual == kernel.VerdictRedBogus && verdictClass(f.Verdict) == kernel.VerdictRed:
+		// phaseVerdict reads every failing run as a red and cannot say bogus.
+		r.Relation = NotComparable
+	case verdictClass(f.Verdict) != verdictClass(actual) || (f.Verdict == kernel.VerdictNotTested && f.Cause != actualCause):
 		r.Relation = VerdictMismatch
 	}
 	r.ActualCause = actualCause
@@ -265,12 +273,16 @@ func (r Record) event(s Source, lane string) core.Event {
 		}
 	}
 	set("live_rule", r.LiveRule)
+	set("wt", s.Root)
 	set("key", s.Key)
 	set("guide", r.Guide)
 	set("trellis_verdict", r.TrellisVerdict)
 	set("aphrollo_verdict", r.ActualVerdict)
 	set("cause", r.Cause)
 	set("aphrollo_cause", r.ActualCause)
+	if r.Primary {
+		d["primary"] = "true"
+	}
 	if r.HeldOut {
 		d["held_out"] = "true"
 	}

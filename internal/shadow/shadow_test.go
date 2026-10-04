@@ -120,6 +120,7 @@ func TestJudgeRun_GuidesAndMismatches(t *testing.T) {
 		{"not tested for different causes", RunFact{"infra-failed", kernel.VerdictNotTested, "skipped"}, "not-tested", "not-tested", VerdictMismatch, true},
 		{"bogus red on both sides", RunFact{"red-bogus", kernel.VerdictRedBogus, ""}, "run-result", "red-bogus", Agree, true},
 		{"aphrollo red, trellis bogus", RunFact{"red", kernel.VerdictRedBogus, ""}, "run-result", "red-bogus", VerdictMismatch, true},
+		{"aphrollo bogus where the kernel input can only say red", RunFact{"red-bogus", kernel.VerdictRed, ""}, "run-verdict", "", NotComparable, true},
 		{"a word that is no verdict is not recorded", RunFact{"queue-waiting", kernel.VerdictGreen, ""}, "", "", "", false},
 	}
 	for _, c := range cases {
@@ -177,13 +178,14 @@ func capture(t *testing.T) *[]core.Event {
 
 func TestRecordFacts_WritesOneShadowEventWithMetadataOnly(t *testing.T) {
 	got := capture(t)
-	RecordFacts(Source{Root: t.TempDir(), Actor: "s1/a1", Key: "k1"}, []Fact{Rerun(Block), Law("ratchet:x", false, Warn)})
+	root := t.TempDir()
+	RecordFacts(Source{Root: root, Actor: "s1/a1", Key: "k1"}, []Fact{Rerun(Block), Law("ratchet:x", false, Warn)})
 	if len(*got) != 2 {
 		t.Fatalf("wrote %d events, want 2", len(*got))
 	}
 	e := (*got)[0]
 	want := map[string]string{"hook": "pretooluse", "rule": "rerun-suite", "live_rule": "bash-whole-suite", "trellis": "guide",
-		"aphrollo": "block", "relation": "trellis-softer", "key": "k1"}
+		"aphrollo": "block", "relation": "trellis-softer", "key": "k1", "wt": root}
 	if e.Kind != "shadow" || e.Cmd != "" || e.Actor != "s1/a1" || !reflect.DeepEqual(e.Detail, want) {
 		t.Errorf("event = kind %q cmd %q actor %q detail %v, want kind shadow, no cmd, detail %v", e.Kind, e.Cmd, e.Actor, e.Detail, want)
 	}
@@ -191,7 +193,8 @@ func TestRecordFacts_WritesOneShadowEventWithMetadataOnly(t *testing.T) {
 
 func TestRecordRun_WritesTheClassesAndCauses(t *testing.T) {
 	got := capture(t)
-	RecordRun(Source{Root: t.TempDir(), Key: "tree1"}, func() (RunFact, bool) {
+	root := t.TempDir()
+	RecordRun(Source{Root: root, Key: "tree1"}, func() (RunFact, bool) {
 		return RunFact{Word: "timeout", Verdict: kernel.VerdictNotTested, Cause: "timeout"}, true
 	})
 	if len(*got) != 1 {
@@ -199,7 +202,7 @@ func TestRecordRun_WritesTheClassesAndCauses(t *testing.T) {
 	}
 	want := map[string]string{"hook": "posttooluse-run", "rule": "not-tested", "trellis": "guide", "aphrollo": "timeout",
 		"relation": "agree", "key": "tree1", "guide": "not-tested", "trellis_verdict": "not-tested", "aphrollo_verdict": "not-tested",
-		"cause": "timeout", "aphrollo_cause": "timeout"}
+		"cause": "timeout", "aphrollo_cause": "timeout", "wt": root}
 	if d := (*got)[0].Detail; !reflect.DeepEqual(d, want) {
 		t.Errorf("detail = %v, want %v", d, want)
 	}
@@ -240,4 +243,20 @@ func TestRecordFacts_OverrunReturnsInsideTheBudgetAndPanicIsDropped(t *testing.T
 	}
 	appendEvent = func(core.Event) { panic("writer failed") }
 	RecordRun(Source{Root: t.TempDir()}, func() (RunFact, bool) { return RunFact{Word: "green", Verdict: kernel.VerdictGreen}, true })
+}
+
+// Only a fact about the primary checkout is filed as primary: its outcomes
+// cannot be joined by a lane, and the fold leaves it open.
+func TestRecordFacts_AFactAboutThePrimaryCheckoutIsFiledAsPrimary(t *testing.T) {
+	got := capture(t)
+	RecordFacts(Source{Root: t.TempDir()}, []Fact{PrimaryWrite(kernel.ToolWrite, Allow), Discard(Block)})
+	if len(*got) != 2 {
+		t.Fatalf("wrote %d events, want 2", len(*got))
+	}
+	if (*got)[0].Detail["primary"] != "true" {
+		t.Errorf("a primary write is not filed as primary: %v", (*got)[0].Detail)
+	}
+	if v, ok := (*got)[1].Detail["primary"]; ok {
+		t.Errorf("a discard is not about the primary checkout, but carries primary=%q", v)
+	}
 }

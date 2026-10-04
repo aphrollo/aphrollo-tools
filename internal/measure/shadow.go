@@ -2,6 +2,7 @@ package measure
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -30,18 +31,19 @@ const shadowHorizon = ShadowHorizonDays * 24 * time.Hour
 // of those) and which are still open. Softer is where aphrollo denies and trellis
 // would only guide; SoftHeldOut those that were the holdout arm's by design.
 type ShadowRule struct {
-	Rule        string `json:"rule"`
-	Fires       int    `json:"fires"`
-	Agree       int    `json:"agree"`
-	Stricter    int    `json:"trellis_stricter"`
-	Softer      int    `json:"trellis_softer"`
-	SoftHeldOut int    `json:"trellis_softer_held_out"`
-	Mismatch    int    `json:"verdict_mismatch"`
-	HeldOut     int    `json:"held_out"`
-	Catches     int    `json:"would_be_catches"`
-	Wrong       int    `json:"would_be_wrong"`
-	Passes      int    `json:"would_be_passes"`
-	Open        int    `json:"would_be_open"`
+	Rule          string `json:"rule"`
+	Fires         int    `json:"fires"`
+	Agree         int    `json:"agree"`
+	Stricter      int    `json:"trellis_stricter"`
+	Softer        int    `json:"trellis_softer"`
+	SoftHeldOut   int    `json:"trellis_softer_held_out"`
+	Mismatch      int    `json:"verdict_mismatch"`
+	NotComparable int    `json:"not_comparable"`
+	HeldOut       int    `json:"held_out"`
+	Catches       int    `json:"would_be_catches"`
+	Wrong         int    `json:"would_be_wrong"`
+	Passes        int    `json:"would_be_passes"`
+	Open          int    `json:"would_be_open"`
 }
 
 // Rate is the share of the rule's fires where both sides agreed, "" while the
@@ -110,6 +112,8 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 			}
 		case "verdict-mismatch":
 			r.Mismatch++
+		case "not-comparable":
+			r.NotComparable++
 		}
 	}
 	for _, r := range rules {
@@ -128,41 +132,79 @@ const (
 	followPass
 )
 
-// followOf is what the lane's log says of the would-be block at evs[i]: an
-// override within WrongBlockWindow makes it wrong, whatever else follows; else a
-// later commit gate refusal, red CI or escape within the horizon makes it a catch;
-// else a merge makes it a pass. A fire on no lane has nothing to follow.
+// followOf is what the log says of the would-be block at evs[i], read from the
+// events of its own lane: an override of the same rule within WrongBlockWindow
+// makes it wrong, whatever else follows; else a commit gate refusal, red CI or
+// escape on the lane makes it a catch; else the lane's merge makes it a pass.
+//
+// The scan stops at the lane's first merge after the fire: a lane name used again
+// afterwards is another lane. A fire on no lane, or in the primary checkout (its
+// name is the trunk's, shared by every change made there, and the gate's events
+// carry no root to tell them apart), is never joined and stays open. Events on no
+// lane never join. An event that names a worktree other than the fire's is not
+// the same lane's.
 func followOf(evs []stamped, i int) follow {
 	fire := evs[i]
-	if fire.Lane == "" {
+	if fire.Lane == "" || fire.Detail["primary"] == "true" || isTrunkLane(fire.Lane) {
 		return followOpen
 	}
-	var caught, merged bool
+	wt := fire.Detail["wt"]
+	caught := false
 	for _, e := range evs[i+1:] {
 		if e.at.Sub(fire.at) > shadowHorizon {
 			break
 		}
-		if e.Lane != fire.Lane {
+		if e.Lane != fire.Lane || (wt != "" && e.Root != "" && e.Root != wt) {
 			continue
 		}
 		switch {
-		case e.Kind == "override" && !isAllowedRerun(e) && e.at.Sub(fire.at) <= WrongBlockWindow:
+		case e.Kind == "override" && !isAllowedRerun(e) && e.at.Sub(fire.at) <= WrongBlockWindow && overrideAbout(e, fire):
 			return followWrong
 		case e.Kind == "commit_gate_result" && e.Verdict == "blocked",
 			e.Kind == "ci" && e.Verdict == "red",
 			e.Kind == "escape" && e.Verdict != "false-positive":
 			caught = true
 		case e.Kind == "merge" && e.Verdict == "ok":
-			merged = true
+			if caught {
+				return followCatch
+			}
+			return followPass
 		}
 	}
-	switch {
-	case caught:
+	if caught {
 		return followCatch
-	case merged:
-		return followPass
 	}
 	return followOpen
+}
+
+// isTrunkLane is a lane name that is a trunk's: the primary checkout's.
+func isTrunkLane(lane string) bool {
+	return lane == "main" || lane == "master" || lane == "@trunk"
+}
+
+// overrideWords are the words an override of a shadowed rule's wall carries in its
+// name, beside the live rule's own name.
+var overrideWords = map[string][]string{
+	"primary-write": {"primary"},
+	"discard-work":  {"discard"},
+	"rerun-suite":   {"override-bash-"},
+	"bypass-verb":   {"direct-pr", "pr-open"},
+	"attribution":   {"undercover"},
+}
+
+// overrideAbout reports whether the override waives the rule the fire was about:
+// the aphrollo rule's own name or the shadowed rule's wall, never an unrelated
+// escape on the same lane.
+func overrideAbout(o, fire stamped) bool {
+	name := o.Detail["override"]
+	if name == "" {
+		name = o.Verdict
+	}
+	needles := slices.Clone(overrideWords[fire.Detail["rule"]])
+	if live := fire.Detail["live_rule"]; live != "" {
+		needles = append(needles, live, strings.TrimPrefix(live, "ratchet:"))
+	}
+	return slices.ContainsFunc(needles, func(n string) bool { return n != "" && strings.Contains(name, n) })
 }
 
 func windowText(d time.Duration) string {
@@ -178,11 +220,11 @@ func (s Shadow) Text() string {
 	p := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
 	const cont = "                       " // under a row's first count
 	p("%-22s%d (%s)", "shadow fires", s.Fires, s.Window)
-	p("%-22s%s", "  wrong block", fmt.Sprintf("an override within %.0f min of the fire on its lane", WrongBlockWindow.Minutes()))
-	p("%-22s%s", "  catch / pass", fmt.Sprintf("a later commit gate refusal, red CI or escape / a merge, within %d days", ShadowHorizonDays))
+	p("%-22s%s", "  wrong block", fmt.Sprintf("an override of the same rule within %.0f min of the fire on its lane", WrongBlockWindow.Minutes()))
+	p("%-22s%s", "  catch / pass", fmt.Sprintf("a later commit gate refusal, red CI or escape / the lane's merge, within %d days", ShadowHorizonDays))
 	for _, r := range s.Rules {
-		p("%-22s %d fires  agree %d  would-be block %d  softer %d (%d held out)  mismatch %d  held out %d",
-			r.Rule, r.Fires, r.Agree, r.Stricter, r.Softer, r.SoftHeldOut, r.Mismatch, r.HeldOut)
+		p("%-22s %d fires  agree %d  would-be block %d  softer %d (%d held out)  mismatch %d  not comparable %d  held out %d",
+			r.Rule, r.Fires, r.Agree, r.Stricter, r.Softer, r.SoftHeldOut, r.Mismatch, r.NotComparable, r.HeldOut)
 		if r.Stricter > 0 {
 			p("%swould-be blocks: catches %d  wrong %d  passes %d  open %d", cont, r.Catches, r.Wrong, r.Passes, r.Open)
 		}

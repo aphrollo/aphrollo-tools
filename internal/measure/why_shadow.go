@@ -38,8 +38,8 @@ type ShadowWhy struct {
 
 // summary is the rule's counts as one line.
 func (r ShadowRule) summary() string {
-	return fmt.Sprintf("%d fires: agree %d, would-be block %d, softer %d, mismatch %d, held out %d",
-		r.Fires, r.Agree, r.Stricter, r.Softer, r.Mismatch, r.HeldOut)
+	return fmt.Sprintf("%d fires: agree %d, would-be block %d, softer %d, mismatch %d, not comparable %d, held out %d",
+		r.Fires, r.Agree, r.Stricter, r.Softer, r.Mismatch, r.NotComparable, r.HeldOut)
 }
 
 func explainShadow(events []tdd.Event, e tdd.Event) *ShadowWhy {
@@ -83,6 +83,8 @@ func shadowOfDeny(events []tdd.Event, rule string) string {
 			r.Softer++
 		case "verdict-mismatch":
 			r.Mismatch++
+		case "not-comparable":
+			r.NotComparable++
 		}
 		if e.Detail["held_out"] == "true" {
 			r.HeldOut++
