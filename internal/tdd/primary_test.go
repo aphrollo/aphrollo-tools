@@ -355,3 +355,18 @@ func powerShellPayload(t *testing.T, session, cwd, command string) []byte {
 	t.Helper()
 	return tddtest.PowerShellPayload(t, session, cwd, command)
 }
+
+// The branch a primary checkout stays on is the repo's trunk, whatever it is
+// called; no name is assumed.
+func TestPrimaryCheckout_HoldsTheReposTrunkWhateverItIsCalled(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, _ := primaryRepo(t)
+	gitDo(t, primary, "branch", "-m", "main", "develop")
+	gitDo(t, primary, "config", "init.defaultBranch", "develop")
+
+	d := PrimaryCheckoutDecision(editPayload(t, "Edit", filepath.Join(primary, "main.go"), "s9"))
+
+	if d.Action != Block || !strings.Contains(d.Reason, " develop") {
+		t.Fatalf("a primary checkout on its trunk 'develop' should Block naming it, got %+v", d)
+	}
+}

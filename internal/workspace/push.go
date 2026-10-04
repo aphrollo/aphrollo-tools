@@ -100,7 +100,7 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 	// why the Plan-time snapshot can be stale by the time Apply runs.
 	p.hasUpstream, p.ahead = resolveAhead(wt, branch)
 	// git's own progress goes to stderr, keeping stdout the parseable receipt.
-	if err := gitNetworkStream(wt, stderr, stderr, pushArgs(branch, p.ForceWithLease)...); err != nil {
+	if err := wtNetworkStream(wt, stderr, stderr, pushArgs(branch, p.ForceWithLease)...); err != nil {
 		return fmt.Errorf("git push: %w", err)
 	}
 	suffix := ""
@@ -134,7 +134,7 @@ func (p *Push) Apply(stdout, stderr io.Writer) error {
 	if miErr == nil && mi != nil {
 		switch {
 		case isConflicting(mi):
-			fmt.Fprintf(stdout, "CONFLICT: branch has merge conflicts — rebase onto %s and resolve before submit\n", resolveDefaultBranch(wt))
+			fmt.Fprintf(stdout, "CONFLICT: branch has merge conflicts — rebase onto %s and resolve before submit\n", defaultBranchLabel(wt))
 		case mergeUnknown(mi):
 			fmt.Fprintf(stdout, "mergeable: unknown — re-run to recheck\n")
 		}
@@ -184,7 +184,7 @@ func (p *Push) state() string {
 // upstreamRef returns the configured upstream (e.g. "origin/feat") or "" if the
 // branch has none.
 func upstreamRef(wt string) string {
-	out, err := lightGit("-C", wt, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+	out, err := wtGit(wt, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 	if err != nil {
 		return ""
 	}
@@ -192,12 +192,12 @@ func upstreamRef(wt string) string {
 }
 
 func remoteBranchExists(wt, branch string) bool {
-	return lightGitOK("-C", wt, "show-ref", "--verify", "--quiet", "refs/remotes/origin/"+branch)
+	return gitBranchRef(wt, "refs/remotes/origin/"+branch)
 }
 
 // aheadCount returns how many commits HEAD is ahead of base, as a string.
 func aheadCount(wt, base string) string {
-	out, err := lightGit("-C", wt, "rev-list", "--count", base+"..HEAD")
+	out, err := wtGit(wt, "rev-list", "--count", base+"..HEAD")
 	if err != nil {
 		return ""
 	}
@@ -207,11 +207,7 @@ func aheadCount(wt, base string) string {
 // branchURL turns origin's remote URL into a github tree URL for the branch,
 // normalizing both ssh and https forms. Returns "" for a non-github remote.
 func branchURL(wt, branch string) string {
-	out, err := lightGit("-C", wt, "remote", "get-url", "origin")
-	if err != nil {
-		return ""
-	}
-	repo := normalizeGitHubURL(strings.TrimSpace(string(out)))
+	repo := normalizeGitHubURL(wtRemoteURL(wt, "origin"))
 	if repo == "" {
 		return ""
 	}

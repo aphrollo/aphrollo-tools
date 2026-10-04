@@ -99,6 +99,9 @@ func Apply(p *Plan, stdout, stderr io.Writer) error {
 // original unbounded exec.Command — a local `git worktree add` or an
 // `npm install` is not the hang this bounds.
 func runStep(s Step, env []string, stdout, stderr io.Writer) error {
+	if dir, args, ok := gitStepIn(s); ok {
+		return runGitStep(s, dir, args, stdout, stderr)
+	}
 	spec := childrun.Spec{Name: s.Cmd[0], Args: s.Cmd[1:], Dir: s.Dir, Env: env, Stdout: stdout, Stderr: stderr}
 	switch {
 	case s.Network:
@@ -116,11 +119,11 @@ func runStep(s Step, env []string, stdout, stderr io.Writer) error {
 // base detail if the worktree or refs can't be read.
 func reportBase(p *Plan, stdout io.Writer) {
 	// stderr-ok: best-effort base detail, the caller reports nothing on failure
-	out, err := lightGit("-C", p.Worktree, "rev-parse", "--short", "HEAD")
+	sha, err := wtHeadSHA(p.Worktree)
 	if err != nil {
 		return
 	}
-	base := strings.TrimSpace(string(out))
+	base := abbrev(sha)
 	n, ok := 0, false
 	if p.StartPoint != "" {
 		n, ok = gitBehindCount(p.Worktree, "HEAD", p.StartPoint)
@@ -152,11 +155,10 @@ func List(repo string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err := lightGit("-C", top, "worktree", "list", "--porcelain")
+	entries, err := worktreeEntries(top)
 	if err != nil {
 		return "", fmt.Errorf("git worktree list: %w", err)
 	}
-	entries := parseWorktreeList(string(out))
 	states := resolvePRStates(entries)
 	var b strings.Builder
 	for i, e := range entries {
@@ -326,12 +328,12 @@ func (r *Removal) removeWorktree(stdout io.Writer) error {
 	if err := depinstall.RemoveLinks(r.worktree); err != nil {
 		return fmt.Errorf("unlink the links in %s before removing it: %v", r.worktree, err)
 	}
-	args := []string{"-C", r.top, "worktree", "remove"}
+	args := []string{"worktree", "remove"}
 	if r.Force {
 		args = append(args, "--force")
 	}
 	args = append(args, r.worktree)
-	out, err := lightGitCombined(args...)
+	out, err := wtGitCombined(r.top, args...)
 	if err != nil {
 		if isNotAWorktree(string(out)) {
 			fmt.Fprintf(stdout, "[skip] worktree %s — already gone\n", r.worktree)
@@ -353,7 +355,7 @@ func (r *Removal) deleteBranch(stdout io.Writer) error {
 	}
 	// "--" guards the branch name as a positional (defense in depth behind Slugify,
 	// which the branch passed at plan time).
-	out, err := lightGitCombined("-C", r.top, "branch", "-D", "--", r.branch)
+	out, err := wtGitCombined(r.top, "branch", "-D", "--", r.branch)
 	if err != nil {
 		return fmt.Errorf("git branch -D %s: %v\n%s", r.branch, err, strings.TrimSpace(string(out)))
 	}
@@ -363,7 +365,7 @@ func (r *Removal) deleteBranch(stdout io.Writer) error {
 
 // localBranchExists reports whether repo has a local branch by this name.
 func localBranchExists(repo, branch string) bool {
-	return lightGitOK("-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	return gitBranchExists(repo, branch)
 }
 
 // isNotAWorktree reports whether git's output is the benign "the dir is not a

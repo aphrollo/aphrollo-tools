@@ -48,7 +48,7 @@ type verifyStep struct {
 // A repo with none is never charged for a check that does not apply to it.
 func HasAppProfile(root string) bool {
 	// stderr-ok: a git that cannot list the index tracks no package.json here; the exit alone decides.
-	out, err := lightGit("-C", root, "ls-files", "--", "package.json", "*/package.json")
+	out, err := wtGit(root, "ls-files", "--", "package.json", "*/package.json")
 	return err == nil && strings.TrimSpace(string(out)) != ""
 }
 
@@ -76,7 +76,7 @@ var verifyChangedPaths = func(wt, baseRef string) []string {
 	if !gitRefExists(wt, baseRef) {
 		return nil
 	}
-	out, err := lightGit("-C", wt, "diff", "--name-only", baseRef)
+	out, err := wtGit(wt, "diff", "--name-only", baseRef)
 	if err != nil {
 		return nil
 	}
@@ -135,9 +135,12 @@ func BuildVerify(t *Target, cwd string) (*Verify, error) {
 // branch changes, in path order, else the one holding cwd. It never expands to
 // every root of a monorepo unasked.
 func resolveNpmRoots(wt, cwd string) []string {
-	base := "origin/" + resolveDefaultBranch(wt)
 	var roots []string
-	for _, p := range verifyChangedPaths(wt, base) {
+	var changed []string
+	if def := resolveDefaultBranch(wt); def != "" {
+		changed = verifyChangedPaths(wt, "origin/"+def)
+	}
+	for _, p := range changed {
 		if root := npmRootOf(wt, filepath.Dir(filepath.Join(wt, filepath.FromSlash(p)))); root != "" {
 			roots = append(roots, root)
 		}

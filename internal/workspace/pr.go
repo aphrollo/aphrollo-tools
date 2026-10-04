@@ -221,7 +221,11 @@ func PRPlan(t *Target, base, title, body string, draft bool) (*PR, error) {
 		return nil, err
 	}
 	if base == "" {
-		base = resolveDefaultBranch(t.Worktree)
+		def, err := needDefaultBranch(t.Worktree)
+		if err != nil {
+			return nil, err
+		}
+		base = def
 	}
 	return &PR{
 		Target: t,

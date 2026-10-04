@@ -173,7 +173,7 @@ func TestGitNetworkOutput_GivesUpOnAStalledFetchAtTheDeadline(t *testing.T) {
 	gitNetworkTimeout = 200 * time.Millisecond
 
 	started := time.Now()
-	_, err := gitNetworkOutput(t.TempDir(), "fetch", "origin", "--quiet")
+	_, err := wtNetwork(t.TempDir(), "fetch", "origin", "--quiet")
 	elapsed := time.Since(started)
 
 	if err == nil || !strings.Contains(err.Error(), "timed out") {

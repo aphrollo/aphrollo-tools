@@ -50,6 +50,11 @@ type Options struct {
 	Env []string
 	// Timeout ends one call; defaultTimeout when zero.
 	Timeout time.Duration
+	// Inherit runs git in this process's whole environment, GIT_* included,
+	// plus Env. A verb the operator ran wants their GIT_SSH_COMMAND, their
+	// GIT_AUTHOR_NAME and the like; a hook's client leaves it false and runs in an
+	// environment scrubbed of them.
+	Inherit bool
 }
 
 // Client is git for one worktree. It is safe for concurrent use.
@@ -64,6 +69,7 @@ type Client struct {
 	statusKey string
 	trunk     string
 	trunkDone bool
+	remotes   map[string]string
 }
 
 // New binds a Client to the worktree dir is in, found by walking up to the
@@ -164,17 +170,30 @@ func (c *Client) outputIn(dir string, args ...string) (string, error) {
 	c.spawns.Add(1)
 	slots <- struct{}{}
 	defer func() { <-slots }()
+	out, err := run.LightOutput(c.spec(dir, Call{}, args))
+	return string(out), err
+}
+
+// spec is the child one call runs as.
+func (c *Client) spec(dir string, call Call, args []string) run.Spec {
 	bin := c.opt.Bin
 	if bin == "" {
 		bin = "git"
 	}
-	timeout := c.opt.Timeout
+	timeout := call.Timeout
+	if timeout <= 0 {
+		timeout = c.opt.Timeout
+	}
 	if timeout <= 0 {
 		timeout = defaultTimeout
 	}
-	env := append(gitenv.CleanFor(dir, args...), c.opt.Env...)
-	out, err := run.LightOutput(run.Spec{Name: bin, Args: args, Dir: dir, Env: env, Timeout: timeout})
-	return string(out), err
+	var env []string
+	if c.opt.Inherit {
+		env = append(os.Environ(), c.opt.Env...)
+	} else {
+		env = append(gitenv.CleanFor(dir, args...), c.opt.Env...)
+	}
+	return run.Spec{Name: bin, Args: args, Dir: dir, Env: env, Timeout: timeout, Stdout: call.Stdout, Stderr: call.Stderr}
 }
 
 // statusArgs is the one call that answers a batch. Optional locks are off so a

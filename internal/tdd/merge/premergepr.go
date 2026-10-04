@@ -140,11 +140,10 @@ type prGateTips struct {
 // hours ago. A seam, and a repo with no origin skips it: the LOCAL merge path
 // must keep working with no network at all, and a test must never reach one.
 var prGateFetch = func(dir string) error {
-	out, err := git(dir, "remote")
-	if err != nil || !strings.Contains(out, "origin") {
+	if originURL(dir) == "" {
 		return nil
 	}
-	_, err = git(dir, "fetch", "--quiet", "origin")
+	_, err := git(dir, "fetch", "--quiet", "origin")
 	return err
 }
 
@@ -168,7 +167,7 @@ func prGateTipsOf(laneWorktree, head string, log io.Writer) (prGateTips, error) 
 			premergeDisplayName, trunk, err)
 	}
 	tips := prGateTips{trunkRef: trunk}
-	tips.trunk = strings.TrimSpace(gitOut(laneWorktree, "rev-parse", trunk))
+	tips.trunk = refSHA(laneWorktree, trunk)
 	if head == "" {
 		head = "HEAD"
 	}

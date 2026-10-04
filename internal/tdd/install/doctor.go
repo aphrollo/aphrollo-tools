@@ -114,13 +114,13 @@ func doctorPrimaryCheckout(in DoctorInput) (DoctorCheck, bool) {
 	if in.Repo == "" {
 		return c, false
 	}
-	root, branch, applies := PrimaryCheckoutState(in.Repo)
-	if !applies {
+	root, branch, trunk, applies := PrimaryCheckoutState(in.Repo)
+	if !applies || trunk == "" {
 		return c, false
 	}
-	if branch != primaryBranch {
+	if branch != trunk {
 		c.Detail = fmt.Sprintf("%s is on %s — it receives merges and must hold %s; run `git checkout %s`",
-			root, branch, primaryBranch, primaryBranch)
+			root, branch, trunk, trunk)
 		return c, true
 	}
 	c.OK = true

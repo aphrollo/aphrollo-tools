@@ -105,7 +105,7 @@ func remoteBranchAlreadyGone(output string) bool {
 // bool return tells the caller so it reports "[skip]" rather than claiming a
 // deletion that never happened.
 var ghDeleteRemoteBranch = func(wt, branch string) (bool, error) {
-	out, err := gitNetworkOutput(wt, "push", "origin", "--delete", "--", branch)
+	out, err := wtNetwork(wt, "push", "origin", "--delete", "--", branch)
 	if err != nil {
 		if remoteBranchAlreadyGone(string(out)) {
 			return true, nil // already gone — nothing to delete
@@ -226,7 +226,11 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 	}
 	base := pr.BaseRef
 	if base == "" {
-		base = resolveDefaultBranch(m.Target.Worktree)
+		def, err := needDefaultBranch(m.Target.Worktree)
+		if err != nil {
+			return nil, err
+		}
+		base = def
 	}
 	queued, err := ghHasMergeQueue(m.Target.Worktree, pr.BaseRepo, base)
 	if err != nil {

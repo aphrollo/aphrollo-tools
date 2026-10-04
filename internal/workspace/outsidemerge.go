@@ -12,7 +12,6 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/core"
-	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
 // A merge into trunk that did not go through `workspace merge` (the GitHub web
@@ -96,8 +95,9 @@ func prNumber(subject string) int {
 // first: a commit with two parents, or one whose subject names a PR (a squash
 // merge has one parent). A plain commit pushed straight to trunk is neither.
 func trunkMergesIn(repo, rng string) ([]OutsideMerge, error) {
-	out, err := gitx.Git(repo, "log", "--first-parent", "--reverse",
+	raw, err := wtGit(repo, "log", "--first-parent", "--reverse",
 		"--max-count="+strconv.Itoa(outsideScanCap), "--format=%H%x1f%P%x1f%cI%x1f%s", rng)
+	out := string(raw)
 	if err != nil {
 		return nil, fmt.Errorf("git log %s: %v: %s", rng, err, strings.TrimSpace(out))
 	}
@@ -253,11 +253,14 @@ func noteTrunkMove(repo, before, def string, stdout io.Writer) {
 
 // refTip is the sha ref resolves to in repo, "" when it does not.
 func refTip(repo, ref string) string {
-	out, err := gitx.Git(repo, "rev-parse", "--verify", "--quiet", ref)
+	if c := repoGit(repo); c != nil && plainRefName(ref) {
+		return c.ResolveRef(ref)
+	}
+	out, err := wtGit(repo, "rev-parse", "--verify", "--quiet", ref)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(out)
+	return strings.TrimSpace(string(out))
 }
 
 // declaresAphrollo reports whether the repo at root carries an aphrollo
@@ -288,8 +291,7 @@ func PostMergeRecord(dir string, stderr io.Writer) {
 		return
 	}
 	trunk, _ := strings.CutPrefix(tdd.TrunkBranch(root), "origin/")
-	head, err := gitx.Git(root, "symbolic-ref", "--short", "--quiet", "HEAD")
-	if err != nil || strings.TrimSpace(head) != trunk {
+	if currentBranch(root) != trunk {
 		return
 	}
 	merges, err := outsideMergesIn(root, "ORIG_HEAD..HEAD")
@@ -317,7 +319,10 @@ func SyncSince(repoArg, since string, dry bool, stdout, stderr io.Writer) error 
 	if err := Sync(repoArg, dry, stdout, stderr); err != nil {
 		return err
 	}
-	def := resolveDefaultBranch(top)
+	def, err := needDefaultBranch(top)
+	if err != nil {
+		return err
+	}
 	tip := "refs/remotes/origin/" + def
 	if !gitRefExists(top, tip) {
 		tip = "refs/heads/" + def

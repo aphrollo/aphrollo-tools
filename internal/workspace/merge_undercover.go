@@ -79,7 +79,11 @@ func undercoverMerge(t *Target, method, head string) (body, title string, useBod
 	if strings.TrimSpace(kept) == "" {
 		kept = title
 	}
-	base := "origin/" + resolveDefaultBranch(t.Worktree)
+	def, err := needDefaultBranch(t.Worktree)
+	if err != nil {
+		return "", "", false, err
+	}
+	base := "origin/" + def
 	return withClosingTrailers(kept, commitMessagesSince(t.Worktree, base, head)), title, true, nil
 }
 
@@ -118,7 +122,11 @@ func withClosingTrailers(body string, commits []string) string {
 // undercoverPRCommits refuses when a commit the PR brings — everything on the
 // branch that origin's default branch does not hold — carries a tell.
 func undercoverPRCommits(t *Target, head string, tells undercover.List) error {
-	base := "origin/" + resolveDefaultBranch(t.Worktree)
+	def, err := needDefaultBranch(t.Worktree)
+	if err != nil {
+		return err
+	}
+	base := "origin/" + def
 	sha, h, hit, err := tells.RangeTell("git", t.Worktree, nil, base+".."+head)
 	if err != nil {
 		return fmt.Errorf("listing the PR's commits (%s..%s): %w", base, short(head), err)
