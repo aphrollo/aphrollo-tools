@@ -10,4 +10,6 @@ type Event = core.Event
 
 func AppendEvent(p0 Event) { core.AppendEvent(p0) }
 
+func GateLogPath() string { return core.GateLogPath() }
+
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }

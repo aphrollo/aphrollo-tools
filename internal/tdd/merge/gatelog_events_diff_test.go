@@ -2,6 +2,8 @@ package merge
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -34,9 +36,9 @@ func oracleLastPrecommit(rows []histRow, root string) string {
 	return last
 }
 
-func oracleStoredGreen(rows []histRow, tree string) bool {
+func oracleStoredGreen(rows []histRow, root, tree string) bool {
 	for _, l := range oracleLines(rows) {
-		if e, ok := parseGateLine(l); ok && e.Stage == ciStage && e.Cmd == "local-ci:"+tree && e.Verdict == "green" {
+		if e, ok := parseGateLine(l); ok && sameProject(e.Root, root) && e.Stage == ciStage && e.Cmd == "local-ci:"+tree && e.Verdict == "green" {
 			return true
 		}
 	}
@@ -46,8 +48,8 @@ func oracleStoredGreen(rows []histRow, tree string) bool {
 func TestGateEvents_ReadersAnswerAsTheGateLogReadersDid(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("TRELLIS_DATA", t.TempDir())
-	repoA := t.TempDir()
-	repoB := t.TempDir()
+	repoA := gitRepo(t)
+	repoB := gitRepo(t)
 	rows := []histRow{
 		{"precommit", repoA, "cargo-test", "green"},
 		{"precommit", repoB, "cargo-test", "timeout"},
@@ -67,11 +69,44 @@ func TestGateEvents_ReadersAnswerAsTheGateLogReadersDid(t *testing.T) {
 		}
 	}
 	for _, tree := range []string{"treeone", "treetwo", "treethree", "unknown", ""} {
-		if got, want := storedGreen(repoA, tree), oracleStoredGreen(rows, tree); got != want {
+		if got, want := storedGreen(repoA, tree), oracleStoredGreen(rows, repoA, tree); got != want {
 			t.Errorf("storedGreen(%q) = %v, the gate.log reading gave %v", tree, got, want)
 		}
 	}
+	if storedGreen(repoA, "treethree") {
+		t.Error("a green recorded in another repository must not answer for this one")
+	}
+	if !storedGreen(repoB, "treethree") {
+		t.Error("a repository's own green must answer for it")
+	}
 	if !strings.Contains(strings.Join(oracleLines(rows), "\n"), "local-ci:treetwo green") {
 		t.Fatal("setup: the oracle history lost its green line")
+	}
+}
+
+// A box upgraded from a release that wrote gate.log has history there and none
+// in the events. Both the last commit-gate verdict and a local-CI green for a
+// tree still read from it, until the fallback is removed (2026-11-05); a green
+// is keyed by the tree, so reusing it is as safe as it was.
+func TestGateEvents_AColdStartReadsGateLogHistory(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	repo := gitRepo(t)
+	lines := oracleLines([]histRow{
+		{"precommit", repo, "cargo-test", "green"},
+		{"ci", repo, "local-ci:oldtree", "green"},
+		{"precommit", repo, "cargo-test", "cache-hit"},
+	})
+	if err := os.MkdirAll(filepath.Dir(GateLogPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(GateLogPath(), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastPrecommitVerdict(repo); got != "cache-hit" {
+		t.Errorf("lastPrecommitVerdict = %q, want the pre-upgrade verdict cache-hit", got)
+	}
+	if !storedGreen(repo, "oldtree") {
+		t.Error("a pre-upgrade local-CI green for the same tree must still be reused")
 	}
 }
