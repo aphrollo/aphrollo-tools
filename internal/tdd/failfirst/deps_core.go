@@ -45,6 +45,8 @@ func removeGateWorktree(p0 string, p1 string) { core.RemoveGateWorktree(p0, p1) 
 
 func repoStateKey(p0 string) string { return core.RepoStateKey(p0) }
 
+func samePath(p0 string, p1 string) bool { return core.SamePath(p0, p1) }
+
 func warnGateLogUnwritable(p0 string) { core.WarnGateLogUnwritable(p0) }
 
 func writeFileAtomic(p0 string, p1 []byte) error { return core.WriteFileAtomic(p0, p1) }

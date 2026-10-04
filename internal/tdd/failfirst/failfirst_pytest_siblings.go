@@ -61,7 +61,7 @@ func otherWorktreeRoots(root string) pytestSearch {
 		if i == 0 {
 			search.remedy = dir
 		}
-		if path == top || (i > 0 && w.head != mergeHead) {
+		if samePath(path, top) || (i > 0 && w.head != mergeHead) {
 			continue
 		}
 		search.elsewhere = append(search.elsewhere, dir)

@@ -211,8 +211,10 @@ func RepoRoot(dir string) string {
 	}
 	// Inside the git directory itself there is no work tree, as git says.
 	if abs, err := filepath.Abs(dir); err == nil {
-		if rel, err := filepath.Rel(root, igit.Canonical(abs)); err == nil && (rel == ".git" || strings.HasPrefix(filepath.ToSlash(rel), ".git/")) {
-			return ""
+		if rel, err := filepath.Rel(root, igit.Canonical(abs)); err == nil {
+			if first, _, _ := strings.Cut(filepath.ToSlash(rel), "/"); first == ".git" {
+				return ""
+			}
 		}
 	}
 	return root
