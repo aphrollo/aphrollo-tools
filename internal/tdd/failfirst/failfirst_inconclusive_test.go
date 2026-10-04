@@ -11,6 +11,7 @@ import (
 // refused, and the refusal says the run ended as OOM-KILLED at the cap
 // rather than that it was killed after some seconds.
 func TestFailFirstStage_CapKilledProofIsRefusedAsOOMKilled(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeGoRepo(t)
@@ -41,6 +42,7 @@ func TestFailFirstStage_CapKilledProofIsRefusedAsOOMKilled(t *testing.T) {
 // to catch, so the line is the only trace of what went unchecked.
 func TestFailFirstStage_ACheckoutThatCannotBeMadeIsNamedNotPassedQuietly(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := greenAtHeadRepo(t)

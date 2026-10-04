@@ -135,6 +135,7 @@ func TestRunCargoShim_BypassRunsWhileAnotherBuildHoldsTheLock(t *testing.T) {
 // makes it tolerable is that every use is COUNTED — a bypass nobody can see
 // is a bypass nobody manages.
 func TestQueueBypass_IsLoggedOncePerProcess(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := gateConfigDir(t)
 	t.Setenv("CARGO_TARGET_DIR", filepath.Join(t.TempDir(), "target"))
 	markGateRun(t)

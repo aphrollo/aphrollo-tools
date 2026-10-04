@@ -40,6 +40,7 @@ func lawRepo(t *testing.T) string {
 // line, with the escape, so the lane meets the refusal at the edit and not
 // at `git commit` (issue #968).
 func TestPostEdit_PutsAWouldBeRatchetRefusalOnTheGateLine(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := lawRepo(t)
 	src := filepath.Join(root, "widget.go")
@@ -57,6 +58,7 @@ func TestPostEdit_PutsAWouldBeRatchetRefusalOnTheGateLine(t *testing.T) {
 
 // A clean edit's gate line says nothing about the laws.
 func TestPostEdit_SaysNothingOfTheLawsForACleanEdit(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := lawRepo(t)
 	src := filepath.Join(root, "widget.go")
@@ -72,6 +74,7 @@ func TestPostEdit_SaysNothingOfTheLawsForACleanEdit(t *testing.T) {
 // A file no suite runs for still gets its laws judged, and the refusal is
 // then the whole gate line.
 func TestPostEdit_NamesARefusalInAFileNoSuiteRunsFor(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := lawRepo(t)
 	readme := filepath.Join(root, "README.md")

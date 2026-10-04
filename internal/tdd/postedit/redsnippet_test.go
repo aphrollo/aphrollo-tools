@@ -64,6 +64,7 @@ func buildLongCompileErrorOutput(t *testing.T) string {
 // failure:", and point at a full-output log file whose content is the
 // complete, untruncated RED output.
 func TestPostEdit_Red_LongNextestFailure_TailSnippetNamesFailureAndLogsFullOutput(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := mkProject(t, "go.mod")
@@ -101,6 +102,7 @@ func TestPostEdit_Red_LongNextestFailure_TailSnippetNamesFailureAndLogsFullOutpu
 // snippet -- the compiler's actual error line lives at the START of the
 // output, not the end.
 func TestPostEdit_Red_CompileError_HeadSnippetKeepsErrorLine(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := mkProject(t, "go.mod")

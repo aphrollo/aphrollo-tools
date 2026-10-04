@@ -70,6 +70,7 @@ func denyReason(t *testing.T, payload []byte) string {
 }
 
 func TestRun_PreToolUse_DeniesAWriteIntoThePrimaryCheckout(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateConfigDir(t)
 	primary, _ := primaryWorktreeRepo(t)
 

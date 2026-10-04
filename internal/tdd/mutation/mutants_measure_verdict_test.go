@@ -224,6 +224,7 @@ func TestAfterHook_RunsWithStatusAndNeverChangesVerdict(t *testing.T) {
 // COVERED. A receipt saying every mutant survived is the wrong answer in the
 // blocking direction, so the stage stands down and says so (criterion 11).
 func TestMeasure_GoRepoOnWindowsStandsDown(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))

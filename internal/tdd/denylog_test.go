@@ -28,6 +28,7 @@ func gateLineFields(line string) (stage, verdict string, ok bool) {
 // it left no trace at all: the log recorded suites, never denials, so nobody
 // could count how often a policy fires or which one.
 func TestLogEditDecision_RecordsTheDeniedPolicy(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	raw := []byte(`{"tool_name":"Edit","tool_input":{"file_path":"src/widget_test.go","new_string":"time.Sleep(2)"}}`)
@@ -56,6 +57,7 @@ func TestLogEditDecision_IsSilentWhenTheEditFlows(t *testing.T) {
 
 // A law denial is attributed to the LAW. "some rule said no" is not a tally.
 func TestLogEditDecision_NamesTheLawThatDenied(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := lawTree(t, "deny")
@@ -103,6 +105,7 @@ pattern = "TODO"
 // run. LogEditDecision must record the path a denial fired on regardless of
 // that ranking: a "-  -" line is a law hit nobody can trace back to a file.
 func TestLogEditDecision_RecordsThePathOnAnIgnoreRankedFile(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := lawTreeMD(t)
@@ -129,6 +132,7 @@ func TestLogEditDecision_RecordsThePathOnAnIgnoreRankedFile(t *testing.T) {
 // A rejected commit message is the other silent denial: the author sees it,
 // the record does not.
 func TestCommitMsg_RejectionIsLogged(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := undercoverRepo(t, true)
@@ -147,6 +151,7 @@ func TestCommitMsg_RejectionIsLogged(t *testing.T) {
 // `/tdd off` disables the whole edit-time gate for a session. That is a
 // legitimate escape hatch and an unrecorded one.
 func TestTddOff_IsLogged(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	raw := []byte(`{"prompt":"/tdd off","session_id":"s1","cwd":"` + filepath.ToSlash(t.TempDir()) + `"}`)
@@ -158,6 +163,7 @@ func TestTddOff_IsLogged(t *testing.T) {
 }
 
 func TestTddOn_IsLogged(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	raw := []byte(`{"prompt":"/tdd on","session_id":"s1","cwd":"` + filepath.ToSlash(t.TempDir()) + `"}`)

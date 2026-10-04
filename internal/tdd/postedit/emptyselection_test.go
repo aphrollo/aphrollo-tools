@@ -229,6 +229,7 @@ func TestWidenCargoRunner_DropsTheNarrowingAndKeepsThePackage(t *testing.T) {
 // would have caught it. The inconclusive verdict must reach gate.log, and
 // isSettledVerdict must not treat it as settled.
 func TestPostEdit_ZeroSelection_LeavesANarrowedHandRunAllowed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := mkCargoCrate(t, "engine_audio")

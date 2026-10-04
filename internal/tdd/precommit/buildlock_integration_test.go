@@ -62,6 +62,7 @@ func TestPostEdit_QueuedSkipped_WhenBuildLockHeld(t *testing.T) {
 // Serial: sets the process-wide env var GOTMPDIR.
 func TestPostEdit_NonCargoRunner_NeverTakesTheBuildLock(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	withIsolatedBuildLock(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")

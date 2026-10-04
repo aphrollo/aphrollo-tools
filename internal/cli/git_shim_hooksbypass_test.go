@@ -64,6 +64,7 @@ func TestRunGitShim_MergeNoStatFlagIsNotTreatedAsAHooksBypassDoor(t *testing.T) 
 // --no-verify writes (issue #314), carrying the cwd and the argv that used
 // the door.
 func TestRunGitShim_AllowsHooksBypassDoorsInALaneAndLogsOverrideToken(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateConfigDir(t)
 	_, linked, cfg := primaryShimRepo(t)
 	t.Chdir(linked)
@@ -97,6 +98,7 @@ func TestRunGitShim_AllowsHooksBypassDoorsInALaneAndLogsOverrideToken(t *testing
 // read-only query, and each one used to log as a gate override). Neither
 // verb may write a gate.log entry, in a lane or in the primary checkout.
 func TestRunGitShim_ReadOnlyVerbWithHooksPathOverrideDoesNotLog(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateConfigDir(t)
 	_, linked, cfg := primaryShimRepo(t)
 	t.Chdir(linked)
@@ -122,6 +124,7 @@ func TestRunGitShim_ReadOnlyVerbWithHooksPathOverrideDoesNotLog(t *testing.T) {
 // still log in a lane -- the fix narrows the door by verb, it does not
 // remove it.
 func TestRunGitShim_HookRunningVerbWithHooksPathOverrideStillLogsInALane(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateConfigDir(t)
 	_, linked, cfg := primaryShimRepo(t)
 	t.Chdir(linked)

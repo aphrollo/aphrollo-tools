@@ -24,6 +24,7 @@ func envSwitchRoot(t *testing.T) string {
 }
 
 func TestDecideBashSuite_AllowsAndCountsARunThatSetsADeclaredSwitch(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cases := []struct{ name, cmd string }{
 		{"a narrowed run with a leading assignment", "FORGE_BEAMNG_VEHICLES=/content/vehicles cargo nextest run -p forge_lab -E 'test(/^suspension::roll::/)'"},
 		{"a whole-crate run with a leading assignment", "FORGE_BEAMNG_VEHICLES=/content/vehicles cargo nextest run"},

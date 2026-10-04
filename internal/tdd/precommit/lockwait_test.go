@@ -19,6 +19,7 @@ func withShortLockWaitLog(t *testing.T) {
 // gate stats could not tell a contended box from a broken suite.
 // Serial: points the process-wide build lock at its own file.
 func TestPrecommit_LockWaitIsItsOwnLogLine(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	withIsolatedBuildLock(t)
 	withShortLockWaitLog(t)
 	cfg := t.TempDir()

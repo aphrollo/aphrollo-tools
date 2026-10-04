@@ -197,6 +197,7 @@ func TestLintEdited_NamesFiveFindingsAndCountsTheRest(t *testing.T) {
 // TestPostEdit_PutsLintFindingsOnTheGateLine wires the note into the hook: a
 // finding rides on the edit's gate line beside the run verdict.
 func TestPostEdit_PutsLintFindingsOnTheGateLine(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	_, src := editedWidget(t)
 	lintSeams(t, "widget.go:3:22: ineffectual assignment to x (ineffassign)\n", false)
 

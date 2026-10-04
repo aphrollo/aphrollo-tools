@@ -67,7 +67,7 @@ var errNoNode = errors.New("not found")
 // nothing was logged yet.
 func gateLogAll(t *testing.T) string {
 	t.Helper()
-	return tddtest.GateLogContent(t, "")
+	return tddtest.GateLogContentShared(t)
 }
 
 // withNodeMissing states that no node is on PATH, for this test's roots.

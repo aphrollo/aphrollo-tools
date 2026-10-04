@@ -42,6 +42,7 @@ func TestStateRoot_ARelativeExplicitRootIsMadeAbsolute(t *testing.T) {
 // A line a crash tore has no newline, so the next record would be appended onto
 // it and read as one torn line: the record must start on a line of its own.
 func TestAppendEvent_ARecordAfterATornTailIsNotLost(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEvents(t)
 	AppendEvent(Event{Kind: "push", Verdict: "ok"})
 	f, err := os.OpenFile(eventFiles(t, "")[0], os.O_APPEND|os.O_WRONLY, 0o600)
@@ -150,6 +151,7 @@ func TestAppendEvent_AnUnopenableLockLatchesTheProcessUnnumbered(t *testing.T) {
 // writer would have given it, so the sequence stays unique and grows with the
 // file however many writers were waiting at once.
 func TestReadEvents_NumbersARecordWrittenPastALockTimeoutFromItsPlaceInTheFile(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEvents(t)
 	resetEventLockLatchForTest()
 	t.Cleanup(resetEventLockLatchForTest)
@@ -191,6 +193,7 @@ func TestReadEvents_NumbersARecordWrittenPastALockTimeoutFromItsPlaceInTheFile(t
 // one the number names: the reader must still number every record by where it
 // sits, so no two share a number and the numbers grow with the file.
 func TestReadEvents_NumbersByPlaceWhenAnUnlockedWriterSlipsInBesideTheLockHolder(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEvents(t)
 	repo := eventsTestRepo(t)
 	dir := EventLogDir(repo)

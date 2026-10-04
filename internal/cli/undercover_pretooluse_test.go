@@ -12,6 +12,7 @@ import (
 // pretooluse` refuses a Bash command that would create a tell-named branch
 // before it runs, and counts the denial under its own policy.
 func TestRun_PreToolUse_DeniesATellBranchInAnUndercoverRepo(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateConfigDir(t)
 	dir := t.TempDir()
 	gitInitRepo(t, dir)

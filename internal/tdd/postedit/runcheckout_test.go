@@ -138,6 +138,7 @@ func TestDecideBashSuite_DoesNotReadGitDashCAsACdForTheRunner(t *testing.T) {
 // against the primary checkout, where `gate stats` reads it as pressure on
 // the wrong tree.
 func TestDecideBashSuite_LogsADeniedLaneRunAgainstTheLanesRoot(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	primary := bashSuiteRoot(t)

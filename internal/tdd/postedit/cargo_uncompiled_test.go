@@ -56,6 +56,7 @@ func TestCargoNestedTestFileReachable_RequiresModDeclaration(t *testing.T) {
 // green. The verdict must say the file was not built or run.
 func TestPostEdit_UnreachableNestedTestFile_ReportsNotCompiledNeverGreen(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := cargoCrate(t, "forge_lab")

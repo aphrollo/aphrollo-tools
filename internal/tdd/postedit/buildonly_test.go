@@ -41,6 +41,7 @@ func TestNarrow_ExampleIsBuiltNotRun(t *testing.T) {
 // borrows the "green (N passed)" or "green (0 tests — nothing to run)" shape
 // a session reads as evidence.
 func TestPostEdit_ExampleEdit_ReportsBuildOnlyNeverGreen(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cases := []struct {
 		name   string
 		target string

@@ -220,6 +220,7 @@ func TestPumpQueue_AnEntryBehindAHealthyRunIsNotDroppedHoweverLongItWaited(t *te
 // result, so nothing will ever start the entries behind it. They are dropped,
 // logged, and the line says why.
 func TestPumpQueue_DropsTheEntriesBehindARunThatNeverFinished(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, session, _ := queueScene(t)
 	editOf(t, root, session, "b", "package b\n")
 	t.Cleanup(SetProcessStartTimeForTest(func(int) (time.Time, bool) { return time.Time{}, false }))
@@ -277,6 +278,7 @@ func TestPostEditDeferred_TheSameRunForAMovedTreeLogsARestartNotAQueue(t *testin
 
 // A queued edit is not a run: it must not inflate the denominators.
 func TestPostEditDeferred_AQueuedEditLogsAQueueWaitingEntry(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, session, _ := queueScene(t)
 
 	editOf(t, root, session, "b", "package b\n")
@@ -307,6 +309,7 @@ func TestPostEditDeferred_StartingARunDropsTheWaitingRequestForIt(t *testing.T) 
 // A session that ends takes its waiting runs with it: nothing would harvest
 // what they started.
 func TestReapSessionDeferredJobs_ForgetsTheSessionsWaitingRuns(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, session, _ := queueScene(t)
 	editOf(t, root, session, "b", "package b\n")
 	if q := readQueue(queuePath(session, root)); len(q.Runs) != 1 {
@@ -367,6 +370,7 @@ func TestPostEditDeferred_ADeadRunDoesNotHoldTheEditsBehindIt(t *testing.T) {
 // A rung of the widening ladder that has to wait behind another run says so, and
 // logs it as waiting, not as a deferred build with a wait on offer.
 func TestWidenDeferredSelection_AQueuedRungSaysQueuedAndLogsIt(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, session, _ := queueScene(t)
 	write(t, root, "go.mod", "module m\n\ngo 1.22\n")
 	write(t, root, "gen/gen.go", "package gen\n")
@@ -387,6 +391,7 @@ func TestWidenDeferredSelection_AQueuedRungSaysQueuedAndLogsIt(t *testing.T) {
 
 // A rung that finds the queue full was not kept: QUEUED-SKIPPED, not BUILDING.
 func TestWidenDeferredSelection_AQueueFullRungSaysSkipped(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, session, _ := queueScene(t)
 	write(t, root, "go.mod", "module m\n\ngo 1.22\n")
 	write(t, root, "gen/gen.go", "package gen\n")
@@ -410,6 +415,7 @@ func TestWidenDeferredSelection_AQueueFullRungSaysSkipped(t *testing.T) {
 // The line and the log of a run the harvest could not start because another run
 // holds the slot: a full queue is QUEUED-SKIPPED and logged, never "place 0 of 0".
 func TestQueueHeldLine_AFullQueueIsSkippedAndAWaitingOneIsLogged(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	r := coalesceRunner("./b")
 	blocker := DeferredJob{Phase: "run", Runner: []string{"go", "test", "./a"}}

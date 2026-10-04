@@ -39,6 +39,7 @@ func mutantsBeforePRRepo(t *testing.T) string {
 }
 
 func TestRun_PreToolUse_DeniesADirectPRCreate(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateConfigDir(t)
 	dir := mutantsBeforePRRepo(t)
 

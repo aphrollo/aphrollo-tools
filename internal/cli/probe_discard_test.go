@@ -151,6 +151,7 @@ func TestProbeDiscard_BackupFailureDiscardsNothing(t *testing.T) {
 // --dry prints the plan, what each file would lose and the backup path it
 // would use, and changes nothing anywhere.
 func TestProbeDiscard_DryRunPrintsThePlanAndChangesNothing(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo, realGit, cfgDir := probeFixture(t)
 	writeFixtureFile(t, repo, "a.txt", distinctLines("arm", 3))
 	writeFixtureFile(t, repo, "new.txt", []string{"hello"})
@@ -249,6 +250,7 @@ func TestProbeDiscard_UnknownFlagAfterThePositionalIsRefused(t *testing.T) {
 }
 
 func TestProbeDiscard_ApplyLogsPathsSummaryAndBackup(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo, realGit, cfgDir := probeFixture(t)
 	writeFixtureFile(t, repo, "a.txt", distinctLines("arm", 3))
 	writeFixtureFile(t, repo, "new.txt", []string{"hello"})

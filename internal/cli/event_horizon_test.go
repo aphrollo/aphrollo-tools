@@ -29,6 +29,7 @@ func sweptRepo(t *testing.T) (repo string, denySeq int64) {
 }
 
 func TestStats_SaysWhereTheRetainedLogBegins(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo, _ := sweptRepo(t)
 	code, out, errOut := runStatsCmd(t, "--repo", repo)
 	if code != 0 || !strings.Contains(out, "events since 2026-06") {
@@ -48,6 +49,7 @@ func TestStats_SaysNothingOfAHorizonWhenNothingWasSwept(t *testing.T) {
 }
 
 func TestWhy_SaysWhereTheRetainedLogBegins(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo, seq := sweptRepo(t)
 	if seq == 0 {
 		t.Fatal("no seeded event")

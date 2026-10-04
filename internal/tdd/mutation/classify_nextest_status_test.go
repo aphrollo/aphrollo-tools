@@ -181,6 +181,7 @@ func TestExtractFailingTests_NeverReadsANextestPassAsAFailure(t *testing.T) {
 // it: the mutation is applied, the runner reddens and names the test the
 // prediction called, so the proof is KILLED — never UNREADABLE.
 func TestRunMutantsProve_KilledWhenNextestReddensTheNamedTestByTimeout(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	_, file := proveRepo(t)
 

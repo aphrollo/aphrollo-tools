@@ -71,6 +71,7 @@ func TestGoRunFilter_AnchorsAndQuotesEveryName(t *testing.T) {
 // reading of the log into thinking the proof ran the full suite. The line must
 // record the argv the proof actually executed.
 func TestFailFirstStage_LogsTheArgvItActuallyRan(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeGoRepo(t)

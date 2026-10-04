@@ -51,6 +51,7 @@ func TestPrecommit_ASurvivingMutantOfAnAddedLineRefusesTheCommit(t *testing.T) {
 
 // Serial: installs a process-wide test override (SetCommitExecForTest).
 func TestPrecommit_MutantsTheTestsKillPassTheCommit(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitMutationRepo(t, true)
 	t.Cleanup(SetCommitExecForTest(func(_ context.Context, _ string, _ []string, argv []string, log io.Writer) (int, error) {
 		for _, a := range argv {

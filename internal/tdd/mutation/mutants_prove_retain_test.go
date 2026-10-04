@@ -58,6 +58,7 @@ func proveRepo(t *testing.T) (root, file string) {
 //
 // Asserted on the RETRIEVED bytes, not on a line claiming they were stored.
 func TestRunMutantsProve_RetainsTheRunOutputSoGateOutputCanServeIt(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root, file := proveRepo(t)
 
@@ -97,6 +98,7 @@ func TestRunMutantsProve_RetainsTheRunOutputSoGateOutputCanServeIt(t *testing.T)
 // output has to say where the output can be read, or the reader is back to
 // the hand rerun the narrowing rule refuses.
 func TestRunMutantsProve_UnreadableVerdictNamesTheCommandThatServesTheOutput(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	_, file := proveRepo(t)
 

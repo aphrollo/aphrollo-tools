@@ -73,6 +73,7 @@ func killsUnderTheMutant(c goCall) (int, string) {
 }
 
 func TestMutantsAtCommitStage_ASurvivorRefusesTheCommitAndIsNamed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitStage(t, "")
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = \"block\"\n")
 	s := scriptGo(t, func(goCall) (int, string) { return 0, "ok\tgate\n" })
@@ -101,6 +102,7 @@ func TestMutantsAtCommitStage_ASurvivorRefusesTheCommitAndIsNamed(t *testing.T) 
 // The default is a report: the survivors are named and counted in the log, and
 // the commit goes through.
 func TestMutantsAtCommitStage_ASurvivorIsReportedAndTheCommitGoesThrough(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitStage(t, "")
 	s := scriptGo(t, func(goCall) (int, string) { return 0, "ok\tgate\n" })
 
@@ -142,6 +144,7 @@ func TestSlowestMutant_IsTheLongestRun(t *testing.T) {
 }
 
 func TestMutantsAtCommitStage_CaughtMutantsPass(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitStage(t, "")
 	scriptGo(t, killsUnderTheMutant)
 
@@ -171,6 +174,7 @@ func TestMutantsAtCommitStage_AnAcceptedSurvivorPasses(t *testing.T) {
 }
 
 func TestMutantsAtCommitStage_UndeclaredIsInert(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	_, root := commitStage(t, "")
 	write(t, root, "aphrollo.toml", "[aphrollo]\nundercover = true\n")
 	s := scriptGo(t, func(goCall) (int, string) { return 0, "" })
@@ -187,6 +191,7 @@ func TestMutantsAtCommitStage_UndeclaredIsInert(t *testing.T) {
 
 // A commit that adds no line a mutant sits on measures nothing.
 func TestMutantsAtCommitStage_NothingToMeasureRunsNothing(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitStage(t, "")
 	gitDo(t, root, "reset", "-q", "gate/gate.go")
 	write(t, root, "gate/gate.go", commitBaseSource)
@@ -249,6 +254,7 @@ func makeCargoRepoForCommit(t *testing.T) string {
 
 // A box with no memory to spare measures nothing and refuses nothing.
 func TestMutantsAtCommitStage_NoHeadroomIsNotMeasured(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitStage(t, "")
 	t.Cleanup(SetCommitHeadroomForTest(func(string, time.Duration) string { return "memory headroom: 0.5 GB available" }))
 	s := scriptGo(t, func(goCall) (int, string) { return 0, "" })
@@ -270,6 +276,7 @@ func TestMutantsAtCommitStage_NoHeadroomIsNotMeasured(t *testing.T) {
 // The box-wide mutation lock is held by a run that can take hours: a commit
 // waits for it only as long as its own budget, then measures nothing.
 func TestMutantsAtCommitStage_ABusyBoxIsNotMeasuredAfterTheBudget(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitStage(t, "mutants-commit-budget = 1\n")
 	release := acquireMutantsRunLock("a long run", root)
 	defer release()
@@ -296,6 +303,7 @@ func TestMutantsAtCommitStage_ABusyBoxIsNotMeasuredAfterTheBudget(t *testing.T) 
 // Mutants the wall-clock does not reach are reported NOT MEASURED, and a
 // stage that measured none of them refuses nothing.
 func TestMutantsAtCommitStage_APastTheBudgetRunIsNotMeasured(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir, root := commitStage(t, "mutants-commit-budget = 1\n")
 	stubBlockingGo(t)
 

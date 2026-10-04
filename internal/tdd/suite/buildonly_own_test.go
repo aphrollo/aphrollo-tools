@@ -95,6 +95,7 @@ func TestBuildOnlyAdvisory_SaysItWasACompileCheckAndNothingWasTested(t *testing.
 // TestBuildOnlyTerminal_LogsAndRendersACleanCompileCheck pins the terminal
 // line for a clean compile check: it is rendered and its verdict logged.
 func TestBuildOnlyTerminal_LogsAndRendersACleanCompileCheck(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	r := Runner{Cmd: "cargo", Args: []string{"test", "--example", "demo"}}

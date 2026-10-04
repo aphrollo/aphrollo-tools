@@ -58,6 +58,7 @@ func TestPreEdit_ANewlyAddedSkipIsStillDenied(t *testing.T) {
 // A platform guard is a real thing, so the rule needs a way to say yes that
 // leaves a record — a denial with no escape is answered by deleting the test.
 func TestPreEdit_AnEscapedSkipIsAdmittedAndRecorded(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	path, content := skippingTestFile(t)

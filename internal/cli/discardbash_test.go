@@ -28,6 +28,7 @@ func discardBashPayload(t *testing.T, cmd string) string {
 }
 
 func TestRun_PreToolUse_DeniesARealDiscardingGitInvocation(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateConfigDir(t)
 
 	var out, errb bytes.Buffer

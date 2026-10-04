@@ -287,6 +287,7 @@ func TestCommitPlan_NoVerifyWithoutReasonRejected(t *testing.T) {
 // writes (issue #314) -- so a hatch that used to leave no trace anywhere now
 // shows up in `gate stats` regardless of which of the two doors was used.
 func TestCommit_NoVerifyLogsTheOverrideToken(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateState(t)
 	repo := initRepo(t)
 	writeFile(t, repo, "new.txt", "hello\n")

@@ -65,6 +65,7 @@ func TestGateMutantsTestmap_IsSilentWhereItHasNothingToDo(t *testing.T) {
 // the key happens to lie in the directory: what makes them inert is that
 // there is no repository, not that nothing declared the key.
 func TestGateMutantsVerbs_OutsideARepositoryIgnoreAStrayDeclaration(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	gateConfigDir(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "aphrollo.toml"), []byte("[aphrollo]\nmutants-at-commit = true\n"), 0o644); err != nil {

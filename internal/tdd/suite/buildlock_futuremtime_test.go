@@ -81,6 +81,7 @@ func makeFutureArtifact(t *testing.T, target, name string, ahead time.Duration) 
 // target dir must stop a second wipe from happening while that repair is
 // still recent, and say why instead.
 func TestInvalidateFutureStampedArtifacts_RefusesASecondWipeWhileARecentRepairStands(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	target := filepath.Join(t.TempDir(), "target")
@@ -111,6 +112,7 @@ func TestInvalidateFutureStampedArtifacts_RefusesASecondWipeWhileARecentRepairSt
 // not stay wedged in "no wipe" state forever just because this guard once
 // fired long ago.
 func TestInvalidateFutureStampedArtifacts_WipesAgainOnceTheMarkerHasExpired(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	target := filepath.Join(t.TempDir(), "target")

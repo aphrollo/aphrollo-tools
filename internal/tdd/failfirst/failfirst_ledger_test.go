@@ -62,6 +62,7 @@ func requireInconclusive(t *testing.T, stderr string) {
 }
 
 func TestInlineFailFirst_LedgerRedThenGreenIsRedProven(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	red := ledgerStep(t, root, "src/widget.rs", ledgerWidgetWithTest, Red, redWidgetDoubles)
 	green := ledgerStep(t, root, "src/widget.rs", ledgerWidgetFixed, Green, greenWidgetDoubles)
@@ -84,6 +85,7 @@ func TestInlineFailFirst_LedgerRedThenGreenIsRedProven(t *testing.T) {
 // A compile failure is the usual inline RED: the test calls what does not
 // exist yet, and nothing runs to be named.
 func TestInlineFailFirst_MissingImplRedCounts(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetWithTest, RedMissingImpl,
 		"error[E0425]: cannot find function `widget2` in this scope\n")
@@ -98,6 +100,7 @@ func TestInlineFailFirst_MissingImplRedCounts(t *testing.T) {
 // The test arrived in the same edit as the implementation: its red says
 // nothing about the code without the implementation.
 func TestInlineFailFirst_RedOnAProductionEditIsNotAProof(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	ledgerStep(t, root, "src/widget.rs", strings.Replace(ledgerWidgetWithTest, "{ 1 }", "{ 3 }", 1), Red, redWidgetDoubles)
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetFixed, Green, greenWidgetDoubles)
@@ -107,6 +110,7 @@ func TestInlineFailFirst_RedOnAProductionEditIsNotAProof(t *testing.T) {
 }
 
 func TestInlineFailFirst_RedWithoutALaterGreenIsNotAProof(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetWithTest, Red, redWidgetDoubles)
 	write(t, root, "src/widget.rs", ledgerWidgetFixed)
@@ -117,6 +121,7 @@ func TestInlineFailFirst_RedWithoutALaterGreenIsNotAProof(t *testing.T) {
 
 // A red that another test's failure explains names a different test.
 func TestInlineFailFirst_RedNamingAnotherTestIsNotAProof(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetWithTest, Red, "test widget::tests::other ... FAILED\n")
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetFixed, Green, greenWidgetDoubles)
@@ -128,6 +133,7 @@ func TestInlineFailFirst_RedNamingAnotherTestIsNotAProof(t *testing.T) {
 // A green that followed only test-code edits did not come from an
 // implementation: something other than production code made it pass.
 func TestInlineFailFirst_GreenFromATestOnlyEditIsNotAProof(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetWithTest, Red, redWidgetDoubles)
 	ledgerStep(t, root, "src/other.rs", "#[cfg(test)]\nmod tests {\n    #[test]\n    fn other() {}\n}\n", Green, greenWidgetDoubles)
@@ -138,6 +144,7 @@ func TestInlineFailFirst_GreenFromATestOnlyEditIsNotAProof(t *testing.T) {
 
 // The staged test is not the one that went red: its assertion changed after.
 func TestInlineFailFirst_TestChangedAfterTheRedIsNotAProof(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetWithTest, Red, redWidgetDoubles)
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetFixed, Green, greenWidgetDoubles)
@@ -150,6 +157,7 @@ func TestInlineFailFirst_TestChangedAfterTheRedIsNotAProof(t *testing.T) {
 // A test helper the test calls is part of what it asserts: changed after the
 // red, the red no longer describes the staged test.
 func TestInlineFailFirst_HelperChangedAfterTheRedIsNotAProof(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	withHelper := strings.Replace(ledgerWidgetWithTest, "    use super::*;\n",
 		"    use super::*;\n\n    fn want() -> i32 { 2 }\n", 1)
@@ -166,6 +174,7 @@ func TestInlineFailFirst_HelperChangedAfterTheRedIsNotAProof(t *testing.T) {
 // Records made before the last commit describe work that is already
 // history; they cannot prove this commit's test.
 func TestInlineFailFirst_RecordsFromAnEarlierHeadAreNotAProof(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetWithTest, Red, redWidgetDoubles)
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetFixed, Green, greenWidgetDoubles)
@@ -179,6 +188,7 @@ func TestInlineFailFirst_RecordsFromAnEarlierHeadAreNotAProof(t *testing.T) {
 
 // Another checkout's ledger says nothing about this one.
 func TestInlineFailFirst_AnotherCheckoutsLedgerIsNotAProof(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	other := makeCargoRepo(t)
 	write(t, other, "src/lib.rs", "pub mod widget;\n")
@@ -196,6 +206,7 @@ func TestInlineFailFirst_AnotherCheckoutsLedgerIsNotAProof(t *testing.T) {
 // The sibling-file shape: the test lives in widget_tests.rs, mounted by a
 // #[cfg(test)] #[path] declaration in widget.rs.
 func TestInlineFailFirst_PathMountedSiblingTestIsRedProven(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	decl := "\n#[cfg(test)]\n#[path = \"widget_tests.rs\"]\nmod tests;\n"
 	ledgerStep(t, root, "src/widget.rs", ledgerWidgetImpl+decl, Green, "")
@@ -213,6 +224,7 @@ func TestInlineFailFirst_PathMountedSiblingTestIsRedProven(t *testing.T) {
 // sibling's helper changed after both runs, so neither run saw the staged
 // helper.
 func TestInlineFailFirst_SiblingHelperChangedAfterTheRunsIsNotAProof(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	decl := "\n#[cfg(test)]\n#[path = \"widget_tests.rs\"]\nmod tests;\n"
 	sibling := "use super::*;\n\nfn want() -> i32 { 2 }\n\n#[test]\nfn widget_doubles() {\n    assert_eq!(widget(), want());\n}\n"

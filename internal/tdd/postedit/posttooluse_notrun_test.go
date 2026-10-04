@@ -77,6 +77,7 @@ func TestPostEdit_SrcEditInACrateWithIntegrationTargets_NamesThemNotRun(t *testi
 // The deferred path the real hook takes: the same run as detached build and
 // run phases reports the same NOT RUN clause.
 func TestPostEditDeferred_SrcEditInACrateWithIntegrationTargets_NamesThemNotRun(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := integrationCrate(t)
 	scriptedPhases(t, map[string]scriptedPhase{
@@ -98,6 +99,7 @@ func TestPostEditDeferred_SrcEditInACrateWithIntegrationTargets_NamesThemNotRun(
 // The harvest: a run phase that finished after its own hook returned is
 // judged by the next hook, and its green carries the same clause.
 func TestPostEditHarvest_SrcEditInACrateWithIntegrationTargets_NamesThemNotRun(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := integrationCrate(t)
 	target := filepath.Join(root, "src", "spin", "mod.rs")

@@ -11,6 +11,7 @@ import (
 // nothing new. Fail-first never fires (no test was staged), the suite is
 // green, and the change ships unconstrained. It is a note, never a block.
 func TestPostEdit_GreenUnconstrained(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	green := fakeRun(true, "test result: ok. 7 passed; 0 failed")
@@ -33,6 +34,7 @@ func TestPostEdit_GreenUnconstrained(t *testing.T) {
 // a run with MORE passing tests than the last green is exactly the case the
 // advisory must stay quiet about — a test came with the change.
 func TestPostEdit_GreenUnconstrained_NotWhenTheTestSetGrew(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 
@@ -47,6 +49,7 @@ func TestPostEdit_GreenUnconstrained_NotWhenTheTestSetGrew(t *testing.T) {
 // TEST file is the very thing the advisory asks for, so it must never fire
 // there.
 func TestPostEdit_GreenUnconstrained_NotForATestEdit(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	green := fakeRun(true, "test result: ok. 7 passed; 0 failed")
@@ -62,6 +65,7 @@ func TestPostEdit_GreenUnconstrained_NotForATestEdit(t *testing.T) {
 // advisory is about coverage, not about failure, so the recorded outcome
 // stays green and no streak moves.
 func TestGreenUnconstrained_PersistsAsGreen(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := mkProject(t, "go.mod")

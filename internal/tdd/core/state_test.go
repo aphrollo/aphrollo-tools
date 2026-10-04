@@ -63,6 +63,7 @@ func TestAppendGateLog_WarnsOnlyOncePerProcess(t *testing.T) {
 // "inconclusive" silently vanished for every reader, including `gate stats`,
 // the one place an operator most needs a fail-open to read correctly.
 func TestAppendGateLog_RoundTripsAVerdictContainingASpace(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 

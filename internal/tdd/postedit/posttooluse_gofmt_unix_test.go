@@ -13,6 +13,7 @@ import (
 // otherwise. Unix only: a read-only mode bit does not stop the owner writing
 // on Windows.
 func TestPostEdit_GofmtUnwritableFileIsNotClaimedFormatted(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	src := filepath.Join(root, "widget.go")

@@ -59,6 +59,7 @@ func TestPostEdit_GoRunWithATestlessPackage_IsGreenWithItsRealCount(t *testing.T
 // the deferred path, which reads go test's plain per-package summary lines:
 // "ok" for a package that ran tests, "?" for one with no test file.
 func TestPostEdit_DeferredGoRunWithATestlessPackage_IsGreen(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkGoTreeWithTestlessSubpackage(t)
 	scriptedPhases(t, map[string]scriptedPhase{

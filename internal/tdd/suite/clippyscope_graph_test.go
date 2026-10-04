@@ -39,6 +39,7 @@ func TestClippyScope_TouchedCratesPlusEverythingDownstream(t *testing.T) {
 }
 
 func TestClippyScope_AnUnreadableGraphNarrowsToTheTouchedCratesAndLogsIt(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Cleanup(SetCargoWorkspaceDepsForTest(func(string) (map[string][]string, error) { return nil, errors.New("boom") }))

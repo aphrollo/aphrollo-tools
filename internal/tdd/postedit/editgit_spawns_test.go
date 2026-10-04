@@ -69,6 +69,7 @@ func (m editMode) arm(t *testing.T) {
 // git keeps, and the file's committed copy from the object store. The new file
 // has no committed copy; doc.go does.
 func TestPostEdit_OneEditInALaneWorktreeSpawnsGitOnce(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	files := []struct{ name, content string }{
 		{"widget.go", "package m\n\nfunc Widget() int { return 2 }\n"},
 		{"doc.go", "package m\n\nfunc Doc() int { return 3 }\n"},
@@ -98,6 +99,7 @@ func TestPostEdit_OneEditInALaneWorktreeSpawnsGitOnce(t *testing.T) {
 // for the dirty set once, however many files moved, and reads each file's
 // committed copy from the object store.
 func TestPostBash_AMultiFileWriteBatchSpawnsGitOnce(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	for _, mode := range editModes {
 		t.Run(mode.name, func(t *testing.T) {
 			mode.arm(t)
@@ -126,6 +128,7 @@ func TestPostBash_AMultiFileWriteBatchSpawnsGitOnce(t *testing.T) {
 // hook read the files a commit would stage, and their committed copies: the
 // same one status and the object store answer, no second spawn.
 func TestPostEdit_AnEditJudgedByARemovedTestLawSpawnsGitOnce(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	mode := editModes[0]
 	mode.arm(t)
 	root := mkProject(t)

@@ -140,6 +140,15 @@ func GateLogText(t *testing.T, cfg string) string {
 // they believe the log is in; the event logs live under the state root.
 func GateLogContent(t *testing.T, _ string) string {
 	t.Helper()
+	requireOwnEventRoot(t)
+	return GateLogContentShared(t)
+}
+
+// GateLogContentShared is GateLogContent over the whole event root, for a test
+// that keeps to its own lines by what they name (its sandbox of temp dirs), and
+// so reads the same whatever else wrote to the root.
+func GateLogContentShared(t *testing.T) string {
+	t.Helper()
 	type rec struct {
 		V       int               `json:"v"`
 		At      string            `json:"at"`
@@ -256,4 +265,16 @@ func GateLogBytes(t *testing.T) ([]byte, error) {
 		return nil, os.ErrNotExist
 	}
 	return []byte(text), nil
+}
+
+// requireOwnEventRoot fails a test that reads the event log without a state root
+// of its own. Every test of a process shares the default root, so a read there
+// holds the lines of whichever tests ran before or beside it: the answer then
+// depends on the order and the temp dir, not on the code. The test sets
+// TRELLIS_DATA to a directory of its own before it writes the events it reads.
+func requireOwnEventRoot(t *testing.T) {
+	t.Helper()
+	if os.Getenv("TRELLIS_DATA") == "" {
+		t.Fatal("this test reads the event log without its own state root: t.Setenv(\"TRELLIS_DATA\", t.TempDir()) before the gate writes anything")
+	}
 }

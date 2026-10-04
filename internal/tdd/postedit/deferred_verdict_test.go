@@ -57,6 +57,7 @@ func TestWaitDeferredEditJob_FindsAJobRecordedForACrateInsideTheCheckout(t *test
 // report an inconclusive verdict, in the one line the hook gets, alongside
 // whatever it starts next.
 func TestPostEdit_AbandonedDeferredJobIsReportedNotSwallowed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
 	root := mkProject(t, "Cargo.toml")

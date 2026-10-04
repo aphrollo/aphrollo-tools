@@ -198,6 +198,7 @@ func TestMutantsAtCommitStage_ABrokenConfigIsInert(t *testing.T) {
 
 // Git that cannot say what the commit adds is a box that cannot measure it.
 func TestMutantsAtCommitStage_AGitFailureIsNotMeasured(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	for name, failing := range map[string]string{"the staged diff": "--cached", "the unstaged listing": "--name-only"} {
 		cfgDir, root := commitStage(t, "")
 		s := scriptGo(t, func(goCall) (int, string) { return 0, "" })
@@ -220,6 +221,7 @@ func TestMutantsAtCommitStage_AGitFailureIsNotMeasured(t *testing.T) {
 }
 
 func TestCommitVerdict_ReportsWhatWasNotMeasuredBesideWhatWas(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	root := t.TempDir()

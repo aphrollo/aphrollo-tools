@@ -35,6 +35,7 @@ var deferredPhases = tddtest.Phases[DeferredJob, PhaseOutcome]{
 // so the budget question ("is this still going?") can be answered about the
 // build without discarding it.
 func TestPostEdit_BuildAndRunAreSeparatePhases(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 	done := &PhaseOutcome{ExitCode: 0, Seconds: 1}
@@ -59,6 +60,7 @@ func TestPostEdit_BuildAndRunAreSeparatePhases(t *testing.T) {
 // hook says so in one line and returns, and the job is recorded for the next
 // hook to report. Nothing is killed and nothing is thrown away.
 func TestPostEdit_UnfinishedPhaseIsDeferredNotKilled(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
 	root := mkProject(t, "Cargo.toml")
@@ -91,6 +93,7 @@ func TestPostEdit_UnfinishedPhaseIsDeferredNotKilled(t *testing.T) {
 // prompt. The notice itself must name a way forward that does not depend on
 // editing again — committing lets precommit judge the work.
 func TestPostEdit_StillBuildingNoticeNamesTheEscapeWhenNoEditFollows(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 	target := root + "/src/widget.rs"
@@ -118,6 +121,7 @@ func TestPostEdit_StillBuildingNoticeNamesTheEscapeWhenNoEditFollows(t *testing.
 // outcome as a deferred result rather than staying silent about work that
 // completed after the previous hook returned.
 func TestPostEdit_HarvestsAFinishedDeferredBuild(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 	target := root + "/src/widget.rs"
@@ -155,6 +159,7 @@ func TestPostEdit_HarvestsAFinishedDeferredBuild(t *testing.T) {
 // appendGateLog entry — this one did not, so the failure never reached
 // gate.log and gate stats would never see it.
 func TestPostEdit_HarvestWarmRunSpawnFailureIsLogged(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := mkProject(t, "Cargo.toml")
@@ -189,6 +194,7 @@ func TestPostEdit_HarvestWarmRunSpawnFailureIsLogged(t *testing.T) {
 // doing real, incremental work) — it marks the job dirty so the harvest
 // rebuilds for the newer source.
 func TestPostEdit_EditDuringADeferredBuildMarksItDirty(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "Cargo.toml")
 	target := root + "/src/widget.rs"
@@ -314,6 +320,7 @@ func TestEditResultAdvisory_RealExitCode125IsNotMistakenForInfraFailure(t *testi
 // outlived any plausible build is abandoned and a fresh one starts, so a
 // wedged process cannot block a project forever.
 func TestPostEdit_AbandonsAJobPastTheMaximum(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(deferredMaxEnv, "1")
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
@@ -343,6 +350,7 @@ func TestPostEdit_AbandonsAJobPastTheMaximum(t *testing.T) {
 // the gap between Started and the abandon check is smaller here, but the OS
 // can still have handed the recorded PID to something else in that time.
 func TestPostEdit_AbandonsAJobPastTheMaximumWithoutKillingARecycledPID(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(deferredMaxEnv, "1")
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
@@ -476,6 +484,7 @@ func containsArg(args []string, want string) bool {
 // a flag — splitting there would turn every Go edit into an instant error, so
 // a non-cargo runner gets exactly one phase, still deferrable.
 func TestPostEdit_NonCargoRunnersGetOneRunPhase(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
 	spawned := fakePhases(t, &PhaseOutcome{ExitCode: 0, Seconds: 1})

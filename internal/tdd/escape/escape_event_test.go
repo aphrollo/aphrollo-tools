@@ -26,6 +26,7 @@ func recordedEvent(t *testing.T) Event {
 // A recorded escape also lands in the event log, with its kind (a false
 // positive is a wrong deny) and never its free-text reason.
 func TestRecordEscape_WritesAnEventWithoutTheReason(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEventLog(t)
 
 	_, err := RecordEscape(EscapeOptions{Reason: "leaked token abc123 reached main", Kind: FalsePositiveKind, Check: "clippy"}, io.Discard)
@@ -45,6 +46,7 @@ func TestRecordEscape_WritesAnEventWithoutTheReason(t *testing.T) {
 // An escape recorded from the main checkout would resolve to main; the lane
 // and PR its own data names are what the per-PR count needs.
 func TestRecordEscape_EventCarriesTheLaneAndPRTheEscapeNames(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEventLog(t)
 
 	_, err := RecordEscape(EscapeOptions{Reason: "red after green", Lane: "lane/fix", PR: 7}, io.Discard)
@@ -60,6 +62,7 @@ func TestRecordEscape_EventCarriesTheLaneAndPRTheEscapeNames(t *testing.T) {
 
 // Check is free text on the command line; only a stage or law name is kept.
 func TestRecordEscape_EventDropsACheckThatIsNotAToken(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEventLog(t)
 
 	_, err := RecordEscape(EscapeOptions{Reason: "x", Check: "the clippy stage, but only when the token abc123 leaks"}, io.Discard)
@@ -88,6 +91,7 @@ func TestEventToken_AdmitsOnlyBareIdentifiers(t *testing.T) {
 
 // A PR number rides along only when the escape named one.
 func TestRecordEscape_EventPRDetailOnlyWhenNamed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEventLog(t)
 	if _, err := RecordEscape(EscapeOptions{Reason: "no pr"}, io.Discard); err != nil {
 		t.Fatal(err)
@@ -108,6 +112,7 @@ func TestRecordEscape_EventPRDetailOnlyWhenNamed(t *testing.T) {
 // The class says what an escape is evidence of, so escaped defects are counted
 // per class: a product escape, the gate disagreeing with itself, a canary.
 func TestRecordEscape_EventNamesTheClassOfTheEscape(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cases := []struct{ check, want string }{
 		{"ci:test", "product"},
 		{"", "product"},
@@ -129,6 +134,7 @@ func TestRecordEscape_EventNamesTheClassOfTheEscape(t *testing.T) {
 // A false positive is a check that refused correct work, not an escape, so it
 // has no class.
 func TestRecordEscape_AFalsePositiveHasNoClass(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	isolateEventLog(t)
 	if _, err := RecordEscape(EscapeOptions{Reason: "x", Kind: FalsePositiveKind, Check: "clippy"}, io.Discard); err != nil {
 		t.Fatal(err)

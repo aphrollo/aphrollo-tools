@@ -26,6 +26,7 @@ const allSkippedPkgJSONLine = `{"Action":"run","Package":"example.com/m","Test":
 // pre-edit code (HEAD)" and block a correct commit with a false accusation.
 func TestFailFirstStage_RefusesAProofWhoseTestsAllSelfSkipped(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeGoRepo(t)

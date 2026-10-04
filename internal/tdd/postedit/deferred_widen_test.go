@@ -117,6 +117,7 @@ func requireRealNextest(t *testing.T) {
 // rung runs the integration test — the verdict the session used to get only
 // by running the crate suite by hand.
 func TestPostEdit_DeferredZeroSelection_ClimbsModuleLibCrateOnARealCrate(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	requireRealNextest(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
@@ -151,6 +152,7 @@ func TestPostEdit_DeferredZeroSelection_ClimbsModuleLibCrateOnARealCrate(t *test
 // does not have.
 func TestPostEdit_DeferredWideningOutrunsTheBudget_ReportsTheRungBuildingNeverAGreen(t *testing.T) {
 	tddtest.VerdictWordTmp(t)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
 	root := mkCargoCrate(t, "engine_audio")
@@ -185,6 +187,7 @@ func TestPostEdit_DeferredWideningOutrunsTheBudget_ReportsTheRungBuildingNeverAG
 // selected nothing, used to be judged by editResultAdvisory as
 // "green (0 tests — nothing to run)". The next hook climbs on from it instead.
 func TestPostEdit_HarvestedRungThatSelectedZero_ClimbsOnInsteadOfAnEmptyGreen(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkCargoCrate(t, "engine_audio")
 	withNextest(t, root)

@@ -11,6 +11,7 @@ import (
 // to be written — a Decision the CLI drops on the floor leaves the same blind
 // spot the logging was added to close.
 func TestRun_TDD_PreToolUseDenialIsRecorded(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	// Run from a directory that is not a checkout of anything. The hook
 	// applies the primary-checkout policy BEFORE it looks at the content, so
 	// with the suite's own working directory inherited this test recorded
@@ -40,6 +41,7 @@ func TestRun_TDD_PreToolUseDenialIsRecorded(t *testing.T) {
 // the pre hook lets it through and records no denial (the post hook judges
 // what it wrote).
 func TestRun_TDD_PreToolUseAllowsAShellSourceWrite(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	dir := gitInit(t, map[string]string{"aphrollo.toml": "[aphrollo]\n"})
 	t.Chdir(dir)
 	gateConfigDir(t)

@@ -110,6 +110,7 @@ jobs:
 }
 
 func TestLocalCI_ARunWhoseStepWasRefusedIsNeitherGreenNorRedAndStoresNoGreen(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, mark := ciLane(t, `on: pull_request
 jobs:
   sys:
@@ -182,6 +183,7 @@ func TestLocalCI_ANewTreeIsJudgedEvenAfterAGreenForAnotherTree(t *testing.T) {
 }
 
 func TestLocalCI_RecordsTheVerdictInTheGateLogKeyedByTree(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, _ := ciLane(t, greenWorkflow)
 	v, err := LocalCI(root, nil)
 	if err != nil {
@@ -200,6 +202,7 @@ func TestLocalCI_RecordsTheVerdictInTheGateLogKeyedByTree(t *testing.T) {
 }
 
 func TestLocalCI_NoPullRequestWorkflowIsARefusalNotAGreen(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, _ := ciLane(t, "on: push\njobs:\n  j:\n    steps:\n      - run: echo\n")
 	var log bytes.Buffer
 	_, err := LocalCI(root, &log)

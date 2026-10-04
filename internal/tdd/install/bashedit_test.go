@@ -27,6 +27,7 @@ func bashPayloadID(t *testing.T, session, toolUseID, cwd, command string) []byte
 // being off. PreToolUse records what the tree looked like; PostToolUse diffs
 // and puts every changed source file through the same path an Edit takes.
 func TestPostBashRunsTheSuiteForAFileTheCommandChanged(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	root := makeGoRepo(t)
@@ -216,6 +217,7 @@ func TestPostBashNoticesAFileTheCommandCreated(t *testing.T) {
 // run unwatched beside the first, and neither result would describe the tree
 // by the time it lands), but it now names every root left untested.
 func TestPostBash_NamesEveryRootAChangeTouchedEvenWhenOneDefers(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// A budget that has already run out still SPAWNS (startAndWait's own
 	// contract) but returns "still running" immediately instead of polling

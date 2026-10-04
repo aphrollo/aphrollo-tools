@@ -141,6 +141,7 @@ func TestJobsCap_MinOfCoresRamAndTwo(t *testing.T) {
 // with both numbers, and the refusal is logged so `gate stats` can count it
 // (criterion 7).
 func TestDiskCheck_RefusesNamingBothNumbers(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	// A drive with 10 GB free cannot carry even ONE shard — a cold build dir

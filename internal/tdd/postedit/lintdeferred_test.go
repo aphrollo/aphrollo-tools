@@ -441,6 +441,7 @@ func TestHarvestLintEdit_OtherSessionsAndNoStateReportNothing(t *testing.T) {
 // The whole path through the hook: an edit starts the run, and the next hook
 // of the session carries its findings on their own deferred line.
 func TestPostEdit_DeliversTheDeferredLintAtTheNextHook(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, src := editedWidget(t)
 	lintSeams(t, "", false)
 	recordLintSpawns(t, lintOutcome(t, "widget.go:3:22: SA4006: x is never used (staticcheck)\n", PhaseOutcome{ExitCode: 1, Seconds: 0.5}))

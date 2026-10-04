@@ -37,6 +37,7 @@ func TestEditLatency_AnIDThatIsNoTimeHasNoLatency(t *testing.T) {
 }
 
 func TestRecordEditVerdict_WritesARunResultEventWithTheOutcomeAndLatency(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 2 }\n")
 	id := recordEdit(root, filepath.Join(root, "src/widget.rs"))
@@ -57,6 +58,7 @@ func TestRecordEditVerdict_WritesARunResultEventWithTheOutcomeAndLatency(t *test
 // One run that settles several edits is one result per edit: the latency is
 // each edit's own.
 func TestRecordEditVerdict_AJoinedRunWritesOneRunResultPerEdit(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 2 }\n")
 	write(t, root, "src/other.rs", "pub fn other() -> i32 { 3 }\n")
@@ -70,6 +72,7 @@ func TestRecordEditVerdict_AJoinedRunWritesOneRunResultPerEdit(t *testing.T) {
 }
 
 func TestRecordEditVerdict_NoEditNoRunResult(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := ledgerRepo(t)
 
 	recordEditVerdict(root, "", "cargo test --lib", Green, "")

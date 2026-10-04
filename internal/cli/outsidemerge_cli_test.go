@@ -67,6 +67,7 @@ func eventLog(t *testing.T) string {
 // A pull that takes in a merge made on GitHub fires `gate postmerge`; the hook
 // records that merge, once, and says so on stderr.
 func TestRun_GatePostMerge_RecordsAMergeMadeOutsideTheVerb(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	work, _ := outsideMergeFixture(t)
 	if out, err := fixtureGit("-C", work, "merge", "-q", "--ff-only", "origin/main").CombinedOutput(); err != nil {
 		t.Fatalf("git merge: %v\n%s", err, out)
@@ -87,6 +88,7 @@ func TestRun_GatePostMerge_RecordsAMergeMadeOutsideTheVerb(t *testing.T) {
 }
 
 func TestRun_WorkspaceSyncSince_DryRunNamesTheMergeAndWritesNothing(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	work, seed := outsideMergeFixture(t)
 	inDir(t, work)
 
@@ -104,6 +106,7 @@ func TestRun_WorkspaceSyncSince_DryRunNamesTheMergeAndWritesNothing(t *testing.T
 }
 
 func TestRun_WorkspaceSyncSince_RecordsOnceAndRefusesABadRef(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	work, seed := outsideMergeFixture(t)
 	inDir(t, work)
 

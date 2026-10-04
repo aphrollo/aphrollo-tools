@@ -78,6 +78,7 @@ func TestMeasureDiff_UncommittedSourceChangeIsMeasured(t *testing.T) {
 // restored automatically: a tool that rewrites source on its way out is not
 // one anybody can reason about mid-incident.
 func TestMeasure_RunThatLeavesTheTreeChangedIsRefused(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Cleanup(SetFreeSpaceForTest(999, true))
@@ -153,6 +154,7 @@ func TestJudge_NotCoveredIsCountedApartFromUnviable(t *testing.T) {
 // the counts, so both are asserted literally: swap passed for refused, or
 // drop a count, and this fails.
 func TestMeasure_GateLogCarriesTheVerdictAndItsCounts(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	for _, tc := range []struct {
 		name   string
 		status string

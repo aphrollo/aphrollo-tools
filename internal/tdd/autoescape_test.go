@@ -366,6 +366,7 @@ func TestTheSurvivorPredicate_MatchesTheMutationStagesOwnRefusal(t *testing.T) {
 // CI failing on a tip the local gate passed IS the definition of an escape:
 // the two ran on the same tree and disagreed.
 func TestCIFailureOnAGreenTipRecordsAnEscape(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	// No PATH surgery: git has to stay reachable. The fixture repo has no
 	// GitHub remote, which is what keeps the recorder from opening an issue.
@@ -403,6 +404,7 @@ func TestCIFailureOnATipWithNoGreenGateRecordsNothing(t *testing.T) {
 // later. That is the check being talked past, which is exactly the shape a
 // false positive has.
 func TestOverrideCandidatesNameADeniedEditThatWentThroughOnAWaiver(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	now := time.Now().UTC()
 	log := gateLines(now,
 		"preedit root a_test.go pretooluse-denied:test-sleep",
@@ -419,6 +421,7 @@ func TestOverrideCandidatesNameADeniedEditThatWentThroughOnAWaiver(t *testing.T)
 
 // A denial nobody talked past is the check WORKING.
 func TestADenialWithNoOverrideIsNotACandidate(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	now := time.Now().UTC()
 	log := gateLines(now, "preedit root a_test.go pretooluse-denied:test-sleep")
 	if got := OverrideCandidates(strings.NewReader(log), now); len(got) != 0 {
@@ -429,6 +432,7 @@ func TestADenialWithNoOverrideIsNotACandidate(t *testing.T) {
 // Turning the gate off is the loudest false-positive signal there is: the
 // session decided the whole gate was in its way.
 func TestOverrideCandidatesNameASessionThatTurnedTheGateOff(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	now := time.Now().UTC()
 	log := gateLines(now, "session root s1 override-off")
 	got := OverrideCandidates(strings.NewReader(log), now)
@@ -443,6 +447,7 @@ func TestOverrideCandidatesNameASessionThatTurnedTheGateOff(t *testing.T) {
 // Old noise is not a signal. The window is what keeps the sync from
 // re-opening last quarter's arguments.
 func TestOverrideCandidatesIgnoreWhatIsOlderThanTheWindow(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	now := time.Now().UTC()
 	log := gateLines(now.Add(-escapeDedupeWindow-time.Hour), "session root s1 override-off")
 	if got := OverrideCandidates(strings.NewReader(log), now); len(got) != 0 {
