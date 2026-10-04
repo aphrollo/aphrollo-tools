@@ -401,3 +401,28 @@ func TestPrimaryCheckout_WithNoTrunkItStillWallsMasterButNotAnotherBranch(t *tes
 		t.Fatalf("a primary on a feature branch with no trunk to hold is not walled, got %+v", d)
 	}
 }
+
+func TestPrimaryWaivedLanding_SaysWhereAWaivedCallWouldHaveLanded(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, linked := primaryRepo(t)
+	inPrimary := editPayload(t, "Edit", filepath.Join(primary, "main.go"), "w1")
+	inLane := editPayload(t, "Edit", filepath.Join(linked, "main.go"), "w1")
+	bash := bashPayload(t, "w1", primary, "echo hi > notes.txt")
+
+	// With no waiver the wall itself decided: there is nothing to report.
+	for name, raw := range map[string][]byte{"edit": inPrimary, "bash": bash} {
+		if PrimaryWaivedLanding(raw) {
+			t.Errorf("%s: no waiver, but PrimaryWaivedLanding reported a landing", name)
+		}
+	}
+	t.Setenv(PrimaryEditsEnv, "1")
+	if !PrimaryWaivedLanding(inPrimary) {
+		t.Error("a waived edit into the primary checkout should report that it lands there")
+	}
+	if !PrimaryWaivedLanding(bash) {
+		t.Error("a waived shell write into the primary checkout should report that it lands there")
+	}
+	if PrimaryWaivedLanding(inLane) {
+		t.Error("a waived edit into a linked worktree does not land in the primary checkout")
+	}
+}

@@ -293,12 +293,14 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 		// overwrite the last REAL outcome in state — same posture as a
 		// timeout (issues #350, #354).
 		AppendGateLog("postedit", root, strings.Join(j.Runner, " "), InfraFailed, res.Duration)
+		shadowRun(j, out, root, string(InfraFailed))
 		return infraFailureLine(root, j, res)
 	}
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
-	line := judgeEditResult(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA)
+	line, word := judgeEditResultWord(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA)
+	shadowRun(j, out, root, word)
 	note := lintGuidance(j, out.RunID)
 	if note != "" {
 		removeLintNotice(j.Session, out.RunID) // said on the run's line, not again
@@ -311,6 +313,13 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 // a foreground run would. Split out so a widened rung a harvest ran itself
 // (harvestAdvisory) is judged by the same code as a harvested job.
 func judgeEditResult(runner Runner, file, editID string, res SuiteResult, root string, state *sessionState, statePath, headSHA string) string {
+	line, _ := judgeEditResultWord(runner, file, editID, res, root, state, statePath, headSHA)
+	return line
+}
+
+// judgeEditResultWord is judgeEditResult that also answers the verdict word the
+// gate logged for the run, "" when its line is no verdict (a foreign build).
+func judgeEditResultWord(runner Runner, file, editID string, res SuiteResult, root string, state *sessionState, statePath, headSHA string) (string, string) {
 	argv := append([]string{runner.Cmd}, runner.Args...)
 	fp := computeFingerprint(root)
 	prev := []string(nil)
@@ -318,10 +327,14 @@ func judgeEditResult(runner Runner, file, editID string, res SuiteResult, root s
 		prev = state.PrevFailing(root, fp)
 	}
 	if line := foreignBuildAdvisory(root, file, cmdString(runner), res); line != "" {
-		return line
+		return line, ""
 	}
 	if res.Inconclusive != "" || runnerTimeoutsOnly(res.Output) {
-		return postEditTimedOut(runner, root, headSHA, res, state, statePath)
+		word := "timeout"
+		if res.Inconclusive != "" {
+			word = inconclusiveVerdict(res)
+		}
+		return postEditTimedOut(runner, root, headSHA, res, state, statePath), word
 	}
 	outcome := classifyRunOutcome(runner, root, res, prev)
 	if state != nil {
@@ -336,9 +349,9 @@ func judgeEditResult(runner Runner, file, editID string, res SuiteResult, root s
 	logSuiteVerdict("postedit", root, cmdString(runner), string(outcome), res)
 	recordEditVerdict(root, editID, cmdString(runner), outcome, res.Output)
 	if outcome.IsRed() {
-		return redSummary(runner, root, outcome, res.Output)
+		return redSummary(runner, root, outcome, res.Output), string(outcome)
 	}
-	return passAdvisory(runner, root, outcome, res.Output, res.Duration, prev)
+	return passAdvisory(runner, root, outcome, res.Output, res.Duration, prev), string(outcome)
 }
 
 // markDeferred labels an advisory as coming from work that finished after an

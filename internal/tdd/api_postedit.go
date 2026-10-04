@@ -83,6 +83,8 @@ func PrimaryMergeOnly(p0 string) (string, bool) { return postedit.PrimaryMergeOn
 
 func PrimaryMergeOnlyReason(p0 string) string { return postedit.PrimaryMergeOnlyReason(p0) }
 
+func PrimaryWaivedLanding(p0 []byte) bool { return postedit.PrimaryWaivedLanding(p0) }
+
 func RecordFinishedDeferredJobForTest(p0 string, p1 string) {
 	postedit.RecordFinishedDeferredJobForTest(p0, p1)
 }

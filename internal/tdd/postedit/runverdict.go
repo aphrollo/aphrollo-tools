@@ -12,6 +12,7 @@ import (
 
 	gitclient "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
+	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/store"
 )
 
@@ -364,4 +365,18 @@ func redRunOf(v store.Verdict, unit string) (store.RunVerdict, bool) {
 		}
 	}
 	return red, found
+}
+
+// shadowRun records, beside aphrollo's line for a finished run (word is the
+// verdict word it logged, "" when its line is no verdict), what the kernel makes
+// of the same run. It is record-only and bounded: it reads the phase's log inside
+// the shadow budget, and a run it cannot classify is not recorded.
+func shadowRun(j DeferredJob, out PhaseOutcome, root, word string) {
+	if word == "" {
+		return
+	}
+	shadow.RecordRun(shadow.Source{Root: root, Actor: j.Session, Key: out.TreeKey}, func() (shadow.RunFact, bool) {
+		verdict, cause, ok := phaseVerdict(j, out)
+		return shadow.RunFact{Word: word, Verdict: verdict, Cause: cause}, ok
+	})
 }

@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	"cmp"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -239,6 +240,34 @@ func PrimaryCheckoutDecision(raw []byte) Decision {
 		return bashPrimaryDecision(in.Cwd, in.ToolInput.Command)
 	}
 	return Decision{}
+}
+
+// PrimaryWaivedLanding reports whether a call that a primary-edits waiver let
+// through would have landed in the primary checkout: the one question
+// PrimaryCheckoutDecision never asks of a waived call. It is false for a call
+// with no waiver, which the wall judged itself. A hook reads it to record what a
+// wall would have done, never to decide.
+func PrimaryWaivedLanding(raw []byte) bool {
+	var in primaryGateInput
+	if err := json.Unmarshal(raw, &in); err != nil || !PrimaryEditsAllowed(in.SessionID) {
+		return false
+	}
+	switch {
+	case gatedEditTools[in.ToolName]:
+		path := cmp.Or(in.ToolInput.FilePath, in.ToolInput.NotebookPath)
+		if path == "" {
+			return false
+		}
+		_, ok := PrimaryMergeOnly(filepath.Dir(path))
+		return ok
+	case bashLikeTools[in.ToolName]:
+		for _, p := range bashWriteTargets(in.ToolInput.Command, in.Cwd) {
+			if _, ok := PrimaryMergeOnly(filepath.Dir(p)); ok {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // bashPrimaryDecision judges a shell command by every path it would write,

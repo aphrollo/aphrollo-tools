@@ -3,7 +3,9 @@ package postedit
 import (
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 )
 
 // eventsOfKind is the events of root that have one kind, in order.
@@ -72,5 +74,39 @@ func TestPostEdit_ATimedOutRunIsRecordedAsNotTestedWithItsCause(t *testing.T) {
 	}
 	if len(notTested) != 1 || notTested[0].Detail["cause"] != "timeout" {
 		t.Fatalf("not-tested events = %+v, want one with cause timeout", notTested)
+	}
+}
+
+// A harvested run is shadowed: beside the line aphrollo prints, one shadow event
+// holds the kernel's reading of the same run, filed under the tree the run judged.
+func TestHarvest_ARunVerdictIsShadowedBesideTheGateLine(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := mkProject(t, "go.mod")
+	saveDeferredJob(DeferredJob{
+		Project: root, Phase: "run", Dir: root, PID: 99, Runner: []string{"go", "test", "./..."},
+		Started: time.Now(), Session: "s-shadow", File: filepath.Join(root, "widget.go"),
+	})
+	job, ok := loadDeferredJob("s-shadow", root)
+	if !ok {
+		t.Fatal("setup: the job did not load back")
+	}
+	mustWrite(t, job.Log, "--- FAIL: TestWidget (0.00s)\n    widget_test.go:9: want 1\nFAIL\n")
+	writePhaseResult(job.Result, PhaseOutcome{ExitCode: 1, Seconds: 1, TreeKey: "tree-red"})
+
+	if line, ok := WaitDeferredEditJob(root); !ok || !strings.Contains(line, "red") {
+		t.Fatalf("harvest = %q, %v, want the red line", line, ok)
+	}
+
+	got := eventsOfKind(root, "shadow")
+	if len(got) != 1 {
+		t.Fatalf("%d shadow events, want 1: %+v", len(got), got)
+	}
+	d := got[0].Detail
+	if d["hook"] != "posttooluse-run" || d["key"] != "tree-red" || d["trellis_verdict"] != "red" || d["relation"] != "agree" || d["aphrollo"] != "red" {
+		t.Errorf("shadow detail = %v, want a posttooluse-run record of tree-red where both read a red", d)
+	}
+	if got[0].Cmd != "" {
+		t.Errorf("a shadow event carries no command: %+v", got[0])
 	}
 }
