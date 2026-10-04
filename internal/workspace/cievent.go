@@ -75,10 +75,11 @@ const ciQueue = "queue"
 // checks. The pass the PR's own checks gave it was recorded already; this is
 // the red the queue's run added, which the first-run measure counts for the
 // lane. Once per head, so a wait that is resumed does not count it twice.
-func (m *Merge) recordQueueRed(q *Enqueued) {
-	sha := "pr-" + strconv.Itoa(q.PR)
-	if head, err := ghPRHead(m.Target.Worktree, strconv.Itoa(q.PR)); err == nil && head.HeadSHA != "" {
+func recordQueueRed(wt, lane string, pr int) {
+	sha := "pr-" + strconv.Itoa(pr)
+	if head, err := ghPRHead(wt, strconv.Itoa(pr)); err == nil && head.HeadSHA != "" {
 		sha = head.HeadSHA
 	}
-	recordSettledCIBy(m.Target.Worktree, ciQueue+":"+sha, q.PR, "red", ciQueue, ciQueue)
+	tdd.AppendEventOnce(tdd.Event{Kind: "ci", Root: wt, Lane: lane, Verdict: "red",
+		Detail: map[string]string{"sha": ciQueue + ":" + sha, "ci": ciQueue, "pr": strconv.Itoa(pr), "cause": ciQueue}}, "sha")
 }

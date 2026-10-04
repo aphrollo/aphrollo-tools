@@ -13,7 +13,7 @@ func firstRunWorld(t *testing.T, runs []prRun, failed []string) {
 	newCIWorld(t, tdd.CIAuto, CIStatus{State: "green", SHA: "abc"})
 	oRuns, oJobs := ghPRRuns, ghRunFailedJobs
 	t.Cleanup(func() { ghPRRuns, ghRunFailedJobs = oRuns, oJobs })
-	ghPRRuns = func(string, string) ([]prRun, error) { return runs, nil }
+	ghPRRuns = func(string, string, int) ([]prRun, error) { return runs, nil }
 	ghRunFailedJobs = func(string, int64) ([]string, error) { return failed, nil }
 }
 
@@ -80,5 +80,42 @@ func TestMergeApply_AGreenFirstRunIsRecordedOnce(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("green events for the first run = %d, want 1", n)
+	}
+}
+
+// Another run of the first head still going does not hide the run of it that
+// already failed: the head is red, and a later green is not the first.
+func TestMergeApply_AFailedRunOfTheFirstHeadIsRedWhileAnotherRunIsStillGoing(t *testing.T) {
+	firstRunWorld(t, []prRun{
+		{ID: 1, SHA: "cccc3333", Status: "completed", Conclusion: "failure", CreatedAt: "2026-10-03T19:43:33Z"},
+		{ID: 2, SHA: "cccc3333", Status: "in_progress", CreatedAt: "2026-10-03T19:43:34Z"},
+		{ID: 3, SHA: "dddd4444", Status: "completed", Conclusion: "success", CreatedAt: "2026-10-03T20:17:22Z"},
+	}, []string{"test"})
+	if _, err := applyMerge(t, ""); err != nil {
+		t.Fatal(err)
+	}
+	var got *tdd.Event
+	for _, e := range ciOf(t) {
+		if e.Detail["sha"] == "cccc3333" {
+			got = &e
+		}
+	}
+	if got == nil || got.Verdict != "red" || got.Detail["cause"] != "test" {
+		t.Fatalf("first-head event = %+v, want red with cause test", got)
+	}
+}
+
+// The runs are asked for by the PR's own number, so a reused branch name or a
+// busy branch's page limit cannot make another PR's run the first one.
+func TestMergeApply_TheFirstRunsAreAskedForByThePRNumber(t *testing.T) {
+	firstRunWorld(t, nil, nil)
+	var gotBranch string
+	var gotPR int
+	ghPRRuns = func(_, branch string, pr int) ([]prRun, error) { gotBranch, gotPR = branch, pr; return nil, nil }
+	if _, err := applyMerge(t, ""); err != nil {
+		t.Fatal(err)
+	}
+	if gotBranch != "feat/z" || gotPR != 5 {
+		t.Fatalf("runs asked for branch %q PR %d, want feat/z PR 5", gotBranch, gotPR)
 	}
 }

@@ -209,8 +209,31 @@ func recordOutsideMerges(repo string, merges []OutsideMerge) {
 	}
 }
 
+// splitQueued separates the merges the verb queued (landed by the merge queue)
+// from the ones made outside it.
+func splitQueued(merges []OutsideMerge) (outside, queued []OutsideMerge) {
+	for _, m := range merges {
+		if m.QueuedLane != "" {
+			queued = append(queued, m)
+		} else {
+			outside = append(outside, m)
+		}
+	}
+	return outside, queued
+}
+
+// recordedLine says what was recorded, one line each for the merges made outside
+// `workspace merge` and the PRs it queued that the merge queue landed.
 func recordedLine(merges []OutsideMerge) string {
-	return fmt.Sprintf("recorded %d merge(s) made outside `workspace merge`: %s", len(merges), labels(merges))
+	outside, queued := splitQueued(merges)
+	var lines []string
+	if len(outside) > 0 {
+		lines = append(lines, fmt.Sprintf("recorded %d merge(s) made outside `workspace merge`: %s", len(outside), labels(outside)))
+	}
+	if len(queued) > 0 {
+		lines = append(lines, fmt.Sprintf("recorded %d merge(s) landed by the merge queue after `workspace merge` queued them: %s", len(queued), labels(queued)))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // noteTrunkMove records the outside merges a fast-forward of repo's trunk just
@@ -274,7 +297,9 @@ func PostMergeRecord(dir string, stderr io.Writer) {
 		return
 	}
 	recordOutsideMerges(root, merges)
-	fmt.Fprintln(stderr, "aphrollo: "+recordedLine(merges))
+	for line := range strings.Lines(recordedLine(merges)) {
+		fmt.Fprintln(stderr, "aphrollo: "+strings.TrimRight(line, "\n"))
+	}
 }
 
 // SyncSince is `workspace sync --since <ref>`: the sync, then a one-time
@@ -306,11 +331,15 @@ func SyncSince(repoArg, since string, dry bool, stdout, stderr io.Writer) error 
 		return nil
 	}
 	if dry {
-		fmt.Fprintf(stdout, "would record %d merge(s) made outside `workspace merge` since %s: %s\n", len(merges), since, labels(merges))
+		for line := range strings.Lines(recordedLine(merges)) {
+			fmt.Fprintf(stdout, "would %s since %s\n", strings.Replace(strings.TrimRight(line, "\n"), "recorded", "record", 1), since)
+		}
 		return nil
 	}
 	recordOutsideMerges(top, merges)
-	fmt.Fprintf(stdout, "recorded %d merge(s) made outside `workspace merge` since %s: %s\n", len(merges), since, labels(merges))
+	for line := range strings.Lines(recordedLine(merges)) {
+		fmt.Fprintf(stdout, "%s since %s\n", strings.TrimRight(line, "\n"), since)
+	}
 	return nil
 }
 

@@ -128,3 +128,16 @@ func TestSpeed_AQueueMergeRecordedWhenTrunkTookItInClosesTheLane(t *testing.T) {
 		t.Fatalf("speed = %+v, want one lane of 3600s", got)
 	}
 }
+
+// A lane whose first result is before the window is not a lane of the window,
+// whatever the queue said later.
+func TestCI_AQueueRedOfALaneWhoseFirstResultIsBeforeTheWindowIsNotCounted(t *testing.T) {
+	events := golden(t, `
+{"v":1,"at":"2026-10-01T09:00:00.000Z","lane":"lane/q","kind":"ci","verdict":"green","detail":{"ci":"github","pr":"1200","sha":"aaaa"}}
+{"v":1,"at":"2026-10-04T09:20:00.000Z","lane":"lane/q","kind":"ci","verdict":"red","detail":{"cause":"queue","ci":"queue","pr":"1200","sha":"bbbb"}}
+`)
+	got := Compute(events, time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC), Options{Window: 48 * time.Hour}).CI
+	if got.Lanes != 0 || len(got.RedByCause) != 0 {
+		t.Fatalf("ci = %+v, want no lane", got)
+	}
+}

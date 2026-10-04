@@ -8,3 +8,5 @@ level: patch
 - A PR the merge queue removes for failed checks records a red `queue` result, and a lane whose PR run was green but whose queue run failed counts as red by cause `queue`.
 - A PR queued by `workspace merge` and merged by GitHub later is recorded as merged on its lane when local trunk takes the merge in, instead of being left open in the speed measure.
 - An allowed narrowed rerun (`override-bash-narrowed`) is no longer an override, and one deny is at most one wrong block.
+- A PR queued without `--wait` and dropped by the queue for failed checks is recorded red by the next `workspace sync`.
+- A sync that records PRs the merge queue landed names them as queue-landed merges of `workspace merge`, apart from merges made outside it.
