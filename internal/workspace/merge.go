@@ -236,7 +236,7 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 	if err != nil {
 		return nil, fmt.Errorf("refusing to merge %s: reading whether %s has a merge queue: %w", m.Target.Branch, base, err)
 	}
-	body, prTitle, useBody, err := undercoverMerge(m.Target, undercoverMethod(m.Method, queued), head)
+	body, prTitle, useBody, err := undercoverMerge(m.Target, undercoverMethod(m.Method, queued), base, head)
 	if err != nil {
 		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}

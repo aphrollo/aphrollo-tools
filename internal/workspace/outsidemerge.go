@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 	"io"
 	"os"
 	"path/filepath"
@@ -95,9 +96,11 @@ func prNumber(subject string) int {
 // first: a commit with two parents, or one whose subject names a PR (a squash
 // merge has one parent). A plain commit pushed straight to trunk is neither.
 func trunkMergesIn(repo, rng string) ([]OutsideMerge, error) {
-	raw, err := wtGit(repo, "log", "--first-parent", "--reverse",
+	// Sealed: the post-merge hook runs this with the hook's GIT_DIR and
+	// GIT_INDEX_FILE in its environment, which must not redirect the scan.
+	out, err := gitx.Git(repo, "log", "--first-parent", "--reverse",
 		"--max-count="+strconv.Itoa(outsideScanCap), "--format=%H%x1f%P%x1f%cI%x1f%s", rng)
-	out := string(raw)
+
 	if err != nil {
 		return nil, fmt.Errorf("git log %s: %v: %s", rng, err, strings.TrimSpace(out))
 	}
@@ -256,11 +259,11 @@ func refTip(repo, ref string) string {
 	if c := repoGit(repo); c != nil && plainRefName(ref) {
 		return c.ResolveRef(ref)
 	}
-	out, err := wtGit(repo, "rev-parse", "--verify", "--quiet", ref)
+	out, err := gitx.Git(repo, "rev-parse", "--verify", "--quiet", ref)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+	return strings.TrimSpace(out)
 }
 
 // declaresAphrollo reports whether the repo at root carries an aphrollo

@@ -333,7 +333,13 @@ func needDefaultBranch(repo string) (string, error) {
 	if def := resolveDefaultBranch(repo); def != "" {
 		return def, nil
 	}
-	return "", fmt.Errorf("cannot tell %s's default branch: origin/HEAD is not set and no main or master branch exists; run `git remote set-head origin --auto` or pass --base", repo)
+	// What these verbs did before the trunk was read: main, where there is one.
+	for _, name := range []string{"main", "master"} {
+		if gitRefExists(repo, name) || gitRefExists(repo, "origin/"+name) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("cannot tell %s's default branch: origin/HEAD is not set and there is no main or master; run `git remote set-head origin --auto`", repo)
 }
 
 // gitRefExists reports whether ref resolves in repo (quiet, no output).

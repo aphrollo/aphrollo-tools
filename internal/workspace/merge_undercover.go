@@ -54,12 +54,12 @@ func mergeBodyArgs(method, subject, body, sha, branch string) []string {
 // merge must pass body explicitly: the repo set `undercover = true` and the
 // method writes a commit body (a rebase writes none). A repo that never
 // asked merges exactly as before.
-func undercoverMerge(t *Target, method, head string) (body, title string, useBody bool, err error) {
+func undercoverMerge(t *Target, method, base, head string) (body, title string, useBody bool, err error) {
 	tells, on := undercover.Load(t.Worktree)
 	if !on {
 		return "", "", false, nil
 	}
-	if err := undercoverPRCommits(t, head, tells); err != nil {
+	if err := undercoverPRCommits(t, base, head, tells); err != nil {
 		return "", "", false, err
 	}
 	if method == "rebase" {
@@ -79,12 +79,7 @@ func undercoverMerge(t *Target, method, head string) (body, title string, useBod
 	if strings.TrimSpace(kept) == "" {
 		kept = title
 	}
-	def, err := needDefaultBranch(t.Worktree)
-	if err != nil {
-		return "", "", false, err
-	}
-	base := "origin/" + def
-	return withClosingTrailers(kept, commitMessagesSince(t.Worktree, base, head)), title, true, nil
+	return withClosingTrailers(kept, commitMessagesSince(t.Worktree, "origin/"+base, head)), title, true, nil
 }
 
 // missingCloses is every issue a lane commit closes that body does not, in
@@ -120,13 +115,9 @@ func withClosingTrailers(body string, commits []string) string {
 }
 
 // undercoverPRCommits refuses when a commit the PR brings — everything on the
-// branch that origin's default branch does not hold — carries a tell.
-func undercoverPRCommits(t *Target, head string, tells undercover.List) error {
-	def, err := needDefaultBranch(t.Worktree)
-	if err != nil {
-		return err
-	}
-	base := "origin/" + def
+// branch that the PR's base branch on origin does not hold — carries a tell.
+func undercoverPRCommits(t *Target, baseBranch, head string, tells undercover.List) error {
+	base := "origin/" + baseBranch
 	sha, h, hit, err := tells.RangeTell("git", t.Worktree, nil, base+".."+head)
 	if err != nil {
 		return fmt.Errorf("listing the PR's commits (%s..%s): %w", base, short(head), err)

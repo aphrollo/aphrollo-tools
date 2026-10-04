@@ -55,7 +55,10 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 
 	def, err := needDefaultBranch(top)
 	if err != nil {
-		return err
+		// Nothing to fast-forward toward: the same clean skip as a missing
+		// origin/<default>, which is what a repo with no trunk always got.
+		fmt.Fprintf(stdout, "%v [skip]\n", err)
+		return nil
 	}
 	remote := "origin/" + def
 	local := "refs/heads/" + def

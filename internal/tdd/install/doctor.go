@@ -104,19 +104,24 @@ func doctorGitHooksPath(in DoctorInput) DoctorCheck {
 	return c
 }
 
-// doctorPrimaryCheckout checks the primary checkout still holds main. It
+// doctorPrimaryCheckout checks the primary checkout still holds the repo's trunk. It
 // receives merges for every lane in the repo, so one parked on a lane branch
 // puts the next merge on the wrong base — and nothing says so until the merge
 // lands. ok=false means the check does not apply: a linked worktree, or a
 // clone with no lanes to keep separate.
 func doctorPrimaryCheckout(in DoctorInput) (DoctorCheck, bool) {
-	c := DoctorCheck{Name: "primary checkout on main"}
+	c := DoctorCheck{Name: "primary checkout on trunk"}
 	if in.Repo == "" {
 		return c, false
 	}
 	root, branch, trunk, applies := PrimaryCheckoutState(in.Repo)
-	if !applies || trunk == "" {
+	if !applies {
 		return c, false
+	}
+	if trunk == "" {
+		c.OK, c.Warn = true, true
+		c.Detail = "trunk unknown — run git remote set-head origin --auto (the primary checkout is held to main and master meanwhile)"
+		return c, true
 	}
 	if branch != trunk {
 		c.Detail = fmt.Sprintf("%s is on %s — it receives merges and must hold %s; run `git checkout %s`",

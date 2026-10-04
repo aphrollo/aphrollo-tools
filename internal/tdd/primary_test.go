@@ -370,3 +370,34 @@ func TestPrimaryCheckout_HoldsTheReposTrunkWhateverItIsCalled(t *testing.T) {
 		t.Fatalf("a primary checkout on its trunk 'develop' should Block naming it, got %+v", d)
 	}
 }
+
+// An origin/HEAD that points somewhere odd must not take the wall off a
+// primary checkout on main: the wall guards the resolved trunk and also main
+// and master.
+func TestPrimaryCheckout_AStaleOriginHeadDoesNotUnwallMain(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, _ := primaryRepo(t)
+	gitDo(t, primary, "update-ref", "refs/remotes/origin/develop", "HEAD")
+	gitDo(t, primary, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/develop")
+
+	d := PrimaryCheckoutDecision(editPayload(t, "Edit", filepath.Join(primary, "main.go"), "s10"))
+
+	if d.Action != Block {
+		t.Fatalf("a primary checkout on main must stay walled when origin/HEAD names another trunk, got %+v", d)
+	}
+}
+
+// With no trunk to read the wall holds main and master, and only those.
+func TestPrimaryCheckout_WithNoTrunkItStillWallsMasterButNotAnotherBranch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, _ := primaryRepo(t)
+	gitDo(t, primary, "branch", "-m", "main", "master")
+	gitDo(t, primary, "config", "init.defaultBranch", "nothing")
+	if d := PrimaryCheckoutDecision(editPayload(t, "Edit", filepath.Join(primary, "main.go"), "s11")); d.Action != Block {
+		t.Fatalf("master is walled, got %+v", d)
+	}
+	gitDo(t, primary, "branch", "-m", "master", "feature")
+	if d := PrimaryCheckoutDecision(editPayload(t, "Edit", filepath.Join(primary, "main.go"), "s12")); d.Action != Allow {
+		t.Fatalf("a primary on a feature branch with no trunk to hold is not walled, got %+v", d)
+	}
+}

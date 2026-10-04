@@ -36,6 +36,9 @@ const PrimaryEditsEnv = "APHROLLO_PRIMARY_EDITS"
 // branch). Not a setting: the whole rule is "this checkout stays on trunk and
 // receives merges", and a repo whose trunk cannot be told never matches, which
 // is the fail-open direction.
+// The client keeps a trunk it found for the life of the process. That is right
+// for a hook, which lives for one tool call; a long-lived caller would have to
+// ask a new client.
 func primaryTrunk(c *igit.Client) string {
 	return strings.TrimPrefix(c.Trunk(), "origin/")
 }
@@ -81,7 +84,7 @@ func PrimaryCheckoutState(dir string) (root, branch, trunk string, applies bool)
 // instead.
 func PrimaryMergeOnly(dir string) (root string, ok bool) {
 	root, branch, trunk, applies := PrimaryCheckoutState(dir)
-	if !applies || trunk == "" || branch != trunk {
+	if !applies || !heldBranch(branch, trunk) {
 		return "", false
 	}
 	return root, true
@@ -319,4 +322,13 @@ func trunkOf(root string) string {
 		}
 	}
 	return "<trunk>"
+}
+
+// heldBranch reports whether a primary checkout on branch is the one the wall
+// guards. The repo's trunk is guarded; so are main and master, the names the
+// wall guarded before the trunk was read, whatever the trunk resolves to: a
+// trunk that cannot be told, or an origin/HEAD that is stale or odd, never
+// takes the wall off a checkout on either. The wall fails closed.
+func heldBranch(branch, trunk string) bool {
+	return branch == "main" || branch == "master" || (trunk != "" && branch == trunk)
 }

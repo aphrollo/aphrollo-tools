@@ -565,3 +565,24 @@ func TestSyncSince_RefusesARefThatDoesNotResolve(t *testing.T) {
 		t.Fatalf("events = %+v, want none", evs)
 	}
 }
+
+// The post-merge hook runs these reads with its own GIT_DIR and GIT_INDEX_FILE
+// in the environment; the scan reads the repository it was given, whatever
+// they name.
+func TestTrunkMergesIn_IsSealedAgainstAHooksGitEnvironment(t *testing.T) {
+	repo := initRepo(t)
+	spawnGit(t, repo, "commit", "-q", "--allow-empty", "-m", "Add the thing (#5)")
+	other := initRepo(t)
+	want := spawnGit(t, repo, "rev-parse", "HEAD")
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+	t.Setenv("GIT_INDEX_FILE", filepath.Join(other, ".git", "index"))
+
+	merges, err := trunkMergesIn(repo, "HEAD~1..HEAD")
+
+	if err != nil || len(merges) != 1 || merges[0].PR != 5 {
+		t.Fatalf("trunkMergesIn = %+v, %v; want the squash merge of #5 from the repo it was given", merges, err)
+	}
+	if tip := refTip(repo, "HEAD^{commit}"); tip == "" || tip != want {
+		t.Errorf("refTip = %q, want the given repo's HEAD", tip)
+	}
+}
