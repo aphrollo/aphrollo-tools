@@ -241,3 +241,28 @@ func TestOtherWorktreeRoots_ARootNamedThroughALinkFindsTheSameWorktreesGitLists(
 		t.Errorf("elsewhere = %q, want the primary %q and never the root's own %q", search.elsewhere, primary, own)
 	}
 }
+
+// The primary checkout is always searched, whatever the merge in progress, and
+// a linked worktree is searched only when its HEAD is the merge being judged:
+// a root in a lane with no merge in progress has the primary and nothing else,
+// and a root in the merge worktree has the primary and the lane it merges.
+func TestOtherWorktreeRoots_SearchThePrimaryAlwaysAndALinkedWorktreeOnlyWhenItIsTheMergeTip(t *testing.T) {
+	primary, lane, merge := pytestWorktrees(t)
+	unrelated := filepath.Join(t.TempDir(), "unrelated")
+	gitDo(t, primary, "worktree", "add", "-q", "--detach", unrelated, "HEAD")
+	root := func(tree string) string { return igit.Canonical(filepath.Join(tree, "backend")) }
+
+	fromLane := otherWorktreeRoots(filepath.Join(lane, "backend"))
+	if want := []string{root(primary)}; !slices.Equal(fromLane.elsewhere, want) {
+		t.Errorf("from the lane (no merge in progress): elsewhere = %q, want only the primary %q", fromLane.elsewhere, want)
+	}
+
+	fromMerge := otherWorktreeRoots(filepath.Join(merge, "backend"))
+	got := slices.Clone(fromMerge.elsewhere)
+	slices.Sort(got)
+	want := []string{root(primary), root(lane)}
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Errorf("from the merge worktree: elsewhere = %q, want the primary and the merged lane %q, not the unrelated or its own", got, want)
+	}
+}
