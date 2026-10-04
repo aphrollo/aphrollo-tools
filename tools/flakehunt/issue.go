@@ -9,6 +9,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
 )
 
@@ -166,7 +167,7 @@ func (fl Filer) File(f Failure) (url string, updated bool, err error) {
 // prompt, no deadline: a person watches this run) and answers its stdout. A
 // failure carries gh's own stderr, capped, so the operator can act on it.
 func runGh(dir string, args ...string) (string, error) {
-	out, err := github.ExecRunner(dir, 0, args...)
+	out, err := github.EnvRunner(gitx.CleanGitEnv())(dir, 0, args...)
 	if err != nil {
 		if said := strings.TrimSpace(string(out)); said != "" {
 			if r := []rune(said); len(r) > 400 {

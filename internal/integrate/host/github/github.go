@@ -96,6 +96,10 @@ func ExecRunner(dir string, timeout time.Duration, args ...string) ([]byte, erro
 	return execRunner(context.Background(), nil)(dir, timeout, args...)
 }
 
+// EnvRunner is ExecRunner in env, for a caller whose environment carries more
+// than the GIT_* scrub (a marker the queue shims read).
+func EnvRunner(env []string) Runner { return execRunner(context.Background(), env) }
+
 // execRunner is ExecRunner under ctx and env (the scrubbed one when nil).
 func execRunner(ctx context.Context, env []string) Runner {
 	return func(dir string, timeout time.Duration, args ...string) ([]byte, error) {

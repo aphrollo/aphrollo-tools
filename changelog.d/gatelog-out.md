@@ -6,4 +6,4 @@ The gate no longer writes `gate.log`: every record of what the gate did is the e
 
 - A `gate.log` left from an earlier release is still read for history older than the event records, until 2026-11-05; nothing new is appended to it.
 - An override or a refusal records its verdict, never the text that was typed with it (a reason, a command), because the event keeps typed text off the log.
-- A local-CI green recorded before this release is not reused for the same tree once; the first merge after the upgrade runs the workflow again.
+- A local-CI green recorded before this release is still reused for the same tree, read from the old `gate.log` until 2026-11-05.
