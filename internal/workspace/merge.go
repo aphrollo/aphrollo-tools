@@ -225,7 +225,7 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 		case ci.State == "green":
 			verdict = ciVerdictOf(m.Target.Worktree, pr.Number, head, ci)
 			if ci.AllSkipped() {
-				fmt.Fprintf(stdout, "ci: github (%s) — no check ran on %s (all %d skipped)\n", choice.source, short(head), ci.Skipped)
+				fmt.Fprintf(stdout, "ci: github (%s) — no check ran on %s (all %d skipped) — the local suite is the proof\n", choice.source, short(head), ci.Skipped)
 			} else {
 				fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(head))
 			}
