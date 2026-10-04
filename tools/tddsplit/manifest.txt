@@ -360,6 +360,8 @@ failfirst_node.go                                  failfirst
 failfirst_node_test.go                             failfirst
 failfirst_outcome.go                               failfirst
 failfirst_pytest.go                                failfirst
+failfirst_pytest_cache.go                          failfirst
+failfirst_pytest_cache_test.go                     failfirst
 failfirst_pytest_siblings.go                       failfirst
 failfirst_pytest_siblings_test.go                  failfirst
 failfirst_pytest_test.go                           failfirst

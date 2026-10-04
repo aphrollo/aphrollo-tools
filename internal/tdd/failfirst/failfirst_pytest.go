@@ -87,17 +87,9 @@ func (s pytestSearch) venvDirs() []string {
 	return out
 }
 
-// pytestProofRunner is r, when it is a pytest runner (any other runner comes
-// back unchanged), rewritten to run under the first
-// interpreter that imports pytest with the same arguments (`python -m pytest
-// -q <tests>`), or why none can. The interpreter is only a program: the
-// runner keeps its own Dir, so the tests run against the code in that
-// directory whichever tree the venv sits in. look finds an interpreter on
-// PATH and importable says whether one has pytest.
-func pytestProofRunner(search pytestSearch, r Runner, look func(string) (string, error), importable func(string) error) (Runner, string) {
-	if r.Cmd != "pytest" {
-		return r, ""
-	}
+// pytestCandidates are the interpreters the search can try, in order: each
+// virtualenv's that exists, then python3 and python from PATH.
+func pytestCandidates(search pytestSearch, look func(string) (string, error)) []string {
 	var found []string
 	for _, root := range search.venvRoots() {
 		for _, p := range venvPythons(root) {
@@ -111,6 +103,21 @@ func pytestProofRunner(search pytestSearch, r Runner, look func(string) (string,
 			found = append(found, p)
 		}
 	}
+	return found
+}
+
+// pytestProofRunner is r, when it is a pytest runner (any other runner comes
+// back unchanged), rewritten to run under the first
+// interpreter that imports pytest with the same arguments (`python -m pytest
+// -q <tests>`), or why none can. The interpreter is only a program: the
+// runner keeps its own Dir, so the tests run against the code in that
+// directory whichever tree the venv sits in. look finds an interpreter on
+// PATH and importable says whether one has pytest.
+func pytestProofRunner(search pytestSearch, r Runner, look func(string) (string, error), importable func(string) error) (Runner, string) {
+	if r.Cmd != "pytest" {
+		return r, ""
+	}
+	found := pytestCandidates(search, look)
 	remedy := cmp.Or(search.remedy, search.root)
 	create := fmt.Sprintf("create %s with the requirements of %s installed", filepath.Join(remedy, ".venv"), search.root)
 	searched := strings.Join(search.venvDirs(), ", ")
@@ -131,5 +138,5 @@ func pytestExecRunner(root string, r Runner) (Runner, string) {
 	if r.Cmd != "pytest" {
 		return r, ""
 	}
-	return pytestProofRunner(otherWorktreeRoots(root), r, exec.LookPath, pytestImportable)
+	return pytestCachedRunner(StateDir(), otherWorktreeRoots(root), r, exec.LookPath, pytestImportable)
 }
