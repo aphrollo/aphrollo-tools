@@ -65,6 +65,29 @@ func ActiveDeferredJobs() []DeferredJob {
 	return active
 }
 
+// deferredJobMaybeLive is deferredJobLive for a caller that must not mistake a
+// healthy run for a dead one: a record whose process identity was never taken
+// (the OS query failed at spawn) says nothing about its process, so it counts as
+// going. Dead is: past its own ceiling, or an identity taken that the process
+// now has no match for.
+func deferredJobMaybeLive(j DeferredJob, now time.Time) bool {
+	if deferredExpired(j, now) {
+		return false
+	}
+	if j.PIDCreatedAt.IsZero() {
+		return true
+	}
+	live, ok := processStartTimeFn(j.PID)
+	return ok && live.Sub(j.PIDCreatedAt).Abs() <= pidIdentityTolerance
+}
+
+// isHeldLine is a hook line that says the run is not over: BUILDING, or QUEUED
+// behind another run. A wait keeps waiting on it, where QUEUED-SKIPPED and
+// QUEUED-DROPPED are final: the run will never start.
+func isHeldLine(line string) bool {
+	return strings.HasPrefix(line, "gate: → BUILDING") || strings.Contains(line, " → QUEUED (")
+}
+
 // deferredJobLive reports whether a deferred job with no result yet is one a
 // caller should actually wait on. Unlike pidStillOurs — a KILL site, where
 // "cannot tell" defaults to permission to act, because the cost of a wrong
@@ -165,7 +188,7 @@ func WaitDeferredEditJob(root string) (advisory string, ok bool) {
 		_, done := deferredResult(cur)
 		stale := done && !deferredMatchesSource(cur, headSHA, identity)
 		line, _ := harvestDeferred(project, headSHA, identity, j.Session, waitDeferredPollInterval, nil, "")
-		if strings.HasPrefix(line, "gate: → BUILDING") {
+		if isHeldLine(line) {
 			time.Sleep(waitDeferredPollInterval)
 			continue
 		}
@@ -206,7 +229,7 @@ func restartDeferredEditJob(stale DeferredJob, headSHA, identity string) bool {
 	if len(runArgv) == 0 {
 		return false
 	}
-	first := firstEditPhase(runnerFromArgv(runArgv, stale.Dir), stale.Project, stale.File, headSHA, identity, stale.Session, stale.EditID)
+	first := firstEditPhase(runnerFromArgv(runArgv, stale.Dir), stale.Project, stale.File, headSHA, identity, stale.Session, stale.EditID, stale.Touched...)
 	if _, ok := spawnPhaseFn(first); !ok {
 		clearDeferredJob(first.Session, first.Project)
 		return false

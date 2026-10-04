@@ -61,6 +61,10 @@ type DeferredJob struct {
 	// EditID names the edit-ledger record this run judges, so a verdict
 	// harvested at a later hook still lands on the edit it was started for.
 	EditID string `json:"edit_id,omitempty"`
+	// Touched is every other file the same write changed under the project: with
+	// File, the files the run was built for, which a later hook needs to know
+	// whether they were all generated code (generated_edit.go).
+	Touched []string `json:"touched,omitempty"`
 	// RunRunner is, on a build record, the argv of the run phase that
 	// follows it. The build form drops the run-only flags nextest refuses
 	// beside --no-run (issue #798), so the build's own argv no longer says

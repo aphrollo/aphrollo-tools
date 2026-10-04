@@ -33,6 +33,8 @@ func fitRunes(p0 string, p1 int) string { return core.FitRunes(p0, p1) }
 
 func gateLinesSince(p0 time.Time) string { return core.GateLinesSince(p0) }
 
+func isQueueBookkeeping(p0 string) bool { return core.IsQueueBookkeeping(p0) }
+
 func normalizeRepoSpelling(p0 string) string { return core.NormalizeRepoSpelling(p0) }
 
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }

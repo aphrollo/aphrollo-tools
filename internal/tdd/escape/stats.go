@@ -99,6 +99,9 @@ func GateStats(r io.Reader, since time.Time) Stats {
 			s.ByStage[e.Stage] = map[string]int{}
 		}
 		s.ByStage[e.Stage][e.Verdict]++
+		if isQueueBookkeeping(e.Verdict) {
+			continue // where an edit's run stands, not a run: no crate tally, no timing
+		}
 		crate := logRootCrate(e.Root)
 		switch {
 		case strings.HasPrefix(e.Verdict, "timeout"):
@@ -323,7 +326,7 @@ func contentionLine(s Stats) string {
 	}
 	queued := 0
 	for _, byOutcome := range s.ByStage {
-		queued += byOutcome["queued-skipped"]
+		queued += byOutcome["queued-skipped"] + byOutcome["queued-dropped"]
 	}
 	return fmt.Sprintf("contention: longest build-slot wait %ss, %d deferred, %d queued-skipped\n",
 		formatFloat(s.LockWaitMax), deferred, queued)

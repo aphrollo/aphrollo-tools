@@ -395,3 +395,25 @@ func TestGateStats_CountsAFailFirstRunThatNeverReachedTheTestAsAStandDown(t *tes
 		t.Fatalf("StandDowns[%q] = %d, want 1 (StandDowns = %v)", verdict, s.StandDowns[verdict], s.StandDowns)
 	}
 }
+
+// A restart or a queue entry says where an edit's run stands: it is no run, so
+// it is no "deferred" tally and no sample of the run-time median.
+func TestGateStats_QueueBookkeepingIsNeitherADeferredRunNorATimingSample(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	log := strings.Join([]string{
+		now + " postedit /r go test ./a green 10.0s",
+		now + " postedit /r go test ./a deferred-restart 0.0s",
+		now + " postedit /r go test ./b queue-waiting 0.0s",
+		now + " postedit /r go test ./b queue-started 0.0s",
+		"",
+	}, "\n")
+
+	s := GateStats(strings.NewReader(log), time.Time{})
+
+	if n := s.Deferred["r"]; n != 0 {
+		t.Errorf("deferred tally = %v, want none: a restart is no deferred run", s.Deferred)
+	}
+	if s.Median != 10 {
+		t.Errorf("median = %v, want 10: the bookkeeping lines carry no timing", s.Median)
+	}
+}

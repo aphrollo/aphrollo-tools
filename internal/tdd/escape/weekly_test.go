@@ -98,3 +98,26 @@ func TestRenderGateStatsCarriesTheOpenEscapeCount(t *testing.T) {
 		t.Fatalf("stats must state the escape debt:\n%s", out)
 	}
 }
+
+// An edit that waits in the run queue, and a queued run that starts, are not
+// runs: counted as outcomes they would drag the green rate down for every edit
+// that merely waited, and be a denominator for runs nobody made.
+func TestWeeklyDigest_DoesNotCountQueueBookkeepingAsRuns(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now().UTC()
+	stamp := func(d time.Duration) string { return now.Add(-d).Format(time.RFC3339) }
+	writeGateLog(t, strings.Join([]string{
+		stamp(time.Hour) + " postedit /r go test ./... green 1.0s",
+		stamp(2*time.Hour) + " postedit /r go test ./b queue-waiting 0.0s",
+		stamp(3*time.Hour) + " postedit /r go test ./b queue-started 0.0s",
+		stamp(4*time.Hour) + " postedit /r go test ./c queued-dropped 0.0s",
+		stamp(5*time.Hour) + " postedit /r go test ./a deferred-restart 0.0s",
+		"",
+	}, "\n"))
+
+	line := weeklyDigest(now)
+
+	if !strings.Contains(line, "green 50%") || !strings.Contains(line, "queued-skipped 50%") {
+		t.Fatalf("digest %q: want one green of two runs (the waiting and started entries are no runs; the dropped one is a not-tested run)", line)
+	}
+}

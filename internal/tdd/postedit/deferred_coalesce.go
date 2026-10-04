@@ -28,7 +28,7 @@ func liveTwin(j DeferredJob) (DeferredJob, bool) {
 			!slices.Equal(o.Runner, j.Runner) || normalizeProjectPath(o.Project) != project {
 			continue
 		}
-		if _, done := deferredResult(o); done || !deferredJobLive(o, now) {
+		if _, done := deferredResult(o); done || !deferredJobMaybeLive(o, now) {
 			continue
 		}
 		return o, true

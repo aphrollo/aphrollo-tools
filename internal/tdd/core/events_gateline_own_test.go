@@ -106,3 +106,21 @@ func TestReadGateEntries_AWindowOpeningMidMonthStillReadsThatMonthsFile(t *testi
 		t.Fatalf("entries = %+v, want the line written a moment ago", got)
 	}
 }
+
+// Where an edit's run stands is no run and no stage timing: the events say so.
+func TestAppendGateLog_QueueBookkeepingIsAQueueEventAndNoNotTestedRun(t *testing.T) {
+	isolateEvents(t)
+	repo := eventsTestRepo(t)
+	for _, verdict := range []string{"queue-waiting", "queue-started", "deferred-restart"} {
+		AppendGateLog("postedit", repo, "go test ./a", verdict, 0)
+	}
+
+	for _, e := range ReadEvents(repo) {
+		if e.Kind != "queue" {
+			t.Errorf("verdict %q is kind %q, want queue", e.Verdict, e.Kind)
+		}
+		if notTestedCause(e.Verdict) != "" {
+			t.Errorf("verdict %q reads as a not-tested run (%s)", e.Verdict, notTestedCause(e.Verdict))
+		}
+	}
+}
