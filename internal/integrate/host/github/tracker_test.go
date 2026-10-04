@@ -197,3 +197,15 @@ func TestOptions_ADeadlineStillBoundsAnUnboundedHost(t *testing.T) {
 		t.Fatalf("timeout = %v, want what is left of the deadline", s.calls[0].timeout)
 	}
 }
+
+func TestListIssues_NoLimitLeavesGhsOwnPageAndAnEmptyStderrLeavesABareError(t *testing.T) {
+	s := &scripted{t: t, reply: func([]string) ([]byte, error) { return nil, errors.New("exit status 1") }}
+	_, err := s.host(originURL).ListIssues(host.IssueQuery{Label: "x", State: "open", Fields: []string{"title"}})
+	want := []string{"issue", "list", "--label", "x", "--state", "open", "--json", "title"}
+	if !slices.Equal(s.calls[0].args, want) {
+		t.Fatalf("argv = %v, want %v", s.calls[0].args, want)
+	}
+	if err == nil || err.Error() != "gh issue: exit status 1" {
+		t.Fatalf("err = %v, want the verb and the cause alone", err)
+	}
+}

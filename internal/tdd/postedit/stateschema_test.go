@@ -220,10 +220,11 @@ func TestMechCacheTreatsANewerFileAsAbsent(t *testing.T) {
 	}
 }
 
+// ratchet: test_removed TestGateLogStampsItsSchemaBesideTheLog: nothing writes gate.log or its stamp any more; the reader of a newer stamp is held by TestGateLogNewerSchema_ReadsAStampFromAnewerBinary
 // A binary that wrote gate.log left its schema in a sibling file. A reader that
 // meets a newer one reports that instead of tallying lines whose shape it
 // cannot vouch for.
-func TestGateLogStampsItsSchemaBesideTheLog(t *testing.T) {
+func TestGateLogNewerSchema_ReadsAStampFromAnewerBinary(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if got, ok := GateLogNewerSchema(); ok {
 		t.Fatalf("no stamp at all reads as newer (%d)", got)

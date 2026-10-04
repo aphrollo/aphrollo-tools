@@ -144,3 +144,21 @@ func TestNoteStateOnce_LogsTheVerdictAndFileOnlyOncePerPair(t *testing.T) {
 		t.Fatalf("logged %d time(s), want 1:\n%s", n, data)
 	}
 }
+
+// tddtest sits below core and states the event root's rule a second time; the
+// two must name the same directory for every spelling of the environment.
+func TestStateRoot_TddtestStatesTheSameRule(t *testing.T) {
+	for _, env := range []map[string]string{
+		{"TRELLIS_DATA": t.TempDir()},
+		{"TRELLIS_DATA": "", "LOCALAPPDATA": t.TempDir(), "XDG_STATE_HOME": t.TempDir()},
+		{"TRELLIS_DATA": "", "LOCALAPPDATA": "", "XDG_STATE_HOME": t.TempDir()},
+		{"TRELLIS_DATA": "", "LOCALAPPDATA": "", "XDG_STATE_HOME": ""},
+	} {
+		for k, v := range env {
+			t.Setenv(k, v)
+		}
+		if got, want := tddtest.StateRoot(), StateRoot(); got != want {
+			t.Errorf("env %v: tddtest.StateRoot() = %q, core.StateRoot() = %q", env, got, want)
+		}
+	}
+}

@@ -286,7 +286,7 @@ func TestCommitPlan_NoVerifyWithoutReasonRejected(t *testing.T) {
 // same verdict token the git shim's own hooks-bypass door
 // writes (issue #314) -- so a hatch that used to leave no trace anywhere now
 // shows up in `gate stats` regardless of which of the two doors was used.
-func TestCommit_NoVerifyLogsOverrideTokenWithReason(t *testing.T) {
+func TestCommit_NoVerifyLogsTheOverrideToken(t *testing.T) {
 	gateState(t)
 	repo := initRepo(t)
 	writeFile(t, repo, "new.txt", "hello\n")
@@ -346,3 +346,5 @@ func TestCommit_RejectionMessageDropsTheNoVerifyBypassHint(t *testing.T) {
 		t.Fatalf("rejection must surface the hook's own stderr, got %q", errb.String())
 	}
 }
+
+// ratchet: test_removed TestCommit_NoVerifyLogsOverrideTokenWithReason: renamed TestCommit_NoVerifyLogsTheOverrideToken. An override's stated reason was typed text in gate.log's command field; the event keeps the stage and the token and never typed text (it may hold a secret), so the reason is no longer asserted.
