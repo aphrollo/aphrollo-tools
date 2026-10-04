@@ -22,3 +22,13 @@ Three answers of the branch-rules read pin the no-queue rule at the port:
 because no Free-plan or narrowly scoped token is at hand here: `91.out` is the
 text of #1203 (a private repository of a Free organisation), `92.out` a token
 without the scope.
+
+## Not recorded
+
+A GraphQL `errors` answer to the enqueue mutation (a refused enqueue, a moved
+head) is not here: producing one needs a PR that can be enqueued and moved on
+purpose, which this repository's merge queue does not allow without landing
+something. `write_test.go` tests that path on hand-written bodies in GitHub's
+documented shape (`TestEnqueue_AGraphQLErrorBodyOnExitZeroIsARefusal`,
+`TestEnqueue_AHeadThatMovedIsTheHeadMovedRefusalNotAGenericOne`). Replace them
+with a recording the first time a real one is captured.

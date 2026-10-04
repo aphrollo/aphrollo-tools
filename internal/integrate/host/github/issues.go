@@ -13,7 +13,7 @@ import (
 func (g *GitHub) OpenIssue(r host.IssueRequest) (string, error) {
 	out, err := g.gh(IssueArgs(r)...)
 	if err != nil {
-		return "", fmt.Errorf("gh issue: %w: %s", err, strings.TrimSpace(string(out)))
+		return "", fmt.Errorf("gh issue: %w: %s", err, fit(strings.TrimSpace(string(out)), 400))
 	}
 	url := lastNonEmptyLine(string(out))
 	if !strings.Contains(url, "/issues/") {
@@ -44,7 +44,7 @@ func (g *GitHub) EnsureLabel(name, colour, description string) error {
 	}
 	out, err := g.gh(args...)
 	if err != nil {
-		return fmt.Errorf("gh label: %w: %s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("gh label: %w: %s", err, fit(strings.TrimSpace(string(out)), 400))
 	}
 	return nil
 }

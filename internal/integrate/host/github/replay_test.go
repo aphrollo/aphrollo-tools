@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -304,18 +303,6 @@ func TestRecorded_ThePRTextIsTheTitleAndBodyAsTheyLanded(t *testing.T) {
 	}
 }
 
-func TestExecRunner_AnAbsurdlyShortDeadlineNamesTheStalledCall(t *testing.T) {
-	if _, err := exec.LookPath("gh"); err != nil {
-		t.Fatalf("this test needs a gh on PATH to run: %v", err)
-	}
-
-	_, err := ExecRunner(t.TempDir(), time.Nanosecond, "api", "user")
-
-	if err == nil || !strings.Contains(err.Error(), "timed out after 1ns") || !strings.Contains(err.Error(), "api user") {
-		t.Fatalf("err = %v, want the stalled call and its deadline named", err)
-	}
-}
-
 // The no-queue rule at the port (#1203, escape #1206): a 404 and a Free plan's
 // 403 are no queue; a 403 about the token is a refusal with the fix.
 func TestRecorded_ABranchRulesReadThatSaysNoRulesetsIsNoQueueAndATokenProblemIsARefusal(t *testing.T) {
@@ -341,3 +328,5 @@ func TestRecorded_ABranchRulesReadThatSaysNoRulesetsIsNoQueueAndATokenProblemIsA
 		}
 	}
 }
+
+// ratchet: test_removed TestExecRunner_AnAbsurdlyShortDeadlineNamesTheStalledCall: it needed a real gh on PATH; TestExecRunner_ADeadlineEndsAStalledGHAndNamesTheCall in transport_test.go does the same on a slow stub.
