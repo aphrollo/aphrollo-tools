@@ -16,9 +16,12 @@ import (
 // whether its latest queue event is a removal (and GitHub's reason, such as
 // failed_checks), and whether auto-merge is still switched on for it.
 type QueueRemoval struct {
-	Removed   bool
-	Reason    string
-	AutoMerge bool
+	Removed bool
+	// FailedChecks is whether ANY removal on the timeline had the reason
+	// failed_checks, even one the PR was queued again after.
+	FailedChecks bool
+	Reason       string
+	AutoMerge    bool
 }
 
 const queueRemovalQuery = `query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){` +
@@ -72,6 +75,11 @@ func parseQueueRemoval(out []byte) (QueueRemoval, error) {
 		return QueueRemoval{}, fmt.Errorf("queue events: no such pull request")
 	}
 	r := QueueRemoval{AutoMerge: pr.AutoMergeRequest != nil}
+	for _, n := range pr.TimelineItems.Nodes {
+		if n.Type == "RemovedFromMergeQueueEvent" && n.Reason == "failed_checks" {
+			r.FailedChecks = true
+		}
+	}
 	if n := len(pr.TimelineItems.Nodes); n > 0 {
 		last := pr.TimelineItems.Nodes[n-1]
 		switch last.Type {
@@ -186,6 +194,9 @@ func (m *Merge) removedFromQueue(q *Enqueued, reason string) error {
 	head := fmt.Sprintf("PR #%d for %s was removed from the merge queue without merging", q.PR, q.Branch)
 	if reason != "" {
 		head += " (" + reason + ")"
+	}
+	if reason == "failed_checks" {
+		recordQueueRed(wt, "", q.PR)
 	}
 	id, err := ghMergeGroupRun(wt, q.Repo, q.PR)
 	switch {

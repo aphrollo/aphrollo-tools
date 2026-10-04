@@ -48,6 +48,9 @@ type OutsideMerge struct {
 	SHA string
 	PR  int       // 0 when the subject names none
 	At  time.Time // the commit's own time, UTC; the time of the scan when git gave none
+	// QueuedLane is the lane of a PR the verb queued and did not wait for, whose
+	// merge trunk is now taking in: the verb's own merge, not an outside one.
+	QueuedLane string
 }
 
 // label names a merge for a human: its PR, else a short sha.
@@ -147,6 +150,7 @@ func outsideMergesIn(repo, rng string) ([]OutsideMerge, error) {
 	}
 	merged, escaped := map[string]bool{}, map[string]bool{}
 	byVerb := map[int]bool{}
+	queued := map[int]string{} // PR the verb queued without a merged record -> its lane
 	for _, e := range core.ReadEvents(repo) {
 		switch {
 		case e.Kind == "merge" && e.Detail["by"] == mergeByOutside:
@@ -154,16 +158,30 @@ func outsideMergesIn(repo, rng string) ([]OutsideMerge, error) {
 		case e.Kind == "escape" && e.Verdict == outsideMergeVerdict:
 			escaped[e.Detail["sha"]] = true
 		case e.Kind == "merge":
-			if pr, err := strconv.Atoi(e.Detail["pr"]); err == nil && sameDir(e.Repo, primary) {
+			pr, err := strconv.Atoi(e.Detail["pr"])
+			if err != nil || !sameDir(e.Repo, primary) {
+				continue
+			}
+			if e.Verdict == "queued" {
+				queued[pr] = e.Lane
+			} else {
 				byVerb[pr] = true
 			}
 		}
 	}
 	var out []OutsideMerge
 	for _, m := range candidates {
+		if byVerb[m.PR] {
+			continue
+		}
+		if lane, ok := queued[m.PR]; ok {
+			m.QueuedLane = lane
+			out = append(out, m)
+			continue
+		}
 		// A commit with only one of its two events is still listed, so the pair
 		// a dead run left half-written is finished rather than skipped.
-		if (merged[m.SHA] && escaped[m.SHA]) || byVerb[m.PR] {
+		if merged[m.SHA] && escaped[m.SHA] {
 			continue
 		}
 		out = append(out, m)
@@ -177,6 +195,10 @@ func outsideMergesIn(repo, rng string) ([]OutsideMerge, error) {
 // next.
 func recordOutsideMerges(repo string, merges []OutsideMerge) {
 	for _, m := range merges {
+		if m.QueuedLane != "" {
+			recordQueuedLanded(repo, m)
+			continue
+		}
 		detail := map[string]string{"sha": m.SHA, "by": mergeByOutside}
 		if m.PR > 0 {
 			detail["pr"] = strconv.Itoa(m.PR)
@@ -187,8 +209,31 @@ func recordOutsideMerges(repo string, merges []OutsideMerge) {
 	}
 }
 
+// splitQueued separates the merges the verb queued (landed by the merge queue)
+// from the ones made outside it.
+func splitQueued(merges []OutsideMerge) (outside, queued []OutsideMerge) {
+	for _, m := range merges {
+		if m.QueuedLane != "" {
+			queued = append(queued, m)
+		} else {
+			outside = append(outside, m)
+		}
+	}
+	return outside, queued
+}
+
+// recordedLine says what was recorded, one line each for the merges made outside
+// `workspace merge` and the PRs it queued that the merge queue landed.
 func recordedLine(merges []OutsideMerge) string {
-	return fmt.Sprintf("recorded %d merge(s) made outside `workspace merge`: %s", len(merges), labels(merges))
+	outside, queued := splitQueued(merges)
+	var lines []string
+	if len(outside) > 0 {
+		lines = append(lines, fmt.Sprintf("recorded %d merge(s) made outside `workspace merge`: %s", len(outside), labels(outside)))
+	}
+	if len(queued) > 0 {
+		lines = append(lines, fmt.Sprintf("recorded %d merge(s) landed by the merge queue after `workspace merge` queued them: %s", len(queued), labels(queued)))
+	}
+	return strings.Join(lines, "\n")
 }
 
 // noteTrunkMove records the outside merges a fast-forward of repo's trunk just
@@ -252,7 +297,9 @@ func PostMergeRecord(dir string, stderr io.Writer) {
 		return
 	}
 	recordOutsideMerges(root, merges)
-	fmt.Fprintln(stderr, "aphrollo: "+recordedLine(merges))
+	for line := range strings.Lines(recordedLine(merges)) {
+		fmt.Fprintln(stderr, "aphrollo: "+strings.TrimRight(line, "\n"))
+	}
 }
 
 // SyncSince is `workspace sync --since <ref>`: the sync, then a one-time
@@ -284,10 +331,24 @@ func SyncSince(repoArg, since string, dry bool, stdout, stderr io.Writer) error 
 		return nil
 	}
 	if dry {
-		fmt.Fprintf(stdout, "would record %d merge(s) made outside `workspace merge` since %s: %s\n", len(merges), since, labels(merges))
+		for line := range strings.Lines(recordedLine(merges)) {
+			fmt.Fprintf(stdout, "would %s since %s\n", strings.Replace(strings.TrimRight(line, "\n"), "recorded", "record", 1), since)
+		}
 		return nil
 	}
 	recordOutsideMerges(top, merges)
-	fmt.Fprintf(stdout, "recorded %d merge(s) made outside `workspace merge` since %s: %s\n", len(merges), since, labels(merges))
+	for line := range strings.Lines(recordedLine(merges)) {
+		fmt.Fprintf(stdout, "%s since %s\n", strings.TrimRight(line, "\n"), since)
+	}
 	return nil
+}
+
+// recordQueuedLanded writes the merge event a queued PR never got: the verb
+// queued it and did not wait, GitHub's queue merged it, and trunk has now taken
+// the merge in. It is the lane's own merge, stamped with the commit's time, so
+// the lane's speed ends when the PR merged, and it is no escape.
+func recordQueuedLanded(repo string, m OutsideMerge) {
+	detail := map[string]string{"sha": m.SHA, "pr": strconv.Itoa(m.PR), "method": "merge queue"}
+	tdd.AppendEventOnce(tdd.Event{Kind: "merge", Root: repo, Lane: m.QueuedLane, Verdict: "ok",
+		At: m.At.Format(time.RFC3339), Detail: detail}, "sha")
 }

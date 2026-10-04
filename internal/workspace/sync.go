@@ -49,6 +49,10 @@ func Sync(repoArg string, dry bool, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stderr, "git fetch origin: %v\n%s\n", err, strings.TrimSpace(string(out)))
 	}
 
+	if !dry {
+		recordDroppedQueued(top)
+	}
+
 	def := resolveDefaultBranch(top)
 	remote := "origin/" + def
 	local := "refs/heads/" + def

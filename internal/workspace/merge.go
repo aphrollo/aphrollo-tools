@@ -247,6 +247,7 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 	if useLocal {
 		fmt.Fprintf(stdout, "ci: local (%s) — GitHub's checks are not read\n", choice.source)
 	} else {
+		recordFirstRunCI(m.Target.Worktree, m.Target.Branch, pr.Number)
 		ci, ciErr := ghCIStatus(m.Target.Worktree, head)
 		if ciErr != nil {
 			return nil, fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)

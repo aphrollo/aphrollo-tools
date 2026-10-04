@@ -260,3 +260,43 @@ func TestMergeQueue_AnUnreadableHeadAfterTheEnqueueIsReported(t *testing.T) {
 		t.Fatalf("error = %v, want the read failure and the unverified head named", err)
 	}
 }
+
+// The queue's own run of the PR failed: the removal is a red the measures
+// count, written as a ci event of the queue's.
+func TestMergeWait_AQueueRemovalForFailedChecksRecordsARedCIEvent(t *testing.T) {
+	_, q := newQueueWorld(t, CIStatus{State: "green", SHA: "abc"})
+	q.pre = []*QueueEntry{nil, nil}
+	q.polls = []qPoll{{"OPEN", nil}}
+	q.removal = QueueRemoval{Removed: true, Reason: "failed_checks"}
+
+	var out, errb bytes.Buffer
+	if err := MergeWait(queueTarget(), "squash", true, queueWait, &out, &errb); err == nil {
+		t.Fatal("a removed PR must fail the wait")
+	}
+
+	var queueReds []tdd.Event
+	for _, e := range ofKind(emitted(t), "ci") {
+		if e.Detail["ci"] == "queue" {
+			queueReds = append(queueReds, e)
+		}
+	}
+	if len(queueReds) != 1 || queueReds[0].Verdict != "red" || queueReds[0].Detail["cause"] != "queue" || queueReds[0].Detail["pr"] != "5" {
+		t.Fatalf("queue ci events = %+v, want one red of cause queue for PR 5", queueReds)
+	}
+}
+
+// A removal for another reason (a push to the PR, a dequeue) is not a red run.
+func TestMergeWait_AQueueRemovalForAnotherReasonRecordsNoCIEvent(t *testing.T) {
+	_, q := newQueueWorld(t, CIStatus{State: "green", SHA: "abc"})
+	q.pre = []*QueueEntry{nil, nil}
+	q.polls = []qPoll{{"OPEN", nil}}
+	q.removal = QueueRemoval{Removed: true, Reason: "auto-merge disabled"}
+
+	_ = MergeWait(queueTarget(), "squash", true, queueWait, &bytes.Buffer{}, &bytes.Buffer{})
+
+	for _, e := range ofKind(emitted(t), "ci") {
+		if e.Detail["ci"] == "queue" {
+			t.Fatalf("recorded %+v for a removal that was not a failed run", e)
+		}
+	}
+}
