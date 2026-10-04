@@ -64,7 +64,7 @@ var ghViewPR = ghViewPRReal
 // directly regardless of what another test's stubGH last pointed the ghViewPR
 // var at.
 //
-// Routed over REST (ghAPIViewByBranch, #880) rather than `gh pr view`, which
+// Routed over REST (the host port's PRByBranch, #880) rather than `gh pr view`, which
 // goes through GraphQL: a genuine failure (a network timeout, see #290's
 // networkTimeoutErr; a missing gh; no auth) still propagates as an error, but
 // absence is no longer read off gh's own message text — REST's list-pulls

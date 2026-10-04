@@ -23,7 +23,7 @@ var ghMergeGroupRun = func(wt, slug string, pr int) (int64, error) {
 
 // explainMergeGroupRun prints why a run is red, the way `aphrollo ci why` does.
 var explainMergeGroupRun = func(wt string, id int64, w io.Writer) error {
-	return ciwhy.Why(hostFor(wt).Within(3*time.Minute), ciwhy.Target{Run: id}, w)
+	return ciwhy.Why(hostUntil(wt, time.Now().Add(3*time.Minute)), ciwhy.Target{Run: id}, w)
 }
 
 // A PR out of the queue in one poll is not yet a PR removed from it: the poll's

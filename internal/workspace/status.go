@@ -37,7 +37,7 @@ var ghViewPRStatus = ghViewPRStatusReal
 // test can call it directly regardless of what another test's stub last
 // pointed the ghViewPRStatus var at.
 //
-// Routed over REST (ghAPIViewByBranch, #880), the same as ghViewPR: absence
+// Routed over REST (the host port's PRByBranch, #880), the same as ghViewPR: absence
 // is REST's list-pulls endpoint answering an empty array, not a message to
 // sniff off a non-zero exit, so a genuine failure — a network timeout, a
 // missing gh, no auth — always propagates as an error rather than silently

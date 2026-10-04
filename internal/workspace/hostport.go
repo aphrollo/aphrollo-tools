@@ -1,6 +1,8 @@
 package workspace
 
 import (
+	"time"
+
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 )
@@ -22,6 +24,17 @@ var newHost = func(dir string) host.Host {
 }
 
 func hostFor(dir string) host.Host { return newHost(dir) }
+
+// hostUntil is the same host with a total time allowed for the run of calls made
+// through it: each call keeps ghTimeout, and is cut to what is left of the total.
+var hostUntil = func(dir string, deadline time.Time) host.Host {
+	return github.New(github.Options{
+		Dir:      dir,
+		Origin:   func() string { return wtRemoteURL(dir, "origin") },
+		Timeout:  ghTimeout,
+		Deadline: deadline,
+	})
+}
 
 // The port's types are the types this package reads and prints.
 type (
