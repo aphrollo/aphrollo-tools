@@ -152,3 +152,31 @@ func TestStats_BriefsAsJSONCarriesTheOverMark(t *testing.T) {
 		}
 	}
 }
+
+func TestStats_ShadowSectionCountsTheFiresAndSaysWhenThereAreTooFewForARate(t *testing.T) {
+	fire := func(rule, relation string) tdd.Event {
+		return tdd.Event{Kind: "shadow", Lane: "lane/a", Detail: map[string]string{"rule": rule, "relation": relation}}
+	}
+	repo := statsRepo(t, map[time.Duration]tdd.Event{
+		time.Hour:     fire("rerun-suite", "trellis-softer"),
+		2 * time.Hour: fire("primary-write", "trellis-stricter"),
+		3 * time.Hour: fire("primary-write", "agree"),
+	})
+	code, out, errOut := runStatsCmd(t, "--repo", repo, "--shadow")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr: %s", code, errOut)
+	}
+	for _, want := range []string{"shadow fires          3 (whole log)", "primary-write", "would-be block 1", "rerun-suite", "softer 1", "under 10 fires: no rate"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("--shadow output has no %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "denies") {
+		t.Errorf("--shadow prints the shadow section alone, got:\n%s", out)
+	}
+	code, out, _ = runStatsCmd(t, "--repo", repo, "--shadow", "--json", "--week")
+	var s measure.Shadow
+	if err := json.Unmarshal([]byte(out), &s); code != 0 || err != nil || s.Fires != 3 || s.Window != "last 7d" {
+		t.Errorf("--shadow --json --week = code %d, err %v, %+v; want 3 fires over the last 7d", code, err, s)
+	}
+}

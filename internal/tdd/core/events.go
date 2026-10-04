@@ -25,7 +25,8 @@ const EventSchema = 1
 //
 // Kinds in use: stage lines by stage (commit_gate, merge_gate, commit_msg,
 // mutants, stage.timing, gate and the *_result of a whole run), deny, override,
-// run.result, edit, hook.timing, feedback, escape, ci, merge, pr_opened, push.
+// run.result, edit, hook.timing, feedback, escape, ci, merge, pr_opened, push,
+// shadow (see KindShadow).
 type Event struct {
 	V int `json:"v"`
 	// Seq orders a repo's events: the writer numbers each record under the
@@ -288,4 +289,17 @@ func headBranch(gitdir string) string {
 		return ""
 	}
 	return ref
+}
+
+// KindShadow is the kind of a record that sets what the trellis kernel would
+// have decided beside what a live hook did. It is record-only: nothing reads
+// it to decide anything.
+const KindShadow = "shadow"
+
+// LaneOf is the branch checked out at root, read from the repository files the
+// way AppendEvent reads it: no git process. "" when root is no checkout, or
+// HEAD is detached.
+func LaneOf(root string) string {
+	_, lane, _ := repoIdentity(root)
+	return lane
 }

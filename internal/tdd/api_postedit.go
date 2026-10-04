@@ -21,6 +21,8 @@ type DeferredJob = postedit.DeferredJob
 
 type PhaseOutcome = postedit.PhaseOutcome
 
+type PrimaryJudgement = postedit.PrimaryJudgement
+
 type StopEvent = postedit.StopEvent
 
 type StopVerdict = postedit.StopVerdict
@@ -56,6 +58,8 @@ func DiscardBashDecision(p0 []byte) Decision { return postedit.DiscardBashDecisi
 func EnableDeferredPhases(p0 bool) { postedit.EnableDeferredPhases(p0) }
 
 func IsBashHook(p0 []byte) bool { return postedit.IsBashHook(p0) }
+
+func JudgePrimary(p0 []byte) PrimaryJudgement { return postedit.JudgePrimary(p0) }
 
 func KnownWall(p0 string) bool { return postedit.KnownWall(p0) }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -427,6 +428,9 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer recordHookTiming(args[0], raw, time.Now())
+	// Runs before the timing above: the records the hook queued are written after
+	// its answer, and the wait is left out of its time.
+	defer shadow.Flush()
 
 	switch args[0] {
 	case "sessionstart":
@@ -473,21 +477,36 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// the stronger verdict is rendered with both reasons.
 	guard := guardrailDecision(raw)
 	tdd.LogEditDecision(raw, guard)
-	payload, code := tdd.RenderPreToolUse(mergeGuardrail(guard, gatePreToolUse(raw, stderr)))
+	obs := newPreShadow(raw)
+	final := mergeGuardrail(guard, gatePreToolUse(raw, stderr, obs))
+	obs.settle(final)
+	payload, code := tdd.RenderPreToolUse(final)
 	if len(payload) > 0 {
 		stdout.Write(payload)
 	}
+	// After the answer is written: the shadow record never changes it.
+	obs.record()
 	return code
 }
 
 // gatePreToolUse is the gate's own PreToolUse judgement of one payload,
 // without the guardrail rules: the walls, the redundant-suite refusal, the
 // shell snapshot, and the edit's smells and laws. It logs what it denies, and
-// returns the decision unrendered so runGate can fold the guardrail's in.
-func gatePreToolUse(raw []byte, stderr io.Writer) tdd.Decision {
+// returns the decision unrendered so runGate can fold the guardrail's in. It
+// also tells obs, a collector for the shadow record, what each judgement found;
+// obs is only ever written to.
+func gatePreToolUse(raw []byte, stderr io.Writer, obs *preShadow) tdd.Decision {
+	// The primary-checkout wall is judged first and answers what it resolved, so the
+	// shadow record asks nothing of the repository again.
+	obs.primary = tdd.JudgePrimary(raw)
+	if d := obs.primary.Decision; d.Action == tdd.Block {
+		tdd.LogEditDecision(raw, d)
+		return d
+	}
 	for _, wall := range preToolUseWalls {
 		if decision := wall(raw); decision.Action == tdd.Block {
 			tdd.LogEditDecision(raw, decision)
+			obs.wall(decision)
 			return decision
 		}
 	}
@@ -501,6 +520,7 @@ func gatePreToolUse(raw []byte, stderr io.Writer) tdd.Decision {
 	if bashDecision, judged := tdd.DecideBashSuite(raw); judged {
 		tdd.LogBashSuiteDecision(raw, bashDecision)
 		if bashDecision.Action == tdd.Block {
+			obs.add(shadow.Rerun(shadow.Block))
 			return bashDecision
 		}
 	}
@@ -522,7 +542,9 @@ func gatePreToolUse(raw []byte, stderr io.Writer) tdd.Decision {
 	// smell already blocking keeps its own reason; otherwise the more severe
 	// verdict wins, so a deny law denies the write before it lands.
 	if decision.Action != tdd.Block {
-		decision = mergeRatchetAdvisory(decision, tdd.RatchetAdvisory(raw))
+		advisory, found := tdd.RatchetAdvisoryFindings(raw)
+		obs.law(found)
+		decision = mergeRatchetAdvisory(decision, advisory)
 	}
 	// When everything above allows the edit, fall through to the worktree
 	// advisory: a once-per-session nudge when the edit lands in a main clone

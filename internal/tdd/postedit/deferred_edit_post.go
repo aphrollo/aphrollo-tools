@@ -49,6 +49,8 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 		return infraFailureLine(root, out.job, out.res), false
 	}
 	markOutcomeSeen(session, out.phase)
+	kernelRes := out.res // as read, before the empty-pass adjustment below
+	widened := false
 	res := out.res
 	if treatAsEmptyPass(res) {
 		res.Passed = true
@@ -69,6 +71,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 			return w.terminal, w.running
 		}
 		snap.runner, res, widenNote = w.runner, w.res, w.note
+		kernelRes, widened = w.res, true
 	}
 	if line := foreignBuildAdvisory(root, target, cmdString(snap.runner), res); line != "" {
 		return line, false
@@ -87,6 +90,11 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 		mechCacheAddUnmoved(root, before, snap.runner)
 	}
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
+	if widened {
+		queueForegroundRun(kernelRes, root, session, string(outcome))
+	} else {
+		queueShadowRun(out.job.Phase, out.phase, kernelRes, root, session, string(outcome))
+	}
 	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)
 	if outcome.IsRed() {
 		return withLintGuidance(withNote(redSummary(snap.runner, root, outcome, res.Output), widenNote), out.lint), false

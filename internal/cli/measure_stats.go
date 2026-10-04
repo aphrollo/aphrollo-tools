@@ -13,7 +13,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const measureStatsUsage = `usage: aphrollo stats [--repo <path>] [--lane <name>] [--week | --since <dur>] [--json] [--briefs]
+const measureStatsUsage = `usage: aphrollo stats [--repo <path>] [--lane <name>] [--week | --since <dur>] [--json] [--briefs | --shadow]
 
 Prints the pipeline measures folded from the repo's event log (the current
 repo by default): lane speed (first event to merge, p50/p90), first-run CI
@@ -26,6 +26,10 @@ escapes by class. Read-only.
   --week           only the last 7 days
   --since <dur>    only the last <dur> (7d, 12h)
   --json           the report as JSON
+  --shadow         instead: what the trellis kernel would have decided beside the
+                   live hooks, per rule: fires, agreement, would-be blocks and, of
+                   those, catches, wrong blocks and passes from what followed on
+                   the lane; a rule under 10 fires says so instead of a rate
   --briefs         instead: the token count of the managed CLAUDE.md block, the
                    tdd skill and each agent brief against the caps (400 for the
                    block and skill, 250 for an agent), over-cap ones marked
@@ -45,6 +49,7 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 	since := fs.String("since", "", "only the last <dur> (7d, 12h)")
 	asJSON := fs.Bool("json", false, "print JSON")
 	briefs := fs.Bool("briefs", false, "measure the managed block, skill and agent briefs against the token caps")
+	shadowSection := fs.Bool("shadow", false, "print the shadow section: trellis beside aphrollo's live hooks")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -67,8 +72,22 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo stats: %v\n", err)
 		return 2
 	}
-	r := measure.Compute(tdd.ReadEvents(*repo), time.Now().UTC(), measure.Options{Lane: *lane, Window: window})
 	note := horizonNote(*repo)
+	if *shadowSection {
+		s := measure.ComputeShadow(tdd.ReadEvents(*repo), time.Now().UTC(), measure.Options{Lane: *lane, Window: window})
+		if *asJSON {
+			if note != "" {
+				fmt.Fprintln(stderr, note)
+			}
+			return printJSON(s, stdout, stderr)
+		}
+		fmt.Fprint(stdout, s.Text())
+		if note != "" {
+			fmt.Fprintln(stdout, note)
+		}
+		return 0
+	}
+	r := measure.Compute(tdd.ReadEvents(*repo), time.Now().UTC(), measure.Options{Lane: *lane, Window: window})
 	if *asJSON {
 		if note != "" {
 			fmt.Fprintln(stderr, note)

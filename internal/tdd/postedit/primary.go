@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	"cmp"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -202,10 +203,26 @@ var bashLikeTools = map[string]bool{"Bash": true, "PowerShell": true}
 // shell's own cwd (issue #118 — a `cd` out of the primary let a write
 // through, and an absolute path INTO the primary from a worktree's own cwd
 // slipped past unnoticed).
-func PrimaryCheckoutDecision(raw []byte) Decision {
+func PrimaryCheckoutDecision(raw []byte) Decision { return JudgePrimary(raw).Decision }
+
+// PrimaryJudgement is the wall's judgement of one call with what it resolved on
+// the way, for a hook that records what the wall did and never decides. It is a
+// value the call carries: nothing of it outlives the call or is shared.
+type PrimaryJudgement struct {
+	Decision Decision
+	// Landed is the root of the primary checkout the write the wall blocked lands
+	// in, "" when it blocked none.
+	Landed string
+	// Waived is whether a primary-edits waiver covers the call, read once: a waived
+	// call is the one the wall never looked at.
+	Waived bool
+}
+
+// JudgePrimary is PrimaryCheckoutDecision with what the wall resolved.
+func JudgePrimary(raw []byte) PrimaryJudgement {
 	var in primaryGateInput
 	if err := json.Unmarshal(raw, &in); err != nil {
-		return Decision{}
+		return PrimaryJudgement{}
 	}
 	if PrimaryEditsAllowed(in.SessionID) {
 		// This session's `gate allow primary` waiver already covers the
@@ -219,7 +236,7 @@ func PrimaryCheckoutDecision(raw []byte) Decision {
 		if bashLikeTools[in.ToolName] {
 			markPrimaryBashSpentForCommand(in.ToolInput.Command)
 		}
-		return Decision{}
+		return PrimaryJudgement{Waived: true}
 	}
 	switch {
 	case gatedEditTools[in.ToolName]:
@@ -228,17 +245,59 @@ func PrimaryCheckoutDecision(raw []byte) Decision {
 			path = in.ToolInput.NotebookPath
 		}
 		if path == "" {
-			return Decision{}
+			return PrimaryJudgement{}
 		}
-		root, ok := PrimaryMergeOnly(filepath.Dir(path))
+		root, ok := primaryProbe(filepath.Dir(path))
 		if !ok {
-			return Decision{}
+			return PrimaryJudgement{}
 		}
-		return primaryBlock(root)
+		return PrimaryJudgement{Decision: primaryBlock(root), Landed: root}
 	case bashLikeTools[in.ToolName]:
-		return bashPrimaryDecision(in.Cwd, in.ToolInput.Command)
+		d, root := bashPrimaryJudgement(in.Cwd, in.ToolInput.Command)
+		return PrimaryJudgement{Decision: d, Landed: root}
 	}
-	return Decision{}
+	return PrimaryJudgement{}
+}
+
+// primaryProbe is how a dir is asked whether it is a merge-only primary
+// checkout; a seam so a test can count the resolutions a hook makes.
+var primaryProbe = PrimaryMergeOnly
+
+// Landing is the root of the primary checkout the call writes into, "" when it
+// writes into none. A call the wall blocked is answered from what the wall
+// resolved. A call a primary-edits waiver let through is the one the wall never
+// looked at: it is resolved here, once per directory its writes name (a shell
+// command can name many writes into one). A call with no waiver that the wall
+// passed lands nowhere.
+func (j PrimaryJudgement) Landing(raw []byte) string {
+	if j.Landed != "" {
+		return j.Landed
+	}
+	var in primaryGateInput
+	if !j.Waived || json.Unmarshal(raw, &in) != nil {
+		return ""
+	}
+	var paths []string
+	switch {
+	case gatedEditTools[in.ToolName]:
+		if p := cmp.Or(in.ToolInput.FilePath, in.ToolInput.NotebookPath); p != "" {
+			paths = []string{p}
+		}
+	case bashLikeTools[in.ToolName]:
+		paths = bashWriteTargets(in.ToolInput.Command, in.Cwd)
+	}
+	seen := map[string]bool{}
+	for _, p := range paths {
+		dir := filepath.Dir(p)
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		if root, ok := primaryProbe(dir); ok {
+			return root
+		}
+	}
+	return ""
 }
 
 // bashPrimaryDecision judges a shell command by every path it would write,
@@ -247,12 +306,19 @@ func PrimaryCheckoutDecision(raw []byte) Decision {
 // a primary checkout. That is what lets a `cd` out of the primary through
 // and catches an absolute path into one even from a worktree's cwd.
 func bashPrimaryDecision(cwd, cmd string) Decision {
+	d, _ := bashPrimaryJudgement(cwd, cmd)
+	return d
+}
+
+// bashPrimaryJudgement is bashPrimaryDecision that also answers the primary
+// checkout root of the write it refused.
+func bashPrimaryJudgement(cwd, cmd string) (Decision, string) {
 	for _, p := range bashWriteTargets(cmd, cwd) {
-		if root, ok := PrimaryMergeOnly(filepath.Dir(p)); ok {
-			return primaryBlockForPath(root, p)
+		if root, ok := primaryProbe(filepath.Dir(p)); ok {
+			return primaryBlockForPath(root, p), root
 		}
 	}
-	return Decision{}
+	return Decision{}, ""
 }
 
 // markPrimaryBashSpentForCommand records every git invocation cmd runs --

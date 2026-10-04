@@ -5,11 +5,11 @@ import "github.com/aphrollo/aphrollo-tools/internal/tdd"
 // preToolUseWalls are judged on every PreToolUse payload, in order, before
 // anything reads an edit's content; the first to block denies the call. A new
 // wall is a new entry here, not a new branch in runGate.
+// The primary-checkout wall, merge-only, is judged before these and before anything
+// reads the content, by tdd.JudgePrimary in gatePreToolUse: WHERE a write lands
+// does not depend on what it says, and it covers the shell too, which no content
+// gate can judge.
 var preToolUseWalls = []func(raw []byte) tdd.Decision{
-	// The primary checkout is merge-only, and that is decided before anything
-	// reads the content: WHERE a write lands does not depend on what it says,
-	// and it covers the shell too, which no content gate can judge.
-	tdd.PrimaryCheckoutDecision,
 	// The operator's discard-wall directive is a blanket, no-override ban on
 	// a handful of git verbs in ANY Bash/PowerShell call. This replaces the
 	// ad hoc `grep -P` hook that used to scan the raw command TEXT and could

@@ -1,6 +1,9 @@
 package postedit
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // #894: `aphrollo gate allow primary` waives WallPrimary for the whole
 // session, but a Bash/PowerShell command still has to reach git as a
@@ -60,5 +63,85 @@ func TestPrimaryCheckoutDecision_UnwaivedSessionLeavesNoSpentRecord(t *testing.T
 
 	if ConsumePrimaryBashSpent([]string{"commit", "-a", "-m", "docs"}) {
 		t.Fatal("an unwaived session must not leave a spent record")
+	}
+}
+
+// countingProbe wraps the question the wall asks of a directory and returns what
+// it has been asked since the last read.
+func countingProbe(t *testing.T) func() []string {
+	t.Helper()
+	var asked []string
+	old := primaryProbe
+	primaryProbe = func(dir string) (string, bool) {
+		asked = append(asked, dir)
+		return old(dir)
+	}
+	t.Cleanup(func() { primaryProbe = old })
+	return func() []string { got := asked; asked = nil; return got }
+}
+
+// PrimaryLanding says where a call would land for the hook that records what the
+// wall did. It must cost nothing the hook was not already paying: a blocked call
+// is answered from what the wall resolved, and a waived call, which the wall never
+// looked at, is resolved once per directory with no git process.
+func TestPrimaryLanding_ResolvesOnceAndSpawnsNoGit(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(PrimaryEditsEnv, "")
+	primary, linked := primaryRepo(t)
+	spawns := countGitSpawns(t)
+	asked := countingProbe(t)
+	p := filepath.ToSlash(primary)
+	writes3 := bashPayload(t, "pl1", linked, "echo a > "+p+"/a.txt; echo b > "+p+"/b.txt; echo c > "+p+"/c.txt")
+
+	// Blocked: the wall resolves the first target; the landing reuses it.
+	j := JudgePrimary(writes3)
+	if d := j.Decision; d.Action != Block {
+		t.Fatalf("setup: the wall should block writes into the primary checkout, got %+v", d)
+	}
+	asked()
+	spawns()
+	if got := j.Landing(writes3); got == "" || filepath.Clean(got) != filepath.Clean(primary) {
+		t.Errorf("Landing after a block = %q, want the primary root %q", got, primary)
+	}
+	if n := asked(); len(n) != 0 {
+		t.Errorf("PrimaryLanding after a block asked %v again, want it answered from the wall's own resolution", n)
+	}
+	if c := spawns(); len(c) != 0 {
+		t.Errorf("PrimaryLanding after a block spawned git: %v", c)
+	}
+
+	// Waived: three writes into one directory are one question, and no git process.
+	t.Setenv(PrimaryEditsEnv, "1")
+	jw := JudgePrimary(writes3)
+	if !jw.Waived || jw.Decision.Action == Block {
+		t.Fatalf("setup: the waiver should let the call by and say so, got %+v", jw)
+	}
+	asked()
+	spawns()
+	if got := jw.Landing(writes3); got == "" || filepath.Clean(got) != filepath.Clean(primary) {
+		t.Errorf("PrimaryLanding of a waived call = %q, want the primary root %q", got, primary)
+	}
+	if n := asked(); len(n) != 1 {
+		t.Errorf("a waived call with three writes into one directory asked %v, want exactly one question", n)
+	}
+	if c := spawns(); len(c) != 0 {
+		t.Errorf("PrimaryLanding of a waived call spawned git: %v", c)
+	}
+
+	// Not waived and not blocked: it lands nowhere and asks nothing.
+	t.Setenv(PrimaryEditsEnv, "")
+	inLane := editPayload(t, "Edit", filepath.Join(linked, "main.go"), "pl2")
+	jl := JudgePrimary(inLane)
+	asked()
+	if got := jl.Landing(inLane); got != "" {
+		t.Errorf("PrimaryLanding of a write into a lane = %q, want none", got)
+	}
+	if n := asked(); len(n) != 0 {
+		t.Errorf("a call that is not waived asked %v of the landing", n)
+	}
+
+	// A judgement is a value of its own call: judging another leaves it as it was.
+	if got := j.Landing(writes3); got == "" || filepath.Clean(got) != filepath.Clean(primary) {
+		t.Errorf("the first call's landing after two more judgements = %q, want the primary root %q", got, primary)
 	}
 }

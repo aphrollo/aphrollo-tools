@@ -12,6 +12,7 @@ import (
 
 	gitclient "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
+	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/store"
 )
 
@@ -80,12 +81,20 @@ func phaseVerdict(j DeferredJob, out PhaseOutcome) (result kernel.Verdict, cause
 	if out.SetupFailed {
 		return kernel.VerdictNotTested, causeInfra, true
 	}
-	res := phaseSuiteResult(j, out)
+	return phaseVerdictOf(j.Phase, phaseSuiteResult(j, out), out)
+}
+
+// phaseVerdictOf is phaseVerdict over a result the caller has read already, so a
+// caller that holds one does not read the phase's log a second time.
+func phaseVerdictOf(phase string, res SuiteResult, out PhaseOutcome) (result kernel.Verdict, cause string, ok bool) {
+	if out.SetupFailed {
+		return kernel.VerdictNotTested, causeInfra, true
+	}
 	switch {
 	case res.Inconclusive != "":
 		return kernel.VerdictNotTested, causeSkipped, true
 	case out.ExitCode == 0:
-		if j.Phase != "run" {
+		if phase != "run" {
 			return "", "", false
 		}
 		if runnerTimeoutsOnly(res.Output) {
@@ -364,4 +373,28 @@ func redRunOf(v store.Verdict, unit string) (store.RunVerdict, bool) {
 		}
 	}
 	return red, found
+}
+
+// queueShadowRun holds, for the shadow record, what the kernel makes of a finished
+// run beside aphrollo's line for it (word is the verdict word it logged, "" when
+// its line is no verdict). Every run is held, the foreground one and the harvested
+// alike; one that is no verdict on either side is recorded as unjudged. It reads
+// nothing: res is the result already read, taken before any adjustment, and the
+// record is written by shadow.Flush after the hook has answered.
+func queueShadowRun(phase string, out PhaseOutcome, res SuiteResult, root, session, word string) {
+	verdict, cause, ok := phaseVerdictOf(phase, res, out)
+	ok = ok && word != ""
+	shadow.QueueRun(shadow.Source{Root: root, Actor: session, Key: out.TreeKey}, func() (shadow.RunFact, bool) {
+		return shadow.RunFact{Word: word, Verdict: verdict, Cause: cause}, ok
+	})
+}
+
+// queueForegroundRun is queueShadowRun for a run the hook itself ran to its end,
+// which carries no phase outcome: the exit it would have is read from the result.
+func queueForegroundRun(res SuiteResult, root, session, word string) {
+	out := PhaseOutcome{}
+	if !res.Passed {
+		out.ExitCode = 1
+	}
+	queueShadowRun("run", out, res, root, session, word)
 }

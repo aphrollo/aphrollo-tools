@@ -19,25 +19,22 @@ const (
 	OutcomeNothingAfter   = "nothing recorded after the deny" // the lane has no later edit, run, deny or override
 )
 
-// ShadowNotRecorded is what a deny says of shadow catches and passes until the
-// log carries shadow events.
-const ShadowNotRecorded = "not recorded yet"
-
 // Why is the answer to `why <seq>`: the event as the log recorded it, and for a
 // deny or a run result what the rest of the log says of it. Deny and Run are nil
 // for any other kind.
 type Why struct {
-	Seq     int64             `json:"seq"`
-	At      string            `json:"at"`
-	Lane    string            `json:"lane,omitempty"`
-	Actor   string            `json:"actor,omitempty"`
-	Kind    string            `json:"kind"`
-	Stage   string            `json:"stage,omitempty"`
-	Verdict string            `json:"verdict,omitempty"`
-	Detail  map[string]string `json:"detail,omitempty"`
-	Deny    *DenyWhy          `json:"deny,omitempty"`
-	Run     *RunWhy           `json:"run,omitempty"`
-	Shadow  string            `json:"shadow,omitempty"`
+	Seq        int64             `json:"seq"`
+	At         string            `json:"at"`
+	Lane       string            `json:"lane,omitempty"`
+	Actor      string            `json:"actor,omitempty"`
+	Kind       string            `json:"kind"`
+	Stage      string            `json:"stage,omitempty"`
+	Verdict    string            `json:"verdict,omitempty"`
+	Detail     map[string]string `json:"detail,omitempty"`
+	Deny       *DenyWhy          `json:"deny,omitempty"`
+	Run        *RunWhy           `json:"run,omitempty"`
+	Shadow     string            `json:"shadow,omitempty"`
+	ShadowFire *ShadowWhy        `json:"shadow_fire,omitempty"`
 }
 
 // DenyWhy replays a deny. Override is the first override on the lane after it, at any age; WrongBlock
@@ -103,7 +100,10 @@ func Explain(events []tdd.Event, seq int64) (Why, bool) {
 	w := Why{Seq: e.Seq, At: e.At, Lane: e.Lane, Actor: e.Actor, Kind: e.Kind, Stage: e.Stage, Verdict: e.Verdict, Detail: e.Detail}
 	switch e.Kind {
 	case "deny":
-		w.Deny, w.Shadow = explainDeny(events, e), ShadowNotRecorded
+		w.Deny = explainDeny(events, e)
+		w.Shadow = shadowOfDeny(events, w.Deny.Rule)
+	case "shadow":
+		w.ShadowFire = explainShadow(events, e)
 	case "run.result":
 		w.Run = explainRun(e)
 	}

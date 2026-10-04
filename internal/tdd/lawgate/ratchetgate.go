@@ -53,18 +53,33 @@ type ratchetEditInput struct {
 // edit would produce. Allow when there is no repo, no law, nothing in scope,
 // or nothing new.
 func RatchetAdvisory(raw []byte) Decision {
+	d, _ := RatchetAdvisoryFindings(raw)
+	return d
+}
+
+// LawFinding is one finding of the law engine over an edit: the law and whether
+// its own severity denies.
+type LawFinding struct {
+	Law  string
+	Deny bool
+}
+
+// RatchetAdvisoryFindings is RatchetAdvisory that also answers each finding the
+// verdict rests on, in the order the engine reported them, so a caller that
+// records them does not judge the edit a second time.
+func RatchetAdvisoryFindings(raw []byte) (Decision, []LawFinding) {
 	var in ratchetEditInput
 	if err := json.Unmarshal(raw, &in); err != nil {
-		return Decision{}
+		return Decision{}, nil
 	}
 	switch in.ToolName {
 	case "Edit", "Write", "MultiEdit":
 	default:
-		return Decision{}
+		return Decision{}, nil
 	}
 	path := in.ToolInput.FilePath
 	if path == "" {
-		return Decision{}
+		return Decision{}, nil
 	}
 	// repoRootNear, not RepoRoot: a Write CREATES its parent directories, so
 	// the directory this path names routinely does not exist yet, and git
@@ -72,19 +87,19 @@ func RatchetAdvisory(raw []byte) Decision {
 	// as "no laws here" and let the first file of a new module through.
 	root := repoRootNear(filepath.Dir(path))
 	if root == "" || !ratchet.HasLaws(root) {
-		return Decision{}
+		return Decision{}, nil
 	}
 	rel, err := filepath.Rel(root, path)
 	if err != nil {
-		return Decision{}
+		return Decision{}, nil // absence-ok: a path outside the repo has no laws to judge
 	}
 	relSlash := filepath.ToSlash(rel)
 	if strings.HasPrefix(relSlash, "../") {
-		return Decision{}
+		return Decision{}, nil
 	}
 	content, ok := proposedContent(in, path)
 	if !ok {
-		return Decision{}
+		return Decision{}, nil
 	}
 
 	before := onDiskContent(path)
@@ -101,7 +116,7 @@ func RatchetAdvisory(raw []byte) Decision {
 		GraphCacheDir: StateDir(),
 	})
 	if err != nil || len(res.Findings) == 0 {
-		return Decision{}
+		return Decision{}, nil
 	}
 	// Narrow the verdict to what this edit ADDS: an edit that lowers or
 	// keeps a law's count in this file must not be refused for the hits it
@@ -109,11 +124,15 @@ func RatchetAdvisory(raw []byte) Decision {
 	// still what selects a finding at all, so this only ever allows more.
 	res.Findings = editRegressions(root, relSlash, before, content, res)
 	if len(res.Findings) == 0 {
-		return Decision{}
+		return Decision{}, nil
 	}
 	action := Warn
 	if res.Blocked() {
 		action = Block
+	}
+	var found []LawFinding
+	for _, f := range res.Findings {
+		found = append(found, LawFinding{Law: f.Law, Deny: f.Severity == ratchet.Deny.String()})
 	}
 	return Decision{
 		Action: action,
@@ -123,7 +142,7 @@ func RatchetAdvisory(raw []byte) Decision {
 		Policy: "ratchet:" + res.Findings[0].Law,
 		// The refusal names the law's escape comment as the way to admit a hit.
 		Override: "law-escape-comment",
-	}
+	}, found
 }
 
 // onDiskContent is the file as it stands right now, "" when it is not there

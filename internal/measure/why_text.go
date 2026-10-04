@@ -48,8 +48,21 @@ func (w Why) Text() string {
 		w.detailLine(line)
 		return b.String()
 	}
+	if f := w.ShadowFire; f != nil {
+		line("rule", "%s", f.Rule)
+		line("live rule", "%s", orNot(f.LiveRule))
+		line("trellis", "%s", f.Trellis)
+		line("aphrollo", "%s", f.Aphrollo)
+		line("relation", "%s", f.Relation)
+		line("held out", "%s", map[bool]string{true: "yes", false: "no"}[f.HeldOut])
+		line("key", "%s", orNot(f.Key))
+		line("outcome", "%s", f.Outcome)
+		line("this rule", "%s", f.Counts.summary())
+		w.detailLine(line)
+		return b.String()
+	}
 	w.logged(line)
-	line("note", "why replays a deny or a run result; this is a %s event", w.Kind)
+	line("note", "why replays a deny, a run result or a shadow fire; this is a %s event", w.Kind)
 	return b.String()
 }
 

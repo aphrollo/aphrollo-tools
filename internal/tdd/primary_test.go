@@ -401,3 +401,38 @@ func TestPrimaryCheckout_WithNoTrunkItStillWallsMasterButNotAnotherBranch(t *tes
 		t.Fatalf("a primary on a feature branch with no trunk to hold is not walled, got %+v", d)
 	}
 }
+
+// ratchet: test_removed TestPrimaryWaivedLanding_SaysWhereAWaivedCallWouldHaveLanded: replaced by PrimaryLanding, which also answers what the wall resolved
+func TestPrimaryLanding_SaysWhereACallLandsThatTheWallBlockedOrAWaiverLetBy(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	primary, linked := primaryRepo(t)
+	inPrimary := editPayload(t, "Edit", filepath.Join(primary, "main.go"), "w1")
+	inLane := editPayload(t, "Edit", filepath.Join(linked, "main.go"), "w1")
+	bash := bashPayload(t, "w1", primary, "echo hi > notes.txt")
+	landing := func(raw []byte) string {
+		return JudgePrimary(raw).Landing(raw) // the wall first, as the hook runs it
+	}
+	wantPrimary := func(what, got string) {
+		t.Helper()
+		if got == "" || filepath.Clean(got) != filepath.Clean(primary) {
+			t.Errorf("%s landed in %q, want the primary root %q", what, got, primary)
+		}
+	}
+
+	// No waiver: the wall blocks a write into the primary checkout and the landing
+	// is what it resolved; a write into a lane lands nowhere.
+	t.Setenv(PrimaryEditsEnv, "")
+	wantPrimary("a blocked edit", landing(inPrimary))
+	wantPrimary("a blocked shell write", landing(bash))
+	if got := landing(inLane); got != "" {
+		t.Errorf("an edit into a linked worktree landed in %q, want none", got)
+	}
+
+	// Waived: the wall never looks, and the landing resolves it.
+	t.Setenv(PrimaryEditsEnv, "1")
+	wantPrimary("a waived edit", landing(inPrimary))
+	wantPrimary("a waived shell write", landing(bash))
+	if got := landing(inLane); got != "" {
+		t.Errorf("a waived edit into a linked worktree landed in %q, want none", got)
+	}
+}

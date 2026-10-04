@@ -66,6 +66,19 @@ func (s scope) in(at time.Time) bool { return s.since.IsZero() || !at.Before(s.s
 // Compute folds events as of now. The result depends only on the events and
 // now, never on their order in the slice.
 func Compute(events []tdd.Event, now time.Time, o Options) Report {
+	s := newScope(events, now, o)
+	r := Report{Speed: foldSpeed(s), CI: foldCI(s), Gate: foldGate(s), Runs: foldRuns(s),
+		Edits: foldEdits(s), Denies: foldDenies(s), Escapes: foldEscapes(s)}
+	for _, e := range s.evs {
+		if s.in(e.at) {
+			r.Events++
+		}
+	}
+	return r
+}
+
+// newScope is the events of the lane in time order, with the window's start.
+func newScope(events []tdd.Event, now time.Time, o Options) scope {
 	s := scope{}
 	if o.Window > 0 {
 		s.since = now.Add(-o.Window)
@@ -78,14 +91,7 @@ func Compute(events []tdd.Event, now time.Time, o Options) Report {
 		s.evs = append(s.evs, stamped{e, at})
 	}
 	sort.SliceStable(s.evs, func(i, j int) bool { return s.evs[i].at.Before(s.evs[j].at) })
-	r := Report{Speed: foldSpeed(s), CI: foldCI(s), Gate: foldGate(s), Runs: foldRuns(s),
-		Edits: foldEdits(s), Denies: foldDenies(s), Escapes: foldEscapes(s)}
-	for _, e := range s.evs {
-		if s.in(e.at) {
-			r.Events++
-		}
-	}
-	return r
+	return s
 }
 
 // percentile is the nearest-rank p-quantile of the ascending sample, 0 for none.
