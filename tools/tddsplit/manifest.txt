@@ -516,6 +516,10 @@ lintdeferred.go                                    postedit
 lintdeferred_test.go                               postedit
 lintlock.go                                        lock
 lintlock_test.go                                   lock
+lintrun.go                                         postedit
+lintrun.go                                         suite
+lintrun_phase_test.go                              postedit
+lintrun_scope_test.go                              suite
 lintworkflow_pin_test.go                           tdd
 livelockdir_guard_test.go                          lock
 localci.go                                          merge
@@ -867,7 +871,6 @@ precommit_go_ciparity_test.go                      precommit
 precommit_go_test.go                               precommit
 precommit_gofmt_test.go                            precommit
 precommit_indexunreadable_test.go                  precommit
-precommit_lintscope_test.go                        precommit
 precommit_lockscope.go                             precommit
 precommit_lockscope_test.go                        precommit
 precommit_mutants_commit_test.go                   precommit

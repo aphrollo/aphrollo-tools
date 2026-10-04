@@ -91,6 +91,8 @@ func foreignBuildAdvisory(p0 string, p1 string, p2 string, p3 SuiteResult) strin
 
 func gitRead(p0 string, p1 ...string) (string, error) { return suite.GitRead(p0, p1...) }
 
+func goLintRunner(p0 string, p1 []string) Runner { return suite.GoLintRunner(p0, p1) }
+
 func goPassedCount(p0 string) (int, bool) { return suite.GoPassedCount(p0) }
 
 func goTestReachFn(p0 string, p1 string) ([]string, error) { return suite.GoTestReachFn(p0, p1) }

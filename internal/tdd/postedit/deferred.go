@@ -99,6 +99,12 @@ type PhaseOutcome struct {
 	// its command ran or was about to: the memory cap ended it, or the box had
 	// no memory to start it. See SuiteResult.Inconclusive, which it becomes.
 	Inconclusive string `json:"inconclusive,omitempty"`
+	// LintRan says the run phase also ran the commit stage's linter over the
+	// packages it touched (lintrun.go), and LintExit is how that linter exited.
+	// Both are guidance: neither changes ExitCode, SetupFailed or Inconclusive,
+	// which stay the tests' alone.
+	LintRan  bool `json:"lint_ran,omitempty"`
+	LintExit int  `json:"lint_exit,omitempty"`
 }
 
 // deferredMaxEnv bounds how long a detached phase may run before the next

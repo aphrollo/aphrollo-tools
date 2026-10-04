@@ -88,9 +88,9 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
 	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)
 	if outcome.IsRed() {
-		return withNote(redSummary(snap.runner, root, outcome, res.Output), widenNote), false
+		return withLintGuidance(withNote(redSummary(snap.runner, root, outcome, res.Output), widenNote), out.lint), false
 	}
-	return withNote(passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), widenNote), false
+	return withLintGuidance(withNote(passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), widenNote), out.lint), false
 }
 
 // runnerArgv is a runner's command line.

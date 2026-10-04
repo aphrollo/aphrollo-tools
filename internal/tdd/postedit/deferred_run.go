@@ -236,6 +236,11 @@ func RunPhase(jobPath string) int {
 	if out.Inconclusive != "" {
 		fmt.Fprintf(log, "aphrollo: %s\n", out.Inconclusive)
 	}
+	// The lint runs after the tests, in the slot they held, and only for a run
+	// that reached a verdict: Seconds above is the tests' alone.
+	if out.Inconclusive == "" {
+		out.LintRan, out.LintExit = runPhaseLint(j)
+	}
 	writePhaseResult(j.Result, out)
 	return 0
 }

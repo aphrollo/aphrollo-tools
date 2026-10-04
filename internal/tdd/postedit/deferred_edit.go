@@ -86,6 +86,8 @@ type deferredEditOutcome struct {
 	// logToken is the gate-log verdict of an outcome that is not simply "deferred":
 	// an edit whose run waits in the queue.
 	logToken string
+	// lint is the guidance the run's own lint adds to its line (lintrun.go).
+	lint string
 }
 
 // finishedEditOutcome turns a completed phase into the outcome runEditPhases
@@ -95,7 +97,7 @@ func finishedEditOutcome(j DeferredJob, out PhaseOutcome) deferredEditOutcome {
 	if out.SetupFailed {
 		return deferredEditOutcome{res: phaseSuiteResult(j, out), Infra: true, job: j}
 	}
-	return deferredEditOutcome{res: phaseSuiteResult(j, out)}
+	return deferredEditOutcome{res: phaseSuiteResult(j, out), lint: lintGuidance(j, out)}
 }
 
 // phaseStatus is what became of a spawn: finished inside the budget, still
@@ -288,7 +290,7 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
-	return judgeEditResult(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA)
+	return withLintGuidance(judgeEditResult(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA), lintGuidance(j, out))
 }
 
 // judgeEditResult is editResultAdvisory's verdict half, for a finished run

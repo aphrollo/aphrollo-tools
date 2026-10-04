@@ -145,8 +145,6 @@ func DependentsOf(p0 map[string][]string, p1 []string) []string { return depende
 
 func DiffHeaderPath(p0 string) (string, bool) { return diffHeaderPath(p0) }
 
-func DirHasGoFiles(p0 string) bool { return dirHasGoFiles(p0) }
-
 func DoctestRunners(p0 string, p1 []string) []Runner { return doctestRunners(p0, p1) }
 
 func DropLeadingEnvAssignmentWords(p0 []shellWord) []shellWord {
@@ -176,6 +174,8 @@ func GcStatePath(p0 string) string { return gcStatePath(p0) }
 func GitHubHost(p0 string, p1 time.Duration) host.Host { return gitHubHost(p0, p1) }
 
 func GitRead(p0 string, p1 ...string) (string, error) { return gitRead(p0, p1...) }
+
+func GoLintRunner(p0 string, p1 []string) Runner { return goLintRunner(p0, p1) }
 
 func GoPackageDir(p0 string, p1 string) string { return goPackageDir(p0, p1) }
 
