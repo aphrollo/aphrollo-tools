@@ -461,3 +461,23 @@ func TestIsHeldLine_QueuedAndBuildingAreNotFinal(t *testing.T) {
 		}
 	}
 }
+
+// A job record that names no command (written before the field existed) cannot
+// be told from the edit's own run: the edit is not queued behind "" but marks it
+// dirty and gets the BUILDING line, and the line of the same run for a moved tree
+// is BUILDING too, naming the command.
+func TestActiveRunLine_ARecordWithNoCommandIsNotQueuedBehind(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	saveDeferredJob(DeferredJob{Project: root, Session: "s-old", Phase: "build", Dir: root, PID: 4242, Started: time.Now(), FileHash: "stale"})
+	file := filepath.Join(root, "b", "b.go")
+
+	line, held := activeRunLine(stateSnapshot{runner: coalesceRunner("./b")}, root, file, "s-old", "newer")
+
+	if held || line != "" {
+		t.Fatalf("held=%v line %q: a record with no command must fall to the harvest's own path", held, line)
+	}
+	if got := queuedSameRunLine(coalesceRunner("./b"), "/r"); !strings.Contains(got, "BUILDING") || !strings.Contains(got, "go test ./b") {
+		t.Fatalf("same-run line %q, want BUILDING and the command", got)
+	}
+}

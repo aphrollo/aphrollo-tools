@@ -239,11 +239,11 @@ func pumpSessionQueues(session string) []string {
 // already moved, so waiting on it in the foreground buys nothing (issue #1189).
 const queuedEscape = "not tested yet — the verdict arrives at a later hook, and commit and precommit will judge it"
 
-// queuedSameRunLine is the line of an edit whose run is the one already going,
+// queuedSameRunLine is the BUILDING line of an edit whose run is the one already going,
 // for a tree that has moved since it started: it restarts on the newest source
 // when it ends, so the verdict now coming describes the older state.
 func queuedSameRunLine(r Runner, root string) string {
-	return fmt.Sprintf("gate: %s in %s → QUEUED (deferred; the same run is going for an older state of this tree and restarts on the newest source when it ends; %s)",
+	return fmt.Sprintf("gate: %s in %s → BUILDING (deferred; the same run is going for an older state of this tree and restarts on the newest source when it ends; %s)",
 		cmdString(r), root, queuedEscape)
 }
 

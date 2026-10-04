@@ -122,6 +122,12 @@ func activeRunLine(snap stateSnapshot, root, target, session, fileHash string) (
 	// older state, whichever run the edit is for. It is marked, so the harvest
 	// restarts it on the newest source and no coverage it had is lost; the edit
 	// is not left to chase it.
+	if len(active) == 0 {
+		// A record that names no command (one written before the field existed)
+		// cannot be told from the edit's own run: the harvest's own path answers,
+		// marking it dirty and saying it is building.
+		return "", false
+	}
 	moved := j.FileHash != fileHash
 	if moved {
 		markDeferredDirty(session, root, fileHash)
