@@ -66,3 +66,19 @@ func checkNames(runs []CheckRun) []string {
 	}
 	return names
 }
+
+// ciQueue is the "ci" a ci event carries when the merge queue's own run of the
+// PR judged it, apart from the PR's checks.
+const ciQueue = "queue"
+
+// recordQueueRed writes the red of a PR the merge queue removed for failed
+// checks. The pass the PR's own checks gave it was recorded already; this is
+// the red the queue's run added, which the first-run measure counts for the
+// lane. Once per head, so a wait that is resumed does not count it twice.
+func (m *Merge) recordQueueRed(q *Enqueued) {
+	sha := "pr-" + strconv.Itoa(q.PR)
+	if head, err := ghPRHead(m.Target.Worktree, strconv.Itoa(q.PR)); err == nil && head.HeadSHA != "" {
+		sha = head.HeadSHA
+	}
+	recordSettledCIBy(m.Target.Worktree, ciQueue+":"+sha, q.PR, "red", ciQueue, ciQueue)
+}

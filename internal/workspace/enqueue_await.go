@@ -187,6 +187,9 @@ func (m *Merge) removedFromQueue(q *Enqueued, reason string) error {
 	if reason != "" {
 		head += " (" + reason + ")"
 	}
+	if reason == "failed_checks" {
+		m.recordQueueRed(q)
+	}
 	id, err := ghMergeGroupRun(wt, q.Repo, q.PR)
 	switch {
 	case err != nil:

@@ -58,17 +58,40 @@ type OSRate struct {
 // foldCI reads the first ci event of each lane. A ci event carries no OS today,
 // so the OS split reads detail "os" and files the rest under "unknown".
 func foldCI(s scope) CI {
-	seen := map[string]bool{}
+	// counted is a lane's first result as tallied: a green one can still turn red
+	// when the merge queue's own run of the PR fails.
+	type counted struct {
+		os    string
+		green bool
+	}
+	seen := map[string]*counted{}
 	causes := map[string]int{}
 	type tally struct{ lanes, green int }
 	byOS := map[string]*tally{}
 	var c CI
+	redCause := func(e stamped) string {
+		if cause := e.Detail["cause"]; cause != "" {
+			return cause
+		}
+		return "other"
+	}
 	for _, e := range s.evs {
-		if e.Kind != "ci" || e.Lane == "" || seen[e.Lane] || (e.Verdict != "green" && e.Verdict != "red") {
+		if e.Kind != "ci" || e.Lane == "" || (e.Verdict != "green" && e.Verdict != "red") {
 			continue
 		}
-		seen[e.Lane] = true
+		if prior, ok := seen[e.Lane]; ok {
+			// A merge queue red is a red of the lane whatever its PR run said: the
+			// PR was green, the queue refused it all the same.
+			if prior != nil && prior.green && e.Verdict == "red" && e.Detail["ci"] == "queue" {
+				prior.green = false
+				c.Green--
+				byOS[prior.os].green--
+				causes[redCause(e)]++
+			}
+			continue
+		}
 		if !s.in(e.at) {
+			seen[e.Lane] = nil
 			continue
 		}
 		osName := e.Detail["os"]
@@ -80,16 +103,13 @@ func foldCI(s scope) CI {
 		}
 		c.Lanes++
 		byOS[osName].lanes++
+		seen[e.Lane] = &counted{os: osName, green: e.Verdict == "green"}
 		if e.Verdict == "green" {
 			c.Green++
 			byOS[osName].green++
 			continue
 		}
-		cause := e.Detail["cause"]
-		if cause == "" {
-			cause = "other"
-		}
-		causes[cause]++
+		causes[redCause(e)]++
 	}
 	c.Rate = share(c.Green, c.Lanes) * 100
 	c.RedByCause = counts(causes)
@@ -239,6 +259,13 @@ func denyRule(e stamped) string {
 	return "unknown"
 }
 
+// isAllowedRerun is an override event of the old spelling of an allowed narrowed
+// rerun (now logged as rerun-bash-narrowed, which is no override at all): the
+// hook let the run through, so nothing was waived and no block was wrong.
+func isAllowedRerun(e stamped) bool {
+	return e.Detail["override"] == "override-bash-narrowed" || e.Verdict == "override-bash-narrowed"
+}
+
 func foldDenies(s scope) Denies {
 	rules, causes, overrides := map[string]int{}, map[string]int{}, map[string]int{}
 	lastDeny := map[string]time.Time{}
@@ -256,13 +283,15 @@ func foldDenies(s scope) Denies {
 				causes[cause]++
 			}
 		case "override":
-			if !s.in(e.at) {
+			if !s.in(e.at) || isAllowedRerun(e) {
 				continue
 			}
 			d.Overrides++
 			overrides[e.Detail["override"]]++
+			// A deny is one wrong block however many overrides follow it.
 			if t, ok := lastDeny[e.Lane]; ok && e.at.Sub(t) <= WrongBlockWindow {
 				d.WrongBlocks++
+				delete(lastDeny, e.Lane)
 			}
 		}
 	}
