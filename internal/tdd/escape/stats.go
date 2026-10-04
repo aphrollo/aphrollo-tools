@@ -73,14 +73,6 @@ var statsOutcomes = []string{
 // queued for a build slot to explain the run's wall time.
 const lockWaitVerdict = "lock-wait"
 
-// isQueueBookkeeping is a verdict that records where an edit's run stands in the
-// queue, not a run: an edit that waits behind another run, and a queued run that
-// has just started (its own verdict is the run's). Neither is a run outcome, so
-// neither counts toward a rate's denominator or the run-time median.
-func isQueueBookkeeping(verdict string) bool {
-	return verdict == "queue-waiting" || verdict == "queue-started"
-}
-
 // GateStats parses a gate.log stream, counting only entries at or after
 // since (a zero time counts the whole log). A line it cannot parse is
 // skipped rather than guessed at: the log is append-only text written by
@@ -107,6 +99,9 @@ func GateStats(r io.Reader, since time.Time) Stats {
 			s.ByStage[e.Stage] = map[string]int{}
 		}
 		s.ByStage[e.Stage][e.Verdict]++
+		if isQueueBookkeeping(e.Verdict) {
+			continue // where an edit's run stands, not a run: no crate tally, no timing
+		}
 		crate := logRootCrate(e.Root)
 		switch {
 		case strings.HasPrefix(e.Verdict, "timeout"):
@@ -127,9 +122,6 @@ func GateStats(r io.Reader, since time.Time) Stats {
 			if reason != "" {
 				s.Mutants[reason]++
 			}
-		}
-		if isQueueBookkeeping(e.Verdict) {
-			continue
 		}
 		if e.Verdict == lockWaitVerdict {
 			if e.Secs > s.LockWaitMax {

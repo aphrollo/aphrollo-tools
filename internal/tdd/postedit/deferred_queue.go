@@ -88,6 +88,22 @@ func enqueueRun(session, root string, req queuedRun) queueOutcome {
 	}
 	release := acquirePathLock(path)
 	defer release()
+	return enqueueLocked(path, root, req)
+}
+
+// lockQueue takes the lock of the session's queue in the project, the one the
+// pump holds from its free-slot check to its spawn: a hook that starts a run of
+// its own takes it too, so the two cannot both start into the one job record.
+func lockQueue(session, root string) (release func()) {
+	path := queuePath(session, root)
+	if path == "" {
+		return func() {}
+	}
+	return acquirePathLock(path)
+}
+
+// enqueueLocked is enqueueRun for a caller that holds the queue's lock.
+func enqueueLocked(path, root string, req queuedRun) queueOutcome {
 	q := readQueue(path)
 	q.Project = root
 	out := queueOutcome{}
@@ -165,17 +181,18 @@ func pumpQueue(session, root string) []string {
 		return nil
 	}
 	var lines []string
-	kept := q.Runs[:0:0]
-	for _, r := range q.Runs {
-		if time.Since(r.At) > deferredMax() {
-			lines = append(lines, queueDroppedLine(r, root, "it waited longer than a run may live behind a job that never finished"))
-			continue
+	if blocker, busy := loadDeferredJob(session, root); busy {
+		// A queue waits behind a healthy run for as long as the chain takes. It
+		// gives up only on a run that will never finish: its process is gone, or
+		// it has outlived its own ceiling, and nothing but a hook that edits in
+		// this project would clear it.
+		if _, done := deferredResult(blocker); done || deferredJobLive(blocker, time.Now()) {
+			return nil
 		}
-		kept = append(kept, r)
-	}
-	q.Runs = kept
-	if _, busy := loadDeferredJob(session, root); busy || len(q.Runs) == 0 {
-		writeQueue(path, q)
+		for _, r := range q.Runs {
+			lines = append(lines, queueDroppedLine(r, root, "the run ahead of it never finished: its process is gone or it outlived its ceiling"))
+		}
+		writeQueue(path, runQueue{})
 		return lines
 	}
 	req := q.Runs[0]
@@ -308,4 +325,73 @@ func dropSessionQueues(session string) {
 		_ = os.Remove(path) // a file that stays is swept with the day-old ones
 		release()
 	}
+}
+
+// activeArgv is the command a job is running, the run's when it is a build.
+func activeArgv(j DeferredJob) []string {
+	if j.Phase == "build" {
+		return runArgvAfterBuild(j)
+	}
+	return j.Runner
+}
+
+// queuedOutcome is the outcome of an edit whose run was not started because the
+// pump had started another in the project first: it waits behind that one.
+func queuedOutcome(r Runner, root string, blocker DeferredJob, q queueOutcome) deferredEditOutcome {
+	if q.full {
+		return deferredEditOutcome{deferred: true, notice: queueFullLine(r, root), logToken: "queued-skipped"}
+	}
+	return deferredEditOutcome{deferred: true, notice: queuedLine(r, root, activeArgv(blocker), q), logToken: "queue-waiting"}
+}
+
+// startAndWait spawns a phase and waits up to budget for it to finish. A
+// budget that has already run out still SPAWNS: the point is to keep the
+// work going, not to skip it.
+func startAndWait(j DeferredJob, budget time.Duration) (DeferredJob, PhaseOutcome, phaseStatus, queueOutcome) {
+	started, blocker, status, q := spawnGuarded(j)
+	if status != phaseRunning {
+		if status == phaseFailedToStart {
+			clearDeferredJob(j.Session, j.Project)
+		}
+		if status == phaseCoalesced || status == phaseQueued {
+			started = blocker
+		}
+		return started, PhaseOutcome{}, status, q
+	}
+	out, done := waitPhase(started, budget)
+	if !done {
+		return started, out, phaseRunning, q
+	}
+	return started, out, phaseFinished, q
+}
+
+// spawnGuarded starts j under the session's queue lock, the lock the pump holds
+// from its free-slot check to its spawn. Under it a run already going in the
+// project (the pump started one between this hook's look and now) is not
+// started into: this run waits in the queue behind it, and the caller says so.
+// An identical run going for the same tree state answers it instead.
+func spawnGuarded(j DeferredJob) (started, blocker DeferredJob, status phaseStatus, q queueOutcome) {
+	release := lockQueue(j.Session, j.Project)
+	defer release()
+	if twin, ok := liveTwin(j); ok {
+		return j, twin, phaseCoalesced, q
+	}
+	if cur, ok := loadDeferredJob(j.Session, j.Project); ok {
+		if _, done := deferredResult(cur); !done && deferredJobLive(cur, time.Now()) {
+			path := queuePath(j.Session, j.Project)
+			argv := j.Runner
+			if j.Phase == "build" {
+				argv = runArgvAfterBuild(j)
+			}
+			if path != "" {
+				req := queuedRun{Runner: argv, Dir: j.Dir, File: j.File, EditID: j.EditID, Touched: j.Touched, At: time.Now()}
+				return j, cur, phaseQueued, enqueueLocked(path, j.Project, req)
+			}
+		}
+	}
+	s, ok := spawnPhaseFn(j)
+	if !ok {
+		return j, DeferredJob{}, phaseFailedToStart, q
+	}
+	return s, DeferredJob{}, phaseRunning, q
 }

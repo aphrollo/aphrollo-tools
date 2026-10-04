@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"time"
@@ -39,7 +40,8 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 		return spawnFailedLine(root, "build"), false
 	}
 	if out.deferred {
-		AppendGateLog("postedit", root, cmdString(snap.runner), "deferred", 0)
+		token := cmp.Or(out.logToken, "deferred")
+		AppendGateLog("postedit", root, cmdString(snap.runner), token, 0)
 		return out.notice, true
 	}
 	if out.Infra {

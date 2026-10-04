@@ -111,6 +111,7 @@ func TestWeeklyDigest_DoesNotCountQueueBookkeepingAsRuns(t *testing.T) {
 		stamp(2*time.Hour) + " postedit /r go test ./b queue-waiting 0.0s",
 		stamp(3*time.Hour) + " postedit /r go test ./b queue-started 0.0s",
 		stamp(4*time.Hour) + " postedit /r go test ./c queued-dropped 0.0s",
+		stamp(5*time.Hour) + " postedit /r go test ./a deferred-restart 0.0s",
 		"",
 	}, "\n"))
 

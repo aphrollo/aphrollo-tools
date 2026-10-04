@@ -124,6 +124,8 @@ func warnEventLogUnwritable(reason string) {
 // what the measures count, and the line's stage and seconds stay on the event.
 func eventKind(stage, verdict string) string {
 	switch {
+	case isQueueBookkeeping(verdict):
+		return "queue"
 	case isDenyLine(stage, verdict):
 		return "deny"
 	case isOverrideVerdict(verdict):
@@ -144,6 +146,17 @@ func eventKind(stage, verdict string) string {
 		return "stage.timing"
 	}
 	return "gate"
+}
+
+// isQueueBookkeeping is a verdict that records where an edit's run stands, not a
+// run: an edit that waits in the run queue (queue-waiting), a queued run that has
+// just started (queue-started; its own verdict is the run's), and an edit whose
+// run was already going for a tree that moved and restarts (deferred-restart).
+// None is a run outcome, so none counts toward a rate's denominator, a deferred
+// tally or the run-time median, and none is a stage timing: they are events of
+// kind "queue".
+func isQueueBookkeeping(verdict string) bool {
+	return verdict == "queue-waiting" || verdict == "queue-started" || verdict == "deferred-restart"
 }
 
 func isDenyLine(stage, verdict string) bool {
@@ -177,6 +190,8 @@ func isOverrideVerdict(verdict string) bool {
 // timeout, skipped, queued, deferred, infra, no-tests.
 func notTestedCause(verdict string) string {
 	switch {
+	case isQueueBookkeeping(verdict):
+		return ""
 	case strings.HasPrefix(verdict, "timeout"), verdict == "lint-timeout":
 		return "timeout"
 	case strings.HasPrefix(verdict, "skipped"):

@@ -196,24 +196,62 @@ func TestHarvestSessionJobs_ReportsAQueuedRunThatCouldNotStart(t *testing.T) {
 	}
 }
 
-// A run that waited longer than any run may live behind a job that never
-// finished is given up on, and says so.
-func TestPumpQueue_GivesUpOnAnEntryThatWaitedTooLong(t *testing.T) {
+// ratchet: test_removed TestPumpQueue_GivesUpOnAnEntryThatWaitedTooLong: an entry is no longer dropped for its age; it is dropped only when the run in front of it will never finish (TestPumpQueue_DropsTheEntriesBehindARunThatNeverFinished), and a long healthy chain keeps it waiting.
+
+// A queue gives up only on a run that will never finish. Behind a healthy chain
+// an entry waits as long as the chain takes, however long that is.
+func TestPumpQueue_AnEntryBehindAHealthyRunIsNotDroppedHoweverLongItWaited(t *testing.T) {
 	root, session, _ := queueScene(t)
 	editOf(t, root, session, "b", "package b\n")
 	path := queuePath(session, root)
 	q := readQueue(path)
-	q.Runs[0].At = time.Now().Add(-2 * deferredMax())
+	q.Runs[0].At = time.Now().Add(-3 * deferredMax())
 	writeQueue(path, q)
 
 	lines := pumpQueue(session, root)
 
+	if len(lines) != 0 || len(readQueue(path).Runs) != 1 {
+		t.Fatalf("lines %q, queue %+v: want the entry still waiting behind a run that is alive", lines, readQueue(path).Runs)
+	}
+}
+
+// The run in front of the queue is gone: its process is dead and it left no
+// result, so nothing will ever start the entries behind it. They are dropped,
+// logged, and the line says why.
+func TestPumpQueue_DropsTheEntriesBehindARunThatNeverFinished(t *testing.T) {
+	root, session, _ := queueScene(t)
+	editOf(t, root, session, "b", "package b\n")
+	t.Cleanup(SetProcessStartTimeForTest(func(int) (time.Time, bool) { return time.Time{}, false }))
+
+	lines := pumpQueue(session, root)
+
 	joined := tddtest.Pathless(t, strings.Join(lines, "\n"))
-	if !strings.Contains(joined, "QUEUED-DROPPED") || !strings.Contains(joined, "NOT tested") {
-		t.Fatalf("lines = %q, want the dropped entry reported as not tested", joined)
+	if !strings.Contains(joined, "QUEUED-DROPPED") || !strings.Contains(joined, "never finished") || !strings.Contains(joined, "NOT tested") {
+		t.Fatalf("lines = %q, want the dropped entry reported as not tested, with the true cause", joined)
 	}
 	if !strings.Contains(gateLogText(t, os.Getenv("CLAUDE_CONFIG_DIR")), "queued-dropped") {
 		t.Error("the drop left no queued-dropped entry in the gate log")
+	}
+}
+
+// The pump started a run between this hook's look at the slot and its own
+// spawn: under the queue's lock the edit sees that run, and waits behind it
+// instead of starting into the same job record.
+func TestRunEditPhases_AFreshStartBehindARunTheSlotHoldsQueuesInstead(t *testing.T) {
+	root, session, started := queueScene(t)
+	file := filepath.Join(root, "b", "b.go")
+	write(t, root, "b/b.go", "package b\n")
+
+	out := runEditPhases(coalesceRunner("./b"), root, file, "", sourceIdentity(root, file), session, "", 0)
+
+	if !out.deferred || out.logToken != "queue-waiting" || !strings.Contains(out.notice, "QUEUED") {
+		t.Fatalf("outcome %+v, want the edit queued behind the run going", out)
+	}
+	if *started != 1 {
+		t.Errorf("runs started = %d, want the running one only", *started)
+	}
+	if got := readQueue(queuePath(session, root)); len(got.Runs) != 1 || got.Runs[0].Runner[3] != "./b" {
+		t.Errorf("queue = %+v, want ./b waiting", got.Runs)
 	}
 }
 

@@ -83,6 +83,9 @@ type deferredEditOutcome struct {
 	// blocked it (issue #583): the caller has the edit's Runner, but not
 	// which PHASE of it the failure belongs to.
 	job DeferredJob
+	// logToken is the gate-log verdict of an outcome that is not simply "deferred":
+	// an edit whose run waits in the queue.
+	logToken string
 }
 
 // finishedEditOutcome turns a completed phase into the outcome runEditPhases
@@ -105,6 +108,9 @@ const (
 	phaseRunning
 	phaseFailedToStart
 	phaseCoalesced
+	// phaseQueued is a run not started because another run of the session was
+	// going in the project: it waits in the queue behind it.
+	phaseQueued
 )
 
 // runEditPhases executes the edit's tests as build-then-run inside budget,
@@ -114,18 +120,24 @@ func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, edit
 	deadline := time.Now().Add(budget)
 	build := firstEditPhase(runner, root, target, headSHA, fileHash, session, editID, touched...)
 	if build.Phase == "run" {
-		started, out, status := startAndWait(build, time.Until(deadline))
+		started, out, status, q := startAndWait(build, time.Until(deadline))
 		if status == phaseFailedToStart {
 			return deferredEditOutcome{spawnFailed: true}
+		}
+		if status == phaseQueued {
+			return queuedOutcome(runner, root, started, q)
 		}
 		if status == phaseRunning || status == phaseCoalesced {
 			return heldOutcome(root, "run", status, started)
 		}
 		return finishedEditOutcome(started, out)
 	}
-	startedBuild, out, status := startAndWait(build, time.Until(deadline))
+	startedBuild, out, status, q := startAndWait(build, time.Until(deadline))
 	if status == phaseFailedToStart {
 		return deferredEditOutcome{spawnFailed: true}
+	}
+	if status == phaseQueued {
+		return queuedOutcome(runner, root, startedBuild, q)
 	}
 	if status == phaseRunning || status == phaseCoalesced {
 		return heldOutcome(root, "build", status, startedBuild)
@@ -140,9 +152,12 @@ func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, edit
 	runPhase := build
 	runPhase.Phase = "run"
 	runPhase.Runner, runPhase.RunRunner = build.RunRunner, nil
-	startedRun, out, status := startAndWait(runPhase, time.Until(deadline))
+	startedRun, out, status, q := startAndWait(runPhase, time.Until(deadline))
 	if status == phaseFailedToStart {
 		return deferredEditOutcome{spawnFailed: true}
+	}
+	if status == phaseQueued {
+		return queuedOutcome(runner, root, startedRun, q)
 	}
 	if status == phaseRunning || status == phaseCoalesced {
 		return heldOutcome(root, "run", status, startedRun)
@@ -165,25 +180,6 @@ func firstEditPhase(runner Runner, root, target, headSHA, fileHash, session, edi
 		j.Phase, j.Runner, j.RunRunner = "run", j.RunRunner, nil
 	}
 	return j
-}
-
-// startAndWait spawns a phase and waits up to budget for it to finish. A
-// budget that has already run out still SPAWNS: the point is to keep the
-// work going, not to skip it.
-func startAndWait(j DeferredJob, budget time.Duration) (DeferredJob, PhaseOutcome, phaseStatus) {
-	if twin, ok := liveTwin(j); ok {
-		return twin, PhaseOutcome{}, phaseCoalesced
-	}
-	started, ok := spawnPhaseFn(j)
-	if !ok {
-		clearDeferredJob(j.Session, j.Project)
-		return j, PhaseOutcome{}, phaseFailedToStart
-	}
-	out, done := waitPhase(started, budget)
-	if !done {
-		return started, out, phaseRunning
-	}
-	return started, out, phaseFinished
 }
 
 // harvestDeferred deals with a job left over from an earlier hook. It
@@ -246,13 +242,16 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		runPhase.Phase = "run"
 		runPhase.Runner, runPhase.RunRunner = runArgvAfterBuild(j), nil
 		runPhase.Log, runPhase.Result = "", ""
-		startedRun, runOut, status := startAndWait(runPhase, time.Until(deadline))
+		startedRun, runOut, status, q := startAndWait(runPhase, time.Until(deadline))
 		if status == phaseFailedToStart {
 			AppendGateLog("postedit", root, strings.Join(runPhase.Runner, " "), InfraFailed, 0)
 			return spawnFailedLine(root, "run"), false
 		}
 		if status == phaseCoalesced {
 			return coalescedLine(root, startedRun), false
+		}
+		if status == phaseQueued {
+			return queuedLine(runnerFromArgv(runArgvAfterBuild(j), j.Dir), root, activeArgv(startedRun), q), false
 		}
 		if status == phaseRunning {
 			return buildingLine(root, "run", 0), false
