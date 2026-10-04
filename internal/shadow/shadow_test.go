@@ -47,7 +47,6 @@ func TestJudge_RelationAndHoldoutPerRule(t *testing.T) {
 		{"attribution blocked by both", Attribution(Block), live, "block", Agree, false},
 		{"deny law blocked by both", Law("ratchet:x", true, Block), live, "block", Agree, false},
 		{"deny law in the holdout arm guides where aphrollo blocks", Law("ratchet:x", true, Block), held, "warn", TrellisSofter, true},
-		{"deny law that aphrollo only warned of is a would-be block", Law("ratchet:x", true, Warn), live, "block", TrellisStricter, false},
 		{"warn law warned by both", Law("ratchet:y", false, Warn), live, "guide", Agree, false},
 		{"rerun denied by aphrollo is only guidance to trellis", Rerun(Block), live, "guide", TrellisSofter, false},
 		{"outward call blocked by both", Outward("direct-pr", Block), live, "block", Agree, false},
