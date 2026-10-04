@@ -52,7 +52,7 @@ func harvestSessionJobs(session string) []string {
 	// what became of each is a line of its own.
 	lines = append(lines, pumpSessionQueues(session)...)
 	lines = append(lines, harvestMutantsEdit(session)...)
-	return append(lines, harvestLintEdit(session)...)
+	return lines
 }
 
 // harvestSessionJob reports one finished job through the harvest every hook

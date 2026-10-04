@@ -512,8 +512,6 @@ issue_test.go                                      install   # prefix says escap
 judgedhead_test.go                                 merge
 killtree_test.go                                   postedit
 knownwall_test.go                                  postedit
-lintdeferred.go                                    postedit
-lintdeferred_test.go                               postedit
 lintlock.go                                        lock
 lintlock_test.go                                   lock
 lintrun.go                                         postedit
@@ -818,8 +816,6 @@ posttooluse_gofmt_unix_test.go                     postedit
 posttooluse_inconclusive_test.go                   postedit
 posttooluse_lint.go                                postedit
 posttooluse_lint_run_test.go                       postedit
-posttooluse_lint_test.go                           postedit
-posttooluse_lint_tree_test.go                      postedit
 posttooluse_notrun_test.go                         postedit
 posttooluse_pytest_unix_test.go                    postedit
 posttooluse_ratchet.go                             postedit

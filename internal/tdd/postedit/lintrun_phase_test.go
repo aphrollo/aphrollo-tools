@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,6 +18,14 @@ func lintFindingCmd(finding string) []string {
 		return []string{"cmd", "/c", "echo " + finding + "& exit /b 1"}
 	}
 	return []string{"sh", "-c", "echo '" + finding + "'; exit 1"}
+}
+
+// sleepCmd is a command that outlives any lint budget a test sets.
+func sleepCmd() []string {
+	if runtime.GOOS == "windows" {
+		return []string{"ping", "-n", "30", "127.0.0.1"}
+	}
+	return []string{"sleep", "30"}
 }
 
 func stubPhaseLint(t *testing.T, argv []string) {
@@ -39,12 +48,25 @@ func lintJob(t *testing.T, dir string, runner []string) DeferredJob {
 	}
 }
 
-// The lint rides the run's own slot: it runs after the tests, in the same
-// wrapper, and records beside the test outcome. The test's exit code is the
-// test's alone, whatever the linter said.
+func notLoaded(t *testing.T, loaded bool) {
+	t.Helper()
+	prev := lintEditLoad
+	lintEditLoad = func() (float64, int, bool) {
+		if loaded {
+			return 100, 1, true
+		}
+		return 0, 8, true
+	}
+	t.Cleanup(func() { lintEditLoad = prev })
+}
+
+// The lint rides the run's own wrapper after the tests: the test's exit code is
+// the test's alone, whatever the linter said, and the lint's output is a log of
+// its own.
 func TestRunPhase_LintFindingsLeaveTheTestExitCodeAlone(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	withIsolatedBuildLock(t)
+	notLoaded(t, false)
 	dir := t.TempDir()
 	stubPhaseLint(t, lintFindingCmd("x.go:3:1: unused thing (unused)"))
 	j := lintJob(t, dir, writeMarkerCmd(filepath.Join(dir, "ran")))
@@ -58,8 +80,10 @@ func TestRunPhase_LintFindingsLeaveTheTestExitCodeAlone(t *testing.T) {
 	if out.ExitCode != 0 || out.SetupFailed || out.Inconclusive != "" {
 		t.Fatalf("outcome = %+v, want the passing test run untouched by the lint", out)
 	}
-	if !out.LintRan || out.LintExit != 1 {
-		t.Fatalf("outcome = %+v, want the lint recorded as run with exit 1", out)
+	data, err := os.ReadFile(lintDonePath(j))
+	var done1 lintDone
+	if err != nil || json.Unmarshal(data, &done1) != nil || done1.Exit != 1 {
+		t.Fatalf("lint record = %q (%v), want exit 1", data, err)
 	}
 	logged, err := os.ReadFile(lintLogPath(j))
 	if err != nil || !strings.Contains(string(logged), "x.go:3:1: unused thing (unused)") {
@@ -71,25 +95,147 @@ func TestRunPhase_LintFindingsLeaveTheTestExitCodeAlone(t *testing.T) {
 	}
 }
 
-// A run that is not a Go run asks for no lint, and one whose root has no
-// linter records none: nothing in the outcome claims a lint that did not run.
+// The test verdict never waits on the lint: when the lint starts, the result
+// file and the store verdict exist and the run's slot is free again.
+func TestRunPhase_TheVerdictIsWrittenAndTheSlotFreeBeforeTheLintStarts(t *testing.T) {
+	root, _ := laneAt(t, "eee555")
+	withIsolatedBuildLock(t)
+	notLoaded(t, false)
+	j := lintJob(t, root, writeMarkerCmd(filepath.Join(root, "ran")))
+	var sawResult, sawStore, slotFree bool
+	prev := phaseLintFn
+	phaseLintFn = func(DeferredJob) (Runner, bool) {
+		_, sawResult = deferredResult(j)
+		if s, err := openRunStoreFn(root); err == nil {
+			_, sawStore, _ = s.ReadVerdict("eee555")
+		}
+		var releases []func()
+		slotFree = true
+		for range buildSlotCount() {
+			_, release, ok := TryAcquireBuildSlot(ResolveCargoTargetDir(t.TempDir()), "probe", "/repo")
+			if !ok {
+				slotFree = false
+				break
+			}
+			releases = append(releases, release)
+		}
+		for _, r := range releases {
+			r()
+		}
+		return Runner{}, false
+	}
+	t.Cleanup(func() { phaseLintFn = prev })
+
+	RunPhase(writeJob(t, j))
+
+	if !sawResult || !sawStore || !slotFree {
+		t.Fatalf("at the lint's start: result written %v, store verdict written %v, slot free %v; want all three", sawResult, sawStore, slotFree)
+	}
+}
+
+// A loaded box and a box that recently timed a lint out are left alone.
+func TestRunPhase_ALoadedOrBackedOffBoxRunsNoLint(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, root string)
+	}{
+		{"loaded", func(t *testing.T, _ string) { notLoaded(t, true) }},
+		{"backed off", func(t *testing.T, root string) { notLoaded(t, false); markLintBackoff(root) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			withIsolatedBuildLock(t)
+			dir := t.TempDir()
+			tc.setup(t, dir)
+			stubPhaseLint(t, lintFindingCmd("x.go:3:1: unused thing (unused)"))
+			j := lintJob(t, dir, writeMarkerCmd(filepath.Join(dir, "ran")))
+
+			RunPhase(writeJob(t, j))
+
+			if _, err := os.Stat(lintLogPath(j)); err == nil {
+				t.Fatal("a lint ran on a box that should have stood down")
+			}
+		})
+	}
+}
+
+// A lint past its budget is ended, leaves no record, and backs the next one off.
+func TestRunPhase_ALintPastItsBudgetIsEndedAndBacksOff(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	withIsolatedBuildLock(t)
+	notLoaded(t, false)
+	prev := lintPhaseBudget
+	lintPhaseBudget = 300 * time.Millisecond
+	t.Cleanup(func() { lintPhaseBudget = prev })
+	dir := t.TempDir()
+	stubPhaseLint(t, sleepCmd())
+	j := lintJob(t, dir, writeMarkerCmd(filepath.Join(dir, "ran")))
+
+	RunPhase(writeJob(t, j))
+
+	if _, err := os.Stat(lintDonePath(j)); err == nil {
+		t.Fatal("a lint that did not finish left a record")
+	}
+	if !lintBackedOff(dir) {
+		t.Fatal("a lint past its budget must back the next one off")
+	}
+}
+
+// A run that asks for no lint records none, and removes what an earlier run of
+// the same log left.
 func TestRunPhase_NoLintWhenThePhaseAsksForNone(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	withIsolatedBuildLock(t)
 	dir := t.TempDir()
 	stubPhaseLint(t, nil)
 	j := lintJob(t, dir, writeMarkerCmd(filepath.Join(dir, "ran")))
+	mustWrite(t, lintLogPath(j), "old.go:1:1: from an earlier run (x)\n")
+	mustWrite(t, lintDonePath(j), `{"exit":1}`)
 
 	RunPhase(writeJob(t, j))
 
-	out, _ := deferredResult(j)
-	if out.LintRan {
-		t.Fatalf("outcome = %+v, want no lint recorded", out)
+	for _, p := range []string{lintLogPath(j), lintDonePath(j)} {
+		if _, err := os.Stat(p); err == nil {
+			t.Fatalf("%s outlived the run whose log was started afresh", p)
+		}
 	}
 }
 
-// A lint finding rides the run's line as guidance: the verdict stays green and
-// the finding is named on the same line, so the hook still prints one line.
+// The lint's packages are named from the module the run's own tests run in, and
+// it runs there: a module below the project is not the project.
+func TestGoPhaseLint_NamesPackagesFromTheModuleTheRunsIn(t *testing.T) {
+	prev := lintEditLook
+	lintEditLook = func() bool { return true }
+	t.Cleanup(func() { lintEditLook = prev })
+	root := t.TempDir()
+	module := filepath.Join(root, "svc")
+	mustWrite(t, filepath.Join(module, "pkg", "x.go"), "package pkg\n")
+	mustWrite(t, filepath.Join(root, "top", "y.go"), "package top\n")
+	j := DeferredJob{
+		Project: root, Dir: module, Phase: "run", Runner: []string{"go", "test", "./pkg"},
+		File: filepath.Join(module, "pkg", "x.go"), Touched: []string{filepath.Join(root, "top", "y.go")},
+	}
+
+	r, ok := goPhaseLint(j)
+
+	want := []string{"run", "--allow-serial-runners", "./pkg"}
+	if !ok || r.Dir != module || !slices.Equal(r.Args, want) {
+		t.Fatalf("runner = %s %q in %q (%v), want %q in %q: only files of the module, named from it", r.Cmd, r.Args, r.Dir, ok, want, module)
+	}
+}
+
+func lintFinished(t *testing.T, j DeferredJob, exit int, log string) {
+	t.Helper()
+	mustWrite(t, lintLogPath(j), log)
+	data, err := json.Marshal(lintDone{Exit: exit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, lintDonePath(j), string(data))
+}
+
+// A lint finding rides a harvested green run's line as guidance: the verdict
+// stays green and the finding is named on the same line.
 func TestHarvest_LintFindingRidesAGreenRunsLineAsGuidance(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := mkProject(t, "go.mod")
@@ -103,8 +249,8 @@ func TestHarvest_LintFindingRidesAGreenRunsLineAsGuidance(t *testing.T) {
 	})
 	j, _ := loadDeferredJob("lint-sess", root)
 	mustWrite(t, j.Log, "ok  \tx\t0.01s\n")
-	mustWrite(t, lintLogPath(j), "x.go:3:1: unused thing (unused)\nx.go:9:2: loading failed (typecheck)\n")
-	writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1, LintRan: true, LintExit: 1})
+	lintFinished(t, j, 1, "x.go:3:1: unused thing (unused)\nx.go:9:2: loading failed (typecheck)\n")
+	writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1})
 
 	got := harvestSessionJobs("lint-sess")
 
@@ -126,21 +272,24 @@ func TestHarvest_LintFindingRidesAGreenRunsLineAsGuidance(t *testing.T) {
 	}
 }
 
-// Lint that found nothing, was not run, or could not judge (exit 3: the
+// ratchet: test_removed TestLintGuidance_SaysNothingUnlessTheLinterReportedFindings: renamed TestLintGuidance_SaysNothingUnlessAFinishedLintReportedFindings; the lint now records its own finish
+
+// Lint that found nothing, has not finished, or could not judge (exit 3: the
 // linter's own lock) adds nothing to the line.
-func TestLintGuidance_SaysNothingUnlessTheLinterReportedFindings(t *testing.T) {
+func TestLintGuidance_SaysNothingUnlessAFinishedLintReportedFindings(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	dir := t.TempDir()
-	j := lintJob(t, dir, []string{"go", "test"})
-	mustWrite(t, lintLogPath(j), "x.go:3:1: unused thing (unused)\n")
-	for name, out := range map[string]PhaseOutcome{
-		"not run":    {},
-		"clean":      {LintRan: true, LintExit: 0},
-		"contention": {LintRan: true, LintExit: 3},
-	} {
-		if got := lintGuidance(j, out); got != "" {
+	finding := "x.go:3:1: unused thing (unused)\n"
+	for name, exit := range map[string]int{"clean": 0, "contention": 3} {
+		j := lintJob(t, t.TempDir(), []string{"go", "test"})
+		lintFinished(t, j, exit, finding)
+		if got := lintGuidance(j); got != "" {
 			t.Errorf("%s: guidance = %q, want none", name, got)
 		}
+	}
+	unfinished := lintJob(t, t.TempDir(), []string{"go", "test"})
+	mustWrite(t, lintLogPath(unfinished), finding)
+	if got := lintGuidance(unfinished); got != "" {
+		t.Errorf("unfinished: guidance = %q, want none: a lint still going says nothing", got)
 	}
 }
 
@@ -149,6 +298,7 @@ func TestLintGuidance_SaysNothingUnlessTheLinterReportedFindings(t *testing.T) {
 func TestPostEdit_LintFindingRidesAnInBudgetRunsLineWithoutMovingItsVerdict(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := mkProject(t, "go.mod")
 	src := filepath.Join(root, "widget.go")
 	mustWrite(t, src, "package widget\n")
@@ -159,8 +309,8 @@ func TestPostEdit_LintFindingRidesAnInBudgetRunsLineWithoutMovingItsVerdict(t *t
 		saveDeferredJob(j)
 		j, _ = loadDeferredJob(j.Session, j.Project)
 		mustWrite(t, j.Log, "ok  \twidget\t0.01s\n")
-		mustWrite(t, lintLogPath(j), "widget.go:3:1: unused thing (unused)\n")
-		writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1, LintRan: true, LintExit: 1})
+		lintFinished(t, j, 1, "widget.go:3:1: unused thing (unused)\n")
+		writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1})
 		return j, true
 	}
 	t.Cleanup(func() { spawnPhaseFn = prev })

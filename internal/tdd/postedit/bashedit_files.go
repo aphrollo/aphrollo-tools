@@ -52,7 +52,7 @@ func recordBashEdits(files []string) map[string]string {
 // findings, then a line for each smell verdict. It answers that text and the
 // detached runs to start once the harvest has been read: the deferred lint of
 // each Go file, and the mutation run over the files of a green root.
-func bashGateFinish(session, root string, changed, live []string, formatted string, runLines, greenFiles []string) (string, func()) {
+func bashGateFinish(session, root string, changed []string, formatted string, runLines, greenFiles []string) (string, func()) {
 	text := strings.Join(runLines, "\n")
 	text = withGateNote(text, formatted)
 	written := make([]string, len(changed))
@@ -60,7 +60,6 @@ func bashGateFinish(session, root string, changed, live []string, formatted stri
 		written[i] = filepath.Join(root, filepath.FromSlash(rel))
 	}
 	text = withGateNote(text, lawRefusalNote(written))
-	text = withGateNote(text, lintEditedFiles(live, nil))
 	for _, line := range bashSmellLines(root, changed) {
 		if text != "" {
 			text += "\n"

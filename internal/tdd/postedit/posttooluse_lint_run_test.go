@@ -3,10 +3,8 @@ package postedit
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -43,32 +41,11 @@ func TestGolangciLintOnPath_ReadsPATH(t *testing.T) {
 
 // TestRunLintWithin_ReturnsWhatTheLinterPrintedAndNoTimeout: a finding exits
 // non-zero, and its text is what comes back, with no timeout.
-func TestRunLintWithin_ReturnsWhatTheLinterPrintedAndNoTimeout(t *testing.T) {
-	fakeLinter(t, "#!/bin/sh\necho \"widget.go:3:1: finding (x)\"\nexit 1\n")
-	out, timedOut := runLintWithin(t.TempDir(), []string{"run"}, time.Minute)
-	if timedOut || !strings.Contains(out, "widget.go:3:1: finding (x)") {
-		t.Fatalf("out %q timedOut %v; want the finding and no timeout", out, timedOut)
-	}
-}
-
-// TestRunLintWithin_CutsOffARunPastItsBudget: a linter that outlives its
-// budget is ended and reported as timed out. The script execs sleep so the
-// process the budget kills is the one that holds the time.
-func TestRunLintWithin_CutsOffARunPastItsBudget(t *testing.T) {
-	sleep, err := exec.LookPath("sleep")
-	if err != nil {
-		t.Skip("no sleep on PATH") // skip-ok: the fake linter needs the box's sleep
-	}
-	fakeLinter(t, "#!/bin/sh\nexec "+sleep+" 30\n")
-	started := time.Now()
-	_, timedOut := runLintWithin(t.TempDir(), []string{"run"}, 200*time.Millisecond)
-	if !timedOut {
-		t.Fatal("a run past its budget was not reported as timed out")
-	}
-	if took := time.Since(started); took > 10*time.Second {
-		t.Fatalf("the run was not cut off: took %s", took)
-	}
-}
+// ratchet: test_removed TestRunLintWithin_ReturnsWhatTheLinterPrintedAndNoTimeout: the in-hook lint runner is gone with the edit-time lint
+// ratchet: test_removed TestRunLintWithin_CutsOffARunPastItsBudget: the in-hook lint runner is gone with the edit-time lint
+// ratchet: test_removed internal/tdd/postedit/lintdeferred_test.go: the detached edit-time lint and its harvester are gone; the run carries the lint (lintrun.go)
+// ratchet: test_removed internal/tdd/postedit/posttooluse_lint_test.go: the in-hook edit-time lint is gone; the run carries the lint (lintrun.go)
+// ratchet: test_removed internal/tdd/postedit/posttooluse_lint_tree_test.go: the in-hook lint runner is gone with the edit-time lint
 
 // TestLoadFromProc_ReadsTheFirstFieldAndStandsDownOnAnythingElse pins what
 // counts as a readable load: the first field of the file, as a number.

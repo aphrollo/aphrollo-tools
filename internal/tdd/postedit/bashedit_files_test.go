@@ -73,105 +73,10 @@ func TestGofmtEditedAll_NamesEveryFileItFormattedAndNoOther(t *testing.T) {
 	}
 }
 
-func TestLintPackages_GroupsGoFilesByDirectoryInFirstSeenOrder(t *testing.T) {
-	root := lawRepo(t)
-	p := func(rel string) string { return filepath.Join(root, filepath.FromSlash(rel)) }
-
-	got := lintPackages([]string{p("b/b1.go"), p("README.md"), p("a/a1.go"), p("b/b2.go"), p("top.go")})
-
-	want := []lintPackage{
-		{root: root, dir: "b", rels: []string{"b/b1.go", "b/b2.go"}},
-		{root: root, dir: "a", rels: []string{"a/a1.go"}},
-		{root: root, dir: ".", rels: []string{"top.go"}},
-	}
-	if len(got) != len(want) {
-		t.Fatalf("packages = %+v, want %+v", got, want)
-	}
-	for i := range want {
-		if got[i].root != want[i].root || got[i].dir != want[i].dir || !slices.Equal(got[i].rels, want[i].rels) {
-			t.Errorf("package %d = %+v, want %+v", i, got[i], want[i])
-		}
-	}
-}
-
-// Each package is one run and one patch, and a finding in a file of another
-// package is not this one's.
-func TestLintEditedFiles_RunsOncePerPackageAndNamesEachFilesFindings(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := lawRepo(t)
-	prevLook, prevLoad, prevRun := lintEditLook, lintEditLoad, lintEditRun
-	t.Cleanup(func() { lintEditLook, lintEditLoad, lintEditRun = prevLook, prevLoad, prevRun })
-	lintEditLook = func() bool { return true }
-	lintEditLoad = func() (float64, int, bool) { return 0, 8, true }
-	var runs [][]string
-	lintEditRun = func(_ string, args []string) (string, bool) {
-		runs = append(runs, args)
-		if args[len(args)-1] == "./a" {
-			return "a/a1.go:1:1: one (x)\nb/b1.go:1:1: wrong package (y)\n", false
-		}
-		return "b/b1.go:2:1: two (z)\n", false
-	}
-	mustWrite(t, filepath.Join(root, "a", "a1.go"), "package a\n")
-	mustWrite(t, filepath.Join(root, "a", "a2.go"), "package a\n")
-	mustWrite(t, filepath.Join(root, "b", "b1.go"), "package b\n")
-	var known []string
-
-	note := lintEditedFiles([]string{filepath.Join(root, "a", "a1.go"), filepath.Join(root, "a", "a2.go"), filepath.Join(root, "b", "b1.go")}, &known)
-
-	if len(runs) != 2 {
-		t.Fatalf("runs = %v, want one per package", runs)
-	}
-	want := []string{"a/a1.go:1:1: one (x)", "b/b1.go:2:1: two (z)"}
-	if !slices.Equal(known, want) {
-		t.Errorf("findings = %v, want %v", known, want)
-	}
-	if note != "golangci-lint: "+strings.Join(want, "; ") {
-		t.Errorf("note = %q", note)
-	}
-}
-
-// A run past its budget ends the edit's lint: its note stands alone and later
-// packages are not run.
-func TestLintEditedFiles_ATimeoutIsTheNoteAndStopsTheRest(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := lawRepo(t)
-	prevLook, prevLoad, prevRun := lintEditLook, lintEditLoad, lintEditRun
-	t.Cleanup(func() { lintEditLook, lintEditLoad, lintEditRun = prevLook, prevLoad, prevRun })
-	lintEditLook = func() bool { return true }
-	lintEditLoad = func() (float64, int, bool) { return 0, 8, true }
-	runs := 0
-	lintEditRun = func(string, []string) (string, bool) {
-		runs++
-		return "", true
-	}
-	mustWrite(t, filepath.Join(root, "a", "a1.go"), "package a\n")
-	mustWrite(t, filepath.Join(root, "b", "b1.go"), "package b\n")
-
-	note := lintEditedFiles([]string{filepath.Join(root, "a", "a1.go"), filepath.Join(root, "b", "b1.go")}, nil)
-
-	if !strings.HasPrefix(note, "golangci-lint did not finish in ") || runs != 1 {
-		t.Fatalf("note = %q after %d run(s), want the timeout note after one", note, runs)
-	}
-}
-
-// A file the command left as HEAD has it has no changed lines to lint, and a
-// package of such files is not run.
-func TestLintEditedFiles_AFileWithNoChangedLinesIsNotLinted(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := lawRepo(t)
-	prevLook, prevLoad, prevRun := lintEditLook, lintEditLoad, lintEditRun
-	t.Cleanup(func() { lintEditLook, lintEditLoad, lintEditRun = prevLook, prevLoad, prevRun })
-	lintEditLook = func() bool { return true }
-	lintEditLoad = func() (float64, int, bool) { return 0, 8, true }
-	lintEditRun = func(string, []string) (string, bool) {
-		t.Fatal("the linter ran over a file with no changed lines")
-		return "", false
-	}
-
-	if note := lintEditedFiles([]string{filepath.Join(root, "widget.go")}, nil); note != "" {
-		t.Fatalf("note = %q, want none", note)
-	}
-}
+// ratchet: test_removed TestLintPackages_GroupsGoFilesByDirectoryInFirstSeenOrder: the edit-time lint moved into the run (lintrun.go), so its package grouping is gone
+// ratchet: test_removed TestLintEditedFiles_RunsOncePerPackageAndNamesEachFilesFindings: the edit-time lint moved into the run (lintrun.go)
+// ratchet: test_removed TestLintEditedFiles_ATimeoutIsTheNoteAndStopsTheRest: the edit-time lint moved into the run (lintrun.go)
+// ratchet: test_removed TestLintEditedFiles_AFileWithNoChangedLinesIsNotLinted: the edit-time lint moved into the run (lintrun.go)
 
 func TestBashSmellLines_ABlockingVerdictSaysAnEditWouldHaveBeenDenied(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -218,16 +123,15 @@ func TestBashGateFinish_TheNotesRideTheFirstLineAndASmellIsALineOfItsOwn(t *test
 	noInlineLint(t)
 	root := lawRepo(t)
 	mustWrite(t, filepath.Join(root, "slow_test.go"), parityWidgetTest)
-	live := []string{filepath.Join(root, "slow_test.go")}
 
-	text, _ := bashGateFinish("s", root, []string{"slow_test.go"}, live, "gofmt formatted x.go", nil, nil)
+	text, _ := bashGateFinish("s", root, []string{"slow_test.go"}, "gofmt formatted x.go", nil, nil)
 
 	lines := strings.Split(text, "\n")
 	if len(lines) != 2 || lines[0] != "gate: gofmt formatted x.go" || !strings.HasPrefix(lines[1], "gate: slow_test.go: ") {
 		t.Fatalf("text = %q, want the gofmt note as the gate line and the smell beneath", text)
 	}
 
-	text, _ = bashGateFinish("s", root, []string{"widget.go"}, nil, "", []string{"gate: go test ./... → green"}, nil)
+	text, _ = bashGateFinish("s", root, []string{"widget.go"}, "", []string{"gate: go test ./... → green"}, nil)
 	if text != "gate: go test ./... → green" {
 		t.Fatalf("text = %q, want the run's line alone when nothing more was found", text)
 	}

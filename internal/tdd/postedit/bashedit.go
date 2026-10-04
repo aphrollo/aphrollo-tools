@@ -380,7 +380,7 @@ func postBashChanges(in bashInput, run SuiteRunner) (string, func()) {
 			break
 		}
 	}
-	return bashGateFinish(in.SessionID, before.Root, changed, live, formatted, notes, greenFiles)
+	return bashGateFinish(in.SessionID, before.Root, changed, formatted, notes, greenFiles)
 }
 
 // changedByRoot groups the command's changed paths (relative to base) by

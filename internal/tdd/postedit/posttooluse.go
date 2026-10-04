@@ -57,12 +57,10 @@ func PostEdit(raw []byte, run SuiteRunner) string {
 		text = withGateNote(text, note)
 		// Judged after gofmt, on the bytes the commit will carry.
 		text = withGateNote(text, lawRefusalNote([]string{in.ToolInput.FilePath}))
-		// The linter's findings on the lines this edit changed, on the same
-		// bytes; the commit gate's lint refuses over them.
-		text = withGateNote(text, lintEditedInto(in.ToolInput.FilePath, nil))
 	}
-	// Only the harvest of lint and mutation runs an older session started: an
-	// edit starts none of its own, the commit gate and CI hold those.
+	// Only the harvest of runs a session started: an edit starts no lint or
+	// mutation job of its own, the run carries the lint and the commit gate and
+	// CI hold mutation.
 	return withSessionHarvest(text, in.SessionID)
 }
 
