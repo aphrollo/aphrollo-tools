@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"bytes"
+	"github.com/aphrollo/aphrollo-tools/internal/undercover"
 	"io"
 	"os/exec"
 	"strings"
@@ -266,5 +267,67 @@ func TestMerge_UndercoverJudgesThePRHeadsCommitsAndBindsTheMergeToIt(t *testing.
 	}
 	if boundTo != head {
 		t.Errorf("merge bound to %q, want the PR head %q", boundTo, head)
+	}
+}
+
+// The PR names its base branch, and the commits it brings are judged against
+// that, so a repo whose own trunk cannot be told still merges (the #1203
+// class: a wrong block on a consumer repo).
+func TestUndercoverPRCommits_JudgesAgainstThePRsBaseNotTheReposDefault(t *testing.T) {
+	repo := initRepo(t)
+	spawnGit(t, repo, "branch", "-m", "main", "develop")
+	spawnGit(t, repo, "update-ref", "refs/remotes/origin/develop", "HEAD")
+	spawnGit(t, repo, "checkout", "-q", "-b", "lane/x")
+	spawnGit(t, repo, "commit", "-q", "--allow-empty", "-m", "work")
+	head := spawnGit(t, repo, "rev-parse", "HEAD")
+	undercoverOn(t, repo)
+	tells, on := undercover.Load(repo)
+	if !on {
+		t.Fatal("undercover not on")
+	}
+	prev := trunkOf
+	trunkOf = realTrunk
+	t.Cleanup(func() { trunkOf = prev })
+	if _, err := needDefaultBranch(repo); err == nil {
+		t.Fatal("the repo's default branch was told; the test needs it unknown")
+	}
+
+	if err := undercoverPRCommits(&Target{Worktree: repo, Branch: "lane/x"}, "develop", head, tells); err != nil {
+		t.Fatalf("a PR whose base is develop was refused for want of a repo default: %v", err)
+	}
+}
+
+// What these verbs did before the trunk was read, they still do: main where
+// there is one, and a refusal that suggests only what the verb has.
+func TestNeedDefaultBranch_FallsBackToMainWhereThereIsOneAndSuggestsNoFlag(t *testing.T) {
+	repo := initRepo(t)
+	spawnGit(t, repo, "config", "init.defaultBranch", "nothing")
+	prev := trunkOf
+	trunkOf = func(string) string { return "" }
+	t.Cleanup(func() { trunkOf = prev })
+
+	if def, err := needDefaultBranch(repo); err != nil || def != "main" {
+		t.Fatalf("needDefaultBranch = %q, %v; want main, which exists", def, err)
+	}
+	spawnGit(t, repo, "branch", "-m", "main", "other")
+	_, err := needDefaultBranch(repo)
+	if err == nil || strings.Contains(err.Error(), "--base") || !strings.Contains(err.Error(), "git remote set-head origin --auto") {
+		t.Fatalf("err = %v, want only the fix every verb has", err)
+	}
+}
+
+func TestSync_WithNoDefaultBranchToTellIsASkipNotARefusal(t *testing.T) {
+	repo := initRepo(t)
+	spawnGit(t, repo, "branch", "-m", "main", "other")
+	prev := trunkOf
+	trunkOf = func(string) string { return "" }
+	t.Cleanup(func() { trunkOf = prev })
+	var out, errb strings.Builder
+
+	if err := Sync(repo, false, &out, &errb); err != nil {
+		t.Fatalf("Sync refused where it was a no-op before: %v", err)
+	}
+	if !strings.Contains(out.String(), "[skip]") {
+		t.Errorf("output %q, want a skip", out.String())
 	}
 }

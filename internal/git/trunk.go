@@ -68,18 +68,26 @@ func (c *Client) originHead() string {
 
 // resolves reports whether name is a ref git resolves by its short name, as
 // `rev-parse --verify --quiet` would, for a name git would accept as a ref.
-func (c *Client) resolves(name string) bool {
+func (c *Client) resolves(name string) bool { return c.Rev(name) != "" }
+
+// Rev is the commit a ref named by its short name (main, origin/main, a tag)
+// resolves to, as `rev-parse --verify --quiet` would answer it, read from the ref
+// files; "" when the name resolves to nothing or is no ref name.
+func (c *Client) Rev(name string) string {
 	if strings.Contains(name, "..") {
-		return false
+		return ""
 	}
 	if c.reftable {
-		_, err := c.Output("rev-parse", "--verify", "--quiet", name)
-		return err == nil
+		out, err := c.Output("rev-parse", "--verify", "--quiet", name)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(out)
 	}
 	for _, ref := range []string{name, "refs/" + name, "refs/tags/" + name, "refs/heads/" + name, "refs/remotes/" + name, "refs/remotes/" + name + "/HEAD"} {
-		if c.readRef(ref) != "" {
-			return true
+		if sha := c.readRef(ref); sha != "" {
+			return sha
 		}
 	}
-	return false
+	return ""
 }

@@ -4,16 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -147,17 +144,7 @@ func ghJSONLines(dir string, args ...string) ([]CheckRun, error) {
 // laneHeadSHA is the commit the lane worktree has checked out — what the
 // operator pushed and means to merge.
 var laneHeadSHA = func(wt string) (string, error) {
-	var stderr bytes.Buffer
-	out, err := lightOutput(childrun.Spec{Name: "git", Args: []string{"-C", wt, "rev-parse", "HEAD"}, Stderr: &stderr})
-	if err != nil {
-		msg := err.Error()
-		var ee *exec.ExitError
-		if errors.As(err, &ee) {
-			msg = stderr.String()
-		}
-		return "", fmt.Errorf("git rev-parse HEAD in %s: %v: %s", wt, err, strings.TrimSpace(msg))
-	}
-	return strings.TrimSpace(string(out)), nil
+	return wtHeadSHA(wt)
 }
 
 // listLanes lists the repo's linked worktrees; a seam so the queue finds lanes
@@ -227,6 +214,15 @@ func pollState(head *PRHead, laneSHA string, checks []CheckRun) (line string, do
 		return fmt.Sprintf("%d of %d checks still running", running, len(current)), false, nil, nil
 	case len(idle) > 0:
 		return fmt.Sprintf("ci unavailable: %d of %d checks never started", len(idle), len(current)), false, nil, idle
+	}
+	skipped := 0
+	for _, c := range current {
+		if strings.EqualFold(c.Conclusion, "skipped") {
+			skipped++
+		}
+	}
+	if skipped == len(current) {
+		return fmt.Sprintf("no check ran (all %d skipped)", skipped), true, nil, nil
 	}
 	return fmt.Sprintf("all %d checks passed", len(current)), true, nil, nil
 }

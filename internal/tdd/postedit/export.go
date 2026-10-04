@@ -13,8 +13,6 @@ const DeferredMaxEnv = deferredMaxEnv
 
 const MaxBashSnapshots = maxBashSnapshots
 
-const PrimaryBranch = primaryBranch
-
 type DeferredEditOutcome = deferredEditOutcome
 
 func BuildLockHolderNote(p0 string) string { return buildLockHolderNote(p0) }

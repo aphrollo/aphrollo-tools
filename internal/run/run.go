@@ -207,6 +207,7 @@ func (p *plainTree) peak() uint64 { return 0 }
 // heavy child's Unguarded says why; a light child, many and short, says
 // nothing.
 func start(spec Spec, env []string, heavy bool) (*Child, error) {
+	noteStart(spec.Name)
 	cmd := command(spec, env)
 	t, err := prepareGuard(cmd, heavy, spec.MemoryMB)
 	if err == nil {

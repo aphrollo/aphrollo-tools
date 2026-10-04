@@ -100,7 +100,7 @@ func resolveFromArgs(repoArg, branchArg, into string) (*Target, error) {
 // so the first "worktree <path>" line is it — this resolves the canonical clone
 // even when called from inside a linked worktree (what unclaim points back to).
 func mainWorktree(path string) (string, error) {
-	out, err := lightGit("-C", path, "worktree", "list", "--porcelain")
+	out, err := wtGit(path, "worktree", "list", "--porcelain")
 	if err != nil {
 		return "", fmt.Errorf("git worktree list: %w", err)
 	}
@@ -208,9 +208,13 @@ func spacesClones(repo string) ([]string, error) {
 
 // currentBranch returns the branch checked out at top, or "HEAD" when detached.
 func currentBranch(top string) string {
-	out, err := lightGit("-C", top, "symbolic-ref", "--short", "-q", "HEAD")
-	if err != nil {
+	c := repoGit(top)
+	if c == nil {
 		return "HEAD"
 	}
-	return strings.TrimSpace(string(out))
+	h, err := c.Head()
+	if err != nil || h.Detached || h.Branch == "" {
+		return "HEAD"
+	}
+	return h.Branch
 }

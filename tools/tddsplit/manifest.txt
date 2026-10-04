@@ -448,6 +448,7 @@ ghstub_isolation_test.go                           tdd
 git.go                                             tddtest
 gitbin.go                                          gitx
 gitbin_test.go                                     gitx
+gitfacts.go                                        merge
 gitgate.go                                         install
 gitgate_core.go                                    core      # created by P2
 gitgate_test.go                                    install

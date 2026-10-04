@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -109,12 +108,12 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	}
 	wt := c.Target.Worktree
 	if c.StageAll {
-		if out, err := lightGitCombined("-C", wt, "add", "-A"); err != nil {
+		if out, err := wtGitCombined(wt, "add", "-A"); err != nil {
 			return fmt.Errorf("git add -A: %v\n%s", err, out)
 		}
 	}
 
-	args := []string{"-C", wt, "commit", "-m", c.Message}
+	args := []string{"commit", "-m", c.Message}
 	if c.NoVerify {
 		args = append(args, "--no-verify")
 		// Logged when the bypass is DECIDED, not gated on the commit's own
@@ -136,7 +135,7 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 	started := timeNow().Truncate(time.Second)
 	// The hook is the whole gate, so the commit gets commitCeiling, not the
 	// light ceiling.
-	out, err := lightCombined(childrun.Spec{Name: "git", Args: args, Timeout: commitCeiling})
+	out, err := wtGitCombinedFor(wt, commitCeiling, args...)
 	if err != nil {
 		if !c.NoVerify {
 			fmt.Fprintf(stderr, "%s\n", strings.TrimRight(string(out), "\n"))
@@ -179,6 +178,9 @@ func (c *Commit) Apply(stdout, stderr io.Writer) error {
 // aheadOfDefault returns how many commits HEAD is ahead of origin/<default>, as
 // a string ("" when the ref can't be resolved — offline, or default == HEAD).
 func aheadOfDefault(wt, def string) string {
+	if def == "" {
+		return ""
+	}
 	base := "origin/" + def
 	if !gitRefExists(wt, base) {
 		return ""
@@ -206,7 +208,7 @@ func (c *Commit) noopMsg() string {
 // --- git helpers ------------------------------------------------------------
 
 func porcelainStatus(wt string) (string, error) {
-	out, err := lightGit("-C", wt, "status", "--porcelain")
+	out, err := wtGit(wt, "status", "--porcelain")
 	if err != nil {
 		return "", fmt.Errorf("git status: %w", err)
 	}
@@ -216,21 +218,21 @@ func porcelainStatus(wt string) (string, error) {
 // hasStagedChanges reports whether the index differs from HEAD (something to
 // commit without staging more). `git diff --cached --quiet` exits 1 when staged.
 func hasStagedChanges(wt string) bool {
-	return !lightGitOK("-C", wt, "diff", "--cached", "--quiet")
+	return !wtGitOK(wt, "diff", "--cached", "--quiet")
 }
 
 func shortSHA(wt string) string {
-	out, err := lightGit("-C", wt, "rev-parse", "--short", "HEAD")
+	sha, err := wtHeadSHA(wt)
 	if err != nil {
 		return "HEAD"
 	}
-	return strings.TrimSpace(string(out))
+	return abbrev(sha)
 }
 
 // shortstat returns git's own "N files changed, +X -Y" summary for the last
 // commit, normalized to a compact form.
 func shortstat(wt string) string {
-	out, err := lightGit("-C", wt, "show", "--shortstat", "--oneline", "--no-color", "HEAD")
+	out, err := wtGit(wt, "show", "--shortstat", "--oneline", "--no-color", "HEAD")
 	if err != nil {
 		return ""
 	}

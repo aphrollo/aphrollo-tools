@@ -209,11 +209,7 @@ var ghPRHeadOid = func(wt, branch string) (string, error) {
 
 // localHeadSHA returns the worktree's current HEAD commit.
 func localHeadSHA(wt string) (string, error) {
-	out, err := lightGit("-C", wt, "rev-parse", "HEAD")
-	if err != nil {
-		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
-	}
-	return strings.TrimSpace(string(out)), nil
+	return wtHeadSHA(wt)
 }
 
 // worktreeEntry is one linked worktree the sweep considers: its path and the
@@ -355,11 +351,11 @@ func (p *Prune) decide(e worktreeEntry, cwd string) pruneDecision {
 // worktree path and the branch checked out there; a detached worktree reports
 // "HEAD".
 func linkedWorktrees(repo string) ([]worktreeEntry, error) {
-	out, err := lightGit("-C", repo, "worktree", "list", "--porcelain")
+	all, err := worktreeEntries(repo)
 	if err != nil {
 		return nil, fmt.Errorf("git worktree list: %w", err)
 	}
-	return excludeMainClone(parseWorktreeList(string(out)), repo), nil
+	return excludeMainClone(all, repo), nil
 }
 
 // parseWorktreeList parses `git worktree list --porcelain` output into every
@@ -427,7 +423,7 @@ func samePath(a, b string) bool {
 // worktreeClean reports whether the worktree has no uncommitted changes —
 // `git status --porcelain` empty.
 func worktreeClean(wt string) bool {
-	out, err := lightGit("-C", wt, "status", "--porcelain")
+	out, err := wtGit(wt, "status", "--porcelain")
 	if err != nil {
 		return false // can't tell => treat as dirty, don't remove
 	}
@@ -445,12 +441,12 @@ func removeWorktree(repo, wt string, force bool) error {
 	if err := depinstall.RemoveLinks(wt); err != nil {
 		return fmt.Errorf("unlink the links before removing the tree: %v", err)
 	}
-	args := []string{"-C", repo, "worktree", "remove"}
+	args := []string{"worktree", "remove"}
 	if force {
 		args = append(args, "--force")
 	}
 	args = append(args, wt)
-	if out, err := lightGitCombined(args...); err != nil {
+	if out, err := wtGitCombined(repo, args...); err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
@@ -461,5 +457,5 @@ func removeWorktree(repo, wt string, force bool) error {
 // drops exactly that entry; an entry git does not know, or a locked one, is left
 // as it is.
 func dropMissingWorktree(repo, wt string) {
-	_ = lightGitOK("-C", repo, "worktree", "remove", wt)
+	_ = wtGitOK(repo, "worktree", "remove", wt)
 }

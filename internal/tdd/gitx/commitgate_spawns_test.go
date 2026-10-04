@@ -134,3 +134,35 @@ func TestIndexStamp_FollowsTheIndexGitReadsForThisRepository(t *testing.T) {
 		}
 	})
 }
+
+// A trunk merged into a lane is judged against the incoming tip once trunk
+// holds that tip, and against HEAD until it does. Trunk moving is a change to
+// the staged set with the index, HEAD and the merge in progress as they were.
+func TestStagedFiles_SeesTrunkComeToHoldTheIncomingTip(t *testing.T) {
+	main := makeGoRepo(t)
+	trunk := TrunkBranch(main)
+	lane := filepath.Join(t.TempDir(), "lane")
+	gitDo(t, main, "worktree", "add", "-q", "-b", "lane/x", lane)
+	gitDo(t, main, "checkout", "-q", "-b", "scratch")
+	write(t, main, "incoming.go", "package m\n")
+	gitDo(t, main, "add", "incoming.go")
+	gitDo(t, main, "commit", "-q", "-m", "incoming work")
+	head, err := HookClient(main).Head()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tip := head.SHA
+	gitDo(t, main, "checkout", "-q", trunk)
+	gitDo(t, lane, "merge", "--no-commit", "--no-ff", tip)
+
+	before := stagedFiles(lane)
+	gitDo(t, main, "update-ref", "refs/heads/"+trunk, tip)
+	after := stagedFiles(lane)
+
+	if len(before) != 1 || before[0] != "incoming.go" {
+		t.Fatalf("before trunk held the tip: staged = %q, want [incoming.go] against HEAD", before)
+	}
+	if len(after) != 0 {
+		t.Fatalf("after trunk held the tip: staged = %q, want none against the incoming tip", after)
+	}
+}

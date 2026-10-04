@@ -3,8 +3,6 @@ package workspace
 import (
 	"fmt"
 	"io"
-
-	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // Diff prints the target branch's PR diff: `git diff <base>...HEAD`, where base
@@ -17,13 +15,16 @@ import (
 // verbatim. --stat renders the diffstat summary instead of the full patch. An
 // empty diff is success (exit 0), printing nothing.
 func Diff(t *Target, stat bool, stdout, stderr io.Writer) error {
-	base := diffBase(t.Worktree)
-	args := []string{"-C", t.Worktree, "diff"}
+	base, err := diffBase(t.Worktree)
+	if err != nil {
+		return err
+	}
+	args := []string{"diff"}
 	if stat {
 		args = append(args, "--stat")
 	}
 	args = append(args, base+"...HEAD")
-	if err := lightRun(childrun.Spec{Name: "git", Args: args, Stdout: stdout, Stderr: stderr}); err != nil {
+	if err := wtGitStream(t.Worktree, stdout, stderr, args...); err != nil {
 		return fmt.Errorf("git diff %s...HEAD: %w", base, err)
 	}
 	return nil
@@ -33,10 +34,13 @@ func Diff(t *Target, stat bool, stdout, stderr io.Writer) error {
 // remote branch on origin (origin/<default>) when it exists, else the local
 // default branch — so an offline clone with no origin ref still diffs against
 // the right base instead of failing.
-func diffBase(wt string) string {
-	def := resolveDefaultBranch(wt)
-	if remote := "origin/" + def; gitRefExists(wt, remote) {
-		return remote
+func diffBase(wt string) (string, error) {
+	def, err := needDefaultBranch(wt)
+	if err != nil {
+		return "", err
 	}
-	return def
+	if remote := "origin/" + def; gitRefExists(wt, remote) {
+		return remote, nil
+	}
+	return def, nil
 }

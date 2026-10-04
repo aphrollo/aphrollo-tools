@@ -89,22 +89,6 @@ func lightCombined(spec childrun.Spec) ([]byte, error) {
 	return out.Bytes(), err
 }
 
-// lightGit runs git with args and returns its stdout.
-func lightGit(args ...string) ([]byte, error) {
-	return lightOutput(childrun.Spec{Name: "git", Args: args})
-}
-
-// lightGitCombined runs git with args and returns its stdout and stderr
-// together.
-func lightGitCombined(args ...string) ([]byte, error) {
-	return lightCombined(childrun.Spec{Name: "git", Args: args})
-}
-
-// lightGitOK reports whether git with args exited cleanly.
-func lightGitOK(args ...string) bool {
-	return lightRun(childrun.Spec{Name: "git", Args: args}) == nil
-}
-
 // heavyLimit ends a heavy child (a dependency install, a verify step) that has
 // no limit of its own once it elapses. Zero is none, as these steps always
 // ran: a real install or test run has no healthy upper bound. A var so a test
