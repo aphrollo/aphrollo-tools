@@ -231,6 +231,14 @@ func MechKey(p0 string, p1 string, p2 Runner) string { return mechKey(p0, p1, p2
 
 func MechKeyPrefix(p0 string, p1 string) string { return mechKeyPrefix(p0, p1) }
 
+func MissingModuleCause(p0 Runner, p1 string, p2 string) string {
+	return missingModuleCause(p0, p1, p2)
+}
+
+func MissingModuleTerminal(p0 Runner, p1 string, p2 SuiteResult) string {
+	return missingModuleTerminal(p0, p1, p2)
+}
+
 func MutantsConfigTables(p0 string) []mutantsConfigTable { return mutantsConfigTables(p0) }
 
 func NarrowFailFirstTests(p0 Runner, p1 string, p2 []string) Runner {
@@ -256,6 +264,10 @@ func NpmBinEntry(p0 string, p1 string) string { return npmBinEntry(p0, p1) }
 func PackageHasDoctests(p0 string) bool { return packageHasDoctests(p0) }
 
 func ParseWorkspaceDeps(p0 []byte) (map[string][]string, error) { return parseWorkspaceDeps(p0) }
+
+func PytestMissingModule(p0 Runner, p1 string, p2 SuiteResult) string {
+	return pytestMissingModule(p0, p1, p2)
+}
 
 func RenderGoTestJSON(p0 string) (string, string, bool) { return renderGoTestJSON(p0) }
 

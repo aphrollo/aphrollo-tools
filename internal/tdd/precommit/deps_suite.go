@@ -93,6 +93,10 @@ func mechCacheHit(p0 string) bool { return suite.MechCacheHit(p0) }
 
 func mechKey(p0 string, p1 string, p2 Runner) string { return suite.MechKey(p0, p1, p2) }
 
+func missingModuleCause(p0 Runner, p1 string, p2 string) string {
+	return suite.MissingModuleCause(p0, p1, p2)
+}
+
 func narrowToStaged(p0 Runner, p1 string, p2 []string) (Runner, bool) {
 	return suite.NarrowToStaged(p0, p1, p2)
 }
@@ -100,6 +104,10 @@ func narrowToStaged(p0 Runner, p1 string, p2 []string) (Runner, bool) {
 func nodeToolRunner(p0 string, p1 Runner) (Runner, string) { return suite.NodeToolRunner(p0, p1) }
 
 func npmBinEntry(p0 string, p1 string) string { return suite.NpmBinEntry(p0, p1) }
+
+func pytestMissingModule(p0 Runner, p1 string, p2 SuiteResult) string {
+	return suite.PytestMissingModule(p0, p1, p2)
+}
 
 func reportSuitesNotRun(p0 string, p1 string, p2 string, p3 Runner, p4 []string) {
 	suite.ReportSuitesNotRun(p0, p1, p2, p3, p4)

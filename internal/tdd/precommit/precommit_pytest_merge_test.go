@@ -102,3 +102,68 @@ func TestPytestSuiteRunner_AMergeCheckoutRunsUnderThePrimaryCheckoutsVenv(t *tes
 		t.Errorf("ran %s in %s, want %s in %s", got.Cmd, got.Dir, want, backend)
 	}
 }
+
+// collectionMissingModule is pytest's report for a suite whose interpreter
+// lacks a third-party module (issue #1223).
+const collectionMissingModule = `ERROR collecting tests/test_vault.py
+E   ModuleNotFoundError: No module named 'pyseto'
+!!!!!!!!!!!!!!!!!!! Interrupted: 31 errors during collection !!!!!!!!!!!!!!!!!!!!
+1 warning, 31 errors in 18.67s
+`
+
+// A pytest run that failed only because its python lacks a third-party
+// module is a suite that was not run: the merge is refused as NOT TESTED with
+// the cause and the fix, and the failure is never reported as a failing test.
+func TestGateRoot_MergeRefusesAMissingModuleAsNotTestedNeverAsAFailedTest(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "backend/requirements.txt", "pyseto\npytest==8.2\n")
+	write(t, root, "backend/app/calc.py", "def add(a, b):\n    return a + b\n")
+	write(t, root, "backend/tests/test_calc.py", "from app.calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n")
+	gitDo(t, root, "add", ".")
+	groups := stagedRootGroups(root)
+	run := func(r Runner, _ string) SuiteResult {
+		return SuiteResult{Passed: false, Output: collectionMissingModule, Err: "exit status 2"}
+	}
+
+	var res GateResult
+	stderr := captureStderr(t, func() { res = gateRoot("premerge", root, groups[0], run, false) })
+
+	if !res.Blocked {
+		t.Fatalf("a suite that never ran let the merge through: %q", res.Message)
+	}
+	for _, want := range []string{"NOT TESTED", "`pyseto`", "build its venv"} {
+		if !strings.Contains(res.Message, want) {
+			t.Errorf("refusal %q lacks %q", res.Message, want)
+		}
+	}
+	if strings.Contains(stderr, "→ blocked") {
+		t.Errorf("a missing environment was reported as a failed suite:\n%s", stderr)
+	}
+}
+
+// A repo's own module that fails to import is a real failure, still a block
+// and still reported as one.
+func TestGateRoot_MergeStillBlocksAsAFailedTestWhenTheRepoOwnModuleIsMissing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := t.TempDir()
+	gitInit(t, root)
+	write(t, root, "backend/requirements.txt", "pytest==8.2\n")
+	write(t, root, "backend/pyseto/__init__.py", "")
+	write(t, root, "backend/tests/test_calc.py", "def test_add():\n    assert True\n")
+	gitDo(t, root, "add", ".")
+	groups := stagedRootGroups(root)
+	run := func(r Runner, _ string) SuiteResult {
+		return SuiteResult{Passed: false, Output: collectionMissingModule, Err: "exit status 2"}
+	}
+
+	var res GateResult
+	stderr := captureStderr(t, func() { res = gateRoot("premerge", root, groups[0], run, false) })
+
+	if !res.Blocked || strings.Contains(res.Message, "NOT TESTED") || !strings.Contains(stderr, "→ blocked") {
+		t.Fatalf("blocked=%v message=%q stderr:\n%s\nwant a plain failed-suite block", res.Blocked, res.Message, stderr)
+	}
+}
