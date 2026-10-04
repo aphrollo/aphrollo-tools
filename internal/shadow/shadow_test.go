@@ -337,9 +337,15 @@ func TestTakeWaited_ReportsTheTimeSpentWaitingOnRecordsOnce(t *testing.T) {
 	TakeWaited()
 	Budget = 50 * time.Millisecond
 	release := make(chan struct{})
-	appendEvent = func(core.Event) { <-release }
+	stuck := make(chan struct{})
+	appendEvent = func(core.Event) { defer close(stuck); <-release }
 	RecordFacts(Source{Root: t.TempDir()}, factsOf([]Fact{Discard(Block)}))
 	close(release)
+	select {
+	case <-stuck: // the writer is done with appendEvent, so the test may swap it
+	case <-time.After(5 * time.Second):
+		t.Fatal("the stuck writer never finished")
+	}
 	if w := TakeWaited(); w < 40*time.Millisecond || w > 5*time.Second {
 		t.Errorf("waited %v on a writer that outran a 50 ms budget, want about the budget", w)
 	}
