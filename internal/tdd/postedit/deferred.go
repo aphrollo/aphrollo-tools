@@ -105,6 +105,9 @@ type PhaseOutcome struct {
 	// wrapper recorded for it in the lane's store (runverdict.go); both empty
 	// when nothing was recorded. The hook that reports the run uses them to
 	// mark a red as told, with no git spawn of its own.
+	// RunID names this run of the phase, so the files its lint leaves are its own
+	// and never an earlier run's still held open on the shared log path.
+	RunID       string         `json:"run_id,omitempty"`
 	TreeKey     string         `json:"tree_key,omitempty"`
 	StoreResult kernel.Verdict `json:"store_result,omitempty"`
 }

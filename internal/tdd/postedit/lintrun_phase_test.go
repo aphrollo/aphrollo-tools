@@ -80,12 +80,12 @@ func TestRunPhase_LintFindingsLeaveTheTestExitCodeAlone(t *testing.T) {
 	if out.ExitCode != 0 || out.SetupFailed || out.Inconclusive != "" {
 		t.Fatalf("outcome = %+v, want the passing test run untouched by the lint", out)
 	}
-	data, err := os.ReadFile(lintDonePath(j))
+	data, err := os.ReadFile(lintDonePath(j, out.RunID))
 	var done1 lintDone
 	if err != nil || json.Unmarshal(data, &done1) != nil || done1.Exit != 1 {
 		t.Fatalf("lint record = %q (%v), want exit 1", data, err)
 	}
-	logged, err := os.ReadFile(lintLogPath(j))
+	logged, err := os.ReadFile(lintLogPath(j, out.RunID))
 	if err != nil || !strings.Contains(string(logged), "x.go:3:1: unused thing (unused)") {
 		t.Fatalf("lint log = %q (%v), want the finding", logged, err)
 	}
@@ -152,7 +152,7 @@ func TestRunPhase_ALoadedOrBackedOffBoxRunsNoLint(t *testing.T) {
 
 			RunPhase(writeJob(t, j))
 
-			if _, err := os.Stat(lintLogPath(j)); err == nil {
+			if lintFilesOf(j, ".lint") != 0 || lintFilesOf(j, ".lint.json") != 0 {
 				t.Fatal("a lint ran on a box that should have stood down")
 			}
 		})
@@ -173,7 +173,7 @@ func TestRunPhase_ALintPastItsBudgetIsEndedAndBacksOff(t *testing.T) {
 
 	RunPhase(writeJob(t, j))
 
-	if _, err := os.Stat(lintDonePath(j)); err == nil {
+	if lintFilesOf(j, ".lint.json") != 0 {
 		t.Fatal("a lint that did not finish left a record")
 	}
 	if !lintBackedOff(dir) {
@@ -189,15 +189,13 @@ func TestRunPhase_NoLintWhenThePhaseAsksForNone(t *testing.T) {
 	dir := t.TempDir()
 	stubPhaseLint(t, nil)
 	j := lintJob(t, dir, writeMarkerCmd(filepath.Join(dir, "ran")))
-	mustWrite(t, lintLogPath(j), "old.go:1:1: from an earlier run (x)\n")
-	mustWrite(t, lintDonePath(j), `{"exit":1}`)
+	mustWrite(t, lintLogPath(j, "earlier"), "old.go:1:1: from an earlier run (x)\n")
+	mustWrite(t, lintDonePath(j, "earlier"), `{"exit":1}`)
 
 	RunPhase(writeJob(t, j))
 
-	for _, p := range []string{lintLogPath(j), lintDonePath(j)} {
-		if _, err := os.Stat(p); err == nil {
-			t.Fatalf("%s outlived the run whose log was started afresh", p)
-		}
+	if lintFilesOf(j, ".lint") != 0 || lintFilesOf(j, ".lint.json") != 0 {
+		t.Fatal("an earlier run's lint files outlived the run that started the log afresh")
 	}
 }
 
@@ -224,14 +222,28 @@ func TestGoPhaseLint_NamesPackagesFromTheModuleTheRunsIn(t *testing.T) {
 	}
 }
 
-func lintFinished(t *testing.T, j DeferredJob, exit int, log string) {
+// lintFilesOf counts the lint files of any run of the job's log that end in suffix.
+func lintFilesOf(j DeferredJob, suffix string) int {
+	dir, prefix := filepath.Split(j.Log)
+	entries, _ := os.ReadDir(dir) // an unreadable directory holds none
+	n := 0
+	for _, e := range entries {
+		if name := e.Name(); strings.HasPrefix(name, prefix+".") && strings.HasSuffix(name, suffix) {
+			n++
+		}
+	}
+	return n
+}
+
+// lintFinished leaves the lint files of run id as a finished lint does.
+func lintFinished(t *testing.T, j DeferredJob, id string, exit int, log string) {
 	t.Helper()
-	mustWrite(t, lintLogPath(j), log)
+	mustWrite(t, lintLogPath(j, id), log)
 	data, err := json.Marshal(lintDone{Exit: exit})
 	if err != nil {
 		t.Fatal(err)
 	}
-	mustWrite(t, lintDonePath(j), string(data))
+	mustWrite(t, lintDonePath(j, id), string(data))
 }
 
 // A lint finding rides a harvested green run's line as guidance: the verdict
@@ -249,8 +261,8 @@ func TestHarvest_LintFindingRidesAGreenRunsLineAsGuidance(t *testing.T) {
 	})
 	j, _ := loadDeferredJob("lint-sess", root)
 	mustWrite(t, j.Log, "ok  \tx\t0.01s\n")
-	lintFinished(t, j, 1, "x.go:3:1: unused thing (unused)\nx.go:9:2: loading failed (typecheck)\n")
-	writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1})
+	lintFinished(t, j, "run1", 1, "x.go:3:1: unused thing (unused)\nx.go:9:2: loading failed (typecheck)\n")
+	writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1, RunID: "run1"})
 
 	got := harvestSessionJobs("lint-sess")
 
@@ -281,14 +293,14 @@ func TestLintGuidance_SaysNothingUnlessAFinishedLintReportedFindings(t *testing.
 	finding := "x.go:3:1: unused thing (unused)\n"
 	for name, exit := range map[string]int{"clean": 0, "contention": 3} {
 		j := lintJob(t, t.TempDir(), []string{"go", "test"})
-		lintFinished(t, j, exit, finding)
-		if got := lintGuidance(j); got != "" {
+		lintFinished(t, j, "run1", exit, finding)
+		if got := lintGuidance(j, "run1"); got != "" {
 			t.Errorf("%s: guidance = %q, want none", name, got)
 		}
 	}
 	unfinished := lintJob(t, t.TempDir(), []string{"go", "test"})
-	mustWrite(t, lintLogPath(unfinished), finding)
-	if got := lintGuidance(unfinished); got != "" {
+	mustWrite(t, lintLogPath(unfinished, "run1"), finding)
+	if got := lintGuidance(unfinished, "run1"); got != "" {
 		t.Errorf("unfinished: guidance = %q, want none: a lint still going says nothing", got)
 	}
 }
@@ -309,8 +321,8 @@ func TestPostEdit_LintFindingRidesAnInBudgetRunsLineWithoutMovingItsVerdict(t *t
 		saveDeferredJob(j)
 		j, _ = loadDeferredJob(j.Session, j.Project)
 		mustWrite(t, j.Log, "ok  \twidget\t0.01s\n")
-		lintFinished(t, j, 1, "widget.go:3:1: unused thing (unused)\n")
-		writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1})
+		lintFinished(t, j, "run1", 1, "widget.go:3:1: unused thing (unused)\n")
+		writePhaseResult(j.Result, PhaseOutcome{ExitCode: 0, Seconds: 1, RunID: "run1"})
 		return j, true
 	}
 	t.Cleanup(func() { spawnPhaseFn = prev })
@@ -325,5 +337,53 @@ func TestPostEdit_LintFindingRidesAnInBudgetRunsLineWithoutMovingItsVerdict(t *t
 	want := []string{string(Green)}
 	if got := postEditVerdicts(t, cfg); !slices.Equal(got, want) {
 		t.Fatalf("gate.log recorded %v, want %v: lint must not move the verdict", got, want)
+	}
+}
+
+// A run reads only its own lint: an earlier run's finished lint, still on disk
+// because it was held open when the new run began, is never the new run's.
+func TestLintGuidance_ANewRunNeverReadsAnEarlierRunsLint(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	j := lintJob(t, t.TempDir(), []string{"go", "test"})
+	lintFinished(t, j, "earlier", 1, "x.go:3:1: unused thing (unused)\n")
+
+	if got := lintGuidance(j, "newer"); got != "" {
+		t.Fatalf("guidance = %q, want none: the earlier run's lint is not this run's", got)
+	}
+	if got := lintGuidance(j, "earlier"); got == "" {
+		t.Fatal("setup: the earlier run's own lint must still read")
+	}
+}
+
+// Two runs never share an id, even when the clock does not move between them.
+func TestNewRunID_IsUniqueWithoutHelpFromTheClock(t *testing.T) {
+	seen := map[string]bool{}
+	for range 200 {
+		id := newRunID()
+		if seen[id] {
+			t.Fatalf("id %q issued twice", id)
+		}
+		seen[id] = true
+	}
+}
+
+// The deferred sweep takes the lint files of a run nobody harvested with the
+// rest of its files.
+func TestSweepDeferredJobs_RemovesAnOldRunsLintFiles(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := deferredDirPath()
+	mustWrite(t, filepath.Join(dir, "p.log.old.lint.json"), `{"exit":1}`)
+	mustWrite(t, filepath.Join(dir, "p.log.old.lint"), "x.go:1:1: m (x)\n")
+	old := time.Now().Add(-2 * deferredJobMaxAge)
+	for _, n := range []string{"p.log.old.lint.json", "p.log.old.lint"} {
+		if err := os.Chtimes(filepath.Join(dir, n), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	sweepDeferredJobs(time.Now())
+
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("the sweep left %d files, want the old run's lint files gone", len(entries))
 	}
 }

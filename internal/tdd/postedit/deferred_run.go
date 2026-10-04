@@ -121,25 +121,32 @@ func RunPhase(jobPath string) int {
 	}
 	// The tests end, the result and the store verdict are written, and the slot is
 	// released: only then does the lint run, so a verdict never waits on it.
-	if runPhaseHeld(j) {
-		runPhaseLint(j)
+	if held := runPhaseHeld(j); held.ran {
+		runPhaseLint(j, held)
 	}
 	return 0
 }
 
-// runPhaseHeld runs the phase under the slot it takes and writes its result. It
-// answers whether the tests ran to a verdict the lint may follow.
-func runPhaseHeld(j DeferredJob) bool {
+// heldRun is what a finished run leaves the lint that follows it: whether the
+// tests ran to a verdict, the run's own id, and the tree it judged.
+type heldRun struct {
+	ran     bool
+	id, key string
+}
+
+// runPhaseHeld runs the phase under the slot it takes and writes its result.
+func runPhaseHeld(j DeferredJob) heldRun {
 	start := time.Now()
+	id := newRunID()
 	if len(j.Runner) == 0 {
 		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, SetupFailed: true})
-		return false
+		return heldRun{}
 	}
 	removeLintFiles(j)
 	log, err := os.Create(j.Log)
 	if err != nil {
 		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, SetupFailed: true})
-		return false
+		return heldRun{}
 	}
 	defer log.Close()
 
@@ -165,7 +172,7 @@ func runPhaseHeld(j DeferredJob) bool {
 		if wait == SlotSuperseded {
 			fmt.Fprintf(log, "aphrollo: superseded while queued for %s by a newer identical request (%q in %s), which builds the newer tree state\n", targetDir, cmdString(r), j.Dir)
 			writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds(), SetupFailed: true})
-			return false
+			return heldRun{}
 		}
 		if wait != SlotHeld {
 			// Building without a slot would compile into a target dir another
@@ -175,7 +182,7 @@ func runPhaseHeld(j DeferredJob) bool {
 			// not as a red the tests themselves produced.
 			fmt.Fprintf(log, "aphrollo: no build slot came free for %s (%s)\n", targetDir, buildSlotHolderDescription(targetDir))
 			writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds(), SetupFailed: true})
-			return false
+			return heldRun{}
 		}
 		defer release()
 		defer setBuildJobs(slot.Jobs)()
@@ -188,7 +195,7 @@ func runPhaseHeld(j DeferredJob) bool {
 		if !held {
 			fmt.Fprintf(log, "aphrollo: no build slot came free (%s)\n", globalCapacityHolderDescription())
 			writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds(), SetupFailed: true})
-			return false
+			return heldRun{}
 		}
 		defer release()
 	}
@@ -198,7 +205,7 @@ func runPhaseHeld(j DeferredJob) bool {
 		why = "SKIPPED — " + why
 		fmt.Fprintf(log, "aphrollo: %s\n", why)
 		writePhaseResult(j.Result, PhaseOutcome{ExitCode: phaseSetupFailure, Seconds: time.Since(start).Seconds(), Inconclusive: why})
-		return false
+		return heldRun{}
 	}
 
 	// The abandon clock starts HERE, not when the hook spawned this: time
@@ -237,7 +244,7 @@ func runPhaseHeld(j DeferredJob) bool {
 		}
 		break
 	}
-	out := PhaseOutcome{ExitCode: code, Seconds: time.Since(start).Seconds()}
+	out := PhaseOutcome{ExitCode: code, Seconds: time.Since(start).Seconds(), RunID: id}
 	switch {
 	case killedByCap.Killed:
 		out.Inconclusive = killedByCap.Line()
@@ -254,7 +261,7 @@ func runPhaseHeld(j DeferredJob) bool {
 		out.TreeKey, out.StoreResult = treeKey, recordPhaseVerdict(j, out, treeKey)
 	}
 	writePhaseResult(j.Result, out)
-	return out.Inconclusive == ""
+	return heldRun{ran: out.Inconclusive == "", id: id, key: treeKey}
 }
 
 // phaseArgvBudgetFn is the longest command line the phase starts for a

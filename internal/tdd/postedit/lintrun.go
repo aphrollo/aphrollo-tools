@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/run"
@@ -60,20 +61,39 @@ func goPhaseLint(j DeferredJob) (Runner, bool) {
 	return r, len(r.Args) > 2
 }
 
-// lintLogPath is where a run's lint output is written, beside the test log, and
-// lintDonePath the record that the lint finished.
-func lintLogPath(j DeferredJob) string  { return j.Log + ".lint" }
-func lintDonePath(j DeferredJob) string { return j.Log + ".lint.json" }
+// newRunID names one run of a phase: the process, the clock and a counter, so two
+// runs never share one even on a clock that does not move between them.
+func newRunID() string {
+	return fmt.Sprintf("%x-%x-%x", os.Getpid(), time.Now().UnixNano(), runIDSeq.Add(1))
+}
 
-// removeLintFiles removes what an earlier run of the job's log left of its lint,
-// wherever the log is started afresh: a lint file never outlives the run it
-// belongs to.
+var runIDSeq atomic.Uint64
+
+// lintLogPath is where one run's lint output is written, beside the test log,
+// and lintDonePath the record that it finished. Both are named by the run's id,
+// not by the log path every run of the job shares: on Windows an earlier lint
+// still running holds its files open, and a new run must neither find them nor
+// fail to replace them.
+func lintLogPath(j DeferredJob, id string) string  { return j.Log + "." + id + ".lint" }
+func lintDonePath(j DeferredJob, id string) string { return j.Log + "." + id + ".lint.json" }
+
+// removeLintFiles removes what earlier runs of the job left of their lint, when
+// a run starts afresh. A file an earlier lint still holds open stays: nothing
+// reads it, for every run reads its own id's.
 func removeLintFiles(j DeferredJob) {
 	if j.Log == "" {
 		return
 	}
-	_ = os.Remove(lintLogPath(j))
-	_ = os.Remove(lintDonePath(j))
+	dir, prefix := filepath.Split(j.Log)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if name := e.Name(); strings.HasPrefix(name, prefix+".") && (strings.HasSuffix(name, ".lint") || strings.HasSuffix(name, ".lint.json")) {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
 }
 
 // lintDone is the record a finished lint leaves: that it ran, and its exit.
@@ -85,7 +105,7 @@ type lintDone struct {
 // the edit-time lint had: a loaded box, a recent timeout, another lint holding
 // the lint lock. A run past its budget is ended and backs the next one off. The
 // record is written last, so a lint that did not finish leaves none.
-func runPhaseLint(j DeferredJob) {
+func runPhaseLint(j DeferredJob, held heldRun) {
 	r, ok := phaseLintFn(j)
 	if !ok || lintBoxLoaded() || lintBackedOff(j.Project) {
 		return
@@ -95,7 +115,7 @@ func runPhaseLint(j DeferredJob) {
 		return
 	}
 	defer release()
-	log, err := os.Create(lintLogPath(j))
+	log, err := os.Create(lintLogPath(j, held.id))
 	if err != nil {
 		return
 	}
@@ -121,7 +141,7 @@ func runPhaseLint(j DeferredJob) {
 		return
 	}
 	if data, err := json.Marshal(lintDone{Exit: exit}); err == nil {
-		_ = writeFileAtomic(lintDonePath(j), data)
+		_ = writeFileAtomic(lintDonePath(j, held.id), data)
 	}
 }
 
@@ -130,8 +150,11 @@ func runPhaseLint(j DeferredJob) {
 // run, found nothing, or could not judge (exit 3 is its own lock, not a
 // finding). A "(typecheck)" line is the package failing to load, which is the
 // build's finding and the test run's to report.
-func lintGuidance(j DeferredJob) string {
-	data, err := os.ReadFile(lintDonePath(j))
+func lintGuidance(j DeferredJob, id string) string {
+	if id == "" {
+		return ""
+	}
+	data, err := os.ReadFile(lintDonePath(j, id))
 	if err != nil {
 		return ""
 	}
@@ -139,7 +162,7 @@ func lintGuidance(j DeferredJob) string {
 	if json.Unmarshal(data, &done) != nil || done.Exit != 1 {
 		return ""
 	}
-	logged, err := os.ReadFile(lintLogPath(j))
+	logged, err := os.ReadFile(lintLogPath(j, id))
 	if err != nil {
 		return ""
 	}
