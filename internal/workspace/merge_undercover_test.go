@@ -331,3 +331,28 @@ func TestSync_WithNoDefaultBranchToTellIsASkipNotARefusal(t *testing.T) {
 		t.Errorf("output %q, want a skip", out.String())
 	}
 }
+
+// A PR aimed at a branch this clone never fetched (a release branch, a lane it
+// is stacked on) is judged all the same: the base is fetched before the commits
+// it brings are listed.
+func TestUndercoverPRCommits_FetchesAnUnfetchedNonDefaultBase(t *testing.T) {
+	main, lane := laneWithOrigin(t)
+	spawnGit(t, main, "push", "-q", "origin", "main:refs/heads/release")
+	spawnGit(t, lane, "update-ref", "-d", "refs/remotes/origin/release")
+	head := spawnGit(t, lane, "rev-parse", "HEAD")
+	undercoverOn(t, lane)
+	tells, on := undercover.Load(lane)
+	if !on {
+		t.Fatal("undercover not on")
+	}
+	if gitRefExists(lane, "refs/remotes/origin/release") {
+		t.Fatal("the base is already fetched; the test needs it absent")
+	}
+
+	if err := undercoverPRCommits(&Target{Worktree: lane, Branch: "lane/x"}, "release", head, tells); err != nil {
+		t.Fatalf("a PR on an unfetched base was refused: %v", err)
+	}
+	if !gitRefExists(lane, "refs/remotes/origin/release") {
+		t.Error("the base was not fetched")
+	}
+}
