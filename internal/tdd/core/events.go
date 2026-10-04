@@ -150,12 +150,19 @@ func isDenyLine(stage, verdict string) bool {
 	return strings.HasPrefix(verdict, "pretooluse-denied") || (stage == "git" && strings.Contains(verdict, "-refused"))
 }
 
-// eventCmd is the command an event may carry. A stage the gate itself ran
-// (a suite, a build, a CI check) names the invocation it constructed, which the
-// readers of recorded runs match on. A deny or an override line's command is
-// whatever the user or the agent typed, and may hold a token: it stays out.
-func eventCmd(kind, cmd string) string {
-	if kind == "deny" || kind == "override" {
+// cmdStages are the stages whose command is one the gate constructed itself (a
+// suite, a build, a lint, a declared check, a fixed label): the readers of
+// recorded runs match on it. Every other stage logs from text a user or an agent
+// typed, or from a token the line only needs for display, and may hold a secret,
+// so its command stays off the event. A stage is added here only when none of
+// its call sites passes typed text.
+var cmdStages = map[string]bool{"postedit": true, "precommit": true, premergeDisplayName: true, premergeLogToken: true, "mutants": true, "commitmsg": true}
+
+// eventCmd is the command an event may carry: the gate's own, never one that
+// was typed. A deny or an override line's command is whatever the user or the
+// agent wrote, so those stay out whatever the stage.
+func eventCmd(stage, kind, cmd string) string {
+	if kind == "deny" || kind == "override" || !cmdStages[stage] {
 		return ""
 	}
 	return cmd

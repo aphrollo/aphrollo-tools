@@ -1,6 +1,9 @@
 package lock
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -172,5 +175,32 @@ func TestRecordedSuiteFloor_IgnoresRunsOutsideTheWindow(t *testing.T) {
 	got := recordedSuiteSecs(gateLogStageToken(stage), cmd, -time.Second)
 	if len(got) != 0 {
 		t.Fatalf("recordedSuiteSecs with a negative window = %v, want every recorded run excluded as too old", got)
+	}
+}
+
+// A box upgraded from a binary whose events carried no command has history
+// only in gate.log; the floor reads it there until the events hold enough,
+// rather than starting from nothing.
+func TestRecordedSuiteFloor_FallsBackToGateLogWhenTheEventsHoldNoRuns(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := t.TempDir()
+	const cmd = "cargo nextest run -p borld-core"
+	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var lines string
+	for _, secs := range []int{300, 310, 320} {
+		at := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
+		lines += fmt.Sprintf("%s premergecommit %s %s green %d.0s\n", at, root, cmd, secs)
+	}
+	if err := os.WriteFile(filepath.Join(StateDir(), "gate.log"), []byte(lines), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := recordedSuiteFloor("premerge", cmd)
+
+	if got.Runs != 3 || got.StatSecs != 320 {
+		t.Fatalf("floor = %+v, want the 3 runs gate.log holds, p90 320s", got)
 	}
 }

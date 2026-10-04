@@ -30,7 +30,7 @@ import (
 //
 // Three rules keep the floor honest:
 //
-//	no record, no floor. A repo or a suite gate.log has never seen a
+//	no record, no floor. A repo or a suite the event log has never seen a
 //	   completed run of falls back to exactly today's arithmetic. A budget
 //	   derived from evidence that does not exist must never be the reason a
 //	   first run cannot happen.
@@ -68,7 +68,7 @@ type suiteFloor struct {
 	// one from. Read through cappedFloor at the point of use — on its own
 	// it is what the evidence asks for, not what a run may have.
 	Budget time.Duration
-	// StatSecs is the statistic before the margin, in seconds, as gate.log
+	// StatSecs is the statistic before the margin, in seconds, as the event log
 	// recorded it.
 	StatSecs float64
 	// Runs is how many completed runs the statistic was taken over.
@@ -107,7 +107,7 @@ func (f suiteFloor) RefusalNote(stageBudget time.Duration) string {
 }
 
 // recordedSuiteFloor derives the floor for one stage and command from
-// gate.log. stage is the caller's own name for the stage (the gate name it
+// the event log. stage is the caller's own name for the stage (the gate name it
 // logs under); the lookup maps it exactly the way appendGateLog does, so a
 // name that is written one way and read another cannot silently match
 // nothing.

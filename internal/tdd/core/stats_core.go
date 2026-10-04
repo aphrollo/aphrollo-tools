@@ -118,7 +118,7 @@ func entriesOf(events []Event, since time.Time) []gateEntry {
 // since (the zero time: all), oldest first. They come from the repo's event
 // log: that, not gate.log, is where the gate records what every stage did.
 func readGateEntries(root string, since time.Time) []gateEntry {
-	return entriesOf(readEventsSince(root, since), since)
+	return entriesWithHistory(readEventsSince(root, since), since, sameRepoAs(root))
 }
 
 // readAllGateEntries is readGateEntries over every repository the box keeps a
@@ -135,7 +135,7 @@ func readAllGateEntries(since time.Time) []gateEntry {
 			events = append(events, readEventDirSince(d, since)...)
 		}
 	}
-	entries := entriesOf(events, since)
+	entries := entriesWithHistory(events, since, nil)
 	sort.SliceStable(entries, func(i, j int) bool { return entries[i].At.Before(entries[j].At) })
 	return entries
 }

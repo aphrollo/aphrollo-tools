@@ -342,6 +342,7 @@ escape_verify_suite_test.go                        suite
 escape_verify_test.go                              escape
 eventlog.go                                       core
 events.go                                          core
+events_cmd_own_test.go                              core
 events_gateline_own_test.go                         core
 events_hardening_own_test.go                       core
 events_own_test.go                                 core
@@ -393,6 +394,8 @@ gateprofile.go                                     suite
 gateprofile_own_test.go                            suite
 gateprofile_test.go                                precommit # prefix says suite; its test body reaches precommit
 gatelines.go                                        tdd
+gatelog_legacy.go                                   core
+gatelog_legacy_own_test.go                          core
 gatelog_users_own_test.go                         core
 gatestatus.go                                      tdd
 gatestatus_core.go                                 core      # created by P2

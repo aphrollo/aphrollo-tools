@@ -390,7 +390,7 @@ func AppendGateLogDetail(stage, root, cmd, verdict string, dur time.Duration, de
 	// quotedVerdict unwraps byte-for-byte (issue #467).
 	_, _ = f.WriteString(formatGateLine(gateEntry{At: time.Now(), Stage: stage, Root: root, Cmd: cmd, Verdict: verdict, Secs: dur.Seconds()}))
 	kind := eventKind(stage, verdict)
-	AppendEvent(Event{Kind: kind, Root: root, Stage: stage, Cmd: eventCmd(kind, cmd), Verdict: verdict, Secs: dur.Seconds(), Detail: lineEventDetail(kind, verdict, detail)})
+	AppendEvent(Event{Kind: kind, Root: root, Stage: stage, Cmd: eventCmd(stage, kind, cmd), Verdict: verdict, Secs: dur.Seconds(), Detail: lineEventDetail(kind, verdict, detail)})
 }
 
 // setOff persists the per-session enforcement override (the `/tdd off|on`

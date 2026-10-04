@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -512,5 +513,26 @@ func TestPostEdit_AGoSuiteWhoseGoIsNotOnThePathIsSkippedAndTheRerunStaysAllowed(
 	d := decideBash(t, "s1", root, "go test -run TestWidget ./...")
 	if d.Action != Allow {
 		t.Fatalf("a narrowed rerun after a run that never started must stay allowed, got %v (reason %q)", d.Action, d.Reason)
+	}
+}
+
+// A box upgraded from a binary whose events carried no command and no root has
+// its fresh verdict only in gate.log; the refusal still sees it there.
+func TestDecideBashSuite_ReadsAFreshVerdictFromGateLogWhenTheEventsHoldNone(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := bashSuiteRoot(t)
+	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := fmt.Sprintf("%s postedit %s go test ./... green 1.0s\n", time.Now().Add(-2*time.Minute).UTC().Format(time.RFC3339), root)
+	if err := os.WriteFile(filepath.Join(StateDir(), "gate.log"), []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	d := decideBash(t, "s1", root, "go test ./...")
+	if d.Action != Block {
+		t.Fatalf("want Block on the verdict gate.log holds, got %v (reason %q)", d.Action, d.Reason)
 	}
 }
