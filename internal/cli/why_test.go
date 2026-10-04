@@ -52,7 +52,7 @@ func TestWhy_replaysADenyAndARunFromTheRepoLog(t *testing.T) {
 		t.Fatalf("why <deny> exit %d, stderr %q", code, errOut)
 	}
 	for _, want := range []string{"rule        ratchet:module_size\n", "offered     law-escape-comment\n",
-		"a wrong block, within 10 min\n", "outcome     overridden\n", "shadow      not recorded yet\n"} {
+		"a wrong block, within 10 min\n", "outcome     overridden\n", "shadow      no shadow fires recorded for this rule\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("deny output has no line %q:\n%s", want, out)
 		}

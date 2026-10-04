@@ -24,9 +24,12 @@ seq 'aphrollo stats --json' and the log lines show. Read-only.
                 table has the rule, its level, section and holdout arm
   a run.result  the verdict, cause, tree and the edit-to-verdict latency, and the
                 not-tested cause when the run proved nothing
+  a shadow      the rule, the live rule, what trellis and aphrollo each did, their
+                relation, and for a would-be block what followed it on its lane
+                (wrong, catch, pass or open), with the rule's shadow counts
   any other     the record as logged
 
-Shadow catches and passes are not recorded yet, and are said so, never zero.
+A deny says how many shadow fires its live rule has; none is said, never zero.
 A seq the log does not hold exits 1.
 
   --json    the answer as JSON

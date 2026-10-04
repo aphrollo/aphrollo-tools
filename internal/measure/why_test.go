@@ -257,7 +257,7 @@ func TestExplain_textIsLosslessAndSaysShadowIsNotRecorded(t *testing.T) {
 		"outcome     overridden",
 		"this rule   1 denies, 1 overrides, 1 wrong blocks, 0 complied",
 		"kernel      no row for this rule in the rule table",
-		"shadow      not recorded yet",
+		"shadow      no shadow fires recorded for this rule",
 		"",
 	}, "\n")
 	if got := explain(t, events, 7).Text(); got != wantDeny {
