@@ -47,14 +47,14 @@ func weeklyDigest(now time.Time) string {
 	runs, green, queued := 0, 0, 0
 	for _, outcomes := range s.ByStage {
 		for name, n := range outcomes {
-			if name == lockWaitVerdict || isDenyVerdict(name) {
+			if name == lockWaitVerdict || isQueueBookkeeping(name) || isDenyVerdict(name) {
 				continue
 			}
 			runs += n
 			switch name {
 			case string(Green):
 				green += n
-			case "queued-skipped":
+			case "queued-skipped", "queued-dropped":
 				queued += n
 			}
 		}

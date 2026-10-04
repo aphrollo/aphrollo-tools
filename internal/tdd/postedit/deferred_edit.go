@@ -110,9 +110,9 @@ const (
 // runEditPhases executes the edit's tests as build-then-run inside budget,
 // deferring whatever does not finish. It reports deferred=true when a phase
 // was left running, in which case res is meaningless.
-func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, editID string, budget time.Duration) deferredEditOutcome {
+func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, editID string, budget time.Duration, touched ...string) deferredEditOutcome {
 	deadline := time.Now().Add(budget)
-	build := firstEditPhase(runner, root, target, headSHA, fileHash, session, editID)
+	build := firstEditPhase(runner, root, target, headSHA, fileHash, session, editID, touched...)
 	if build.Phase == "run" {
 		started, out, status := startAndWait(build, time.Until(deadline))
 		if status == phaseFailedToStart {
@@ -154,11 +154,12 @@ func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, edit
 // carrying the run phase's argv for whoever goes on to start it, or — for a
 // runner that cannot build without running (only cargo can; `go test
 // --no-run` is not a flag) — the one run phase, still deferrable.
-func firstEditPhase(runner Runner, root, target, headSHA, fileHash, session, editID string) DeferredJob {
+func firstEditPhase(runner Runner, root, target, headSHA, fileHash, session, editID string, touched ...string) DeferredJob {
 	j := DeferredJob{
 		Project: root, Phase: "build", Dir: runnerDir(runner, root),
 		Runner: phaseArgv(runner, "build"), RunRunner: phaseArgv(runner, "run"),
 		HeadSHA: headSHA, FileHash: fileHash, File: target, Session: session, EditID: editID,
+		Touched: touched,
 	}
 	if !splittable(runner) {
 		j.Phase, j.Runner, j.RunRunner = "run", j.RunRunner, nil

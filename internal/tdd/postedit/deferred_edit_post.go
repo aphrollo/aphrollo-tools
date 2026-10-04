@@ -19,14 +19,12 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	}
 	carried, fresh := harvestDeferred(root, headSHA, fileHash, session, budget, snap.state, snap.statePath)
 	if !fresh {
-		pumpQueue(session, root)
 		return carried, false
 	}
 	// This edit's run starts now and reads the tree as it stands: a request for
 	// the same run still waiting has nothing to add. Whatever else waits starts
-	// when the slot frees, whether this run finishes inside the budget or not.
+	// when the slot frees, which the hook's session sweep sees to.
 	dropQueuedRun(session, root, runnerArgv(snap.runner), runnerDir(snap.runner, root))
-	defer pumpQueue(session, root)
 	// Every line below has to carry whatever the harvest already concluded —
 	// today only an abandonment, which is a verdict about work this session
 	// asked for and has to hear about even though a fresh run is starting
@@ -35,7 +33,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	// The state the phases are about to compile: their green is recorded
 	// under this, and only if the tree is still here when they finish (#813).
 	before := worktreeStateHashInBatch(root)
-	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, snap.editID, budget)
+	out := runEditPhases(snap.runner, root, target, headSHA, fileHash, session, snap.editID, budget, snap.touched...)
 	if out.spawnFailed {
 		AppendGateLog("postedit", root, cmdString(snap.runner), InfraFailed, 0)
 		return spawnFailedLine(root, "build"), false
@@ -63,7 +61,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	// out is left detached and reported by the next hook.
 	widenNote := ""
 	if postEditSelectedZero(snap.runner, target, res) {
-		w := widenDeferredSelection(snap.runner, root, target, headSHA, fileHash, session, snap.editID, deadline, res)
+		w := widenDeferredSelection(snap.runner, root, target, headSHA, fileHash, session, snap.editID, deadline, res, snap.touched...)
 		if w.terminal != "" {
 			return w.terminal, w.running
 		}
@@ -118,29 +116,38 @@ func activeRunLine(snap stateSnapshot, root, target, session, fileHash string) (
 	if j.Phase == "build" {
 		active = runArgvAfterBuild(j)
 	}
+	// The tree moved under a run that is going: its verdict will describe an
+	// older state, whichever run the edit is for. It is marked, so the harvest
+	// restarts it on the newest source and no coverage it had is lost; the edit
+	// is not left to chase it.
+	moved := j.FileHash != fileHash
+	if moved {
+		markDeferredDirty(session, root, fileHash)
+		j.Dirty = true
+	}
 	if slices.Equal(active, phaseArgv(snap.runner, "run")) && j.Dir == dir {
-		if j.FileHash != fileHash {
-			markDeferredDirty(session, root, fileHash)
-			AppendGateLog("postedit", root, cmdString(snap.runner), "queued", 0)
+		if moved {
+			AppendGateLog("postedit", root, cmdString(snap.runner), "deferred-restart", 0)
 			return queuedSameRunLine(snap.runner, root), true
 		}
 		return runningRunLine(snap.runner, root, j), true
 	}
-	// Another run's tree state is not this edit's to chase: the running one keeps
-	// its verdict, labelled with the state it measured, and the commit gate runs
-	// everything again.
-	out := enqueueRun(session, root, queuedRun{Runner: argv, Dir: dir, File: target, EditID: snap.editID, At: time.Now()})
+	out := enqueueRun(session, root, queuedRun{Runner: argv, Dir: dir, File: target, EditID: snap.editID, Touched: snap.touched, At: time.Now()})
 	if out.full {
 		AppendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
 		return queueFullLine(snap.runner, root), true
 	}
-	AppendGateLog("postedit", root, cmdString(snap.runner), "queued", 0)
+	AppendGateLog("postedit", root, cmdString(snap.runner), "queue-waiting", 0)
 	return queuedLine(snap.runner, root, active, out), true
 }
 
 // runningRunLine is the line of an edit whose own run is already going for the
-// tree as it stands: it names the run, so the line is about this edit.
+// tree as it stands: it names the run, so the line is about this edit. A run
+// known to be measuring an older state says so and offers no wait (issue #1189).
 func runningRunLine(r Runner, root string, j DeferredJob) string {
+	if j.Dirty {
+		return buildingStaleLine(root, j.Phase, time.Since(j.Started))
+	}
 	return fmt.Sprintf("gate: %s in %s → BUILDING (deferred; %s phase, %.0fs so far — result at the next hook; %s)",
 		cmdString(r), root, j.Phase, time.Since(j.Started).Seconds(), buildingEscapeFor(root))
 }

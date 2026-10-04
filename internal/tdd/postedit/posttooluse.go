@@ -262,6 +262,8 @@ type stateSnapshot struct {
 	// node (nodeToolRunner) or pytest under any interpreter
 	// (pytestExecRunner); "" when it can, or when runner is neither.
 	toolMissing string
+	// touched is every other file the same write changed under the root.
+	touched []string
 }
 
 // captureStateSnapshot loads the session, resolves the narrowed runner for the
@@ -297,6 +299,7 @@ func captureStateSnapshot(session, target, root string, touched []string) (state
 		fingerprint: fp,
 		prevFailing: prevFailing,
 		toolMissing: toolMissing,
+		touched:     touched,
 	}, true
 }
 

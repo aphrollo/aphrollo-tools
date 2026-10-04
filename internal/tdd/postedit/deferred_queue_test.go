@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
@@ -106,21 +108,34 @@ func TestPostEditDeferred_TheSameRunForAMovedTreeSaysItRestartsAndOffersNoWait(t
 }
 
 // The slot frees when the running job is harvested, and the oldest waiting run
-// starts then, on the tree as it stands.
+// starts then, on the tree as it stands. The edits that queued moved the tree
+// under the running job, so that one is restarted first (the coverage it had is
+// not lost); once the restart is harvested for the unmoved tree the queue goes.
 func TestHarvestSessionJobs_StartsTheOldestWaitingRunWhenTheSlotFrees(t *testing.T) {
 	root, session, started := queueScene(t)
 	editOf(t, root, session, "b", "package b\n")
 	editOf(t, root, session, "c", "package c\n")
 	job, ok := loadDeferredJob(session, root)
-	if !ok {
-		t.Fatal("setup: no running job recorded")
+	if !ok || !job.Dirty {
+		t.Fatalf("setup: the running job must be marked dirty by the edits behind it, got %+v", job)
 	}
 	writePhaseResult(job.Result, PhaseOutcome{ExitCode: 0, Seconds: 1})
 
 	harvestSessionJobs(session)
 
 	if *started != 2 {
-		t.Fatalf("runs started = %d, want the first and the oldest waiting one", *started)
+		t.Fatalf("runs started = %d, want the first and its restart on the newest source", *started)
+	}
+	again, _ := loadDeferredJob(session, root)
+	if !strings.HasSuffix(strings.Join(again.Runner, " "), " ./a") || again.Dirty {
+		t.Fatalf("running job = %+v, want the restart of ./a, clean", again)
+	}
+	writePhaseResult(again.Result, PhaseOutcome{ExitCode: 0, Seconds: 1})
+
+	lines := harvestSessionJobs(session)
+
+	if *started != 3 {
+		t.Fatalf("runs started = %d, want the oldest waiting run started once the slot freed", *started)
 	}
 	next, ok := loadDeferredJob(session, root)
 	if !ok || !strings.HasSuffix(strings.Join(next.Runner, " "), " ./b") {
@@ -128,6 +143,106 @@ func TestHarvestSessionJobs_StartsTheOldestWaitingRunWhenTheSlotFrees(t *testing
 	}
 	if q := readQueue(queuePath(session, root)); len(q.Runs) != 1 || q.Runs[0].Runner[2] != "./c" {
 		t.Fatalf("queue = %+v, want only c still waiting", q.Runs)
+	}
+	if joined := tddtest.Pathless(t, strings.Join(lines, "\n")); !strings.Contains(joined, "go test") || !strings.Contains(joined, "./b") || !strings.Contains(joined, "the queued run started") {
+		t.Fatalf("the sweep must print that the queued run started:\n%s", joined)
+	}
+}
+
+// Two hooks of one session pump together: one run starts, and the other entry
+// stays waiting, not lost to a second spawn into the same job record.
+func TestPumpQueue_TwoHooksStartOneRunAndKeepTheRest(t *testing.T) {
+	root, session, started := queueScene(t)
+	editOf(t, root, session, "b", "package b\n")
+	editOf(t, root, session, "c", "package c\n")
+	job, _ := loadDeferredJob(session, root)
+	clearDeferredJob(session, root)
+	_ = job
+
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			pumpQueue(session, root)
+		}()
+	}
+	wg.Wait()
+
+	if *started != 2 {
+		t.Fatalf("runs started = %d, want the first and exactly one queued run", *started)
+	}
+	if q := readQueue(queuePath(session, root)); len(q.Runs) != 1 {
+		t.Fatalf("queue = %+v, want the second entry still waiting", q.Runs)
+	}
+}
+
+// A queued run that cannot start is the edit's own not-tested outcome: the sweep
+// says so instead of logging it where nobody reads.
+func TestHarvestSessionJobs_ReportsAQueuedRunThatCouldNotStart(t *testing.T) {
+	root, session, _ := queueScene(t)
+	editOf(t, root, session, "b", "package b\n")
+	clearDeferredJob(session, root)
+	t.Cleanup(SetSpawnPhaseForTest(func(j DeferredJob) (DeferredJob, bool) { return j, false }))
+
+	lines := harvestSessionJobs(session)
+
+	joined := tddtest.Pathless(t, strings.Join(lines, "\n"))
+	if !strings.Contains(joined, "go test ./b") || !strings.Contains(joined, "could not be started") || !strings.Contains(joined, "NOT tested") {
+		t.Fatalf("the sweep must say the queued run could not start:\n%s", joined)
+	}
+	if q := readQueue(queuePath(session, root)); len(q.Runs) != 0 {
+		t.Fatalf("queue = %+v, want the failed entry gone, not retried forever", q.Runs)
+	}
+}
+
+// A run that waited longer than any run may live behind a job that never
+// finished is given up on, and says so.
+func TestPumpQueue_GivesUpOnAnEntryThatWaitedTooLong(t *testing.T) {
+	root, session, _ := queueScene(t)
+	editOf(t, root, session, "b", "package b\n")
+	path := queuePath(session, root)
+	q := readQueue(path)
+	q.Runs[0].At = time.Now().Add(-2 * deferredMax())
+	writeQueue(path, q)
+
+	lines := pumpQueue(session, root)
+
+	joined := tddtest.Pathless(t, strings.Join(lines, "\n"))
+	if !strings.Contains(joined, "QUEUED-DROPPED") || !strings.Contains(joined, "NOT tested") {
+		t.Fatalf("lines = %q, want the dropped entry reported as not tested", joined)
+	}
+	if !strings.Contains(gateLogText(t, os.Getenv("CLAUDE_CONFIG_DIR")), "queued-dropped") {
+		t.Error("the drop left no queued-dropped entry in the gate log")
+	}
+}
+
+// An edit that is already going for a tree that moved: nothing was queued, so
+// the log does not say it was; and a run known to be stale offers no wait.
+func TestPostEditDeferred_TheSameRunForAMovedTreeLogsARestartNotAQueue(t *testing.T) {
+	root, session, _ := queueScene(t)
+	write(t, root, "a/a.go", "package a // moved\n")
+
+	editOf(t, root, session, "a", "package a // moved again\n")
+
+	log := gateLogText(t, os.Getenv("CLAUDE_CONFIG_DIR"))
+	if strings.Contains(log, " queue-waiting ") || !strings.Contains(log, "deferred-restart") {
+		t.Fatalf("gate log:\n%s\nwant deferred-restart and no queue-waiting for a run that queued nothing", log)
+	}
+	line := editOf(t, root, session, "a", "package a // moved a third time\n")
+	if strings.Contains(line, "status --wait") {
+		t.Fatalf("line %q offers a wait on a run known to be stale", line)
+	}
+}
+
+// A queued edit is not a run: it must not inflate the denominators.
+func TestPostEditDeferred_AQueuedEditLogsAQueueWaitingEntry(t *testing.T) {
+	root, session, _ := queueScene(t)
+
+	editOf(t, root, session, "b", "package b\n")
+
+	if log := gateLogText(t, os.Getenv("CLAUDE_CONFIG_DIR")); !strings.Contains(log, "queue-waiting") {
+		t.Fatalf("gate log:\n%s\nwant a queue-waiting entry for the edit that queued", log)
 	}
 }
 
@@ -162,5 +277,8 @@ func TestReapSessionDeferredJobs_ForgetsTheSessionsWaitingRuns(t *testing.T) {
 
 	if _, err := os.Stat(queuePath(session, root)); !os.IsNotExist(err) {
 		t.Fatalf("the queue file of an ended session is still there (stat err %v)", err)
+	}
+	if !strings.Contains(gateLogText(t, os.Getenv("CLAUDE_CONFIG_DIR")), "queued-dropped") {
+		t.Fatal("the dropped entry left no queued-dropped entry in the gate log: the edit's run just vanished")
 	}
 }

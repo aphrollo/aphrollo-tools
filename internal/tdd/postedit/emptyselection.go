@@ -52,7 +52,7 @@ func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, target, root, he
 	out := emptySelection{runner: snap.runner, res: res}
 	narrow := snap.runner
 	deadline := time.Now().Add(PostEditBudget() - res.Duration)
-	steps := postEditWideningSteps(narrow, target, root)
+	steps := wideningStepsFor(narrow, target, root, snap.touched)
 	for _, step := range steps {
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
@@ -74,7 +74,7 @@ func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, target, root, he
 		}
 	}
 	AppendGateLog("postedit", root, cmdString(out.runner), NoTestsSelected, out.res.Duration)
-	out.terminal = noTestsAdvisoryFor(narrow, out.runner, root, target, len(steps) > 0, out.res.Duration)
+	out.terminal = noTestsAdvisoryFor(narrow, out.runner, root, target, snap.touched, len(steps) > 0, out.res.Duration)
 	return out
 }
 

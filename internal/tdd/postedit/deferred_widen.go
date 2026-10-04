@@ -28,11 +28,11 @@ type deferredWidening struct {
 // passes. A rung spawned at or past the deadline is not skipped: it is left
 // running and reported as such, because the work is worth keeping and the
 // next hook reports it.
-func widenDeferredSelection(narrow Runner, root, target, headSHA, fileHash, session, editID string, deadline time.Time, res SuiteResult) deferredWidening {
+func widenDeferredSelection(narrow Runner, root, target, headSHA, fileHash, session, editID string, deadline time.Time, res SuiteResult, touched ...string) deferredWidening {
 	last, lastRes := narrow, res
-	steps := postEditWideningSteps(narrow, target, root)
+	steps := wideningStepsFor(narrow, target, root, touched)
 	for _, step := range steps {
-		out := runEditPhases(step, root, target, headSHA, fileHash, session, editID, time.Until(deadline))
+		out := runEditPhases(step, root, target, headSHA, fileHash, session, editID, time.Until(deadline), touched...)
 		switch {
 		case out.spawnFailed:
 			AppendGateLog("postedit", root, cmdString(step), InfraFailed, 0)
@@ -54,7 +54,7 @@ func widenDeferredSelection(narrow Runner, root, target, headSHA, fileHash, sess
 		}
 	}
 	AppendGateLog("postedit", root, cmdString(last), NoTestsSelected, lastRes.Duration)
-	return deferredWidening{terminal: noTestsAdvisoryFor(narrow, last, root, target, len(steps) > 0, lastRes.Duration)}
+	return deferredWidening{terminal: noTestsAdvisoryFor(narrow, last, root, target, touched, len(steps) > 0, lastRes.Duration)}
 }
 
 // wideningBuildingLine is the BUILDING line for a rung the budget ran out
@@ -80,7 +80,7 @@ func harvestAdvisory(j DeferredJob, out PhaseOutcome, root string, state *sessio
 	if out.SetupFailed || !postEditSelectedZero(runner, j.File, res) {
 		return markDeferred(editResultAdvisory(j, out, root, state, statePath, j.HeadSHA))
 	}
-	w := widenDeferredSelection(runner, root, j.File, j.HeadSHA, j.FileHash, j.Session, j.EditID, time.Now().Add(budget), res)
+	w := widenDeferredSelection(runner, root, j.File, j.HeadSHA, j.FileHash, j.Session, j.EditID, time.Now().Add(budget), res, j.Touched...)
 	if w.terminal != "" {
 		return w.terminal
 	}

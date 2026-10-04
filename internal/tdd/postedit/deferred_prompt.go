@@ -48,8 +48,9 @@ func harvestSessionJobs(session string) []string {
 		}
 		lines = append(lines, harvestSessionJob(session, j))
 	}
-	// A finished run frees its slot: the runs that waited for it start now.
-	pumpSessionQueues(session)
+	// A finished run frees its slot: the runs that waited for it start now, and
+	// what became of each is a line of its own.
+	lines = append(lines, pumpSessionQueues(session)...)
 	lines = append(lines, harvestMutantsEdit(session)...)
 	return append(lines, harvestLintEdit(session)...)
 }

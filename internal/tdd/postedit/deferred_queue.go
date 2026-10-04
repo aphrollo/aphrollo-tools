@@ -29,11 +29,13 @@ const maxQueuedRuns = 6
 
 // queuedRun is one edit's run, waiting for the slot.
 type queuedRun struct {
-	Runner []string  `json:"runner"`
-	Dir    string    `json:"dir"`
-	File   string    `json:"file"`
-	EditID string    `json:"edit_id,omitempty"`
-	At     time.Time `json:"at"`
+	Runner []string `json:"runner"`
+	Dir    string   `json:"dir"`
+	File   string   `json:"file"`
+	EditID string   `json:"edit_id,omitempty"`
+	// Touched is every other file the same write changed under the project.
+	Touched []string  `json:"touched,omitempty"`
+	At      time.Time `json:"at"`
 }
 
 // runQueue is the waiting runs of one session in one project.
@@ -120,24 +122,6 @@ func dropQueuedRun(session, root string, argv []string, dir string) {
 	}
 }
 
-// popQueuedRun takes the oldest waiting request.
-func popQueuedRun(session, root string) (queuedRun, bool) {
-	path := queuePath(session, root)
-	if path == "" {
-		return queuedRun{}, false
-	}
-	release := acquirePathLock(path)
-	defer release()
-	q := readQueue(path)
-	if len(q.Runs) == 0 {
-		return queuedRun{}, false
-	}
-	first := q.Runs[0]
-	q.Runs = q.Runs[1:]
-	writeQueue(path, q)
-	return first, true
-}
-
 func readQueue(path string) runQueue {
 	var q runQueue
 	if ok, _ := readStateJSON(path, &q); !ok {
@@ -162,44 +146,75 @@ func writeQueue(path string, q runQueue) {
 // no job is recorded for the session there, which means the last one was
 // harvested and reported. The run starts from its first phase, on the tree as
 // it stands, and its verdict reaches a later hook like any deferred run's.
-func pumpQueue(session, root string) {
-	if _, busy := loadDeferredJob(session, root); busy {
-		return
+//
+// The queue's lock is held from the check that the slot is free to the spawn
+// that takes it, so two hooks of one session cannot both start a run into the
+// one job record. The lines it returns are the hook's to print: a run that
+// started, a run that could not (the edit was told it would start), and an
+// entry that waited so long behind a job that never finished that it was given
+// up on — each a fact about an edit that was promised a run.
+func pumpQueue(session, root string) []string {
+	path := queuePath(session, root)
+	if path == "" {
+		return nil
 	}
-	req, ok := popQueuedRun(session, root)
-	if !ok {
-		return
+	release := acquirePathLock(path)
+	defer release()
+	q := readQueue(path)
+	if len(q.Runs) == 0 {
+		return nil
 	}
+	var lines []string
+	kept := q.Runs[:0:0]
+	for _, r := range q.Runs {
+		if time.Since(r.At) > deferredMax() {
+			lines = append(lines, queueDroppedLine(r, root, "it waited longer than a run may live behind a job that never finished"))
+			continue
+		}
+		kept = append(kept, r)
+	}
+	q.Runs = kept
+	if _, busy := loadDeferredJob(session, root); busy || len(q.Runs) == 0 {
+		writeQueue(path, q)
+		return lines
+	}
+	req := q.Runs[0]
+	q.Runs = q.Runs[1:]
+	writeQueue(path, q)
 	runner := runnerFromArgv(req.Runner, req.Dir)
-	first := firstEditPhase(runner, root, req.File, headSHAFor(root), sourceIdentity(root, req.File), session, req.EditID)
+	first := firstEditPhase(runner, root, req.File, headSHAFor(root), sourceIdentity(root, req.File), session, req.EditID, req.Touched...)
 	if _, ok := spawnPhaseFn(first); !ok {
 		clearDeferredJob(first.Session, first.Project)
 		AppendGateLog("postedit", root, cmdString(runner), InfraFailed, 0)
-		return
+		return append(lines, spawnFailedQueuedLine(runner, root))
 	}
 	AppendGateLog("postedit", root, cmdString(runner), "queue-started", 0)
+	return append(lines, queueStartedLine(runner, root))
 }
 
-// pumpSessionQueues pumps every project the session has runs waiting in.
-func pumpSessionQueues(session string) {
+// pumpSessionQueues pumps every project the session has runs waiting in and
+// answers the lines the pumps printed.
+func pumpSessionQueues(session string) []string {
 	session = strings.TrimSpace(session)
 	dir := deferredDirPath()
 	if session == "" || dir == "" {
-		return
+		return nil
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return
+		return nil
 	}
+	var lines []string
 	suffix := "-" + sessionKey(session) + queueFileSuffix
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), suffix) {
 			continue
 		}
 		if q := readQueue(filepath.Join(dir, e.Name())); q.Project != "" {
-			pumpQueue(session, q.Project)
+			lines = append(lines, pumpQueue(session, q.Project)...)
 		}
 	}
+	return lines
 }
 
 // queuedEscape is what a QUEUED line offers in place of the wait the BUILDING
@@ -238,6 +253,26 @@ func typedCommand(argv []string) string {
 	return strings.Join(kept, " ")
 }
 
+// queueStartedLine is the line of a queued run that has just started: the edit
+// was told it would, and this is the hook that says it did.
+func queueStartedLine(r Runner, root string) string {
+	return fmt.Sprintf("gate: %s in %s → BUILDING (deferred; the queued run started — result at a later hook; %s)", cmdString(r), root, buildingEscapeFor(root))
+}
+
+// spawnFailedQueuedLine is the line of a queued run that could not start.
+func spawnFailedQueuedLine(r Runner, root string) string {
+	return fmt.Sprintf("gate: %s in %s → %s (the queued run could not be started — the code was NOT tested)", cmdString(r), root, InfraFailed)
+}
+
+// queueDroppedLine is the line, and the gate-log entry, of a waiting run that
+// will never start: nothing runs it, and the edit that asked for it was told it
+// would. It is a not-tested outcome of that edit, counted as one.
+func queueDroppedLine(r queuedRun, root, why string) string {
+	cmd := typedCommand(r.Runner)
+	AppendGateLog("postedit", root, cmd, "queued-dropped", 0)
+	return fmt.Sprintf("gate: %s in %s → QUEUED-DROPPED (%s — the code was NOT tested; commit and precommit will judge it)", cmd, root, why)
+}
+
 // queueFullLine is the line of an edit that could not be kept: the code was not
 // tested, and it says so.
 func queueFullLine(r Runner, root string) string {
@@ -246,7 +281,9 @@ func queueFullLine(r Runner, root string) string {
 }
 
 // dropSessionQueues forgets every run the session had waiting: its session is
-// over, and nothing would harvest what they started.
+// over, and nothing would harvest what they started. Each is an edit that was
+// told its run would start and never got one, so each leaves a not-tested entry
+// in the gate log (queued-dropped) for the stats and the digest to count.
 func dropSessionQueues(session string) {
 	session = strings.TrimSpace(session)
 	dir := deferredDirPath()
@@ -259,8 +296,16 @@ func dropSessionQueues(session string) {
 	}
 	suffix := "-" + sessionKey(session) + queueFileSuffix
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), suffix) {
-			_ = os.Remove(filepath.Join(dir, e.Name())) // a file that stays is swept with the day-old ones
+		if e.IsDir() || !strings.HasSuffix(e.Name(), suffix) {
+			continue
 		}
+		path := filepath.Join(dir, e.Name())
+		release := acquirePathLock(path)
+		q := readQueue(path)
+		for _, r := range q.Runs {
+			queueDroppedLine(r, q.Project, "its session ended before the run could start")
+		}
+		_ = os.Remove(path) // a file that stays is swept with the day-old ones
+		release()
 	}
 }
