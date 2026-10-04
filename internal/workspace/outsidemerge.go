@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/store"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
@@ -143,13 +145,29 @@ func sameDir(a, b string) bool {
 // repositories, so the verb's record counts only when it names this repo. An
 // error means the answer is unknown, and the caller records nothing.
 func outsideMergesIn(repo, rng string) ([]OutsideMerge, error) {
+	merges, _, err := outsideMergesBounded(repo, rng)
+	return merges, err
+}
+
+// outsideMergesBounded is outsideMergesIn that also says how many of rng's
+// merges it left out as unknown: made before the retained event log began.
+func outsideMergesBounded(repo, rng string) (out []OutsideMerge, unknown int, err error) {
 	candidates, err := trunkMergesIn(repo, rng)
 	if err != nil || len(candidates) == 0 {
-		return nil, err
+		return nil, 0, err
 	}
 	primary := core.PrimaryCheckoutRoot(repo)
 	if primary == "" {
-		return nil, fmt.Errorf("no git directory for %s", repo)
+		return nil, 0, fmt.Errorf("no git directory for %s", repo)
+	}
+	// Retention removes old event months. A merge from before the retained log
+	// has no record to be matched against, and the verb may well have written
+	// one: it is unknown, never an outside merge, and no event or escape is
+	// emitted for it.
+	if horizon := store.SweptThrough(core.EventLogDir(repo)); !horizon.IsZero() {
+		n := len(candidates)
+		candidates = slices.DeleteFunc(candidates, func(m OutsideMerge) bool { return m.At.Before(horizon) })
+		unknown = n - len(candidates)
 	}
 	merged, escaped := map[string]bool{}, map[string]bool{}
 	byVerb := map[int]bool{}
@@ -172,7 +190,6 @@ func outsideMergesIn(repo, rng string) ([]OutsideMerge, error) {
 			}
 		}
 	}
-	var out []OutsideMerge
 	for _, m := range candidates {
 		if byVerb[m.PR] {
 			continue
@@ -189,7 +206,7 @@ func outsideMergesIn(repo, rng string) ([]OutsideMerge, error) {
 		}
 		out = append(out, m)
 	}
-	return out, nil
+	return out, unknown, nil
 }
 
 // recordOutsideMerges writes the merge event and the escape event of each merge,
@@ -330,12 +347,19 @@ func SyncSince(repoArg, since string, dry bool, stdout, stderr io.Writer) error 
 	if !gitRefExists(top, tip) {
 		tip = "refs/heads/" + def
 	}
-	merges, err := outsideMergesIn(top, since+".."+tip)
+	merges, unknown, err := outsideMergesBounded(top, since+".."+tip)
 	if err != nil {
 		return err
 	}
+	if unknown > 0 {
+		horizon := store.SweptThrough(core.EventLogDir(top))
+		fmt.Fprintf(stdout, "%d merge(s) since %s are from before the retained event log (events since %s) and are unknown: not recorded [skip]\n",
+			unknown, since, horizon.UTC().Format("2006-01"))
+	}
 	if len(merges) == 0 {
-		fmt.Fprintf(stdout, "every merge since %s is in the event log [skip]\n", since)
+		if unknown == 0 {
+			fmt.Fprintf(stdout, "every merge since %s is in the event log [skip]\n", since)
+		}
 		return nil
 	}
 	if dry {

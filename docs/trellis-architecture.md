@@ -117,6 +117,8 @@ trellis is a gate built around lanes and an event log.
 | `jobs/`, `out/` | Deferred runs; every run's raw output, unfiltered | One writer per file | 24 h after harvest; `out/` LRU 200 MB |
 | `cache/` | Ratchet scan cache | `laws` | LRU 200 MB (unbounded today) |
 
+`store.Retain` is the one sweep of these retentions, run by `aphrollo gate gc` (which the session start launches detached at most once a day) under the lane and verdict locks; it never removes a lane another process is committing to, a verdict of a lane not known closed, or an event month that holds an event of a lane that is not removed (a refold from a log missing its first months would silently rebuild a partial lane). A month it does remove moves the `events-swept-through` marker, so a reader of the log (`stats`, `why`, the outside-merge scan) knows what the retained log no longer covers. Until F27 moves them, `jobs/` is `<state>/deferred`, swept at 24 h by the gate's own deferred sweep (which kills a stale job's process first), and `cache/` is `<state>/ratchet-cache`, shared by every repo and swept in place by `store.RetainDirs`; `out/` does not exist yet. `gate gc --dry` prints each kind's size against its cap.
+
 **Events.** Each event is one line, for example:
 
 `{"v":1,"seq":4182,"at":"2026-10-02T09:14:03.120Z","lane":"worktree-fix-parse","actor":"60cd…/a26c…","kind":"run.result","key":"9f2c…","unit":"internal/lane","result":"red","test":"TestOpenOnRed","ms":840}`

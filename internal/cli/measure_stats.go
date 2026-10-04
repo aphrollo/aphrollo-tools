@@ -68,10 +68,17 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	r := measure.Compute(tdd.ReadEvents(*repo), time.Now().UTC(), measure.Options{Lane: *lane, Window: window})
+	note := horizonNote(*repo)
 	if *asJSON {
+		if note != "" {
+			fmt.Fprintln(stderr, note)
+		}
 		return printJSON(r, stdout, stderr)
 	}
 	fmt.Fprint(stdout, r.Text())
+	if note != "" {
+		fmt.Fprintln(stdout, note)
+	}
 	return 0
 }
 

@@ -9,7 +9,8 @@ import (
 
 // queuedDropWindow bounds how long after the verb queued a PR the sync keeps
 // reading its timeline: a PR nobody merged or recorded for longer is not going
-// to be.
+// to be. The window is far inside the event log's 16-week retention, so a
+// queued record this reads is never one retention has removed.
 const queuedDropWindow = 14 * 24 * time.Hour
 
 // recordDroppedQueued records the queue red of each PR the verb queued without

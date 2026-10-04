@@ -198,6 +198,7 @@ func readDepGraphCache(law Law, root, fingerprint string) ([]Hit, bool) {
 	if err := json.Unmarshal(data, &c); err != nil || c.Fingerprint != fingerprint {
 		return nil, false
 	}
+	touchCacheFile(path)
 	return c.Hits, true
 }
 

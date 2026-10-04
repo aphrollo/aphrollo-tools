@@ -122,6 +122,20 @@ func Open(dir string, opts Options) (*Store, error) {
 	if err := os.MkdirAll(filepath.Join(dir, "lanes"), 0o700); err != nil {
 		return nil, fmt.Errorf("store: %w", err)
 	}
+	return newStore(dir, opts), nil
+}
+
+// OpenExisting is Open for a directory that must not change: it creates
+// nothing, so a store opened to plan a sweep (gate gc --dry) leaves no trace. A
+// Commit through it fails if the lanes directory is not there.
+func OpenExisting(dir string, opts Options) (*Store, error) {
+	if dir == "" {
+		return nil, errors.New("store: no directory: there is no state root to keep lanes in")
+	}
+	return newStore(dir, opts), nil
+}
+
+func newStore(dir string, opts Options) *Store {
 	s := &Store{dir: dir, cfg: opts.Config, lockWait: opts.LockWait, warn: opts.Warn, warned: map[string]bool{}}
 	if s.lockWait <= 0 {
 		s.lockWait = DefaultLockWait
@@ -129,7 +143,7 @@ func Open(dir string, opts Options) (*Store, error) {
 	if s.warn == nil {
 		s.warn = func(msg string) { fmt.Fprintln(os.Stderr, msg) }
 	}
-	return s, nil
+	return s
 }
 
 func (s *Store) checkpointPath(lane string) string {
