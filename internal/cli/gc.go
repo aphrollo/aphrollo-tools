@@ -77,16 +77,20 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	if !apply {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
+			retainState(repos, true, stdout, stderr)
 			writeMutantsInUse(stdout)
 			writeProbeBackups(stdout)
 		}
 		return 0
 	}
 
-	tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
 	if *quiet {
+		retainState(repos, false, io.Discard, stderr)
+		tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
 		return 0
 	}
+	tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
+	retainState(repos, false, stdout, stderr)
 	fmt.Fprint(stdout, tdd.RenderGC(cands, true, freed))
 	writeMutantsInUse(stdout)
 	writeProbeBackups(stdout)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -23,6 +24,11 @@ type SweepOptions struct {
 	// Closed says a lane is closed. A file that names lanes, all closed, goes
 	// before its time; a file naming none, or an unreadable one, never does.
 	Closed func(lane string) bool
+	// Dry plans the sweep and removes nothing: the result counts what it would.
+	Dry bool
+	// Removed, when set, is told of each file removed (or, when Dry, to be
+	// removed) with its size and the reason.
+	Removed func(path string, size int64, reason string)
 }
 
 // SweepResult counts what a sweep did: Expired files past MaxAge, Closed files
@@ -64,10 +70,17 @@ func (s *Store) SweepVerdicts(opts SweepOptions) (SweepResult, error) {
 	type file struct {
 		key  string
 		used time.Time
+		size int64
 	}
 	var live []file
 	var errs []error
-	remove := func(name string) bool {
+	remove := func(name string, size int64, reason string) bool {
+		if opts.Removed != nil {
+			opts.Removed(filepath.Join(s.verdictDir(), name), size, reason)
+		}
+		if opts.Dry {
+			return true
+		}
 		err := os.Remove(filepath.Join(s.verdictDir(), name))
 		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
@@ -85,19 +98,19 @@ func (s *Store) SweepVerdicts(opts SweepOptions) (SweepResult, error) {
 		if key, ok := strings.CutSuffix(name, ".json"); ok && validKey(key) {
 			switch {
 			case age > maxAge:
-				if remove(name) {
+				if remove(name, info.Size(), "verdict unused for "+age.Truncate(time.Hour).String()) {
 					res.Expired++
 					continue
 				}
 			case s.allLanesClosed(key, opts.Closed):
-				if remove(name) {
+				if remove(name, info.Size(), "verdict of closed lanes only") {
 					res.Closed++
 					continue
 				}
 			}
-			live = append(live, file{key, info.ModTime()})
+			live = append(live, file{key, info.ModTime(), info.Size()})
 		} else if strings.Contains(name, ".json.tmp") && age > tempMaxAge {
-			remove(name)
+			remove(name, info.Size(), "abandoned temp file of an interrupted write")
 		}
 	}
 	slices.SortFunc(live, func(a, b file) int {
@@ -107,7 +120,7 @@ func (s *Store) SweepVerdicts(opts SweepOptions) (SweepResult, error) {
 		return strings.Compare(a.key, b.key)
 	})
 	for len(live) > limit {
-		if remove(live[0].key + ".json") {
+		if remove(live[0].key+".json", live[0].size, "verdict over the cap of "+strconv.Itoa(limit)+" files, least recently used") {
 			res.Evicted++
 		} else {
 			break
