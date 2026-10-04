@@ -74,7 +74,7 @@ func resolveEmptySelection(run SuiteRunner, snap stateSnapshot, target, root, he
 		}
 	}
 	AppendGateLog("postedit", root, cmdString(out.runner), NoTestsSelected, out.res.Duration)
-	out.terminal = noTestsSelectedAdvisory(narrow, out.runner, root, len(steps) > 0, out.res.Duration)
+	out.terminal = noTestsAdvisoryFor(narrow, out.runner, root, target, len(steps) > 0, out.res.Duration)
 	return out
 }
 

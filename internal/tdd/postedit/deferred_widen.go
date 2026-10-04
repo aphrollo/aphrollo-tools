@@ -54,7 +54,7 @@ func widenDeferredSelection(narrow Runner, root, target, headSHA, fileHash, sess
 		}
 	}
 	AppendGateLog("postedit", root, cmdString(last), NoTestsSelected, lastRes.Duration)
-	return deferredWidening{terminal: noTestsSelectedAdvisory(narrow, last, root, len(steps) > 0, lastRes.Duration)}
+	return deferredWidening{terminal: noTestsAdvisoryFor(narrow, last, root, target, len(steps) > 0, lastRes.Duration)}
 }
 
 // wideningBuildingLine is the BUILDING line for a rung the budget ran out

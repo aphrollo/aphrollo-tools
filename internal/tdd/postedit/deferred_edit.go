@@ -224,6 +224,10 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		// Still working: never kill it, just record that the source moved on.
 		if j.FileHash != fileHash {
 			markDeferredDirty(session, root, fileHash)
+			return buildingStaleLine(root, j.Phase, time.Since(j.Started)), false
+		}
+		if j.Dirty {
+			return buildingStaleLine(root, j.Phase, time.Since(j.Started)), false
 		}
 		return buildingLine(root, j.Phase, time.Since(j.Started)), false
 	}
@@ -397,6 +401,15 @@ func buildingLine(root, phase string, elapsed time.Duration) string {
 	return fmt.Sprintf("gate: → BUILDING (deferred; %s %s phase, %.0fs so far — result at the next hook; %s)", root, phase, elapsed.Seconds(), buildingEscapeFor(root))
 }
 
+// buildingStaleLine is the BUILDING line of a run already known to be measuring
+// an older tree state: it restarts on the newest source when it ends, so the
+// verdict now coming is not about the code on disk and a foreground wait on it
+// buys nothing (issue #1189). The line says so instead of offering one.
+func buildingStaleLine(root, phase string, elapsed time.Duration) string {
+	return fmt.Sprintf("gate: → BUILDING (deferred; %s %s phase, %.0fs so far, measuring an older tree state — it restarts on the newest source when it ends; %s)",
+		root, phase, elapsed.Seconds(), queuedEscape)
+}
+
 // phaseSuiteResult maps a wrapper's outcome plus its log onto the
 // SuiteResult the rest of the gate speaks.
 func phaseSuiteResult(j DeferredJob, out PhaseOutcome) SuiteResult {
@@ -535,5 +548,6 @@ func reapSessionDeferredJobs(session string) int {
 		clearDeferredJob(j.Session, j.Project)
 		reaped++
 	}
+	dropSessionQueues(session)
 	return reaped
 }

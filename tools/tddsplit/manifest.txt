@@ -228,6 +228,8 @@ deferred_edit_test.go                              tdd       # prefix says poste
 deferred_output_test.go                            postedit
 deferred_own_test.go                               core
 deferred_prompt.go                                 postedit
+deferred_queue.go                                   postedit
+deferred_queue_test.go                              postedit
 deferred_robust_test.go                            postedit
 deferred_run.go                                    postedit
 deferred_run_batched_test.go                       postedit
@@ -449,6 +451,8 @@ gcafterrun.go                                      tdd
 gcafterrun_test.go                                 tdd
 gcrender_own_test.go                               core
 gcstate_own_test.go                                suite
+generated_edit.go                                   postedit
+generated_edit_test.go                              postedit
 gh.go                                              tddtest
 ghstub_isolation_test.go                           tdd
 git.go                                             tddtest

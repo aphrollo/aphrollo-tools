@@ -46,6 +46,9 @@ func cargoWideningSteps(r Runner) []Runner {
 // the edited one, the full suite holds the same test files and none of them
 // reaches it either, so a wider run cannot select a test for this code.
 func postEditWideningSteps(r Runner, target, root string) []Runner {
+	if isGeneratedFile(target) {
+		return nil // judged by its callers and the regen check, not by every importer (generated_edit.go)
+	}
 	switch r.Cmd {
 	case "cargo":
 		return cargoWideningSteps(r)
