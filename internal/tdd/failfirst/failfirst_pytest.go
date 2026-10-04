@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 // A pytest root's fail-first proof runs in a worktree at HEAD, where the
 // gitignored virtualenv of the root is absent, and `pytest` on PATH may be a
 // different Python's. So the proof runs `python -m pytest` under an
-// interpreter that is known to import pytest: the root's own .venv or venv,
-// then the same root's venv in the repo's other worktrees (the primary checkout, then the lane a merge is judging), else the box's python3 or python. When none can, the proof says which
+// interpreter that is known to import pytest: the root's own .venv, venv or env,
+// then the one at the top of its worktree, then the same two in the repo's other worktrees (the primary checkout, then the lane a merge is judging), else the box's python3 or python. When none can, the proof says which
 // piece is missing — no interpreter, or no pytest in the ones found — and
 // runs nothing: an unrunnable proof is named NOT RUN, never a silent skip.
 
@@ -33,7 +34,7 @@ func pytestImportable(python string) error {
 func venvPythons(root string) []string {
 	rel := []string{filepath.Join("bin", "python"), filepath.Join("Scripts", "python.exe")}
 	var out []string
-	for _, venv := range []string{".venv", "venv"} {
+	for _, venv := range []string{".venv", "venv", "env"} {
 		for _, r := range rel {
 			out = append(out, filepath.Join(root, venv, r))
 		}
@@ -49,12 +50,30 @@ type pytestSearch struct {
 	root      string
 	elsewhere []string
 	remedy    string
+	// ownTop and elsewhereTops are the worktree tops a project in a
+	// subdirectory may keep its venv at: root's own worktree, then those of
+	// elsewhere in order.
+	ownTop        string
+	elsewhereTops []string
+}
+
+// venvRoots are the directories whose virtualenvs the search looks in, nearest
+// first: the project root, its worktree's top, then each other worktree's
+// project root and top. A directory comes once.
+func (s pytestSearch) venvRoots() []string {
+	var out []string
+	for _, dir := range slices.Concat([]string{s.root, s.ownTop}, s.elsewhere, s.elsewhereTops) {
+		if dir != "" && !slices.Contains(out, dir) {
+			out = append(out, dir)
+		}
+	}
+	return out
 }
 
 // venvDirs are the virtualenv directories the search looks in, in order.
 func (s pytestSearch) venvDirs() []string {
 	var out []string
-	for _, r := range append([]string{s.root}, s.elsewhere...) {
+	for _, r := range s.venvRoots() {
 		out = append(out, filepath.Join(r, ".venv"), filepath.Join(r, "venv"))
 	}
 	return out
@@ -72,7 +91,7 @@ func pytestProofRunner(search pytestSearch, r Runner, look func(string) (string,
 		return r, ""
 	}
 	var found []string
-	for _, root := range append([]string{search.root}, search.elsewhere...) {
+	for _, root := range search.venvRoots() {
 		for _, p := range venvPythons(root) {
 			if _, err := os.Stat(p); err == nil {
 				found = append(found, p)

@@ -45,6 +45,7 @@ func otherWorktreeRoots(root string) pytestSearch {
 	if top == "" {
 		return search
 	}
+	search.ownTop = igit.Canonical(top)
 	rel, err := filepath.Rel(top, igit.Canonical(root))
 	if err != nil {
 		return search
@@ -65,6 +66,7 @@ func otherWorktreeRoots(root string) pytestSearch {
 			continue
 		}
 		search.elsewhere = append(search.elsewhere, dir)
+		search.elsewhereTops = append(search.elsewhereTops, path)
 	}
 	return search
 }

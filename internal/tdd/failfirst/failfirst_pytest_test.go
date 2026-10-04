@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
 
@@ -199,5 +200,83 @@ func TestFailFirstStage_SaysNotRunWhenNoInterpreterImportsPytest(t *testing.T) {
 	}
 	if want := "fail-first in " + backend + " → NOT RUN — pytest is not importable by "; !strings.Contains(stderr, want) {
 		t.Fatalf("want %q in:\n%s", want, stderr)
+	}
+}
+
+// touchPython makes an executable stand-in at dir/<venv>/bin/python.
+func touchPython(t *testing.T, dir, venv string) string {
+	t.Helper()
+	p := filepath.Join(dir, venv, "bin", "python")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+// resolveFrom is the interpreter pytestProofRunner picks for root in a repo
+// whose worktrees are laid out as pytestWorktrees builds them, every
+// interpreter importing pytest and none on PATH.
+func resolveFrom(t *testing.T, root string) string {
+	t.Helper()
+	got, why := pytestProofRunner(otherWorktreeRoots(root), Runner{Cmd: "pytest", Args: []string{"-q"}, Dir: root}, noInterpreter, func(string) error { return nil })
+	if why != "" {
+		t.Fatalf("no interpreter resolved: %s", why)
+	}
+	return got.Cmd
+}
+
+// TestPytestProofRunner_ARootsEnvDirectoryIsAVenvToo: a project that keeps its
+// virtualenv in env/ runs under it, not under the box's python.
+func TestPytestProofRunner_ARootsEnvDirectoryIsAVenvToo(t *testing.T) {
+	root := t.TempDir()
+	want := touchPython(t, root, "env")
+	got, why := pytestProofRunner(pytestSearch{root: root}, Runner{Cmd: "pytest"}, onPath, func(string) error { return nil })
+	if why != "" || got.Cmd != want {
+		t.Fatalf("got %q, %q; want the env/ interpreter %s", got.Cmd, why, want)
+	}
+}
+
+// TestOtherWorktreeRoots_AVenvAtTheWorktreeRootServesAProjectInASubdirectory:
+// a backend/ with no venv of its own runs under the .venv at the top of the
+// same worktree.
+func TestOtherWorktreeRoots_AVenvAtTheWorktreeRootServesAProjectInASubdirectory(t *testing.T) {
+	_, lane, _ := pytestWorktrees(t)
+	want := touchPython(t, igit.Canonical(lane), ".venv")
+	if got := resolveFrom(t, filepath.Join(lane, "backend")); got != want {
+		t.Errorf("resolved %s, want the lane's top-level venv %s", got, want)
+	}
+}
+
+// TestOtherWorktreeRoots_ALaneWithNoVenvTakesTheOneAtThePrimaryCheckoutsTop:
+// lanes rarely carry a venv; the primary checkout's top-level one serves.
+func TestOtherWorktreeRoots_ALaneWithNoVenvTakesTheOneAtThePrimaryCheckoutsTop(t *testing.T) {
+	primary, lane, _ := pytestWorktrees(t)
+	want := touchPython(t, igit.Canonical(primary), "venv")
+	if got := resolveFrom(t, filepath.Join(lane, "backend")); got != want {
+		t.Errorf("resolved %s, want the primary's top-level venv %s", got, want)
+	}
+}
+
+// TestOtherWorktreeRoots_TheProjectRootOutranksTheWorktreeRootAndThePrimary:
+// the nearest venv wins: the project's own, then its worktree's top, then the
+// primary checkout's project root, then the primary's top.
+func TestOtherWorktreeRoots_TheProjectRootOutranksTheWorktreeRootAndThePrimary(t *testing.T) {
+	primary, lane, _ := pytestWorktrees(t)
+	root := filepath.Join(lane, "backend")
+	laneTop := touchPython(t, igit.Canonical(lane), ".venv")
+	primaryRoot := touchPython(t, igit.Canonical(filepath.Join(primary, "backend")), ".venv")
+	primaryTop := touchPython(t, igit.Canonical(primary), ".venv")
+	// Remove the nearest each time and the next one must take over.
+	own := touchPython(t, igit.Canonical(root), ".venv")
+	for _, want := range []string{own, laneTop, primaryRoot, primaryTop} {
+		if got := resolveFrom(t, root); got != want {
+			t.Fatalf("resolved %s, want %s", got, want)
+		}
+		if err := os.Remove(want); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
