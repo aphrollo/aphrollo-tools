@@ -94,6 +94,7 @@ func TestPostEditDeferred_AFullQueueAnswersQueuedSkipped(t *testing.T) {
 // newest source; the line says the verdict now coming is the older one and
 // offers no foreground wait on it (issue #1189).
 func TestPostEditDeferred_TheSameRunForAMovedTreeSaysItRestartsAndOffersNoWait(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, session, started := queueScene(t)
 	write(t, root, "a/a.go", "package a // moved\n")
 
@@ -258,6 +259,7 @@ func TestRunEditPhases_AFreshStartBehindARunTheSlotHoldsQueuesInstead(t *testing
 // An edit that is already going for a tree that moved: nothing was queued, so
 // the log does not say it was; and a run known to be stale offers no wait.
 func TestPostEditDeferred_TheSameRunForAMovedTreeLogsARestartNotAQueue(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root, session, _ := queueScene(t)
 	write(t, root, "a/a.go", "package a // moved\n")
 
