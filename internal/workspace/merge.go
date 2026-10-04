@@ -263,7 +263,11 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 			fmt.Fprintf(stdout, "ci: local (%s) — GitHub's CI is unavailable: %s\n", choice.source, ci.Word())
 		case ci.State == "green":
 			verdict = ciVerdictOf(m.Target.Worktree, pr.Number, head, ci)
-			fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(head))
+			if ci.AllSkipped() {
+				fmt.Fprintf(stdout, "ci: github (%s) — no check ran on %s (all %d skipped)\n", choice.source, short(head), ci.Skipped)
+			} else {
+				fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(head))
+			}
 		default:
 			return nil, m.refuseGitHubCI(ci, stderr)
 		}

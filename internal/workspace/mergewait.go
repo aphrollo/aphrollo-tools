@@ -215,6 +215,15 @@ func pollState(head *PRHead, laneSHA string, checks []CheckRun) (line string, do
 	case len(idle) > 0:
 		return fmt.Sprintf("ci unavailable: %d of %d checks never started", len(idle), len(current)), false, nil, idle
 	}
+	skipped := 0
+	for _, c := range current {
+		if strings.EqualFold(c.Conclusion, "skipped") {
+			skipped++
+		}
+	}
+	if skipped == len(current) {
+		return fmt.Sprintf("no check ran (all %d skipped)", skipped), true, nil, nil
+	}
 	return fmt.Sprintf("all %d checks passed", len(current)), true, nil, nil
 }
 
