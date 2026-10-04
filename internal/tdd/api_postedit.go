@@ -79,11 +79,11 @@ func PrimaryCheckoutDecision(p0 []byte) Decision { return postedit.PrimaryChecko
 
 func PrimaryEditsAllowed(p0 string) bool { return postedit.PrimaryEditsAllowed(p0) }
 
+func PrimaryLanding(p0 []byte) string { return postedit.PrimaryLanding(p0) }
+
 func PrimaryMergeOnly(p0 string) (string, bool) { return postedit.PrimaryMergeOnly(p0) }
 
 func PrimaryMergeOnlyReason(p0 string) string { return postedit.PrimaryMergeOnlyReason(p0) }
-
-func PrimaryWaivedLanding(p0 []byte) bool { return postedit.PrimaryWaivedLanding(p0) }
 
 func RecordFinishedDeferredJobForTest(p0 string, p1 string) {
 	postedit.RecordFinishedDeferredJobForTest(p0, p1)

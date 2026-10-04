@@ -10,6 +10,12 @@
 // Red→green needs a unit's state and the coverage of an edit, which no live hook
 // has, so it is not shadowed and nothing is recorded for it.
 //
+// A hook writes its records after it has answered, and does wait for them: up to
+// Budget, past which the record is dropped. A PostToolUse hook queues the run it
+// harvested (QueueRun) while it builds its answer, and Flush writes the queue
+// after the answer, under the same wait. TakeWaited reports that wait so the
+// hook's own timing can leave it out.
+//
 // A record's relation says how the two decisions compare, ranked allow below
 // guide or warn below block: agree, trellis-stricter (a would-be block), or
 // trellis-softer (aphrollo denies where trellis would only guide). A
@@ -19,6 +25,8 @@ package shadow
 
 import (
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
@@ -71,6 +79,7 @@ type Fact struct {
 	Actual   Action
 	Event    kernel.Event
 	Config   kernel.Config
+	Root     string // the checkout the fact is about, "" for the call's own
 }
 
 // Record is the outcome of judging one fact.
@@ -289,10 +298,27 @@ func (r Record) event(s Source, lane string) core.Event {
 	return core.Event{Kind: core.KindShadow, Root: s.Root, Actor: s.Actor, Lane: lane, Detail: d}
 }
 
+// Enabled turns recording on. It is a seam for tests, which prove a hook's answer
+// is the same with it off.
+var Enabled = true
+
+// waited is how long hooks have waited on records in this process.
+var waited atomic.Int64
+
+// TakeWaited is the time this process has spent waiting for shadow records since
+// the last call, so a caller that times the hook can leave it out: the hook does
+// wait up to Budget for its record after it has answered.
+func TakeWaited() time.Duration { return time.Duration(waited.Swap(0)) }
+
 // bounded runs fn and waits for it no longer than Budget. fn runs on its own
 // goroutine, so a hook that outruns the budget moves on; a panic in it is
-// dropped, never raised into the hook.
+// dropped, never raised into the hook. The wait is counted for TakeWaited.
 func bounded(fn func()) {
+	if !Enabled {
+		return
+	}
+	start := time.Now()
+	defer func() { waited.Add(int64(time.Since(start))) }()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -307,33 +333,62 @@ func bounded(fn func()) {
 	}
 }
 
-// RecordFacts judges each fact of a PreToolUse call and writes one shadow event
-// for it. It never returns anything to the hook.
-func RecordFacts(s Source, facts []Fact) {
-	if len(facts) == 0 {
-		return
-	}
+// RecordFacts writes one shadow event for each fact of a PreToolUse call. The
+// facts are asked for inside the budget with the writes, so a fact that needs a
+// look at the repository is not paid for outside it. A fact names its own root
+// when it is about another checkout than the call's. It never returns anything to
+// the hook.
+func RecordFacts(s Source, facts func() []Fact) {
 	bounded(func() {
-		lane := core.LaneOf(s.Root)
-		for _, f := range facts {
-			appendEvent(Judge(f, lane).event(s, lane))
+		for _, f := range facts() {
+			fs := s
+			if f.Root != "" {
+				fs.Root = f.Root
+			}
+			lane := core.LaneOf(fs.Root)
+			appendEvent(Judge(f, lane).event(fs, lane))
 		}
 	})
 }
 
-// RecordRun writes one shadow event for a finished run. The run's own facts are
-// read by fact, inside the budget with the write: a hook that has to open a log
-// to classify the run does not pay for it past the deadline. A fact that reports
-// false is not recorded.
-func RecordRun(s Source, fact func() (RunFact, bool)) {
+type queuedRun struct {
+	src  Source
+	fact func() (RunFact, bool)
+}
+
+var queue struct {
+	sync.Mutex
+	runs []queuedRun
+}
+
+// QueueRun holds a finished run to be recorded by Flush, after the hook has
+// answered. fact must read nothing: the caller has the run's facts already.
+func QueueRun(s Source, fact func() (RunFact, bool)) {
+	queue.Lock()
+	queue.runs = append(queue.runs, queuedRun{s, fact})
+	queue.Unlock()
+}
+
+// Flush writes one shadow event for each queued run, inside one budget, and
+// empties the queue. A run whose fact reports false is not recorded.
+func Flush() {
+	queue.Lock()
+	runs := queue.runs
+	queue.runs = nil
+	queue.Unlock()
+	if len(runs) == 0 {
+		return
+	}
 	bounded(func() {
-		f, ok := fact()
-		if !ok {
-			return
-		}
-		lane := core.LaneOf(s.Root)
-		if r, ok := JudgeRun(f, lane); ok {
-			appendEvent(r.event(s, lane))
+		for _, q := range runs {
+			f, ok := q.fact()
+			if !ok {
+				continue
+			}
+			lane := core.LaneOf(q.src.Root)
+			if r, ok := JudgeRun(f, lane); ok {
+				appendEvent(r.event(q.src, lane))
+			}
 		}
 	})
 }

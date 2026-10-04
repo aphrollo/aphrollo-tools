@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 )
 
 // eventsOfKind is the events of root that have one kind, in order.
@@ -77,26 +79,46 @@ func TestPostEdit_ATimedOutRunIsRecordedAsNotTestedWithItsCause(t *testing.T) {
 	}
 }
 
-// A harvested run is shadowed: beside the line aphrollo prints, one shadow event
-// holds the kernel's reading of the same run, filed under the tree the run judged.
-func TestHarvest_ARunVerdictIsShadowedBesideTheGateLine(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("TRELLIS_DATA", t.TempDir())
-	root := mkProject(t, "go.mod")
+// harvestRun saves a finished run phase with the given log and exit code, harvests
+// it the way the next hook does, and answers the line it printed.
+func harvestRun(t *testing.T, root, session, log string, exit int, tree string) string {
+	t.Helper()
 	saveDeferredJob(DeferredJob{
 		Project: root, Phase: "run", Dir: root, PID: 99, Runner: []string{"go", "test", "./..."},
-		Started: time.Now(), Session: "s-shadow", File: filepath.Join(root, "widget.go"),
+		Started: time.Now(), Session: session, File: filepath.Join(root, "widget.go"),
 	})
-	job, ok := loadDeferredJob("s-shadow", root)
+	job, ok := loadDeferredJob(session, root)
 	if !ok {
 		t.Fatal("setup: the job did not load back")
 	}
-	mustWrite(t, job.Log, "--- FAIL: TestWidget (0.00s)\n    widget_test.go:9: want 1\nFAIL\n")
-	writePhaseResult(job.Result, PhaseOutcome{ExitCode: 1, Seconds: 1, TreeKey: "tree-red"})
-
-	if line, ok := WaitDeferredEditJob(root); !ok || !strings.Contains(line, "red") {
-		t.Fatalf("harvest = %q, %v, want the red line", line, ok)
+	mustWrite(t, job.Log, log)
+	writePhaseResult(job.Result, PhaseOutcome{ExitCode: exit, Seconds: 1, TreeKey: tree})
+	line, ok := WaitDeferredEditJob(root)
+	if !ok {
+		t.Fatal("the harvest found no job")
 	}
+	return line
+}
+
+// A harvested run is shadowed: beside the line aphrollo prints, one shadow event
+// holds the kernel's reading of the same run, filed under the tree the run judged.
+// It is queued while the hook builds its answer and written only by the flush
+// after the answer is out.
+// ratchet: test_removed TestHarvest_ARunVerdictIsShadowedBesideTheGateLine: renamed; it now also pins that the record waits for the flush
+func TestHarvest_ARunVerdictIsShadowedAfterTheAnswer(t *testing.T) {
+	shadow.Flush() // another test's queued run is not this one's
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := mkProject(t, "go.mod")
+
+	line := harvestRun(t, root, "s-shadow", "--- FAIL: TestWidget (0.00s)\n    widget_test.go:9: want 1\nFAIL\n", 1, "tree-red")
+	if !strings.Contains(line, "red") {
+		t.Fatalf("harvest = %q, want the red line", line)
+	}
+	if n := len(eventsOfKind(root, "shadow")); n != 0 {
+		t.Fatalf("%d shadow events written before the answer was out, want none until the flush", n)
+	}
+	shadow.Flush()
 
 	got := eventsOfKind(root, "shadow")
 	if len(got) != 1 {
@@ -115,23 +137,15 @@ func TestHarvest_ARunVerdictIsShadowedBesideTheGateLine(t *testing.T) {
 // gate calls red-bogus must not be filed as a mismatch of that reading: it is
 // not comparable, and says both classes.
 func TestHarvest_ABogusRedIsNotComparableNeverAMismatch(t *testing.T) {
+	shadow.Flush()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := mkProject(t, "go.mod")
-	saveDeferredJob(DeferredJob{
-		Project: root, Phase: "run", Dir: root, PID: 99, Runner: []string{"go", "test", "./..."},
-		Started: time.Now(), Session: "s-bogus", File: filepath.Join(root, "widget.go"),
-	})
-	job, ok := loadDeferredJob("s-bogus", root)
-	if !ok {
-		t.Fatal("setup: the job did not load back")
-	}
-	mustWrite(t, job.Log, "ImportError: cannot import name widget\nFAIL\n")
-	writePhaseResult(job.Result, PhaseOutcome{ExitCode: 1, Seconds: 1, TreeKey: "tree-bogus"})
 
-	if line, ok := WaitDeferredEditJob(root); !ok || !strings.Contains(line, "bogus") {
-		t.Fatalf("harvest = %q, %v, want the gate's red-bogus line", line, ok)
+	if line := harvestRun(t, root, "s-bogus", "ImportError: cannot import name widget\nFAIL\n", 1, "tree-bogus"); !strings.Contains(line, "bogus") {
+		t.Fatalf("harvest = %q, want the gate's red-bogus line", line)
 	}
+	shadow.Flush()
 
 	got := eventsOfKind(root, "shadow")
 	if len(got) != 1 {
@@ -140,5 +154,31 @@ func TestHarvest_ABogusRedIsNotComparableNeverAMismatch(t *testing.T) {
 	d := got[0].Detail
 	if d["relation"] != "not-comparable" || d["aphrollo"] != "red-bogus" || d["aphrollo_verdict"] != "red-bogus" || d["trellis_verdict"] != "red" {
 		t.Errorf("shadow detail = %v, want not-comparable: aphrollo red-bogus where the kernel's input can only say red", d)
+	}
+}
+
+// The record reuses the result the harvest read: shadowing a run costs the hook
+// no read of the phase's log that it would not make anyway.
+func TestHarvest_ShadowingARunReadsThePhaseLogNoMoreOften(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	reads := 0
+	old := readPhaseLog
+	readPhaseLog = func(name string) ([]byte, error) { reads++; return old(name) }
+	t.Cleanup(func() { readPhaseLog = old })
+	oldEnabled := shadow.Enabled
+	t.Cleanup(func() { shadow.Enabled = oldEnabled })
+
+	count := func(enabled bool, session string) int {
+		shadow.Enabled = enabled
+		reads = 0
+		root := mkProject(t, "go.mod")
+		harvestRun(t, root, session, "--- FAIL: TestWidget (0.00s)\nFAIL\n", 1, "tree-"+session)
+		shadow.Flush()
+		return reads
+	}
+	off, on := count(false, "s-off"), count(true, "s-on")
+	if off == 0 || on != off {
+		t.Errorf("the harvest read the phase log %d times with shadowing off and %d times with it on, want the same non-zero count", off, on)
 	}
 }

@@ -1,6 +1,8 @@
 package shadow
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"sync"
 	"testing"
@@ -179,7 +181,7 @@ func capture(t *testing.T) *[]core.Event {
 func TestRecordFacts_WritesOneShadowEventWithMetadataOnly(t *testing.T) {
 	got := capture(t)
 	root := t.TempDir()
-	RecordFacts(Source{Root: root, Actor: "s1/a1", Key: "k1"}, []Fact{Rerun(Block), Law("ratchet:x", false, Warn)})
+	RecordFacts(Source{Root: root, Actor: "s1/a1", Key: "k1"}, factsOf([]Fact{Rerun(Block), Law("ratchet:x", false, Warn)}))
 	if len(*got) != 2 {
 		t.Fatalf("wrote %d events, want 2", len(*got))
 	}
@@ -194,9 +196,10 @@ func TestRecordFacts_WritesOneShadowEventWithMetadataOnly(t *testing.T) {
 func TestRecordRun_WritesTheClassesAndCauses(t *testing.T) {
 	got := capture(t)
 	root := t.TempDir()
-	RecordRun(Source{Root: root, Key: "tree1"}, func() (RunFact, bool) {
+	QueueRun(Source{Root: root, Key: "tree1"}, func() (RunFact, bool) {
 		return RunFact{Word: "timeout", Verdict: kernel.VerdictNotTested, Cause: "timeout"}, true
 	})
+	Flush()
 	if len(*got) != 1 {
 		t.Fatalf("wrote %d events, want 1", len(*got))
 	}
@@ -222,7 +225,7 @@ func TestRecordFacts_OverrunReturnsInsideTheBudgetAndPanicIsDropped(t *testing.T
 	}
 	returned := make(chan struct{})
 	go func() {
-		RecordFacts(Source{Root: t.TempDir()}, []Fact{Discard(Block)})
+		RecordFacts(Source{Root: t.TempDir()}, factsOf([]Fact{Discard(Block)}))
 		close(returned)
 	}()
 	select {
@@ -242,14 +245,15 @@ func TestRecordFacts_OverrunReturnsInsideTheBudgetAndPanicIsDropped(t *testing.T
 		t.Fatal("the writer goroutine did not finish")
 	}
 	appendEvent = func(core.Event) { panic("writer failed") }
-	RecordRun(Source{Root: t.TempDir()}, func() (RunFact, bool) { return RunFact{Word: "green", Verdict: kernel.VerdictGreen}, true })
+	QueueRun(Source{Root: t.TempDir()}, func() (RunFact, bool) { return RunFact{Word: "green", Verdict: kernel.VerdictGreen}, true })
+	Flush()
 }
 
 // Only a fact about the primary checkout is filed as primary: its outcomes
 // cannot be joined by a lane, and the fold leaves it open.
 func TestRecordFacts_AFactAboutThePrimaryCheckoutIsFiledAsPrimary(t *testing.T) {
 	got := capture(t)
-	RecordFacts(Source{Root: t.TempDir()}, []Fact{PrimaryWrite(kernel.ToolWrite, Allow), Discard(Block)})
+	RecordFacts(Source{Root: t.TempDir()}, factsOf([]Fact{PrimaryWrite(kernel.ToolWrite, Allow), Discard(Block)}))
 	if len(*got) != 2 {
 		t.Fatalf("wrote %d events, want 2", len(*got))
 	}
@@ -258,5 +262,94 @@ func TestRecordFacts_AFactAboutThePrimaryCheckoutIsFiledAsPrimary(t *testing.T) 
 	}
 	if v, ok := (*got)[1].Detail["primary"]; ok {
 		t.Errorf("a discard is not about the primary checkout, but carries primary=%q", v)
+	}
+}
+
+func factsOf(f []Fact) func() []Fact { return func() []Fact { return f } }
+
+// repoOnBranch is a directory that reads as a checkout of branch.
+func repoOnBranch(t *testing.T, branch string) string {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "HEAD"), []byte("ref: refs/heads/"+branch+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+// A fact about another checkout than the call's is filed under that checkout's
+// own lane and worktree, not the call's.
+func TestRecordFacts_AFactNamingItsOwnRootIsFiledUnderThatRootsLane(t *testing.T) {
+	got := capture(t)
+	callRoot, primary := repoOnBranch(t, "lane/call"), repoOnBranch(t, "main")
+	pw := PrimaryWrite(kernel.ToolBash, Allow)
+	pw.Root = primary
+	RecordFacts(Source{Root: callRoot}, factsOf([]Fact{pw, Discard(Block)}))
+	if len(*got) != 2 {
+		t.Fatalf("wrote %d events, want 2", len(*got))
+	}
+	if e := (*got)[0]; e.Lane != "main" || e.Detail["wt"] != primary {
+		t.Errorf("primary write filed under lane %q wt %q, want main and %q", e.Lane, e.Detail["wt"], primary)
+	}
+	if e := (*got)[1]; e.Lane != "lane/call" || e.Detail["wt"] != callRoot {
+		t.Errorf("discard filed under lane %q wt %q, want the call's lane/call and %q", e.Lane, e.Detail["wt"], callRoot)
+	}
+}
+
+func TestFlush_WritesEachQueuedRunOnceAndEmptiesTheQueue(t *testing.T) {
+	got := capture(t)
+	run := func() (RunFact, bool) {
+		return RunFact{Word: "timeout", Verdict: kernel.VerdictNotTested, Cause: "timeout"}, true
+	}
+	QueueRun(Source{Root: t.TempDir(), Key: "a"}, run)
+	QueueRun(Source{Root: t.TempDir(), Key: "b"}, run)
+	if len(*got) != 0 {
+		t.Fatalf("queueing wrote %d events before the flush", len(*got))
+	}
+	Flush()
+	Flush()
+	if len(*got) != 2 || (*got)[0].Detail["key"] != "a" || (*got)[1].Detail["key"] != "b" {
+		t.Errorf("after two flushes: %d events %+v, want a then b, once each", len(*got), *got)
+	}
+}
+
+func TestEnabled_OffRecordsNothingAndAsksForNoFacts(t *testing.T) {
+	got := capture(t)
+	old := Enabled
+	Enabled = false
+	t.Cleanup(func() { Enabled = old })
+	asked := false
+	RecordFacts(Source{Root: t.TempDir()}, func() []Fact { asked = true; return []Fact{Discard(Block)} })
+	QueueRun(Source{Root: t.TempDir()}, func() (RunFact, bool) { asked = true; return RunFact{}, false })
+	Flush()
+	if len(*got) != 0 || asked {
+		t.Errorf("with recording off: %d events, facts asked for = %v", len(*got), asked)
+	}
+}
+
+// The hook waits for its record after answering; the wait is reported so the
+// hook's own timing can leave it out.
+func TestTakeWaited_ReportsTheTimeSpentWaitingOnRecordsOnce(t *testing.T) {
+	oldBudget, oldAppend := Budget, appendEvent
+	t.Cleanup(func() { Budget, appendEvent = oldBudget, oldAppend })
+	TakeWaited()
+	Budget = 50 * time.Millisecond
+	release := make(chan struct{})
+	appendEvent = func(core.Event) { <-release }
+	RecordFacts(Source{Root: t.TempDir()}, factsOf([]Fact{Discard(Block)}))
+	close(release)
+	if w := TakeWaited(); w < 40*time.Millisecond || w > 5*time.Second {
+		t.Errorf("waited %v on a writer that outran a 50 ms budget, want about the budget", w)
+	}
+	if w := TakeWaited(); w != 0 {
+		t.Errorf("the wait was reported twice: %v", w)
+	}
+	appendEvent = func(core.Event) {}
+	RecordFacts(Source{Root: t.TempDir()}, factsOf([]Fact{Discard(Block)}))
+	if w := TakeWaited(); w > 40*time.Millisecond {
+		t.Errorf("a prompt writer was waited on for %v", w)
 	}
 }

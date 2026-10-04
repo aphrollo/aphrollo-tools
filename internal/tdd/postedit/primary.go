@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
@@ -204,6 +205,7 @@ var bashLikeTools = map[string]bool{"Bash": true, "PowerShell": true}
 // through, and an absolute path INTO the primary from a worktree's own cwd
 // slipped past unnoticed).
 func PrimaryCheckoutDecision(raw []byte) Decision {
+	noteLanded("")
 	var in primaryGateInput
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return Decision{}
@@ -231,10 +233,11 @@ func PrimaryCheckoutDecision(raw []byte) Decision {
 		if path == "" {
 			return Decision{}
 		}
-		root, ok := PrimaryMergeOnly(filepath.Dir(path))
+		root, ok := primaryProbe(filepath.Dir(path))
 		if !ok {
 			return Decision{}
 		}
+		noteLanded(root)
 		return primaryBlock(root)
 	case bashLikeTools[in.ToolName]:
 		return bashPrimaryDecision(in.Cwd, in.ToolInput.Command)
@@ -242,32 +245,66 @@ func PrimaryCheckoutDecision(raw []byte) Decision {
 	return Decision{}
 }
 
-// PrimaryWaivedLanding reports whether a call that a primary-edits waiver let
-// through would have landed in the primary checkout: the one question
-// PrimaryCheckoutDecision never asks of a waived call. It is false for a call
-// with no waiver, which the wall judged itself. A hook reads it to record what a
-// wall would have done, never to decide.
-func PrimaryWaivedLanding(raw []byte) bool {
+// primaryProbe is how a dir is asked whether it is a merge-only primary
+// checkout; a seam so a test can count the resolutions a hook makes.
+var primaryProbe = PrimaryMergeOnly
+
+// primaryLanded is the primary checkout root this hook call found a write
+// landing in, "" when none: what the wall resolved when it blocked, or what
+// PrimaryLanding resolved for a waived call. A hook is one process and one call,
+// so it is read back by whoever records what the wall did, with no second look.
+var primaryLanded struct {
+	sync.Mutex
+	root string
+}
+
+func noteLanded(root string) {
+	primaryLanded.Lock()
+	primaryLanded.root = root
+	primaryLanded.Unlock()
+}
+
+func landedRoot() string {
+	primaryLanded.Lock()
+	defer primaryLanded.Unlock()
+	return primaryLanded.root
+}
+
+// PrimaryLanding is the root of the primary checkout the call writes into, "" when
+// it writes into none, for a hook that records what the wall did and never
+// decides. A call the wall blocked is answered from what the wall resolved. A call
+// a primary-edits waiver let through is the one the wall never looked at: it is
+// resolved here, once per directory its writes name (a shell command can name many
+// writes into one). A call with no waiver that the wall passed lands nowhere.
+func PrimaryLanding(raw []byte) string {
+	if root := landedRoot(); root != "" {
+		return root
+	}
 	var in primaryGateInput
 	if err := json.Unmarshal(raw, &in); err != nil || !PrimaryEditsAllowed(in.SessionID) {
-		return false
+		return ""
 	}
+	var paths []string
 	switch {
 	case gatedEditTools[in.ToolName]:
-		path := cmp.Or(in.ToolInput.FilePath, in.ToolInput.NotebookPath)
-		if path == "" {
-			return false
+		if p := cmp.Or(in.ToolInput.FilePath, in.ToolInput.NotebookPath); p != "" {
+			paths = []string{p}
 		}
-		_, ok := PrimaryMergeOnly(filepath.Dir(path))
-		return ok
 	case bashLikeTools[in.ToolName]:
-		for _, p := range bashWriteTargets(in.ToolInput.Command, in.Cwd) {
-			if _, ok := PrimaryMergeOnly(filepath.Dir(p)); ok {
-				return true
-			}
+		paths = bashWriteTargets(in.ToolInput.Command, in.Cwd)
+	}
+	seen := map[string]bool{}
+	for _, p := range paths {
+		dir := filepath.Dir(p)
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		if root, ok := primaryProbe(dir); ok {
+			return root
 		}
 	}
-	return false
+	return ""
 }
 
 // bashPrimaryDecision judges a shell command by every path it would write,
@@ -277,7 +314,8 @@ func PrimaryWaivedLanding(raw []byte) bool {
 // and catches an absolute path into one even from a worktree's cwd.
 func bashPrimaryDecision(cwd, cmd string) Decision {
 	for _, p := range bashWriteTargets(cmd, cwd) {
-		if root, ok := PrimaryMergeOnly(filepath.Dir(p)); ok {
+		if root, ok := primaryProbe(filepath.Dir(p)); ok {
+			noteLanded(root)
 			return primaryBlockForPath(root, p)
 		}
 	}

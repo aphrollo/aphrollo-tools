@@ -6,12 +6,16 @@ import (
 	lawgate "github.com/aphrollo/aphrollo-tools/internal/tdd/lawgate"
 )
 
+type LawFinding = lawgate.LawFinding
+
 func GitShowBatch(p0 string, p1 string, p2 []string) map[string]string {
 	return lawgate.GitShowBatch(p0, p1, p2)
 }
 
 func ModulePath(p0 string) (string, error) { return lawgate.ModulePath(p0) }
 
-func RatchetAdvisory(p0 []byte) Decision { return lawgate.RatchetAdvisory(p0) }
+func RatchetAdvisoryFindings(p0 []byte) (Decision, []LawFinding) {
+	return lawgate.RatchetAdvisoryFindings(p0)
+}
 
 func ratchetHintLine(p0 string) string { return lawgate.RatchetHintLine(p0) }

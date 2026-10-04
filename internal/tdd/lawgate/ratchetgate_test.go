@@ -212,3 +212,28 @@ func TestRatchetStage_PassesHeadAsTheBase(t *testing.T) {
 		t.Errorf("premergecommit: Options.Base = %q, want %q", got.Base, "HEAD")
 	}
 }
+
+// A caller that records what the law engine found must get each finding with its
+// own law and severity from the one judgement, not a guess from the verdict.
+func TestRatchetAdvisoryFindings_EachFindingCarriesItsOwnLawAndSeverity(t *testing.T) {
+	for _, c := range []struct {
+		severity string
+		deny     bool
+	}{{"deny", true}, {"warn", false}} {
+		root := lawTree(t, c.severity)
+		path := filepath.Join(root, "crates", "a", "src", "lib.rs")
+		raw := ratchetPayload(t, "Write", path, map[string]any{
+			"content": "let a = x.clamp(0.0, 1.0);\nlet b = y.clamp(0.0, 1.0);\n",
+		})
+		d, found := RatchetAdvisoryFindings(raw)
+		if len(found) != 1 || found[0] != (LawFinding{Law: "nan-guard", Deny: c.deny}) {
+			t.Errorf("severity %s: findings = %+v, want nan-guard with deny=%v", c.severity, found, c.deny)
+		}
+		if d.Policy != "ratchet:nan-guard" || (d.Action == Block) != c.deny {
+			t.Errorf("severity %s: decision = %+v, want the verdict of the same judgement", c.severity, d)
+		}
+	}
+	if _, found := RatchetAdvisoryFindings([]byte(`{}`)); found != nil {
+		t.Errorf("a payload with no edit has findings: %+v", found)
+	}
+}

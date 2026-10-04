@@ -286,12 +286,15 @@ func deferredResult(j DeferredJob) (PhaseOutcome, bool) {
 	return out, true
 }
 
+// readPhaseLog reads a phase's log; a seam so a test can count the reads a hook makes.
+var readPhaseLog = os.ReadFile
+
 // deferredLog reads whatever the detached phase printed.
 func deferredLog(j DeferredJob) string {
 	if j.Log == "" {
 		return ""
 	}
-	data, err := os.ReadFile(j.Log)
+	data, err := readPhaseLog(j.Log)
 	if err != nil {
 		return ""
 	}

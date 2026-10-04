@@ -3,7 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"path/filepath"
-	"strings"
+	"slices"
 
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
 	"github.com/aphrollo/aphrollo-tools/internal/shadow"
@@ -13,19 +13,29 @@ import (
 // preShadow gathers what one PreToolUse judgement observed, as facts for the
 // shadow record: the rules the kernel decides from the call's own facts, and
 // what the gate did about each. It decides nothing and the gate never reads it
-// back. The nil value is a collector that keeps nothing.
+// back. It gathers by flags and values only; whatever needs a look at the
+// repository is asked for inside the record's own bound (record).
 type preShadow struct {
-	bash  bool
+	raw  []byte
+	bash bool
+
 	facts []shadow.Fact
+
+	// The primary-checkout wall is recorded lazily: where its write lands is a
+	// question for the record, not for the hook.
+	primaryBlocked bool // the wall blocked the call
+	primaryWaived  bool // a waiver let the call by the wall unlooked at
+
+	// final is what the call came to once every judgement was folded: a waived
+	// call a later judgement blocked was blocked.
+	final shadow.Action
 }
 
-func newPreShadow(raw []byte) *preShadow { return &preShadow{bash: tdd.IsBashHook(raw)} }
-
-func (p *preShadow) add(f shadow.Fact) {
-	if p != nil {
-		p.facts = append(p.facts, f)
-	}
+func newPreShadow(raw []byte) *preShadow {
+	return &preShadow{raw: raw, bash: tdd.IsBashHook(raw), final: shadow.Allow}
 }
+
+func (p *preShadow) add(f shadow.Fact) { p.facts = append(p.facts, f) }
 
 func (p *preShadow) tool() kernel.Tool {
 	if p.bash {
@@ -36,12 +46,12 @@ func (p *preShadow) tool() kernel.Tool {
 
 // wall notes the wall that blocked the call, by the policy it counts under.
 func (p *preShadow) wall(d tdd.Decision) {
-	if p == nil || d.Action != tdd.Block {
+	if d.Action != tdd.Block {
 		return
 	}
 	switch d.Policy {
 	case "primary-checkout":
-		p.add(shadow.PrimaryWrite(p.tool(), shadow.Block))
+		p.primaryBlocked = true
 	case "discard-bash":
 		p.add(shadow.Discard(shadow.Block))
 	case "direct-pr-open":
@@ -51,21 +61,24 @@ func (p *preShadow) wall(d tdd.Decision) {
 	}
 }
 
-// primaryWaived notes a write into the primary checkout that a waiver let by.
-func (p *preShadow) primaryWaived(raw []byte) {
-	if p != nil && tdd.PrimaryWaivedLanding(raw) {
-		p.add(shadow.PrimaryWrite(p.tool(), shadow.Allow))
+// passedWalls notes that no wall blocked the call: a write a primary-edits waiver
+// let through is one the wall never looked at.
+func (p *preShadow) passedWalls() { p.primaryWaived = true }
+
+// law notes each finding of the law engine over the edit, by its own severity: a
+// deny finding is the deny-law-edit rule, a warn finding the warn-law rule.
+func (p *preShadow) law(found []tdd.LawFinding) {
+	for _, f := range found {
+		actual := shadow.Warn
+		if f.Deny {
+			actual = shadow.Block
+		}
+		p.add(shadow.Law("ratchet:"+f.Law, f.Deny, actual))
 	}
 }
 
-// law notes what the law engine said of the edit.
-func (p *preShadow) law(r tdd.Decision) {
-	law, ok := strings.CutPrefix(r.Policy, "ratchet:")
-	if p == nil || !ok || r.Action == tdd.Allow {
-		return
-	}
-	p.add(shadow.Law(law, r.Action == tdd.Block, actionOf(r)))
-}
+// settle notes what the call came to.
+func (p *preShadow) settle(final tdd.Decision) { p.final = actionOf(final) }
 
 func actionOf(d tdd.Decision) shadow.Action {
 	switch d.Action {
@@ -78,20 +91,33 @@ func actionOf(d tdd.Decision) shadow.Action {
 }
 
 // record writes the facts the call yielded, after the hook's answer is written:
-// record-only, bounded by shadow.Budget, never an error to the hook.
-func (p *preShadow) record(raw []byte) {
-	if p == nil || len(p.facts) == 0 {
+// record-only and bounded by shadow.Budget, so the hook waits at most that long
+// and never fails on it.
+func (p *preShadow) record() {
+	src, ok := hookSource(p.raw)
+	if !ok || (len(p.facts) == 0 && !p.primaryBlocked && !p.primaryWaived) {
 		return
 	}
-	src, ok := hookSource(raw)
-	if !ok {
-		return
-	}
-	shadow.RecordFacts(src, p.facts)
+	shadow.RecordFacts(src, func() []shadow.Fact {
+		facts := slices.Clone(p.facts)
+		if p.primaryBlocked || p.primaryWaived {
+			if root := tdd.PrimaryLanding(p.raw); root != "" {
+				actual := shadow.Block
+				if !p.primaryBlocked {
+					actual = p.final
+				}
+				f := shadow.PrimaryWrite(p.tool(), actual)
+				f.Root = root
+				facts = append(facts, f)
+			}
+		}
+		return facts
+	})
 }
 
 // hookSource is where a hook's records are filed: the root of the file an edit
-// names, else the cwd, and the actor as the other events name it.
+// names, else the cwd, and the actor as the other events name it. A fact about
+// another checkout names its own root.
 func hookSource(raw []byte) (shadow.Source, bool) {
 	var in struct {
 		SessionID string `json:"session_id"`

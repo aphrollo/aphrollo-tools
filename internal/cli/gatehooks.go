@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/run"
+	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -140,8 +142,18 @@ func gateVerdictWord(code int) string {
 // hook, how long it took, and the actor (session, and agent when a subagent
 // made the call). The userpromptsubmit ones are the message boundaries edits
 // per message are counted between. An unreadable payload still gets its timing,
-// with no actor and no repo.
+// with no actor and no repo. The time the hook spent waiting for its shadow
+// records, which it does after answering, is left out of the seconds and said
+// apart.
 func recordHookTiming(hook string, raw []byte, start time.Time) {
+	e := hookTimingEvent(hook, raw, time.Since(start), shadow.TakeWaited())
+	tdd.AppendEvent(e)
+}
+
+// hookTimingEvent is the hook.timing event of a hook that took elapsed, of which
+// waited was spent on shadow records: the seconds are the hook's own, and the wait
+// is in detail shadow_ms.
+func hookTimingEvent(hook string, raw []byte, elapsed, waited time.Duration) tdd.Event {
 	var in struct {
 		SessionID string `json:"session_id"`
 		AgentID   string `json:"agent_id"`
@@ -152,6 +164,9 @@ func recordHookTiming(hook string, raw []byte, start time.Time) {
 	if in.AgentID != "" {
 		actor += "/" + in.AgentID
 	}
-	tdd.AppendEvent(tdd.Event{Kind: "hook.timing", Root: in.Cwd, Actor: actor, Secs: time.Since(start).Seconds(),
-		Detail: map[string]string{"hook": hook}})
+	detail := map[string]string{"hook": hook}
+	if waited > 0 {
+		detail["shadow_ms"] = strconv.FormatInt(waited.Milliseconds(), 10)
+	}
+	return tdd.Event{Kind: "hook.timing", Root: in.Cwd, Actor: actor, Secs: max(elapsed-waited, 0).Seconds(), Detail: detail}
 }

@@ -428,6 +428,9 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer recordHookTiming(args[0], raw, time.Now())
+	// Runs before the timing above: the records the hook queued are written after
+	// its answer, and the wait is left out of its time.
+	defer shadow.Flush()
 
 	switch args[0] {
 	case "sessionstart":
@@ -475,12 +478,14 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	guard := guardrailDecision(raw)
 	tdd.LogEditDecision(raw, guard)
 	obs := newPreShadow(raw)
-	payload, code := tdd.RenderPreToolUse(mergeGuardrail(guard, gatePreToolUse(raw, stderr, obs)))
+	final := mergeGuardrail(guard, gatePreToolUse(raw, stderr, obs))
+	obs.settle(final)
+	payload, code := tdd.RenderPreToolUse(final)
 	if len(payload) > 0 {
 		stdout.Write(payload)
 	}
 	// After the answer is written: the shadow record never changes it.
-	obs.record(raw)
+	obs.record()
 	return code
 }
 
@@ -498,7 +503,7 @@ func gatePreToolUse(raw []byte, stderr io.Writer, obs *preShadow) tdd.Decision {
 			return decision
 		}
 	}
-	obs.primaryWaived(raw)
+	obs.passedWalls()
 
 	// A redundant whole-suite invocation (`go test`, `cargo test`, `cargo
 	// nextest run`, no narrowing) is judged before the snapshot/diff pair
@@ -531,8 +536,8 @@ func gatePreToolUse(raw []byte, stderr io.Writer, obs *preShadow) tdd.Decision {
 	// smell already blocking keeps its own reason; otherwise the more severe
 	// verdict wins, so a deny law denies the write before it lands.
 	if decision.Action != tdd.Block {
-		advisory := tdd.RatchetAdvisory(raw)
-		obs.law(advisory)
+		advisory, found := tdd.RatchetAdvisoryFindings(raw)
+		obs.law(found)
 		decision = mergeRatchetAdvisory(decision, advisory)
 	}
 	// When everything above allows the edit, fall through to the worktree

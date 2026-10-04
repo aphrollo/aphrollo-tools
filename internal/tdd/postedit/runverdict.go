@@ -81,12 +81,20 @@ func phaseVerdict(j DeferredJob, out PhaseOutcome) (result kernel.Verdict, cause
 	if out.SetupFailed {
 		return kernel.VerdictNotTested, causeInfra, true
 	}
-	res := phaseSuiteResult(j, out)
+	return phaseVerdictOf(j.Phase, phaseSuiteResult(j, out), out)
+}
+
+// phaseVerdictOf is phaseVerdict over a result the caller has read already, so a
+// caller that holds one does not read the phase's log a second time.
+func phaseVerdictOf(phase string, res SuiteResult, out PhaseOutcome) (result kernel.Verdict, cause string, ok bool) {
+	if out.SetupFailed {
+		return kernel.VerdictNotTested, causeInfra, true
+	}
 	switch {
 	case res.Inconclusive != "":
 		return kernel.VerdictNotTested, causeSkipped, true
 	case out.ExitCode == 0:
-		if j.Phase != "run" {
+		if phase != "run" {
 			return "", "", false
 		}
 		if runnerTimeoutsOnly(res.Output) {
@@ -367,16 +375,17 @@ func redRunOf(v store.Verdict, unit string) (store.RunVerdict, bool) {
 	return red, found
 }
 
-// shadowRun records, beside aphrollo's line for a finished run (word is the
-// verdict word it logged, "" when its line is no verdict), what the kernel makes
-// of the same run. It is record-only and bounded: it reads the phase's log inside
-// the shadow budget, and a run it cannot classify is not recorded.
-func shadowRun(j DeferredJob, out PhaseOutcome, root, word string) {
+// queueShadowRun holds, for the shadow record, what the kernel makes of a finished
+// run beside aphrollo's line for it (word is the verdict word it logged, "" when
+// its line is no verdict). It reads nothing: res is the result the harvest has
+// already read, taken before the harvest adjusts it, and the record is written by
+// shadow.Flush after the hook has answered.
+func queueShadowRun(j DeferredJob, out PhaseOutcome, res SuiteResult, root, word string) {
 	if word == "" {
 		return
 	}
-	shadow.RecordRun(shadow.Source{Root: root, Actor: j.Session, Key: out.TreeKey}, func() (shadow.RunFact, bool) {
-		verdict, cause, ok := phaseVerdict(j, out)
+	verdict, cause, ok := phaseVerdictOf(j.Phase, res, out)
+	shadow.QueueRun(shadow.Source{Root: root, Actor: j.Session, Key: out.TreeKey}, func() (shadow.RunFact, bool) {
 		return shadow.RunFact{Word: word, Verdict: verdict, Cause: cause}, ok
 	})
 }

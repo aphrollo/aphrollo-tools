@@ -402,27 +402,38 @@ func TestPrimaryCheckout_WithNoTrunkItStillWallsMasterButNotAnotherBranch(t *tes
 	}
 }
 
-func TestPrimaryWaivedLanding_SaysWhereAWaivedCallWouldHaveLanded(t *testing.T) {
+// ratchet: test_removed TestPrimaryWaivedLanding_SaysWhereAWaivedCallWouldHaveLanded: replaced by PrimaryLanding, which also answers what the wall resolved
+func TestPrimaryLanding_SaysWhereACallLandsThatTheWallBlockedOrAWaiverLetBy(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	primary, linked := primaryRepo(t)
 	inPrimary := editPayload(t, "Edit", filepath.Join(primary, "main.go"), "w1")
 	inLane := editPayload(t, "Edit", filepath.Join(linked, "main.go"), "w1")
 	bash := bashPayload(t, "w1", primary, "echo hi > notes.txt")
-
-	// With no waiver the wall itself decided: there is nothing to report.
-	for name, raw := range map[string][]byte{"edit": inPrimary, "bash": bash} {
-		if PrimaryWaivedLanding(raw) {
-			t.Errorf("%s: no waiver, but PrimaryWaivedLanding reported a landing", name)
+	landing := func(raw []byte) string {
+		PrimaryCheckoutDecision(raw) // the wall first, as the hook runs it
+		return PrimaryLanding(raw)
+	}
+	wantPrimary := func(what, got string) {
+		t.Helper()
+		if got == "" || filepath.Clean(got) != filepath.Clean(primary) {
+			t.Errorf("%s landed in %q, want the primary root %q", what, got, primary)
 		}
 	}
+
+	// No waiver: the wall blocks a write into the primary checkout and the landing
+	// is what it resolved; a write into a lane lands nowhere.
+	t.Setenv(PrimaryEditsEnv, "")
+	wantPrimary("a blocked edit", landing(inPrimary))
+	wantPrimary("a blocked shell write", landing(bash))
+	if got := landing(inLane); got != "" {
+		t.Errorf("an edit into a linked worktree landed in %q, want none", got)
+	}
+
+	// Waived: the wall never looks, and the landing resolves it.
 	t.Setenv(PrimaryEditsEnv, "1")
-	if !PrimaryWaivedLanding(inPrimary) {
-		t.Error("a waived edit into the primary checkout should report that it lands there")
-	}
-	if !PrimaryWaivedLanding(bash) {
-		t.Error("a waived shell write into the primary checkout should report that it lands there")
-	}
-	if PrimaryWaivedLanding(inLane) {
-		t.Error("a waived edit into a linked worktree does not land in the primary checkout")
+	wantPrimary("a waived edit", landing(inPrimary))
+	wantPrimary("a waived shell write", landing(bash))
+	if got := landing(inLane); got != "" {
+		t.Errorf("a waived edit into a linked worktree landed in %q, want none", got)
 	}
 }
