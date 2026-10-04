@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aphrollo/aphrollo-tools/internal/ghtransport"
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github/ghtransport"
 )
 
 // `gh pr view`/`create`/`merge` resolve rich fields (mergeable,

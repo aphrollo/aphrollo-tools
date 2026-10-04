@@ -1,0 +1,90 @@
+test-windows (rest)	Test (race + shuffle), shard rest	﻿2026-10-04T01:10:18.0174243Z ##[group]Run set -euo pipefail
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0174648Z [36;1mset -euo pipefail[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0175617Z [36;1mm=$(go list -m)[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0175845Z [36;1mcase "$SHARD" in[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0176128Z [36;1m  mutation) pkgs="$m/internal/tdd/mutation" ;;[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0176458Z [36;1m  cli) pkgs="$m/internal/cli" ;;[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0176739Z [36;1m  tdd-root) pkgs="$m/internal/tdd" ;;[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0177262Z [36;1m  tdd-sub) pkgs=$(go list ./internal/tdd/... | grep -vx -e "$m/internal/tdd" -e "$m/internal/tdd/mutation") ;;[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0177920Z [36;1m  rest) pkgs=$(go list ./... | grep -v -e "^$m/internal/tdd" -e "^$m/internal/cli\$") ;;[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0178362Z [36;1m  *) echo "unknown shard $SHARD"; exit 1 ;;[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0178634Z [36;1mesac[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0178898Z [36;1m[ -n "$pkgs" ] || { echo "shard $SHARD holds no package"; exit 1; }[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0179231Z [36;1mecho "$pkgs"[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0179544Z [36;1mgo test -race -count=1 -shuffle=on -timeout=1500s $pkgs[0m
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0199208Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0199605Z env:
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0199774Z   GOTOOLCHAIN: local
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0199969Z   SHARD: rest
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0200140Z   TMP: D:\a\_temp
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0200319Z   TEMP: D:\a\_temp
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:18.0200494Z ##[endgroup]
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2915421Z github.com/aphrollo/aphrollo-tools/cmd/aphrollo
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2916171Z github.com/aphrollo/aphrollo-tools/internal/argvbatch
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2917076Z github.com/aphrollo/aphrollo-tools/internal/buildinfo
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2917663Z github.com/aphrollo/aphrollo-tools/internal/ciwhy
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2918269Z github.com/aphrollo/aphrollo-tools/internal/commitrecord
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2918898Z github.com/aphrollo/aphrollo-tools/internal/compat
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2919515Z github.com/aphrollo/aphrollo-tools/internal/depinstall
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2920157Z github.com/aphrollo/aphrollo-tools/internal/dev
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2920675Z github.com/aphrollo/aphrollo-tools/internal/diff
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2921197Z github.com/aphrollo/aphrollo-tools/internal/docs
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2921689Z github.com/aphrollo/aphrollo-tools/internal/engine
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2922315Z github.com/aphrollo/aphrollo-tools/internal/ghtransport
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2922953Z github.com/aphrollo/aphrollo-tools/internal/ghworkflow
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2923550Z github.com/aphrollo/aphrollo-tools/internal/git
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2924077Z github.com/aphrollo/aphrollo-tools/internal/gitenv
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2924605Z github.com/aphrollo/aphrollo-tools/internal/gitiso
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2925162Z github.com/aphrollo/aphrollo-tools/internal/guardrail
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2925723Z github.com/aphrollo/aphrollo-tools/internal/kernel
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2926245Z github.com/aphrollo/aphrollo-tools/internal/lang
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2926795Z github.com/aphrollo/aphrollo-tools/internal/lsp
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2927136Z github.com/aphrollo/aphrollo-tools/internal/mask
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2927478Z github.com/aphrollo/aphrollo-tools/internal/measure
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2927799Z github.com/aphrollo/aphrollo-tools/internal/proc
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2928112Z github.com/aphrollo/aphrollo-tools/internal/ratchet
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2928440Z github.com/aphrollo/aphrollo-tools/internal/refactor
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2928774Z github.com/aphrollo/aphrollo-tools/internal/release
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2929094Z github.com/aphrollo/aphrollo-tools/internal/render
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2929420Z github.com/aphrollo/aphrollo-tools/internal/rootseam
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2929737Z github.com/aphrollo/aphrollo-tools/internal/run
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2930073Z github.com/aphrollo/aphrollo-tools/internal/run/runtest
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2930478Z github.com/aphrollo/aphrollo-tools/internal/run/runtest/chaintool
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2930856Z github.com/aphrollo/aphrollo-tools/internal/shfake
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2933655Z github.com/aphrollo/aphrollo-tools/internal/sqlc
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2934199Z github.com/aphrollo/aphrollo-tools/internal/store
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2934563Z github.com/aphrollo/aphrollo-tools/internal/tomlsubset
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2934931Z github.com/aphrollo/aphrollo-tools/internal/undercover
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2935285Z github.com/aphrollo/aphrollo-tools/internal/workspace
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2935624Z github.com/aphrollo/aphrollo-tools/tools/cireuse
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2935955Z github.com/aphrollo/aphrollo-tools/tools/flakehunt
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2936301Z github.com/aphrollo/aphrollo-tools/tools/replay
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.2936633Z github.com/aphrollo/aphrollo-tools/tools/tddsplit
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:20.3788155Z go: downloading pgregory.net/rapid v1.3.0
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:39.2201724Z ?   	github.com/aphrollo/aphrollo-tools/cmd/aphrollo	[no test files]
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:45.4632465Z ok  	github.com/aphrollo/aphrollo-tools/internal/argvbatch	5.313s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:45.4633937Z ok  	github.com/aphrollo/aphrollo-tools/internal/buildinfo	1.105s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:45.4634937Z ok  	github.com/aphrollo/aphrollo-tools/internal/ciwhy	1.127s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:45.4636093Z ok  	github.com/aphrollo/aphrollo-tools/internal/commitrecord	1.876s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:45.4637387Z ok  	github.com/aphrollo/aphrollo-tools/internal/compat	1.139s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:45.4638321Z ok  	github.com/aphrollo/aphrollo-tools/internal/depinstall	1.255s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:45.4639194Z ok  	github.com/aphrollo/aphrollo-tools/internal/dev	1.203s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:45.8503715Z ok  	github.com/aphrollo/aphrollo-tools/internal/diff	1.132s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:10:46.8071732Z ok  	github.com/aphrollo/aphrollo-tools/internal/docs	1.437s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0562724Z ok  	github.com/aphrollo/aphrollo-tools/internal/engine	76.191s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0563723Z ok  	github.com/aphrollo/aphrollo-tools/internal/ghtransport	2.344s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0564561Z ok  	github.com/aphrollo/aphrollo-tools/internal/ghworkflow	33.760s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0565350Z ok  	github.com/aphrollo/aphrollo-tools/internal/git	14.000s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0566050Z ok  	github.com/aphrollo/aphrollo-tools/internal/gitenv	5.600s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0566745Z ok  	github.com/aphrollo/aphrollo-tools/internal/gitiso	11.587s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0567892Z ok  	github.com/aphrollo/aphrollo-tools/internal/guardrail	1.115s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0568633Z ok  	github.com/aphrollo/aphrollo-tools/internal/kernel	2.247s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0569259Z ok  	github.com/aphrollo/aphrollo-tools/internal/lang	1.126s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0569872Z ok  	github.com/aphrollo/aphrollo-tools/internal/lsp	1.132s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0570618Z ok  	github.com/aphrollo/aphrollo-tools/internal/mask	18.270s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0571278Z ok  	github.com/aphrollo/aphrollo-tools/internal/measure	1.126s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0571949Z ok  	github.com/aphrollo/aphrollo-tools/internal/proc	1.292s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0572635Z ok  	github.com/aphrollo/aphrollo-tools/internal/ratchet	33.411s
+test-windows (rest)	Test (race + shuffle), shard rest	2026-10-04T01:12:08.0573384Z ok  	github.com/aphrollo/aphrollo-tools/internal/refactor	6.536s
+test-windows (rest)	Test (race +
+[truncated when recorded]

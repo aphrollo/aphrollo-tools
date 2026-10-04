@@ -35,6 +35,15 @@ var execWrappers = map[string]bool{
 // A new spread call site is not in the table, so this test fails on it: put
 // the list through this package, or say here what bounds it.
 var spreadCallSites = map[string]string{
+	"internal/integrate/host/github/checks.go:jsonLines":             "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/issues.go:EnsureLabel":           "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/issues.go:OpenIssue":             "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/pulls.go:OpenPR":                 "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/queue.go:Enqueue":                "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/queue.go:Merge":                  "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/runs.go:JobLog":                  "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/runs.go:RunLog":                  "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/runs.go:jsonOf":                  "bounded: fixed gh arguments plus the few values of one request",
 	"internal/ciwhy/why.go:Raw":                                      "bounded: fixed gh run arguments",
 	"internal/ciwhy/why.go:explainJob":                               "bounded: fixed gh run arguments",
 	"internal/ciwhy/why.go:ghJSON":                                   "bounded: fixed gh run arguments",
