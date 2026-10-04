@@ -174,9 +174,9 @@ func runWorkflows(ctx context.Context, lane, wt string, tips prGateTips, commit 
 	}
 	event := map[string]any{
 		"sha": commit, "base_sha": tips.trunk, "head_sha": tips.lane,
-		"head_ref":   strings.TrimSpace(gitOut(lane, "rev-parse", "--abbrev-ref", "HEAD")),
+		"head_ref":   laneBranchOf(lane),
 		"base_ref":   strings.TrimPrefix(tips.trunkRef, "origin/"),
-		"repository": repoSlug(strings.TrimSpace(gitOut(lane, "config", "--get", "remote.origin.url"))),
+		"repository": repoSlug(originURL(lane)),
 	}
 	return ghworkflow.Run(ctx, flows, ghworkflow.Options{Dir: wt, Out: log, Event: event, Jobs: run.Jobs, StepTimeout: run.StepTimeout})
 }

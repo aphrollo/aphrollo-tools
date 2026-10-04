@@ -125,6 +125,8 @@ type CIStatus struct {
 	NotStarted int
 	SHA        string
 	NoRun      bool // no check exists for SHA yet
+	// Checks counts the check runs on SHA, Skipped those that concluded skipped.
+	Checks, Skipped int
 	// Cause says why a red was red: test, mutation or other (ciCause). "" unless red.
 	Cause string
 }
@@ -157,13 +159,17 @@ var ghCIStatus = func(wt, sha string) (CIStatus, error) {
 	if err != nil {
 		return CIStatus{}, err
 	}
-	failing, pending, notStarted, reached := 0, 0, 0, false
+	failing, pending, notStarted, checks, skipped, reached := 0, 0, 0, 0, 0, false
 	var failed []string
 	for _, r := range runs {
 		if r.SHA != sha {
 			continue
 		}
 		reached = true
+		checks++
+		if strings.EqualFold(r.Conclusion, "skipped") {
+			skipped++
+		}
 		switch classifyCheckRun(r) {
 		case "fail":
 			if r.NotStarted {
@@ -186,7 +192,7 @@ var ghCIStatus = func(wt, sha string) (CIStatus, error) {
 	case notStarted > 0:
 		return CIStatus{State: "unavailable", NotStarted: notStarted, SHA: sha}, nil
 	default:
-		return CIStatus{State: "green", SHA: sha}, nil
+		return CIStatus{State: "green", SHA: sha, Checks: checks, Skipped: skipped}, nil
 	}
 }
 
@@ -221,7 +227,11 @@ func PRPlan(t *Target, base, title, body string, draft bool) (*PR, error) {
 		return nil, err
 	}
 	if base == "" {
-		base = resolveDefaultBranch(t.Worktree)
+		def, err := needDefaultBranch(t.Worktree)
+		if err != nil {
+			return nil, err
+		}
+		base = def
 	}
 	return &PR{
 		Target: t,
@@ -317,3 +327,6 @@ func reuseOpenPR(wt, branch string) (*PRInfo, error) {
 func reportPRState(stdout io.Writer, info *PRInfo) {
 	fmt.Fprintf(stdout, "pr-url: %s\npr-state: %s\n", info.URL, prStateWord(info))
 }
+
+// AllSkipped reports a head whose every check concluded skipped: no check ran.
+func (c CIStatus) AllSkipped() bool { return c.Checks > 0 && c.Skipped == c.Checks }

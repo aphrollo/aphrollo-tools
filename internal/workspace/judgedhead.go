@@ -48,7 +48,7 @@ func laneAtHeadReal(wt, prHead string, pr int) error {
 		return &JudgedHeadError{Msg: fmt.Sprintf("lane %s is not readable (%v) — run the merge from the lane that holds the PR's branch", wt, err)}
 	}
 	if laneHead == prHead {
-		out, err := lightGit("-C", wt, "status", "--porcelain", "--untracked-files=no") // stderr-ok: a failed status is reported as the refusal below
+		out, err := wtGit(wt, "status", "--porcelain", "--untracked-files=no") // stderr-ok: a failed status is reported as the refusal below
 		if err != nil {
 			return &JudgedHeadError{Msg: fmt.Sprintf("could not read the lane's uncommitted changes (%v), so it is not known to be the PR head %s", err, short(prHead))}
 		}
@@ -57,15 +57,15 @@ func laneAtHeadReal(wt, prHead string, pr int) error {
 		}
 		return nil
 	}
-	if !lightGitOK("-C", wt, "cat-file", "-e", prHead+"^{commit}") {
+	if !wtGitOK(wt, "cat-file", "-e", prHead+"^{commit}") {
 		// The lane never fetched the PR's head (someone else pushed it, or it
 		// is a different branch than the lane's own): ask GitHub for it.
-		_, _ = gitNetworkOutput(wt, "fetch", "--quiet", "origin", "refs/pull/"+strconv.Itoa(pr)+"/head")
-		if !lightGitOK("-C", wt, "cat-file", "-e", prHead+"^{commit}") {
+		_, _ = wtNetwork(wt, "fetch", "--quiet", "origin", "refs/pull/"+strconv.Itoa(pr)+"/head")
+		if !wtGitOK(wt, "cat-file", "-e", prHead+"^{commit}") {
 			return &JudgedHeadError{Msg: fmt.Sprintf("lane HEAD %s is not the PR head %s, and the lane does not hold that commit — fetch it (git fetch origin) and merge again", short(laneHead), short(prHead))}
 		}
 	}
-	out, err := lightGit("-C", wt, "rev-list", "--left-right", "--count", laneHead+"..."+prHead) // stderr-ok: a failed count is reported as the refusal below
+	out, err := wtGit(wt, "rev-list", "--left-right", "--count", laneHead+"..."+prHead) // stderr-ok: a failed count is reported as the refusal below
 	if err != nil {
 		return &JudgedHeadError{Msg: fmt.Sprintf("lane HEAD %s is not the PR head %s, and the commits between them could not be counted (%v)", short(laneHead), short(prHead), err)}
 	}

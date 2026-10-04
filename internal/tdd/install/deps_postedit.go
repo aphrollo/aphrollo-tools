@@ -8,8 +8,8 @@ import (
 
 const DefaultPostEditTimeout = postedit.DefaultPostEditTimeout
 
-const primaryBranch = postedit.PrimaryBranch
-
-func PrimaryCheckoutState(p0 string) (string, string, bool) { return postedit.PrimaryCheckoutState(p0) }
+func PrimaryCheckoutState(p0 string) (string, string, string, bool) {
+	return postedit.PrimaryCheckoutState(p0)
+}
 
 func PrimaryMergeOnly(p0 string) (string, bool) { return postedit.PrimaryMergeOnly(p0) }

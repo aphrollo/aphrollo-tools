@@ -74,7 +74,7 @@ func TestGhCIStatus_ClassifiesRealStates(t *testing.T) {
 		{"running is pending", []CheckRun{{SHA: sha, Status: "queued"}, greenRun(sha)}, CIStatus{State: "pending", SHA: sha}},
 		{"skipped and neutral pass", []CheckRun{
 			{SHA: sha, Status: "completed", Conclusion: "skipped"},
-			{SHA: sha, Status: "completed", Conclusion: "neutral"}}, CIStatus{State: "green", SHA: sha}},
+			{SHA: sha, Status: "completed", Conclusion: "neutral"}}, CIStatus{State: "green", SHA: sha, Checks: 2, Skipped: 1}},
 		{"completed without conclusion is pending", []CheckRun{{SHA: sha, Status: "completed"}}, CIStatus{State: "pending", SHA: sha}},
 	}
 	for _, c := range cases {

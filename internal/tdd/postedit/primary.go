@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	igit "github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
@@ -30,11 +31,17 @@ import (
 // `aphrollo gate allow primary`, per session; both are stated in the refusal.
 const PrimaryEditsEnv = "APHROLLO_PRIMARY_EDITS"
 
-// primaryBranch is the branch a primary checkout is expected to hold. Not a
-// setting: the whole rule is "this checkout stays on main and receives
-// merges", and a repo whose trunk is called something else simply never
-// matches, which is the fail-open direction.
-const primaryBranch = "main"
+// primaryTrunk is the branch a primary checkout is expected to hold: the repo's
+// trunk, as the client reads it (origin/HEAD, else a configured or conventional
+// branch). Not a setting: the whole rule is "this checkout stays on trunk and
+// receives merges", and a repo whose trunk cannot be told never matches, which
+// is the fail-open direction.
+// The client keeps a trunk it found for the life of the process. That is right
+// for a hook, which lives for one tool call; a long-lived caller would have to
+// ask a new client.
+func primaryTrunk(c *igit.Client) string {
+	return strings.TrimPrefix(c.Trunk(), "origin/")
+}
 
 // primaryCheckoutPolicy is the name a refusal is COUNTED under in gate.log.
 const primaryCheckoutPolicy = "primary-checkout"
@@ -44,30 +51,30 @@ const primaryCheckoutPolicy = "primary-checkout"
 // AND the repo has at least one linked worktree. Every question is asked of
 // git rather than of the path's spelling — a worktree can live anywhere,
 // including inside the primary checkout's own tree.
-func PrimaryCheckoutState(dir string) (root, branch string, applies bool) {
+func PrimaryCheckoutState(dir string) (root, branch, trunk string, applies bool) {
 	dir = existingAncestorDir(dir)
 	if dir == "" {
-		return "", "", false
+		return "", "", "", false
 	}
 	c := gitx.HookClient(dir)
 	if c == nil {
-		return "", "", false // not a git repo — say nothing
+		return "", "", "", false // not a git repo — say nothing
 	}
 	if c.IsLinkedWorktree() {
-		return "", "", false // a linked worktree: the place work belongs
+		return "", "", "", false // a linked worktree: the place work belongs
 	}
 	if !hasLinkedWorktree(c.CommonDir()) {
-		return "", "", false // an ordinary clone has no primary/lane split to keep
+		return "", "", "", false // an ordinary clone has no primary/lane split to keep
 	}
 	head, err := c.Head()
 	if err != nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	branch = head.Branch
 	if head.Detached {
 		branch = "HEAD" // what `rev-parse --abbrev-ref HEAD` prints of a detached HEAD
 	}
-	return gitx.HookRoot(dir), branch, true
+	return gitx.HookRoot(dir), branch, primaryTrunk(c), true
 }
 
 // PrimaryMergeOnly reports whether dir sits in a repo's primary checkout that
@@ -76,8 +83,8 @@ func PrimaryCheckoutState(dir string) (root, branch string, applies bool) {
 // would leave nowhere at all to work, so `gate doctor` names that state
 // instead.
 func PrimaryMergeOnly(dir string) (root string, ok bool) {
-	root, branch, applies := PrimaryCheckoutState(dir)
-	if !applies || branch != primaryBranch {
+	root, branch, trunk, applies := PrimaryCheckoutState(dir)
+	if !applies || !heldBranch(branch, trunk) {
 		return "", false
 	}
 	return root, true
@@ -156,7 +163,7 @@ func staleWorktreeEntry(adminDir string) bool {
 func PrimaryMergeOnlyReason(root string) string {
 	path := filepath.Join(filepath.Dir(root), ".worktrees", filepath.Base(root), "<name>")
 	reason := "primary checkout is merge-only — git worktree add -b lane/<name> " +
-		shellPath(path) + " " + primaryBranch +
+		shellPath(path) + " " + trunkOf(root) +
 		" (override with `aphrollo gate allow primary`, the only one of these that works from inside a turn)"
 	if hasStaleWorktreeEntry(commonGitDir(root)) {
 		reason += " (a lane dir was removed by hand — git worktree prune clears the stale entry)"
@@ -304,4 +311,24 @@ func PrimaryEditsAllowed(session string) bool {
 // family (Allow/Revoke) already writes.
 func setPrimaryEdits(session string, on bool) error {
 	return setWaiver(session, WallPrimary, on)
+}
+
+// trunkOf is the trunk of the repository root holds, or "<trunk>" when it
+// cannot be told: the line is still a command to adapt, never a wrong name.
+func trunkOf(root string) string {
+	if c := gitx.HookClient(root); c != nil {
+		if t := primaryTrunk(c); t != "" {
+			return t
+		}
+	}
+	return "<trunk>"
+}
+
+// heldBranch reports whether a primary checkout on branch is the one the wall
+// guards. The repo's trunk is guarded; so are main and master, the names the
+// wall guarded before the trunk was read, whatever the trunk resolves to: a
+// trunk that cannot be told, or an origin/HEAD that is stale or odd, never
+// takes the wall off a checkout on either. The wall fails closed.
+func heldBranch(branch, trunk string) bool {
+	return branch == "main" || branch == "master" || (trunk != "" && branch == trunk)
 }

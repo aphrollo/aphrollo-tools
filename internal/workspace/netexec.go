@@ -54,22 +54,6 @@ func networkTimeoutErr(deadlineHit bool, timeout time.Duration, name string, arg
 	return fmt.Errorf("%s %s: timed out after %s — check network connectivity/credentials and retry", name, strings.Join(args, " "), timeout)
 }
 
-// gitNetworkOutput runs a git subcommand that touches the network (fetch,
-// push) under gitNetworkTimeout, in dir, returning combined stdout+stderr
-// like exec.Cmd.CombinedOutput.
-func gitNetworkOutput(dir string, args ...string) ([]byte, error) {
-	var out bytes.Buffer
-	err := networkRun(dir, nil, gitNetworkTimeout, &out, &out, "git", args...)
-	return out.Bytes(), err
-}
-
-// gitNetworkStream runs a git subcommand that touches the network with its
-// output streamed live to stdout/stderr (push's progress meter) rather than
-// buffered — same deadline and prompt suppression as gitNetworkOutput.
-func gitNetworkStream(dir string, stdout, stderr io.Writer, args ...string) error {
-	return networkRun(dir, nil, gitNetworkTimeout, stdout, stderr, "git", args...)
-}
-
 // ghOutput runs a gh subcommand under ghTimeout, in dir, returning just
 // stdout (mirroring exec.Cmd.Output).
 func ghOutput(dir string, args ...string) ([]byte, error) {

@@ -52,7 +52,8 @@ func TestRunStep_BoundsANetworkStepToTheDeadlineInsteadOfHangingForever(t *testi
 	defer func(d time.Duration) { gitNetworkTimeout = d }(gitNetworkTimeout)
 	gitNetworkTimeout = 200 * time.Millisecond
 
-	step := Step{Title: "fetch origin", Cmd: []string{"git", "fetch", "origin", "--quiet"}, Network: true}
+	repoDir := initRepo(t)
+	step := Step{Title: "fetch origin", Cmd: []string{"git", "fetch", "origin", "--quiet"}, Dir: repoDir, Network: true}
 	var out, errb strings.Builder
 	started := time.Now()
 	// A real Apply() call always passes a real environment (os.Environ()

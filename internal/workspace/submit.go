@@ -156,7 +156,9 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 	// exists; for a brand-new branch it is "" — count against the default base.
 	newCommits := s.push.ahead
 	if newCommits == "" {
-		newCommits = aheadCount(wt, "origin/"+resolveDefaultBranch(wt))
+		if def := resolveDefaultBranch(wt); def != "" {
+			newCommits = aheadCount(wt, "origin/"+def)
+		}
 	}
 
 	// Push is idempotent — a re-driven submit re-pushes a no-op and reuses the PR.
@@ -180,7 +182,10 @@ func (s *Submit) Apply(stdout, stderr io.Writer) error {
 	// false conflict/unknown, so no extra re-read is needed.
 	opened := false
 	if info == nil {
-		base := resolveDefaultBranch(wt)
+		base, err := needDefaultBranch(wt)
+		if err != nil {
+			return err
+		}
 		if err := mutantsBeforePR(wt, base, s.Skip, stdout, stderr); err != nil {
 			return err
 		}
@@ -268,7 +273,7 @@ func (s *Submit) receiptTail(stdout io.Writer, info *PRInfo, newCommits string, 
 	}
 	switch {
 	case conflict:
-		fmt.Fprintf(stdout, "  merge conflict — rebase onto %s + push (review arms when green)\n", resolveDefaultBranch(s.Target.Worktree))
+		fmt.Fprintf(stdout, "  merge conflict — rebase onto %s + push (review arms when green)\n", defaultBranchLabel(s.Target.Worktree))
 	case ci.State == "green":
 		fmt.Fprintf(stdout, "  ci green\n")
 	case ci.State == "red":

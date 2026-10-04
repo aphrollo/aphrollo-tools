@@ -15,7 +15,7 @@ func TestDoctor_SeesAPrimaryCheckoutParkedOffMain(t *testing.T) {
 	in.Repo = primary
 	gitDo(t, primary, "checkout", "-q", "-b", "lane/parked")
 
-	c := check(t, Doctor(in), "primary checkout on main")
+	c := check(t, Doctor(in), "primary checkout on trunk")
 	if c.OK {
 		t.Fatal("a primary checkout on a lane branch must fail the check")
 	}
@@ -32,7 +32,7 @@ func TestDoctor_AcceptsAPrimaryCheckoutOnMain(t *testing.T) {
 	primary, _ := primaryRepo(t)
 	in.Repo = primary
 
-	if c := check(t, Doctor(in), "primary checkout on main"); !c.OK {
+	if c := check(t, Doctor(in), "primary checkout on trunk"); !c.OK {
 		t.Fatalf("a primary checkout on main is the healthy state: %s", c.Detail)
 	}
 }
@@ -43,7 +43,7 @@ func TestDoctor_SkipsThePrimaryCheckoutCheckInALinkedWorktree(t *testing.T) {
 	in.Repo = linked
 
 	for _, c := range Doctor(in) {
-		if c.Name == "primary checkout on main" {
+		if c.Name == "primary checkout on trunk" {
 			t.Fatal("the check judges the primary checkout, not the worktree the run happens in")
 		}
 	}
@@ -58,8 +58,23 @@ func TestDoctor_SkipsThePrimaryCheckoutCheckInARepoWithNoWorktrees(t *testing.T)
 	in.Repo = repo
 
 	for _, c := range Doctor(in) {
-		if c.Name == "primary checkout on main" {
+		if c.Name == "primary checkout on trunk" {
 			t.Fatal("an ordinary single-checkout clone has no primary/lane split to keep")
 		}
+	}
+}
+
+// A repo whose trunk cannot be told is reported, not skipped: the check warns
+// with the fix, and passes while it does.
+func TestDoctor_WarnsWhenThePrimaryCheckoutsTrunkIsUnknown(t *testing.T) {
+	in := healthyInstall(t)
+	primary, _ := primaryRepo(t)
+	in.Repo = primary
+	gitDo(t, primary, "branch", "-m", "main", "feature")
+
+	c := check(t, Doctor(in), "primary checkout on trunk")
+
+	if !c.Warn || !strings.Contains(c.Detail, "trunk unknown — run git remote set-head origin --auto") {
+		t.Fatalf("check = %+v, want the unknown trunk named with its fix", c)
 	}
 }

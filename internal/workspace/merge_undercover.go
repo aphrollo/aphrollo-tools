@@ -54,12 +54,12 @@ func mergeBodyArgs(method, subject, body, sha, branch string) []string {
 // merge must pass body explicitly: the repo set `undercover = true` and the
 // method writes a commit body (a rebase writes none). A repo that never
 // asked merges exactly as before.
-func undercoverMerge(t *Target, method, head string) (body, title string, useBody bool, err error) {
+func undercoverMerge(t *Target, method, base, head string) (body, title string, useBody bool, err error) {
 	tells, on := undercover.Load(t.Worktree)
 	if !on {
 		return "", "", false, nil
 	}
-	if err := undercoverPRCommits(t, head, tells); err != nil {
+	if err := undercoverPRCommits(t, base, head, tells); err != nil {
 		return "", "", false, err
 	}
 	if method == "rebase" {
@@ -79,8 +79,8 @@ func undercoverMerge(t *Target, method, head string) (body, title string, useBod
 	if strings.TrimSpace(kept) == "" {
 		kept = title
 	}
-	base := "origin/" + resolveDefaultBranch(t.Worktree)
-	return withClosingTrailers(kept, commitMessagesSince(t.Worktree, base, head)), title, true, nil
+	ensureBaseRef(t.Worktree, base)
+	return withClosingTrailers(kept, commitMessagesSince(t.Worktree, "origin/"+base, head)), title, true, nil
 }
 
 // missingCloses is every issue a lane commit closes that body does not, in
@@ -116,9 +116,10 @@ func withClosingTrailers(body string, commits []string) string {
 }
 
 // undercoverPRCommits refuses when a commit the PR brings — everything on the
-// branch that origin's default branch does not hold — carries a tell.
-func undercoverPRCommits(t *Target, head string, tells undercover.List) error {
-	base := "origin/" + resolveDefaultBranch(t.Worktree)
+// branch that the PR's base branch on origin does not hold — carries a tell.
+func undercoverPRCommits(t *Target, baseBranch, head string, tells undercover.List) error {
+	ensureBaseRef(t.Worktree, baseBranch)
+	base := "origin/" + baseBranch
 	sha, h, hit, err := tells.RangeTell("git", t.Worktree, nil, base+".."+head)
 	if err != nil {
 		return fmt.Errorf("listing the PR's commits (%s..%s): %w", base, short(head), err)
@@ -130,4 +131,17 @@ func undercoverPRCommits(t *Target, head string, tells undercover.List) error {
 		"set your own identity (git config user.name/user.email), rewrite the branch "+
 		"(git rebase --exec 'git commit --amend --no-edit --reset-author' %s) and push it again",
 		sha, h.Field, h.Value, h.Tell, base)
+}
+
+// ensureBaseRef fetches origin/<base> when this clone does not hold it: a PR
+// stacked on a lane, or aimed at a release branch, names a base nobody has
+// fetched here, and the commits it brings cannot be listed without it. The
+// fetch is bounded like every network call of the verb; a failure is left for
+// the listing to report, as it would have been.
+func ensureBaseRef(wt, base string) {
+	if gitRefExists(wt, "refs/remotes/origin/"+base) {
+		return
+	}
+	// stderr-ok: a failed fetch leaves the ref missing, which the listing that follows reports in its own words.
+	_, _ = wtNetwork(wt, "fetch", "--quiet", "origin", "+refs/heads/"+base+":refs/remotes/origin/"+base)
 }

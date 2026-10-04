@@ -2,6 +2,7 @@ package merge
 
 import (
 	"fmt"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 	"io"
 	"path/filepath"
 	"strings"
@@ -60,7 +61,7 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 	if trunk == "" {
 		return nil
 	}
-	if gitOut(mainRepo, "rev-parse", trunk) == "" {
+	if refSHA(mainRepo, trunk) == "" {
 		return nil
 	}
 	merged := mergedBranchTips(mainRepo, trunk)
@@ -142,11 +143,8 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 // local", and trunkBranch's own multi-candidate resolution is the better
 // guess in that case.
 func localTrunkBranch(mainRepo string) string {
-	branch, err := git(mainRepo, "rev-parse", "--abbrev-ref", "HEAD")
-	if err == nil {
-		if name := strings.TrimSpace(branch); name != "" && name != "HEAD" {
-			return name
-		}
+	if name := laneBranchOf(mainRepo); name != "" {
+		return name
 	}
 	return TrunkBranch(mainRepo)
 }
@@ -320,30 +318,22 @@ type mergePruneWorktree struct{ path, branch string }
 // parked on some other branch must never be swept, and a position-based drop
 // trusts an ordering nothing here enforces.
 func mergePruneWorktrees(mainRepo string) []mergePruneWorktree {
-	out, err := git(mainRepo, "worktree", "list", "--porcelain")
+	c := gitx.HookClient(mainRepo)
+	if c == nil {
+		return nil
+	}
+	list, err := c.Worktrees()
 	if err != nil {
 		return nil
 	}
-	var entries []mergePruneWorktree
-	var cur mergePruneWorktree
-	flush := func() {
-		if cur.path != "" {
-			entries = append(entries, cur)
+	entries := make([]mergePruneWorktree, 0, len(list))
+	for _, w := range list {
+		e := mergePruneWorktree{path: w.Path, branch: w.Head.Branch}
+		if w.Head.Detached || e.branch == "" {
+			e.branch = "HEAD"
 		}
-		cur = mergePruneWorktree{}
+		entries = append(entries, e)
 	}
-	for line := range strings.SplitSeq(out, "\n") {
-		switch {
-		case strings.HasPrefix(line, "worktree "):
-			flush()
-			cur.path = strings.TrimSpace(strings.TrimPrefix(line, "worktree "))
-			cur.branch = "HEAD"
-		case strings.HasPrefix(line, "branch "):
-			ref := strings.TrimSpace(strings.TrimPrefix(line, "branch "))
-			cur.branch = strings.TrimPrefix(ref, "refs/heads/")
-		}
-	}
-	flush()
 	return entries
 }
 

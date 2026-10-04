@@ -69,12 +69,7 @@ func githubOwnerRepo(wt string) (owner, repo string, ok bool) {
 // factored out so githubOwnerRepo shares the exact same remote resolution
 // and normalization branchURL already uses.
 func branchURLBase(wt string) string {
-	// stderr-ok: a failed `remote get-url` just means "not a github remote"; the exit code alone is the whole signal
-	out, err := lightGit("-C", wt, "remote", "get-url", "origin")
-	if err != nil {
-		return ""
-	}
-	return normalizeGitHubURL(strings.TrimSpace(string(out)))
+	return normalizeGitHubURL(wtRemoteURL(wt, "origin"))
 }
 
 // ghAPIPull is the REST "Get/List a pull request" shape — only the fields
@@ -223,22 +218,22 @@ func ghAPIViewByRef(wt, ref string) (*ghAPIPull, error) {
 // template), good enough for the default "no --title" path.
 func fillTitleBody(wt, base, branch string) (title, body string) {
 	// stderr-ok: a failed `git log` here just falls back to the branch name as title; the exit code alone is the whole signal
-	out, err := lightGit("-C", wt, "log", "--reverse", "--format=%H", base+".."+branch)
+	out, err := wtGit(wt, "log", "--reverse", "--format=%H", base+".."+branch)
 	if err != nil {
 		return branch, ""
 	}
 	shas := strings.Fields(string(out))
 	if len(shas) == 1 {
 		// stderr-ok: a failed subject/body read here just falls back to "" — the exit code alone is the whole signal
-		subj, _ := lightGit("-C", wt, "log", "-1", "--format=%s", shas[0])
+		subj, _ := wtGit(wt, "log", "-1", "--format=%s", shas[0])
 		// stderr-ok: same as above — a failed body read falls back to ""
-		bod, _ := lightGit("-C", wt, "log", "-1", "--format=%b", shas[0])
+		bod, _ := wtGit(wt, "log", "-1", "--format=%b", shas[0])
 		return strings.TrimSpace(string(subj)), strings.TrimSpace(string(bod))
 	}
 	var b strings.Builder
 	for _, sha := range shas {
 		// stderr-ok: a failed subject read here just omits that bullet — the exit code alone is the whole signal
-		subj, _ := lightGit("-C", wt, "log", "-1", "--format=%s", sha)
+		subj, _ := wtGit(wt, "log", "-1", "--format=%s", sha)
 		fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(string(subj)))
 	}
 	return branch, b.String()

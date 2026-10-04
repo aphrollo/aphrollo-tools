@@ -31,6 +31,7 @@ import (
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
+	"github.com/aphrollo/aphrollo-tools/internal/git"
 	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
@@ -172,7 +173,7 @@ func BuildPlan(req Request) (*Plan, error) {
 	// offline prepare falls back to local HEAD.
 	defaultBranch := resolveDefaultBranch(top)
 	startPoint := "origin/" + defaultBranch
-	if !gitRefExists(top, startPoint) {
+	if defaultBranch == "" || !gitRefExists(top, startPoint) {
 		startPoint = ""
 	}
 
@@ -193,7 +194,7 @@ func BuildPlan(req Request) (*Plan, error) {
 	//    entries go in a dedicated runtime config (git-[include]d from the
 	//    ansible-managed ~/.gitconfig); ensure its dir exists first.
 	if !req.NoSafeDir {
-		p.Steps = append(p.Steps, safeDirDirStep(), safeDirStep(top))
+		p.Steps = append(p.Steps, safeDirDirStep(), safeDirStep(top, top))
 	}
 
 	// 2. Refresh origin so the start-point below is the live upstream tip rather
@@ -237,7 +238,7 @@ func BuildPlan(req Request) (*Plan, error) {
 
 	// 3. Mark the worktree itself git-safe for subsequent ops inside it.
 	if !req.NoSafeDir {
-		p.Steps = append(p.Steps, safeDirStep(wt))
+		p.Steps = append(p.Steps, safeDirStep(top, wt))
 	}
 
 	// 4. Install dependencies for a fresh worktree (git worktrees do NOT share
@@ -264,7 +265,7 @@ func BuildPlan(req Request) (*Plan, error) {
 // --- git / fs helpers -------------------------------------------------------
 
 func gitToplevel(path string) (string, error) {
-	out, err := lightGit("-C", path, "rev-parse", "--show-toplevel")
+	out, err := wtGit(path, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return "", fmt.Errorf("%s is not a git repository", path)
 	}
@@ -276,8 +277,8 @@ func gitToplevel(path string) (string, error) {
 }
 
 func gitBranchExists(repo, branch string) bool {
-	// show-ref exits 0 iff the ref resolves; quiet keeps it silent.
-	return lightGitOK("-C", repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch)
+	c := repoGit(repo)
+	return c != nil && c.ResolveRef("refs/heads/"+branch) != ""
 }
 
 // gitRemoteBranchExists reports whether origin carries refs/heads/<branch>, via a
@@ -300,7 +301,7 @@ func gitBranchExists(repo, branch string) bool {
 // BuildPlan must fail loudly on it rather than guess.
 func gitRemoteBranchExists(repo, branch string) (bool, error) {
 	var out bytes.Buffer
-	err := lightRun(childrun.Spec{Name: "git", Args: []string{"-C", repo, "ls-remote", "--heads", "origin", "refs/heads/" + branch}, Timeout: gitNetworkTimeout, Stdout: &out})
+	err := wtGitDo(repo, git.Call{Timeout: gitNetworkTimeout, Stdout: &out}, "ls-remote", "--heads", "origin", "refs/heads/"+branch)
 	if err != nil {
 		if errors.Is(err, childrun.ErrTimeout) {
 			return false, fmt.Errorf("checking origin for refs/heads/%s: timed out after %s — check network connectivity/credentials and retry", branch, gitNetworkTimeout)
@@ -310,32 +311,50 @@ func gitRemoteBranchExists(repo, branch string) (bool, error) {
 	return strings.TrimSpace(out.String()) != "", nil
 }
 
-// resolveDefaultBranch returns the repo's default remote branch short name —
-// the branch behind origin/HEAD, e.g. "main" or "trunk". Falls back to "main"
-// only when origin/HEAD is unset (no remote, or never resolved); we never assume
-// the default is literally "main" beyond that last resort.
-func resolveDefaultBranch(repo string) string {
-	out, err := lightGit("-C", repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD")
-	if err != nil {
-		return "main"
+// resolveDefaultBranch returns the repo's trunk as a short name on origin ("main",
+// "trunk"), from the repository's files: origin/HEAD, else the configured or a
+// conventional branch that exists. It answers "" when it cannot tell; no name is
+// assumed.
+func resolveDefaultBranch(repo string) string { return trunkOf(repo) }
+
+// trunkOf is the read of the repository's trunk; a seam so a test with a made-up
+// worktree can give it one.
+var trunkOf = func(repo string) string {
+	c := repoGit(repo)
+	if c == nil {
+		return ""
 	}
-	ref := strings.TrimSpace(string(out)) // e.g. "origin/main"
-	if i := strings.IndexByte(ref, '/'); i >= 0 && i+1 < len(ref) {
-		return ref[i+1:]
+	return strings.TrimPrefix(c.Trunk(), "origin/")
+}
+
+// needDefaultBranch is resolveDefaultBranch for a verb that cannot go on
+// without one: it names the way out.
+func needDefaultBranch(repo string) (string, error) {
+	if def := resolveDefaultBranch(repo); def != "" {
+		return def, nil
 	}
-	return "main"
+	// What these verbs did before the trunk was read: main, where there is one.
+	for _, name := range []string{"main", "master"} {
+		if gitRefExists(repo, name) || gitRefExists(repo, "origin/"+name) {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("cannot tell %s's default branch: origin/HEAD is not set and there is no main or master; run `git remote set-head origin --auto`", repo)
 }
 
 // gitRefExists reports whether ref resolves in repo (quiet, no output).
 func gitRefExists(repo, ref string) bool {
-	return lightGitOK("-C", repo, "rev-parse", "--verify", "--quiet", ref)
+	if c := repoGit(repo); c != nil && plainRefName(ref) {
+		return c.Resolves(ref)
+	}
+	return wtGitOK(repo, "rev-parse", "--verify", "--quiet", ref)
 }
 
 // gitBehindCount returns how many commits `to` has that `from` lacks — i.e. the
 // commits `from` would gain by rebasing onto `to`. ok=false when either rev
 // can't be resolved.
 func gitBehindCount(repo, from, to string) (int, bool) {
-	out, err := lightGit("-C", repo, "rev-list", "--count", from+".."+to)
+	out, err := wtGit(repo, "rev-list", "--count", from+".."+to)
 	if err != nil {
 		return 0, false
 	}
@@ -366,8 +385,8 @@ func runtimeGitConfig() string {
 
 // safeDirSet returns true if path is already a safe.directory entry in the
 // runtime config (or that file blanket-allows everything with "*").
-func safeDirSet(path string) bool {
-	out, err := lightGit("config", "--file", runtimeGitConfig(), "--get-all", "safe.directory")
+func safeDirSet(repo, path string) bool {
+	out, err := wtGit(repo, "config", "--file", runtimeGitConfig(), "--get-all", "safe.directory")
 	if err != nil {
 		return false // no entries (or no runtime config) => not set
 	}
@@ -393,12 +412,13 @@ func safeDirDirStep() Step {
 	return s
 }
 
-func safeDirStep(path string) Step {
+func safeDirStep(repo, path string) Step {
 	s := Step{
 		Title: "mark git-safe",
+		Dir:   repo,
 		Cmd:   []string{"git", "config", "--file", runtimeGitConfig(), "--add", "safe.directory", path},
 	}
-	if safeDirSet(path) {
+	if safeDirSet(repo, path) {
 		s.Skip = "already a safe.directory"
 	}
 	return s
@@ -412,4 +432,13 @@ func fileExists(p string) bool {
 func dirExists(p string) bool {
 	fi, err := os.Stat(p)
 	return err == nil && fi.IsDir()
+}
+
+// defaultBranchLabel names the default branch in a message, or says "the
+// default branch" when the repository does not say which it is.
+func defaultBranchLabel(repo string) string {
+	if def := resolveDefaultBranch(repo); def != "" {
+		return def
+	}
+	return "the default branch"
 }

@@ -32,12 +32,15 @@ func Update(t *Target, dry bool, stdout, stderr io.Writer) error {
 		return fmt.Errorf("worktree has uncommitted changes — commit or stash before updating (git stash → update → git stash pop)")
 	}
 
-	def := resolveDefaultBranch(wt)
+	def, err := needDefaultBranch(wt)
+	if err != nil {
+		return err
+	}
 
 	// Refresh origin so the behind-count and rebase base are the live tip. Fetch
 	// touches only remote-tracking refs, never HEAD or the working tree, so it is
 	// safe in --dry too.
-	if out, err := gitNetworkOutput(wt, "fetch", "origin", "--quiet"); err != nil {
+	if out, err := wtNetwork(wt, "fetch", "origin", "--quiet"); err != nil {
 		// A remote-less / offline repo can't update; surface it but don't crash.
 		fmt.Fprintf(stderr, "git fetch origin: %v\n%s\n", err, strings.TrimSpace(string(out)))
 	}
@@ -62,7 +65,7 @@ func Update(t *Target, dry bool, stdout, stderr io.Writer) error {
 	}
 
 	// Rebase HEAD onto the fresh base.
-	out, err := lightGitCombined("-C", wt, "rebase", base)
+	out, err := wtGitCombined(wt, "rebase", base)
 	if err != nil {
 		// A conflict leaves the rebase in progress. Do NOT abort and do NOT push —
 		// the user resolves, then continues (or aborts to back out).
@@ -83,7 +86,7 @@ func Update(t *Target, dry bool, stdout, stderr io.Writer) error {
 		fmt.Fprintf(stdout, "not on origin yet — run: aphrollo workspace push\n")
 		return nil
 	}
-	pushOut, perr := gitNetworkOutput(wt, "push", "--force-with-lease", "origin", "--", t.Branch)
+	pushOut, perr := wtNetwork(wt, "push", "--force-with-lease", "origin", "--", t.Branch)
 	if perr != nil {
 		fmt.Fprint(stderr, string(pushOut))
 		return fmt.Errorf("git push --force-with-lease: %w", perr)
@@ -99,7 +102,7 @@ func Update(t *Target, dry bool, stdout, stderr io.Writer) error {
 // conflictedFiles returns the paths with unresolved merge conflicts in the
 // worktree (`git diff --name-only --diff-filter=U`).
 func conflictedFiles(wt string) []string {
-	out, err := lightGit("-C", wt, "diff", "--name-only", "--diff-filter=U")
+	out, err := wtGit(wt, "diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return nil
 	}

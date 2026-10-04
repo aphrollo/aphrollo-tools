@@ -105,7 +105,7 @@ func remoteBranchAlreadyGone(output string) bool {
 // bool return tells the caller so it reports "[skip]" rather than claiming a
 // deletion that never happened.
 var ghDeleteRemoteBranch = func(wt, branch string) (bool, error) {
-	out, err := gitNetworkOutput(wt, "push", "origin", "--delete", "--", branch)
+	out, err := wtNetwork(wt, "push", "origin", "--delete", "--", branch)
 	if err != nil {
 		if remoteBranchAlreadyGone(string(out)) {
 			return true, nil // already gone — nothing to delete
@@ -226,13 +226,17 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 	}
 	base := pr.BaseRef
 	if base == "" {
-		base = resolveDefaultBranch(m.Target.Worktree)
+		def, err := needDefaultBranch(m.Target.Worktree)
+		if err != nil {
+			return nil, err
+		}
+		base = def
 	}
 	queued, err := ghHasMergeQueue(m.Target.Worktree, pr.BaseRepo, base)
 	if err != nil {
 		return nil, fmt.Errorf("refusing to merge %s: reading whether %s has a merge queue: %w", m.Target.Branch, base, err)
 	}
-	body, prTitle, useBody, err := undercoverMerge(m.Target, undercoverMethod(m.Method, queued), head)
+	body, prTitle, useBody, err := undercoverMerge(m.Target, undercoverMethod(m.Method, queued), base, head)
 	if err != nil {
 		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
@@ -259,7 +263,11 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 			fmt.Fprintf(stdout, "ci: local (%s) — GitHub's CI is unavailable: %s\n", choice.source, ci.Word())
 		case ci.State == "green":
 			verdict = ciVerdictOf(m.Target.Worktree, pr.Number, head, ci)
-			fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(head))
+			if ci.AllSkipped() {
+				fmt.Fprintf(stdout, "ci: github (%s) — no check ran on %s (all %d skipped)\n", choice.source, short(head), ci.Skipped)
+			} else {
+				fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(head))
+			}
 		default:
 			return nil, m.refuseGitHubCI(ci, stderr)
 		}
