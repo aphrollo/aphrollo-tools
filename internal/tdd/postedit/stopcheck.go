@@ -110,15 +110,23 @@ const (
 
 // laneRedVerdict is the lane's own answer: a red the store holds for the tree
 // cwd stands in as it is now, that session has not been told of. It reads
-// nothing, and resolves no tree, while no run of the box ended red.
+// nothing, and resolves no tree, while no run of the box ended red, and a
+// payload with no session has nobody to tell. The block is the telling for the
+// session's own finished-red job records of that tree too, so the fallback does
+// not block the same run a second time.
 func laneRedVerdict(session, cwd string) StopVerdict {
-	if cwd == "" || !anyLaneRed() {
+	if session == "" || cwd == "" || !anyLaneRed() {
 		return StopVerdict{}
 	}
-	if reason := storeRedReason(session, stopTreeFn(cwd)); reason != "" {
-		return StopVerdict{Block: true, Reason: reason}
+	tree := stopTreeFn(cwd)
+	reason := storeRedReason(session, tree)
+	if reason == "" {
+		return StopVerdict{}
 	}
-	return StopVerdict{}
+	if lines := deliverReds(session, redsWithin(finishedReds(session), tree)); len(lines) > 0 {
+		reason += "\n" + strings.Join(lines, "\n")
+	}
+	return StopVerdict{Block: true, Reason: reason}
 }
 
 // unseenRedVerdict blocks once with the verdict line of every unseen red:

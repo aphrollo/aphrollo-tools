@@ -58,7 +58,7 @@ func TestRunPhase_RecordsTheRunsVerdictOnTheTreeItJudged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v, ok, _ := s.ReadVerdict("ddd444"); !ok || len(v.Runs) != 1 || v.Runs[0].Unit != runUnit(root) {
-		t.Fatalf("store verdict = %+v (%v), want the one run of %s", v, ok, runUnit(root))
+	if v, ok, _ := s.ReadVerdict("ddd444"); !ok || len(v.Runs) != 1 || v.Runs[0].Unit != runUnitOf(j) {
+		t.Fatalf("store verdict = %+v (%v), want the one run of %s", v, ok, runUnitOf(j))
 	}
 }

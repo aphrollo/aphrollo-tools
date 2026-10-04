@@ -2,6 +2,8 @@ package postedit
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -43,8 +45,20 @@ var openRunStoreFn = func(root string) (*store.Store, error) {
 	return store.Open(EventLogDir(root), store.Options{Warn: func(string) {}})
 }
 
-// runUnit names a run's unit in the store: the project the run was for.
-func runUnit(root string) string { return filepath.ToSlash(root) }
+// runUnitOf names a run's unit in the store: the project the run was for,
+// relative to the repository root, and the command it ran without the -timeout
+// the deferral adds, which is the package set. Two runs of one project over
+// different packages are two units: a green of one never hides a red of the
+// other.
+func runUnitOf(j DeferredJob) string {
+	rel := filepath.ToSlash(j.Project)
+	if top := RepoRoot(j.Project); top != "" {
+		if r, err := filepath.Rel(top, j.Project); err == nil {
+			rel = filepath.ToSlash(r)
+		}
+	}
+	return rel + "|" + strings.Join(queuedArgv(j), " ")
+}
 
 func isRedResult(v kernel.Verdict) bool {
 	return v == kernel.VerdictRed || v == kernel.VerdictRedMissingImpl || v == kernel.VerdictRedBogus
@@ -102,23 +116,28 @@ func recordPhaseVerdict(j DeferredJob, out PhaseOutcome, key string) kernel.Verd
 		}
 	}
 	runner := runnerFromArgv(j.Runner, j.Dir)
+	unit := runUnitOf(j)
+	// The pointer follows the verdict, not the store write: a green whose write
+	// failed still clears its unit's red, and a red whose write failed leaves
+	// none, for the store holds nothing for Stop to read.
+	if isRedResult(result) {
+		writeLaneRed(laneRedPointer{Root: j.Project, Key: key, Unit: unit})
+	} else {
+		removeLaneRed(j.Project, unit)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), runVerdictBudget)
 	defer cancel()
 	s, err := openRunStoreFn(j.Project)
 	if err == nil {
 		_, err = s.RecordVerdict(ctx, key, filepath.Base(j.Project), store.Verdict{Runs: []store.RunVerdict{{
-			Runner: runner.Cmd, Unit: runUnit(j.Project), Result: result, Cause: cause, Test: failing,
+			Runner: runner.Cmd, Unit: unit, Result: result, Cause: cause, Test: failing,
 			MS: int64(out.Seconds * 1000), At: time.Now().UTC(),
 		}}})
 	}
 	if err != nil {
 		AppendGateLog("postedit", j.Project, cmdString(runner), "store-write-failed", 0)
+		removeLaneRed(j.Project, unit)
 		return ""
-	}
-	if isRedResult(result) {
-		writeLaneRed(laneRedPointer{Root: j.Project, Key: key})
-	} else {
-		removeLaneRed(j.Project)
 	}
 	return result
 }
@@ -129,6 +148,7 @@ func recordPhaseVerdict(j DeferredJob, out PhaseOutcome, key string) kernel.Verd
 type laneRedPointer struct {
 	Root string `json:"root"`
 	Key  string `json:"key"`
+	Unit string `json:"unit"`
 }
 
 func laneRedDir() string {
@@ -138,15 +158,16 @@ func laneRedDir() string {
 	return ""
 }
 
-func laneRedFile(root string) string {
+func laneRedFile(root, unit string) string {
 	if dir := laneRedDir(); dir != "" {
-		return filepath.Join(dir, projectKey(root)+".json")
+		sum := sha256.Sum256([]byte(root + "|" + unit))
+		return filepath.Join(dir, hex.EncodeToString(sum[:8])+".json")
 	}
 	return ""
 }
 
 func writeLaneRed(p laneRedPointer) {
-	path := laneRedFile(p.Root)
+	path := laneRedFile(p.Root, p.Unit)
 	if path == "" || os.MkdirAll(filepath.Dir(path), 0o700) != nil {
 		return
 	}
@@ -157,8 +178,8 @@ func writeLaneRed(p laneRedPointer) {
 	}
 }
 
-func removeLaneRed(root string) {
-	if path := laneRedFile(root); path != "" {
+func removeLaneRed(root, unit string) {
+	if path := laneRedFile(root, unit); path != "" {
 		_ = os.Remove(path)
 	}
 }
@@ -172,6 +193,17 @@ func anyLaneRed() bool {
 
 // laneRedsWithin lists the pointers of projects inside tree.
 func laneRedsWithin(tree string) []laneRedPointer {
+	var out []laneRedPointer
+	for _, p := range readLaneReds() {
+		if deferredProjectWithin(p.Root, tree) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// readLaneReds lists every pointer, skipping one that does not read.
+func readLaneReds() []laneRedPointer {
 	dir := laneRedDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -184,7 +216,7 @@ func laneRedsWithin(tree string) []laneRedPointer {
 			continue
 		}
 		var p laneRedPointer
-		if json.Unmarshal(data, &p) == nil && p.Root != "" && deferredProjectWithin(p.Root, tree) {
+		if json.Unmarshal(data, &p) == nil && p.Root != "" {
 			out = append(out, p)
 		}
 	}
@@ -200,6 +232,8 @@ func seenDir() string {
 	return ""
 }
 
+// seenKeep is how long a told-mark is kept: past it the red it names is of a
+// tree long gone.
 const seenKeep = 24 * time.Hour
 
 func seenMark(session, key string) string {
@@ -219,7 +253,6 @@ func markRedSeen(session, key string) {
 	if path == "" || os.MkdirAll(filepath.Dir(path), 0o700) != nil {
 		return
 	}
-	sweepSeen(filepath.Dir(path))
 	_ = os.WriteFile(path, nil, 0o600)
 }
 
@@ -232,17 +265,26 @@ func redSeen(session, key string) bool {
 	return err == nil
 }
 
-// sweepSeen removes the marks older than seenKeep.
-func sweepSeen(dir string) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return
-	}
-	for _, e := range entries {
-		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > seenKeep {
-			_ = os.Remove(filepath.Join(dir, e.Name()))
+// sweepLaneState is the part of the state sweep that is the Stop check's: the
+// told-marks older than seenKeep, and the pointers of a project whose worktree
+// is gone from the disk, which no Stop in it will ever reach to clear.
+func sweepLaneState(now time.Time) int {
+	removed := 0
+	if dir := seenDir(); dir != "" {
+		entries, _ := os.ReadDir(dir) // absent is nothing to sweep
+		for _, e := range entries {
+			if info, err := e.Info(); err == nil && now.Sub(info.ModTime()) > seenKeep && os.Remove(filepath.Join(dir, e.Name())) == nil {
+				removed++
+			}
 		}
 	}
+	for _, p := range readLaneReds() {
+		if _, err := os.Stat(p.Root); os.IsNotExist(err) {
+			removeLaneRed(p.Root, p.Unit)
+			removed++
+		}
+	}
+	return removed
 }
 
 // markOutcomeSeen marks the red a phase's own line is about as told to session.
@@ -252,17 +294,32 @@ func markOutcomeSeen(session string, out PhaseOutcome) {
 	}
 }
 
-// storeRedReason is the block reason for a red the store holds on the tree
-// stands as it is now that the session has not been told of, "" when there is
-// none. Telling it marks it seen, so the next check allows. A red of an older
-// tree is on another key and never blocks; a green beside a red of one unit on
-// one tree is a flake, not a red to stop on; a run that was not tested allows.
+// storeRedReason is the block reason for the reds the store holds on the tree
+// as it stands now that the session has not been told of, "" when there are
+// none. Telling them marks them seen, so the next check allows. A pointer to a
+// red of another tree is stale: it is removed, so the key is read at most once
+// for a tree that moved. A unit is red when it has a red run on the tree and no
+// green of its own, so a green of one package hides no red of another; a green
+// beside a red of one unit is a flake, not a red to stop on, and a run that was
+// not tested allows.
 func storeRedReason(session, tree string) string {
-	if len(laneRedsWithin(tree)) == 0 {
+	pointers := laneRedsWithin(tree)
+	if len(pointers) == 0 {
 		return ""
 	}
 	key, err := worktreeKeyFn(tree)
-	if err != nil || key == "" || redSeen(session, key) {
+	if err != nil || key == "" {
+		return ""
+	}
+	var current []laneRedPointer
+	for _, p := range pointers {
+		if p.Key == key {
+			current = append(current, p)
+		} else {
+			removeLaneRed(p.Root, p.Unit)
+		}
+	}
+	if len(current) == 0 || redSeen(session, key) {
 		return ""
 	}
 	s, err := openRunStoreFn(tree)
@@ -273,26 +330,35 @@ func storeRedReason(session, tree string) string {
 	if err != nil || !found {
 		return ""
 	}
-	for _, r := range v.Runs {
-		if !isRedResult(r.Result) || !deferredProjectWithin(r.Unit, tree) || hasGreen(v, r.Runner, r.Unit) {
-			continue
+	var lines []string
+	for _, p := range current {
+		if r, ok := redRunOf(v, p.Unit); ok {
+			line := "gate: " + p.Unit + " → red on this tree"
+			if r.Test != "" {
+				line += "; failing: " + r.Test
+			}
+			lines = append(lines, line)
 		}
-		markRedSeen(session, key)
-		line := "gate: " + r.Runner + " in " + r.Unit + " → red on this tree"
-		if r.Test != "" {
-			line += "; failing: " + r.Test
-		}
-		return unseenRedPreface + "\n" + strings.TrimSpace(line)
 	}
-	return ""
+	if len(lines) == 0 {
+		return ""
+	}
+	markRedSeen(session, key)
+	return unseenRedPreface + "\n" + strings.Join(lines, "\n")
 }
 
-// hasGreen reports a green run of the runner and unit on the tree.
-func hasGreen(v store.Verdict, runner, unit string) bool {
-	for _, r := range v.RunsOf(runner, unit) {
-		if r.Result == kernel.VerdictGreen {
-			return true
+// redRunOf is a red run of unit on the tree, when it has one and no green.
+func redRunOf(v store.Verdict, unit string) (store.RunVerdict, bool) {
+	var red store.RunVerdict
+	found := false
+	for _, r := range v.Runs {
+		switch {
+		case r.Unit != unit:
+		case r.Result == kernel.VerdictGreen:
+			return store.RunVerdict{}, false
+		case isRedResult(r.Result) && !found:
+			red, found = r, true
 		}
 	}
-	return false
+	return red, found
 }
