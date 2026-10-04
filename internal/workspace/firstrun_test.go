@@ -14,7 +14,7 @@ func firstRunWorld(t *testing.T, runs []prRun, failed []string) {
 	oRuns, oJobs := ghPRRuns, ghRunFailedJobs
 	t.Cleanup(func() { ghPRRuns, ghRunFailedJobs = oRuns, oJobs })
 	ghPRRuns = func(string, string, int) ([]prRun, error) { return runs, nil }
-	ghRunFailedJobs = func(string, int64) ([]string, error) { return failed, nil }
+	ghRunFailedJobs = func(string, int64, int) ([]string, error) { return failed, nil }
 }
 
 func ciOf(t *testing.T) []tdd.Event { t.Helper(); return ofKind(emitted(t), "ci") }
@@ -118,4 +118,32 @@ func TestMergeApply_TheFirstRunsAreAskedForByThePRNumber(t *testing.T) {
 	if gotBranch != "feat/z" || gotPR != 5 {
 		t.Fatalf("runs asked for branch %q PR %d, want feat/z PR 5", gotBranch, gotPR)
 	}
+}
+
+// A first-head failure fixed with `gh run rerun` lists as the green of its
+// latest attempt; the first attempt is what "first run" means.
+func TestMergeApply_AFirstRunFailureFixedByARerunIsStillRed(t *testing.T) {
+	firstRunWorld(t, []prRun{
+		{ID: 1, SHA: "eeee5555", Status: "completed", Conclusion: "success", CreatedAt: "2026-10-03T19:43:33Z", Attempt: 2},
+	}, []string{"test"})
+	oAttempt := ghRunFirstAttempt
+	t.Cleanup(func() { ghRunFirstAttempt = oAttempt })
+	ghRunFirstAttempt = func(_ string, id int64) (string, string, error) {
+		if id != 1 {
+			t.Errorf("attempt 1 read for run %d, want run 1", id)
+		}
+		return "completed", "failure", nil
+	}
+	if _, err := applyMerge(t, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ciOf(t) {
+		if e.Detail["sha"] == "eeee5555" {
+			if e.Verdict != "red" || e.Detail["cause"] != "test" {
+				t.Fatalf("event = %+v, want red with cause test", e)
+			}
+			return
+		}
+	}
+	t.Fatal("no first-run event recorded")
 }

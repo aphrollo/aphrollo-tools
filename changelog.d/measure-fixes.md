@@ -10,3 +10,4 @@ level: patch
 - An allowed narrowed rerun (`override-bash-narrowed`) is no longer an override, and one deny is at most one wrong block.
 - A PR queued without `--wait` and dropped by the queue for failed checks is recorded red by the next `workspace sync`.
 - A sync that records PRs the merge queue landed names them as queue-landed merges of `workspace merge`, apart from merges made outside it.
+- The first run of a PR is its first attempt: a failure fixed with a rerun still counts as a red first run, and a PR the queue dropped for failed checks keeps its queue red after being queued again by hand.

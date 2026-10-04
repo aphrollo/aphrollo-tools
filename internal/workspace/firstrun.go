@@ -16,6 +16,7 @@ type prRun struct {
 	Status     string `json:"status"`
 	Conclusion string `json:"conclusion"`
 	CreatedAt  string `json:"createdAt"`
+	Attempt    int    `json:"attempt"`
 }
 
 // ghPRRuns lists every pull_request run that belongs to PR number pr, whatever
@@ -24,7 +25,7 @@ type prRun struct {
 // cut off by a page limit and a reused branch name brings in no older PR's runs.
 var ghPRRuns = func(wt, branch string, pr int) ([]prRun, error) {
 	jq := fmt.Sprintf(`.workflow_runs[] | select(any(.pull_requests[]?; .number == %d)) | `+
-		`{databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at}`, pr)
+		`{databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at, attempt: .run_attempt}`, pr)
 	out, err := ghCombinedOutput(wt, "api", "--paginate",
 		"repos/{owner}/{repo}/actions/runs?event=pull_request&per_page=100&branch="+branch, "--jq", jq)
 	if err != nil {
@@ -43,8 +44,8 @@ var ghPRRuns = func(wt, branch string, pr int) ([]prRun, error) {
 }
 
 // ghRunFailedJobs names the jobs of a run that failed.
-var ghRunFailedJobs = func(wt string, id int64) ([]string, error) {
-	out, err := ghCombinedOutput(wt, "run", "view", fmt.Sprint(id), "--json", "jobs",
+var ghRunFailedJobs = func(wt string, id int64, attempt int) ([]string, error) {
+	out, err := ghCombinedOutput(wt, "run", "view", fmt.Sprint(id), "--attempt", fmt.Sprint(attempt), "--json", "jobs",
 		"--jq", `[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure") | .name] | join("\n")`)
 	if err != nil {
 		return nil, fmt.Errorf("gh run view %d: %v: %s", id, err, strings.TrimSpace(string(out)))
@@ -86,6 +87,15 @@ func recordFirstRunCI(wt, branch string, pr int) {
 		if r.SHA != first {
 			continue
 		}
+		// The listing shows a run's latest attempt: a failure fixed by a rerun reads
+		// green there, and "first run" means the first attempt.
+		if r.Attempt > 1 {
+			status, conclusion, err := ghRunFirstAttempt(wt, r.ID)
+			if err != nil {
+				return
+			}
+			r.Status, r.Conclusion = status, conclusion
+		}
 		switch {
 		case r.Status == "completed" && failedConclusion(r.Conclusion):
 			if !red {
@@ -103,11 +113,29 @@ func recordFirstRunCI(wt, branch string, pr int) {
 	detail := map[string]string{"sha": first, "ci": tdd.CIGithub, "pr": fmt.Sprint(pr)}
 	if red {
 		state = "red"
-		names, err := ghRunFailedJobs(wt, failedRun)
+		names, err := ghRunFailedJobs(wt, failedRun, 1)
 		if err != nil {
 			return
 		}
 		detail["cause"] = ciCause(names)
 	}
 	tdd.AppendEventOnce(tdd.Event{Kind: "ci", Root: wt, Verdict: state, At: runs[0].CreatedAt, Detail: detail}, "sha")
+}
+
+// ghRunFirstAttempt reads how the first attempt of a run ended.
+var ghRunFirstAttempt = func(wt string, id int64) (status, conclusion string, err error) {
+	out, err := ghCombinedOutput(wt, "api", fmt.Sprintf("repos/{owner}/{repo}/actions/runs/%d/attempts/1", id),
+		"--jq", `[.status, .conclusion // ""] | join(" ")`)
+	if err != nil {
+		return "", "", fmt.Errorf("gh api run %d attempt 1: %v: %s", id, err, strings.TrimSpace(string(out)))
+	}
+	f := strings.Fields(string(out))
+	if len(f) == 0 {
+		return "", "", fmt.Errorf("gh api run %d attempt 1: no status", id)
+	}
+	status = f[0]
+	if len(f) > 1 {
+		conclusion = f[1]
+	}
+	return status, conclusion, nil
 }

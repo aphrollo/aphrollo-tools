@@ -38,7 +38,9 @@ func recordDroppedQueued(repo string) {
 			if at, err := time.Parse(time.RFC3339, e.At); err == nil {
 				queued[pr] = queuedPR{e.Lane, at}
 			}
-		case e.Kind == "merge", e.Kind == "ci" && e.Detail["ci"] == ciQueue:
+		// A PR the queue merged is read again: it may have been dropped for failed
+		// checks and queued by hand after.
+		case e.Kind == "merge" && e.Detail["method"] != "merge queue", e.Kind == "ci" && e.Detail["ci"] == ciQueue:
 			settled[pr] = true
 		}
 	}
@@ -47,7 +49,7 @@ func recordDroppedQueued(repo string) {
 			continue
 		}
 		rem, err := ghQueueRemoval(repo, "", pr)
-		if err != nil || !rem.Removed || rem.Reason != "failed_checks" {
+		if err != nil || !rem.FailedChecks {
 			continue
 		}
 		recordQueueRed(repo, q.lane, pr)

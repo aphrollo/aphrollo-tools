@@ -190,11 +190,12 @@ func TestParseQueueRemoval_OnlyTheNewestQueueEventCounts(t *testing.T) {
 		want  QueueRemoval
 	}{
 		"removed for failed checks": {`[{"__typename":"AddedToMergeQueueEvent"},{"__typename":"RemovedFromMergeQueueEvent","reason":"failed_checks"}]`,
-			QueueRemoval{Removed: true, Reason: "failed_checks"}},
-		"removed then enqueued again": {`[{"__typename":"RemovedFromMergeQueueEvent","reason":"failed_checks"},{"__typename":"AddedToMergeQueueEvent"}]`, QueueRemoval{}},
-		"the queue's own merge":       {`[{"__typename":"AddedToMergeQueueEvent"},{"__typename":"RemovedFromMergeQueueEvent","reason":"merged"}]`, QueueRemoval{Reason: "merged"}},
-		"auto-merge switched off":     {`[{"__typename":"AutoMergeDisabledEvent"}]`, QueueRemoval{Removed: true, Reason: "auto-merge disabled"}},
-		"nothing yet":                 {`[]`, QueueRemoval{}},
+			QueueRemoval{Removed: true, Reason: "failed_checks", FailedChecks: true}},
+		"removed then enqueued again":          {`[{"__typename":"RemovedFromMergeQueueEvent","reason":"failed_checks"},{"__typename":"AddedToMergeQueueEvent"}]`, QueueRemoval{FailedChecks: true}},
+		"dropped, queued by hand, then merged": {`[{"__typename":"RemovedFromMergeQueueEvent","reason":"failed_checks"},{"__typename":"AddedToMergeQueueEvent"},{"__typename":"RemovedFromMergeQueueEvent","reason":"merged"}]`, QueueRemoval{Reason: "merged", FailedChecks: true}},
+		"the queue's own merge":                {`[{"__typename":"AddedToMergeQueueEvent"},{"__typename":"RemovedFromMergeQueueEvent","reason":"merged"}]`, QueueRemoval{Reason: "merged"}},
+		"auto-merge switched off":              {`[{"__typename":"AutoMergeDisabledEvent"}]`, QueueRemoval{Removed: true, Reason: "auto-merge disabled"}},
+		"nothing yet":                          {`[]`, QueueRemoval{}},
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {

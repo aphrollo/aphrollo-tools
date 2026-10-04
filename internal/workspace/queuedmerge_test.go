@@ -70,7 +70,7 @@ func TestSync_AQueuedPRTheQueueDroppedForFailedChecksIsRecordedRedOnItsLane(t *t
 	clone := repoWithOrigin(t)
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: clone, Lane: "lane/q", Verdict: "queued",
 		Detail: map[string]string{"pr": "1200", "method": "merge queue"}})
-	queueDropWorld(t, QueueRemoval{Removed: true, Reason: "failed_checks"})
+	queueDropWorld(t, QueueRemoval{Removed: true, Reason: "failed_checks", FailedChecks: true})
 
 	for range 2 {
 		if err := Sync(clone, false, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
@@ -122,5 +122,29 @@ func TestPRNumber_ARevertNamesItsOwnPRNotTheRevertedOne(t *testing.T) {
 		if got := prNumber(subject); got != want {
 			t.Errorf("prNumber(%q) = %d, want %d", subject, got, want)
 		}
+	}
+}
+
+// Dropped for failed checks, queued again by hand and merged: the newest queue
+// event is the merge, but the lane still had a red queue run.
+func TestSync_AQueuedPRDroppedThenRequeuedAndMergedKeepsItsRed(t *testing.T) {
+	gateState(t)
+	clone := repoWithOrigin(t)
+	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: clone, Lane: "lane/q", Verdict: "queued",
+		Detail: map[string]string{"pr": "1200", "method": "merge queue"}})
+	queueDropWorld(t, QueueRemoval{Reason: "merged", FailedChecks: true})
+
+	if err := Sync(clone, false, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+
+	n := 0
+	for _, e := range ofKind(emitted(t), "ci") {
+		if e.Detail["ci"] == "queue" && e.Lane == "lane/q" && e.Verdict == "red" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("queue red events = %d, want 1", n)
 	}
 }
