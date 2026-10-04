@@ -153,7 +153,8 @@ internal/msys/       the MSYS anchor: a Windows box's first shell is ours, so no
 internal/gitiso/     TestMain isolation every package's tests run under: no GIT_* variables, temp dirs walled off from every repository, a temp home and git config; the hostile-environment probe that proves it
 internal/rootseam/   per-worktree-root tables: the gate's stderr and the probes a test states, carried by root so the tests that use them run in parallel
 internal/dev/        dev-tier control plane (systemd)
-internal/ciwhy/      ci why: resolve a pipeline run through gh, summarise its failed jobs
+internal/ciwhy/      ci why: resolve a pipeline run through the host port, summarise its failed jobs
+internal/integrate/  the host port (host: PRs, checks, landing, runs, issues; Land picks queue or merge and binds it to the judged head; a Fake) and its GitHub adapter (host/github over gh, ghtransport probes), tested on recorded gh answers
 internal/ghworkflow/  a YAML-subset reader for .github/workflows and the runner behind ci run
 internal/sqlc/       sqlc drift guard: config discovery, regen-into-temp, check, scoped-by-symbol regen
 ```

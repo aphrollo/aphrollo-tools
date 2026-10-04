@@ -306,6 +306,12 @@ func gatePRMergeReusingCI(laneWorktree, head string, run SuiteRunner, log io.Wri
 		fmt.Fprintf(log, "gate %s: CI's verdict is stale (%s); not running the local suite\n", premergeDisplayName, why)
 		return &StaleCIVerdictError{Base: base, Trunk: tips.trunk, TrunkName: strings.TrimPrefix(tips.trunkRef, "origin/")}
 	}
+	if why != "" && queued {
+		// The queue tests the merged tree on GitHub, so this box has no suite to
+		// stand in for a verdict that does not stand: the PR's own checks must be
+		// green first.
+		return prGateRefusal(laneWorktree, "ci-not-green", "CI's verdict does not stand (%s); the merge queue tests the merged tree, so the PR's own checks must be green first — wait for them or fix them, then merge again (no local suite is run in their place)", why)
+	}
 	if why != "" {
 		fmt.Fprintf(log, "gate %s: CI's verdict is not reused (%s); running the local suite\n", premergeDisplayName, why)
 		return judgeMergedTree(laneWorktree, head, run, log, &tips)

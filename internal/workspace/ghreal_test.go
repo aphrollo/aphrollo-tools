@@ -197,7 +197,7 @@ func TestGhPRHead_RealClosureResolvesByNumber(t *testing.T) {
 }
 
 // TestGhPRHead_RealClosureNoSuchPullRequest proves the absence path (nil,
-// nil from ghAPIViewByRef) surfaces as an error here — unlike ghViewPRReal,
+// nil from the port's PRByRef) surfaces as an error here — unlike ghViewPRReal,
 // ghPRHead has no legitimate "no PR yet" caller.
 func TestGhPRHead_RealClosureNoSuchPullRequest(t *testing.T) {
 	repo := initRepo(t)
@@ -254,20 +254,5 @@ func TestGhPRState_RealClosureFound(t *testing.T) {
 	}
 	if state != "MERGED" {
 		t.Fatalf("ghPRState = %q, want MERGED", state)
-	}
-}
-
-// TestGhReadyPRSandboxFallback_PropagatesAFindError proves the sandbox
-// fallback's own error path (submit.go's `if err != nil` right after
-// ghAPIFindPR) when the list-pulls call itself fails, rather than proceeding
-// as if no PR mattered.
-func TestGhReadyPRSandboxFallback_PropagatesAFindError(t *testing.T) {
-	repo := initRepo(t)
-	withOrigin(t, repo, "acme", "widgets")
-	fakeGhAPIByPath(t, []ghAPIRule{
-		{"repos/acme/widgets/pulls", "gh: authentication required", 1},
-	})
-	if err := ghReadyPRSandboxFallback(repo, "feat/x"); err == nil || !strings.Contains(err.Error(), "authentication required") {
-		t.Fatalf("ghReadyPRSandboxFallback = %v, want the find error propagated", err)
 	}
 }

@@ -1,6 +1,6 @@
 package install
 
-import "github.com/aphrollo/aphrollo-tools/internal/ghtransport"
+import "github.com/aphrollo/aphrollo-tools/internal/integrate/host/github/ghtransport"
 
 // doctorGHTransport checks what this box can actually reach through `gh`:
 // present on PATH, authenticated for REST, and — reported separately,

@@ -1,0 +1,280 @@
+[
+  {
+    "args": [
+      "api",
+      "--method",
+      "GET",
+      "repos/aphrollo/aphrollo-tools/pulls",
+      "-f",
+      "head=aphrollo:lane/measure-fixes",
+      "-f",
+      "state=all",
+      "-f",
+      "sort=created",
+      "-f",
+      "direction=desc",
+      "--jq",
+      ".[0].number // empty"
+    ],
+    "file": "01.out"
+  },
+  {
+    "args": [
+      "api",
+      "repos/aphrollo/aphrollo-tools/pulls/1202"
+    ],
+    "file": "02.out"
+  },
+  {
+    "args": [
+      "api",
+      "--paginate",
+      "repos/{owner}/{repo}/commits/6e2087329a8fcdf466b3d73eddbed4bd1328ed2f/check-runs",
+      "--jq",
+      ".check_runs[] | {id, name, head_sha, status, conclusion, html_url, started_at, app: .app.slug}"
+    ],
+    "file": "03.out"
+  },
+  {
+    "args": [
+      "api",
+      "repos/{owner}/{repo}/commits/6e2087329a8fcdf466b3d73eddbed4bd1328ed2f/status",
+      "--jq",
+      ".sha as $s | .statuses[] | {name: .context, head_sha: $s, status: (if .state == \"pending\" then \"in_progress\" else \"completed\" end), conclusion: .state, html_url: .target_url}"
+    ],
+    "file": "04.out"
+  },
+  {
+    "args": [
+      "api",
+      "--paginate",
+      "repos/aphrollo/aphrollo-tools/rules/branches/main"
+    ],
+    "file": "05.out"
+  },
+  {
+    "args": [
+      "api",
+      "graphql",
+      "-f",
+      "owner=aphrollo",
+      "-f",
+      "name=aphrollo-tools",
+      "-F",
+      "n=1202",
+      "-f",
+      "query=query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){state mergeQueueEntry{id position state} mergeQueue{entries{totalCount}}}}}"
+    ],
+    "file": "06.out"
+  },
+  {
+    "args": [
+      "api",
+      "graphql",
+      "-f",
+      "owner=aphrollo",
+      "-f",
+      "name=aphrollo-tools",
+      "-F",
+      "n=1202",
+      "-f",
+      "query=query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){autoMergeRequest{enabledAt} timelineItems(last:10,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT,AUTO_MERGE_DISABLED_EVENT]){nodes{__typename ... on RemovedFromMergeQueueEvent{reason}}}}}}"
+    ],
+    "file": "07.out"
+  },
+  {
+    "args": [
+      "api",
+      "repos/aphrollo/aphrollo-tools/actions/runs?event=merge_group\u0026per_page=100",
+      "--jq",
+      "[.workflow_runs[] | select(.head_branch | contains(\"/pr-1202-\"))] | sort_by(.id) | last | .id // empty"
+    ],
+    "file": "08.out"
+  },
+  {
+    "args": [
+      "api",
+      "--paginate",
+      "repos/{owner}/{repo}/actions/runs?event=pull_request\u0026per_page=100\u0026branch=lane/measure-fixes",
+      "--jq",
+      ".workflow_runs[] | select(any(.pull_requests[]?; .number == 1202)) | {databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at, attempt: .run_attempt}"
+    ],
+    "file": "09.out"
+  },
+  {
+    "args": [
+      "run",
+      "view",
+      "37167140462",
+      "--attempt",
+      "1",
+      "--json",
+      "jobs",
+      "--jq",
+      "[.jobs[] | select(.conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"startup_failure\") | .name] | join(\"\\n\")"
+    ],
+    "file": "10.out"
+  },
+  {
+    "args": [
+      "api",
+      "repos/{owner}/{repo}/actions/runs/37167140462/attempts/1",
+      "--jq",
+      "[.status, .conclusion // \"\"] | join(\" \")"
+    ],
+    "file": "11.out"
+  },
+  {
+    "args": [
+      "api",
+      "repos/{owner}/{repo}/actions/runs/37167140462",
+      "--jq",
+      ".path + \" \" + (.run_attempt | tostring)"
+    ],
+    "file": "12.out"
+  },
+  {
+    "args": [
+      "run",
+      "view",
+      "37167140462",
+      "--json",
+      "attempt,conclusion,databaseId,event,headBranch,headSha,jobs,status,url,workflowName"
+    ],
+    "file": "13.out"
+  },
+  {
+    "args": [
+      "api",
+      "repos/{owner}/{repo}/check-runs/111332372646/annotations"
+    ],
+    "file": "14.out"
+  },
+  {
+    "args": [
+      "run",
+      "view",
+      "--job",
+      "111332372646",
+      "--log-failed"
+    ],
+    "file": "15.out"
+  },
+  {
+    "args": [
+      "run",
+      "list",
+      "--branch",
+      "lane/measure-fixes",
+      "--event",
+      "pull_request",
+      "--limit",
+      "20",
+      "--json",
+      "databaseId,headSha,conclusion,attempt,createdAt,workflowName"
+    ],
+    "file": "16.out"
+  },
+  {
+    "args": [
+      "run",
+      "list",
+      "--branch",
+      "main",
+      "--workflow",
+      "Pipeline",
+      "--limit",
+      "1",
+      "--json",
+      "databaseId"
+    ],
+    "file": "17.out"
+  },
+  {
+    "args": [
+      "pr",
+      "view",
+      "1202",
+      "--json",
+      "headRefOid"
+    ],
+    "file": "18.out"
+  },
+  {
+    "args": [
+      "run",
+      "list",
+      "--commit",
+      "6e2087329a8fcdf466b3d73eddbed4bd1328ed2f",
+      "--workflow",
+      "Pipeline",
+      "--limit",
+      "1",
+      "--json",
+      "databaseId"
+    ],
+    "file": "19.out"
+  },
+  {
+    "args": [
+      "pr",
+      "view",
+      "1202",
+      "--json",
+      "number,url,createdAt,mergedAt,headRefName"
+    ],
+    "file": "20.out"
+  },
+  {
+    "args": [
+      "pr",
+      "view",
+      "--json",
+      "title,body",
+      "--",
+      "lane/f21-host-port"
+    ],
+    "file": "21.out"
+  },
+  {
+    "args": [
+      "run",
+      "view",
+      "37167140462",
+      "--log-failed"
+    ],
+    "file": "22.out"
+  },
+  {
+    "args": [
+      "api",
+      "--paginate",
+      "repos/{owner}/{repo}/actions/runs?event=pull_request\u0026per_page=100\u0026branch=lane/f21-host-port",
+      "--jq",
+      ".workflow_runs[] | select(any(.pull_requests[]?; .number == 1204)) | {databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at, attempt: .run_attempt}"
+    ],
+    "file": "23.out"
+  },
+  {
+    "args": [
+      "api",
+      "--method",
+      "GET",
+      "repos/aphrollo/aphrollo-tools/pulls",
+      "-f",
+      "head=aphrollo:lane/no-such-branch-recorded",
+      "-f",
+      "state=all",
+      "-f",
+      "sort=created",
+      "-f",
+      "direction=desc",
+      "--jq",
+      ".[0].number // empty"
+    ],
+    "file": "24.out"
+  },
+  {"args": ["api","--paginate","repos/aphrollo/no-such-repo-recorded/rules/branches/main"], "file": "90.out", "error": "exit status 1"},
+  {"args": ["api","--paginate","repos/free-org/private-repo/rules/branches/main"], "file": "91.out", "error": "exit status 1"},
+  {"args": ["api","--paginate","repos/scoped-org/token-repo/rules/branches/main"], "file": "92.out", "error": "exit status 1"}
+]

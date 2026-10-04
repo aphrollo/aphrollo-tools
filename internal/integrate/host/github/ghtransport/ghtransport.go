@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	childrun "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
@@ -20,41 +21,7 @@ import (
 var probeTimeout = 10 * time.Second
 
 // Probe is what this box can reach right now.
-type Probe struct {
-	Present   bool   // `gh` resolves on PATH
-	RESTOK    bool   // `gh api user` succeeded — gh is authenticated for REST
-	GraphQLOK bool   // `gh api graphql` succeeded — GraphQL is reachable too
-	Detail    string // gh's own complaint from the first probe that failed
-}
-
-// Ready reports whether the box can drive the REST-only verbs (view, create,
-// merge — the calls issue #880 routes off GraphQL entirely). GraphQL is not
-// required.
-func (p Probe) Ready() bool { return p.Present && p.RESTOK }
-
-// FixLine names the one thing to do next, "" when Ready().
-func (p Probe) FixLine() string {
-	switch {
-	case !p.Present:
-		return "gh not found on PATH — install gh (https://cli.github.com), then `gh auth login` or set GH_TOKEN"
-	case !p.RESTOK:
-		return "gh is not authenticated — run `gh auth login` or set GH_TOKEN"
-	default:
-		return ""
-	}
-}
-
-// TransportLine describes the resolved state for a doctor/status report.
-func (p Probe) TransportLine() string {
-	switch {
-	case !p.Ready():
-		return p.FixLine()
-	case p.GraphQLOK:
-		return "REST and GraphQL both available"
-	default:
-		return "REST available, GraphQL unavailable (blocked or unauthenticated) — pr view/create/merge use the REST fallback"
-	}
-}
+type Probe = host.Probe
 
 // Run probes gh's presence and both transports, each under probeTimeout —
 // the full picture a `gate doctor` report wants. It looks gh up on PATH

@@ -15,14 +15,10 @@ import (
 // pushed head). Nothing is pushed on the operator's behalf: that would publish
 // work the owner has not seen.
 
-// JudgedHeadError is a refusal that keeps the verdict and the merged tree from
+// JudgedHeadError (an alias of the port's host.HeadMovedError, see hostport.go) is a refusal that keeps the verdict and the merged tree from
 // being two different commits: the lane is not at the PR head, or the head
 // moved between judgement and merge. The merge did not happen; the operator
 // brings the lane and the PR together and merges again, so the verb exits 2.
-type JudgedHeadError struct{ Msg string }
-
-func (e *JudgedHeadError) Error() string { return e.Msg }
-
 // laneSyncPolls is how many polls in a row `merge --wait` lets the lane differ
 // from the PR head before it refuses. A push takes a moment to show as the PR's
 // head, so one poll or two behind is the push landing; a lane still different
@@ -97,14 +93,4 @@ func commitNoun(n int) string {
 		return "commit"
 	}
 	return "commits"
-}
-
-// headMoved reads a merge refusal as GitHub saying the PR head is no longer the
-// commit the merge was bound to, and returns the one-line refusal; nil when it
-// is any other failure.
-func headMoved(out []byte, sha string) error {
-	if !strings.Contains(strings.ToLower(string(out)), "head branch was modified") {
-		return nil
-	}
-	return &JudgedHeadError{Msg: fmt.Sprintf("PR head moved after it was judged (merge bound to %s) — merge again to judge the new head", short(sha))}
 }

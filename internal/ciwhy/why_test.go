@@ -2,12 +2,14 @@ package ciwhy
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 )
 
 // runViewJSON is the field list every run-view call asks gh for; the fakes
@@ -28,7 +30,7 @@ type fakeAnswer struct {
 	err  error
 }
 
-func (f *fakeGh) run(_ context.Context, args ...string) ([]byte, error) {
+func (f *fakeGh) run(_ string, _ time.Duration, args ...string) ([]byte, error) {
 	key := strings.Join(args, " ")
 	a, ok := f.answers[key]
 	if !ok {
@@ -45,16 +47,10 @@ func (f *fakeGh) run(_ context.Context, args ...string) ([]byte, error) {
 	return b, a.err
 }
 
-func testCtx(t *testing.T) context.Context {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	t.Cleanup(cancel)
-	return ctx
-}
-
 func runWhy(t *testing.T, f *fakeGh, target Target) string {
 	t.Helper()
 	var out bytes.Buffer
-	if err := Why(testCtx(t), f.run, target, &out); err != nil {
+	if err := Why(f.host(), target, &out); err != nil {
 		t.Fatalf("Why: %v", err)
 	}
 	return out.String()
@@ -233,7 +229,7 @@ func TestWhy_AnyOtherLogFetchFailureIsAnError(t *testing.T) {
 		"api repos/{owner}/{repo}/check-runs/9001/annotations": {text: "[]"},
 		"run view --job 9001 --log-failed":                     {text: "HTTP 403: rate limit exceeded\n", err: errors.New("exit status 1")},
 	}}
-	err := Why(testCtx(t), f.run, Target{Run: 7000000001, Workflow: "Pipeline"}, &bytes.Buffer{})
+	err := Why(f.host(), Target{Run: 7000000001, Workflow: "Pipeline"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "rate limit exceeded") {
 		t.Errorf("want gh's own error text, got %v", err)
 	}
@@ -305,7 +301,7 @@ func TestWhy_ACommitWithNoPipelineRunFailsLoud(t *testing.T) {
 		"pr view 5 --json headRefOid":                                            {text: `{"headRefOid":"feed"}`},
 		"run list --commit feed --workflow Pipeline --limit 1 --json databaseId": {text: `[]`},
 	}}
-	err := Why(testCtx(t), f.run, Target{PR: 5, Workflow: "Pipeline"}, &bytes.Buffer{})
+	err := Why(f.host(), Target{PR: 5, Workflow: "Pipeline"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "no Pipeline run") {
 		t.Errorf("want a no-run error naming the workflow, got %v", err)
 	}
@@ -335,10 +331,16 @@ func TestRaw_PrintsTheFailedLogUntouched(t *testing.T) {
 		"run view 35939585713 --log-failed": {text: string(b)},
 	}}
 	var out bytes.Buffer
-	if err := Raw(testCtx(t), f.run, Target{Run: 35939585713, Workflow: "Pipeline"}, &out); err != nil {
+	if err := Raw(f.host(), Target{Run: 35939585713, Workflow: "Pipeline"}, &out); err != nil {
 		t.Fatalf("Raw: %v", err)
 	}
 	if !bytes.Equal(out.Bytes(), b) {
 		t.Errorf("--raw must print gh's bytes unchanged: got %d bytes, want %d", out.Len(), len(b))
 	}
+}
+
+// host is the GitHub adapter reading through the recorded answers.
+func (f *fakeGh) host() host.Runs {
+	return github.New(github.Options{Dir: f.t.TempDir(), Runner: f.run,
+		Origin: func() string { return "https://github.com/aphrollo/aphrollo-tools.git" }})
 }

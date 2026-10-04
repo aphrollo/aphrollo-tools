@@ -2,7 +2,6 @@ package workspace
 
 import (
 	"bytes"
-	"errors"
 	"io"
 	"strings"
 	"testing"
@@ -139,42 +138,5 @@ func TestMerge_CIUnavailableRefusesByNameAndRecordsNoEscape(t *testing.T) {
 	}
 	if called {
 		t.Error("an outage is not a red after a local green: no escape is recorded")
-	}
-}
-
-// markNotStarted asks Actions for the steps of each failed Actions check run
-// and flags the ones that ran none. Anything else is left as GitHub said.
-func TestMarkNotStarted_FlagsFailedActionsJobsWithNoSteps(t *testing.T) {
-	runs := []CheckRun{
-		{ID: 1, App: "github-actions", Status: "completed", Conclusion: "failure"},
-		{ID: 2, App: "github-actions", Status: "completed", Conclusion: "failure"},
-		{ID: 3, App: "github-actions", Status: "completed", Conclusion: "success"},
-		{ID: 0, App: "", Status: "completed", Conclusion: "failure"}, // a commit status
-		{ID: 5, App: "github-actions", Status: "completed", Conclusion: "failure"},
-		{ID: 6, App: "github-actions", Status: "in_progress"},
-	}
-	var asked []int64
-	steps := func(dir string, id int64) (int, error) {
-		asked = append(asked, id)
-		switch id {
-		case 1:
-			return 0, nil
-		case 2:
-			return 3, nil
-		}
-		return 0, errors.New("network down")
-	}
-	got := markNotStarted("/x", runs, steps)
-	var flagged []int64
-	for _, r := range got {
-		if r.NotStarted {
-			flagged = append(flagged, r.ID)
-		}
-	}
-	if len(flagged) != 1 || flagged[0] != 1 {
-		t.Errorf("flagged %v, want only job 1 (failed, zero steps)", flagged)
-	}
-	if want := []int64{1, 2, 5}; len(asked) != len(want) || asked[0] != 1 || asked[1] != 2 || asked[2] != 5 {
-		t.Errorf("asked steps of %v, want %v (failed Actions runs only)", asked, want)
 	}
 }

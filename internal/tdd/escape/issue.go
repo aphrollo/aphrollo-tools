@@ -6,6 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 )
 
 // An open point that lives in a markdown list is a note: nobody is assigned
@@ -176,16 +180,13 @@ func OpenIssue(o IssueOptions) (url string, number int, err error) {
 	if o.TargetRepo == "" && !hasGitHubRemote(o.Repo) {
 		return "", 0, errNoIssueTarget
 	}
+	h := issueHost(o.Repo)
 	for _, l := range o.Labels {
-		ensureLabel(o.Repo, l, o.LabelMeta[l])
+		ensureLabel(h, o.Repo, l, o.LabelMeta[l])
 	}
-	out, err := runGh(o.Repo, issueArgv(o)...)
+	url, err = h.OpenIssue(issueRequest(o))
 	if err != nil {
 		return "", 0, err
-	}
-	url = lastNonEmptyLine(out)
-	if !strings.Contains(url, "/issues/") {
-		return "", 0, fmt.Errorf("gh issue create printed no issue URL: %q", fitRunes(strings.TrimSpace(out), 200))
 	}
 	return url, issueNumberFromURL(url), nil
 }
@@ -199,16 +200,26 @@ var labelEnsured sync.Map
 // creations and pass vacuously.
 func resetLabelCache() { labelEnsured.Clear() }
 
+// issueHost is the code host the issue is opened against: GitHub through the
+// gh in dir. A seam so a test hands the writer a host of its own.
+// issueCeiling bounds one gh call of the issue writer. A human watches these run,
+// so the bound is only a ceiling for a call that never answers.
+const issueCeiling = 10 * time.Minute
+
+var issueHost = func(dir string) host.Issues {
+	return github.New(github.Options{Dir: dir, Timeout: issueCeiling})
+}
+
 // ensureLabel creates the label the issue is about to ask for. A fresh
 // repository has none of them, and `gh issue create --label` FAILS outright
 // on a label that does not exist — so without this every issue in a new repo
 // reaches nobody.
 //
-// `--force` makes it idempotent (it updates the existing label instead of
+// The host's create is idempotent (it updates the existing label instead of
 // failing), and a failure here is deliberately ignored: the issue create that
 // follows is the real test of whether the label is usable, and it reports in
 // gh's own words.
-func ensureLabel(repo, name string, meta labelMeta) {
+func ensureLabel(h host.Issues, repo, name string, meta labelMeta) {
 	if name == "" {
 		return
 	}
@@ -220,11 +231,7 @@ func ensureLabel(repo, name string, meta labelMeta) {
 	if colour == "" {
 		colour = issueLabelColour
 	}
-	args := []string{"label", "create", name, "--force", "--color", colour}
-	if meta.description != "" {
-		args = append(args, "--description", meta.description)
-	}
-	if _, err := runGh(repo, args...); err != nil {
+	if err := h.EnsureLabel(name, colour, meta.description); err != nil {
 		// NOT remembered. A create that failed (no auth, no network, a name
 		// gh will not take) left no label behind, and caching it would make
 		// the next issue in this process ask for one that does not exist —
@@ -235,16 +242,8 @@ func ensureLabel(repo, name string, meta labelMeta) {
 	labelEnsured.Store(key, true)
 }
 
-// issueArgv is the gh command line one issue is created with. Split out so
-// the routing decision — whose tracker this lands in — is testable without a
-// network, a gh binary, or a GitHub remote.
-func issueArgv(o IssueOptions) []string {
-	args := []string{"issue", "create", "--title", o.Title, "--body", o.Body}
-	if o.TargetRepo != "" {
-		args = append(args, "--repo", o.TargetRepo)
-	}
-	for _, l := range o.Labels {
-		args = append(args, "--label", l)
-	}
-	return args
+// issueRequest is the issue the options describe. Whose tracker it lands in is
+// decided here: a routed issue names its target, an ordinary one names none.
+func issueRequest(o IssueOptions) host.IssueRequest {
+	return host.IssueRequest{Title: o.Title, Body: o.Body, Repo: o.TargetRepo, Labels: o.Labels}
 }

@@ -1,62 +1,21 @@
 package workspace
 
 import (
-	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// prRun is one workflow run of a pull_request event, as gh lists it.
-type prRun struct {
-	ID         int64  `json:"databaseId"`
-	SHA        string `json:"headSha"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	CreatedAt  string `json:"createdAt"`
-	Attempt    int    `json:"attempt"`
-}
-
 // ghPRRuns lists every pull_request run that belongs to PR number pr, whatever
-// the branch's other history holds: the branch's runs are read page by page and
-// kept by the pull request each one names, so a busy PR's oldest run is not
-// cut off by a page limit and a reused branch name brings in no older PR's runs.
+// the branch's other history holds.
 var ghPRRuns = func(wt, branch string, pr int) ([]prRun, error) {
-	jq := fmt.Sprintf(`.workflow_runs[] | select(any(.pull_requests[]?; .number == %d)) | `+
-		`{databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at, attempt: .run_attempt}`, pr)
-	out, err := ghCombinedOutput(wt, "api", "--paginate",
-		"repos/{owner}/{repo}/actions/runs?event=pull_request&per_page=100&branch="+branch, "--jq", jq)
-	if err != nil {
-		return nil, fmt.Errorf("gh api actions/runs: %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	var runs []prRun
-	dec := json.NewDecoder(strings.NewReader(string(out)))
-	for dec.More() {
-		var r prRun
-		if err := dec.Decode(&r); err != nil {
-			return nil, fmt.Errorf("gh api actions/runs: %w", err)
-		}
-		runs = append(runs, r)
-	}
-	return runs, nil
+	return hostFor(wt).PRRuns(branch, pr)
 }
 
 // ghRunFailedJobs names the jobs of a run that failed.
 var ghRunFailedJobs = func(wt string, id int64, attempt int) ([]string, error) {
-	out, err := ghCombinedOutput(wt, "run", "view", fmt.Sprint(id), "--attempt", fmt.Sprint(attempt), "--json", "jobs",
-		"--jq", `[.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out" or .conclusion == "startup_failure") | .name] | join("\n")`)
-	if err != nil {
-		return nil, fmt.Errorf("gh run view %d: %v: %s", id, err, strings.TrimSpace(string(out)))
-	}
-	var names []string
-	for line := range strings.Lines(string(out)) {
-		if name := strings.TrimSpace(line); name != "" {
-			names = append(names, name)
-		}
-	}
-	return names, nil
+	return hostFor(wt).RunFailedJobs(id, attempt)
 }
 
 // failedConclusion is a run conclusion that makes a head red.
@@ -124,18 +83,5 @@ func recordFirstRunCI(wt, branch string, pr int) {
 
 // ghRunFirstAttempt reads how the first attempt of a run ended.
 var ghRunFirstAttempt = func(wt string, id int64) (status, conclusion string, err error) {
-	out, err := ghCombinedOutput(wt, "api", fmt.Sprintf("repos/{owner}/{repo}/actions/runs/%d/attempts/1", id),
-		"--jq", `[.status, .conclusion // ""] | join(" ")`)
-	if err != nil {
-		return "", "", fmt.Errorf("gh api run %d attempt 1: %v: %s", id, err, strings.TrimSpace(string(out)))
-	}
-	f := strings.Fields(string(out))
-	if len(f) == 0 {
-		return "", "", fmt.Errorf("gh api run %d attempt 1: no status", id)
-	}
-	status = f[0]
-	if len(f) > 1 {
-		conclusion = f[1]
-	}
-	return status, conclusion, nil
+	return hostFor(wt).RunFirstAttempt(id)
 }

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -10,7 +9,8 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ciwhy"
-	"github.com/aphrollo/aphrollo-tools/internal/run"
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 )
 
 const ciUsage = `usage: aphrollo ci run [--dry] [--ci-jobs N] [--ci-timeout DURATION]
@@ -61,20 +61,10 @@ const runIDFloor = 10_000_000
 // ghCallTimeout bounds one gh invocation; a job log is the largest read.
 const ghCallTimeout = 90 * time.Second
 
-// ciGh is the ci verb's seam onto gh; tests replace it with recorded answers.
-var ciGh ciwhy.Gh = execGh
-
-// execGh runs gh and returns its stdout, or, on failure, stdout and stderr
-// together so the caller can name gh's own reason.
-func execGh(ctx context.Context, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, ghCallTimeout)
-	defer cancel()
-	var stderr bytes.Buffer
-	stdout, err := lightOutputCtx(ctx, run.Spec{Name: "gh", Args: args, Stderr: &stderr})
-	if err != nil {
-		return append(stdout, stderr.Bytes()...), err
-	}
-	return stdout, nil
+// ciHost is the ci verb's seam onto the code host; tests replace it with
+// recorded answers.
+var ciHost = func(ctx context.Context) host.Runs {
+	return github.New(github.Options{Dir: ".", Timeout: ghCallTimeout, Context: ctx})
 }
 
 func runCI(args []string, stdout, stderr io.Writer) int {
@@ -114,13 +104,13 @@ func runCI(args []string, stdout, stderr io.Writer) int {
 			target.PR = int(n)
 		}
 	}
-	ctx, cancel := commandContext()
-	defer cancel()
 	explain := ciwhy.Why
 	if *raw {
 		explain = ciwhy.Raw
 	}
-	if err := explain(ctx, ciGh, target, stdout); err != nil {
+	ctx, cancel := commandContext()
+	defer cancel()
+	if err := explain(ciHost(ctx), target, stdout); err != nil {
 		fmt.Fprintf(stderr, "aphrollo ci why: %v\n", err)
 		return 1
 	}

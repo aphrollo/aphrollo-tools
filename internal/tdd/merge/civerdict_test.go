@@ -443,17 +443,48 @@ func TestGatePRMergeForQueue_StillJudgesTheMergedTreesDocsOnAStaleVerdict(t *tes
 }
 
 // A verdict that never stood (a red shard, a missing check) is not made good by
-// the queue: the gate runs the local suite exactly as it does without one.
-func TestGatePRMergeForQueue_ARedShardStillRunsTheLocalSuite(t *testing.T) {
+// the queue, and the queue tests the merged tree on GitHub, so the box has no
+// suite to run in its place: the gate refuses and says the PR's own checks must
+// be green first.
+func TestGatePRMergeForQueue_AVerdictThatDoesNotStandRefusesAndRunsNoLocalSuite(t *testing.T) {
+	cases := map[string][]CIVerdictCheck{
+		"a red windows shard":                  {passedCheck("test"), redCheck("test-windows (cli)")},
+		"no test check at all":                 {passedCheck("lint")},
+		"a skipped test check (not a success)": {redCheck("test")},
+		"only the windows shard":               {passedCheck("test-windows (cli)")},
+	}
+	for name, checks := range cases {
+		t.Run(name, func(t *testing.T) {
+			root, trunk := ciReuseLane(t, mutantsInCI)
+			stubCIMergeRef(t, mergedTreeOf(t, root, trunk), ciBefore)
+
+			var seen []gateRun
+			err := GatePRMergeForQueue(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, ciVerdictOf(t, root, checks...))
+
+			if err == nil || !strings.Contains(err.Error(), "own checks must be green first") {
+				t.Fatalf("err = %v, want the refusal that the PR's own checks must be green", err)
+			}
+			if len(seen) != 0 {
+				t.Errorf("ran %d local suite(s) under a merge queue", len(seen))
+			}
+		})
+	}
+}
+
+// Without a queue nothing changes: a verdict that does not stand falls back to
+// the full local gate.
+func TestGatePRMerge_AVerdictThatDoesNotStandStillRunsTheLocalSuiteWithoutAQueue(t *testing.T) {
 	root, trunk := ciReuseLane(t, mutantsInCI)
 	stubCIMergeRef(t, mergedTreeOf(t, root, trunk), ciBefore)
 
 	var seen []gateRun
 	v := ciVerdictOf(t, root, passedCheck("test"), redCheck("test-windows (cli)"))
-	if err := GatePRMergeForQueue(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, v); err != nil {
+	if err := GatePRMergeReusingCI(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard, v); err != nil {
 		t.Fatal(err)
 	}
 	if len(seen) == 0 {
-		t.Fatal("a red windows shard ran no local suite under a queue")
+		t.Fatal("a red windows shard ran no local suite without a queue")
 	}
 }
+
+// ratchet: test_removed TestGatePRMergeForQueue_ARedShardStillRunsTheLocalSuite: under a merge queue the local suite no longer stands in for CI's verdict; TestGatePRMergeForQueue_AVerdictThatDoesNotStandRefusesAndRunsNoLocalSuite holds the new rule.

@@ -1,9 +1,6 @@
 package workspace
 
 import (
-	"bufio"
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -40,105 +37,23 @@ type PRHead struct {
 	HeadSHA string `json:"headRefOid"`
 }
 
-// CheckRun is one check (or legacy commit status) on one commit. SHA is the
-// commit it ran on: a check whose SHA is not the PR's current head is a
-// leftover from an older push and counts as not started.
-//
-// ID and App identify a check run GitHub Actions made (App "github-actions";
-// its ID is the Actions job's ID); a commit status carries neither.
-// NotStarted marks a failed Actions job that ran no step at all: hosted CI
-// never started it (a billing lock, a spending limit), so it is an outage
-// and not a red (#1064).
-type CheckRun struct {
-	ID         int64  `json:"id"`
-	App        string `json:"app"`
-	NotStarted bool   `json:"-"`
-	Name       string `json:"name"`
-	SHA        string `json:"head_sha"`
-	Status     string `json:"status"`     // queued | in_progress | completed
-	Conclusion string `json:"conclusion"` // success | failure | … once completed
-	StartedAt  string `json:"started_at"` // RFC 3339; empty for a commit status
-	URL        string `json:"html_url"`
-}
-
 // ghPRHead reads a PR's number, state and head commit. ref is a branch or a PR
-// number. A package var so the wait is driven by a scripted gh in tests.
+// number. A package var so the wait is driven by a scripted host in tests.
 var ghPRHead = func(dir, ref string) (*PRHead, error) {
-	p, err := ghAPIViewByRef(dir, ref)
+	p, err := hostFor(dir).PRByRef(ref)
 	if err != nil {
 		return nil, fmt.Errorf("gh api pr view %s: %w", ref, err)
 	}
 	if p == nil {
 		return nil, fmt.Errorf("gh api pr view %s: no such pull request", ref)
 	}
-	return &PRHead{Number: p.Number, URL: p.HTMLURL, State: p.state(), HeadRef: p.Head.Ref, HeadSHA: p.Head.SHA}, nil
+	return &PRHead{Number: p.Number, URL: p.URL, State: p.State, HeadRef: p.HeadRef, HeadSHA: p.HeadSHA}, nil
 }
 
 // ghChecksAt reads every check run and commit status on ONE commit, by SHA, so
 // a result can never belong to a different head than the one asked about.
-// Each record is one JSON object per line, so a name with spaces stays whole.
 var ghChecksAt = func(dir, sha string) ([]CheckRun, error) {
-	runs, err := ghJSONLines(dir, "api", "--paginate", "repos/{owner}/{repo}/commits/"+sha+"/check-runs",
-		"--jq", `.check_runs[] | {id, name, head_sha, status, conclusion, html_url, started_at, app: .app.slug}`)
-	if err != nil {
-		return nil, err
-	}
-	runs = markNotStarted(dir, runs, ghJobStepCount)
-	statuses, err := ghJSONLines(dir, "api", "repos/{owner}/{repo}/commits/"+sha+"/status",
-		"--jq", `.sha as $s | .statuses[] | {name: .context, head_sha: $s, `+
-			`status: (if .state == "pending" then "in_progress" else "completed" end), `+
-			`conclusion: .state, html_url: .target_url}`)
-	if err != nil {
-		return nil, err
-	}
-	return append(runs, statuses...), nil
-}
-
-// ghJobStepCount reads how many steps an Actions job has. A package var so
-// tests state what Actions answered without a network.
-var ghJobStepCount = func(dir string, id int64) (int, error) {
-	out, err := ghCombinedOutput(dir, "api", "repos/{owner}/{repo}/actions/jobs/"+strconv.FormatInt(id, 10), "--jq", ".steps | length")
-	if err != nil {
-		return 0, fmt.Errorf("gh api actions/jobs/%d: %v: %s", id, err, strings.TrimSpace(string(out)))
-	}
-	return strconv.Atoi(strings.TrimSpace(string(out)))
-}
-
-// markNotStarted flags each failed Actions check run whose job ran no step.
-// Only those are asked about; a job whose steps cannot be read stays the
-// failure GitHub reported, so an unreadable answer never softens a red.
-func markNotStarted(dir string, runs []CheckRun, steps func(dir string, id int64) (int, error)) []CheckRun {
-	for i, r := range runs {
-		if r.App != "github-actions" || r.ID == 0 || classifyCheckRun(r) != "fail" {
-			continue
-		}
-		if n, err := steps(dir, r.ID); err == nil && n == 0 {
-			runs[i].NotStarted = true
-		}
-	}
-	return runs
-}
-
-func ghJSONLines(dir string, args ...string) ([]CheckRun, error) {
-	out, err := ghCombinedOutput(dir, args...)
-	if err != nil {
-		return nil, fmt.Errorf("gh %s: %v: %s", strings.Join(args[:2], " "), err, strings.TrimSpace(string(out)))
-	}
-	var rows []CheckRun
-	sc := bufio.NewScanner(bytes.NewReader(out))
-	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	for sc.Scan() {
-		line := bytes.TrimSpace(sc.Bytes())
-		if len(line) == 0 {
-			continue
-		}
-		var r CheckRun
-		if err := json.Unmarshal(line, &r); err != nil {
-			return nil, fmt.Errorf("parsing gh %s: %w", strings.Join(args[:2], " "), err)
-		}
-		rows = append(rows, r)
-	}
-	return rows, sc.Err()
+	return hostFor(dir).ChecksAt(sha)
 }
 
 // laneHeadSHA is the commit the lane worktree has checked out — what the

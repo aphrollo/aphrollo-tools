@@ -1,8 +1,6 @@
 package workspace
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
@@ -12,111 +10,20 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/ciwhy"
 )
 
-// QueueRemoval is what the PR's timeline says about leaving the merge queue:
-// whether its latest queue event is a removal (and GitHub's reason, such as
-// failed_checks), and whether auto-merge is still switched on for it.
-type QueueRemoval struct {
-	Removed bool
-	// FailedChecks is whether ANY removal on the timeline had the reason
-	// failed_checks, even one the PR was queued again after.
-	FailedChecks bool
-	Reason       string
-	AutoMerge    bool
-}
-
-const queueRemovalQuery = `query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name){pullRequest(number:$n){` +
-	`autoMergeRequest{enabledAt} timelineItems(last:10,itemTypes:[ADDED_TO_MERGE_QUEUE_EVENT,REMOVED_FROM_MERGE_QUEUE_EVENT,AUTO_MERGE_DISABLED_EVENT]){` +
-	`nodes{__typename ... on RemovedFromMergeQueueEvent{reason}}}}}}`
-
 // ghQueueRemoval reads the queue events of a PR's timeline.
 var ghQueueRemoval = func(wt, slug string, pr int) (QueueRemoval, error) {
-	owner, repo, ok := splitRepo(wt, slug)
-	if !ok {
-		return QueueRemoval{}, fmt.Errorf("origin is not a github remote in %s", wt)
-	}
-	out, err := ghCombinedOutput(wt, "api", "graphql", "-f", "owner="+owner, "-f", "name="+repo,
-		"-F", "n="+strconv.Itoa(pr), "-f", "query="+queueRemovalQuery)
-	if err != nil {
-		return QueueRemoval{}, fmt.Errorf("gh api graphql (queue events of #%d): %v: %s", pr, err, strings.TrimSpace(string(out)))
-	}
-	return parseQueueRemoval(out)
-}
-
-// parseQueueRemoval reads queueRemovalQuery's answer. Only the newest queue
-// event counts: a removal followed by a new enqueue is not a removal. A removal
-// whose reason is "merged" is the queue finishing its job, not a drop.
-func parseQueueRemoval(out []byte) (QueueRemoval, error) {
-	var resp struct {
-		Data struct {
-			Repository struct {
-				PullRequest *struct {
-					AutoMergeRequest *struct{} `json:"autoMergeRequest"`
-					TimelineItems    struct {
-						Nodes []struct {
-							Type   string `json:"__typename"`
-							Reason string `json:"reason"`
-						} `json:"nodes"`
-					} `json:"timelineItems"`
-				} `json:"pullRequest"`
-			} `json:"repository"`
-		} `json:"data"`
-		Errors []struct {
-			Message string `json:"message"`
-		} `json:"errors"`
-	}
-	if err := json.Unmarshal(out, &resp); err != nil {
-		return QueueRemoval{}, fmt.Errorf("parsing the queue events: %w", err)
-	}
-	if len(resp.Errors) > 0 {
-		return QueueRemoval{}, fmt.Errorf("queue events: %s", resp.Errors[0].Message)
-	}
-	pr := resp.Data.Repository.PullRequest
-	if pr == nil {
-		return QueueRemoval{}, fmt.Errorf("queue events: no such pull request")
-	}
-	r := QueueRemoval{AutoMerge: pr.AutoMergeRequest != nil}
-	for _, n := range pr.TimelineItems.Nodes {
-		if n.Type == "RemovedFromMergeQueueEvent" && n.Reason == "failed_checks" {
-			r.FailedChecks = true
-		}
-	}
-	if n := len(pr.TimelineItems.Nodes); n > 0 {
-		last := pr.TimelineItems.Nodes[n-1]
-		switch last.Type {
-		case "RemovedFromMergeQueueEvent":
-			r.Removed, r.Reason = last.Reason != "merged", last.Reason
-		case "AutoMergeDisabledEvent":
-			r.Removed, r.Reason = true, "auto-merge disabled"
-		}
-	}
-	return r, nil
+	return hostFor(wt).QueueRemoval(slug, pr)
 }
 
 // ghMergeGroupRun finds the newest merge_group run the queue made for a PR:
-// 0 when there is none. The queue names its branches gh-readonly-queue/<base>/pr-<n>-<sha>.
+// 0 when there is none.
 var ghMergeGroupRun = func(wt, slug string, pr int) (int64, error) {
-	owner, repo, ok := splitRepo(wt, slug)
-	if !ok {
-		return 0, fmt.Errorf("origin is not a github remote in %s", wt)
-	}
-	jq := fmt.Sprintf(`[.workflow_runs[] | select(.head_branch | contains("/pr-%d-"))] | sort_by(.id) | last | .id // empty`, pr)
-	out, err := ghCombinedOutput(wt, "api", "repos/"+owner+"/"+repo+"/actions/runs?event=merge_group&per_page=100", "--jq", jq)
-	if err != nil {
-		return 0, fmt.Errorf("gh api actions/runs (merge_group): %v: %s", err, strings.TrimSpace(string(out)))
-	}
-	s := strings.TrimSpace(string(out))
-	if s == "" {
-		return 0, nil
-	}
-	return strconv.ParseInt(s, 10, 64)
+	return hostFor(wt).MergeGroupRun(slug, pr)
 }
 
 // explainMergeGroupRun prints why a run is red, the way `aphrollo ci why` does.
 var explainMergeGroupRun = func(wt string, id int64, w io.Writer) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	gh := func(_ context.Context, args ...string) ([]byte, error) { return ghCombinedOutput(wt, args...) }
-	return ciwhy.Why(ctx, gh, ciwhy.Target{Run: id}, w)
+	return ciwhy.Why(hostUntil(wt, time.Now().Add(3*time.Minute)), ciwhy.Target{Run: id}, w)
 }
 
 // A PR out of the queue in one poll is not yet a PR removed from it: the poll's

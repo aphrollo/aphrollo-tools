@@ -35,9 +35,15 @@ var execWrappers = map[string]bool{
 // A new spread call site is not in the table, so this test fails on it: put
 // the list through this package, or say here what bounds it.
 var spreadCallSites = map[string]string{
-	"internal/ciwhy/why.go:Raw":                                      "bounded: fixed gh run arguments",
-	"internal/ciwhy/why.go:explainJob":                               "bounded: fixed gh run arguments",
-	"internal/ciwhy/why.go:ghJSON":                                   "bounded: fixed gh run arguments",
+	"internal/integrate/host/github/checks.go:jsonLines":             "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/issues.go:EnsureLabel":           "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/issues.go:OpenIssue":             "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/pulls.go:OpenPR":                 "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/queue.go:Enqueue":                "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/queue.go:Merge":                  "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/runs.go:JobLog":                  "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/runs.go:RunLog":                  "bounded: fixed gh arguments plus the few values of one request",
+	"internal/integrate/host/github/runs.go:jsonOf":                  "bounded: fixed gh arguments plus the few values of one request",
 	"internal/cli/cargo_shim.go:execCargoEnv":                        "bounded: forwards the caller's own command line, which already fit the shell's limit once",
 	"internal/cli/git_shim.go:execGit":                               "bounded: forwards the caller's own command line, which already fit the shell's limit once",
 	"internal/cli/git_shim_discard.go:diffCost":                      "bounded: the paths are the ones the user typed after git checkout or restore, already within the shell limit",
@@ -53,8 +59,6 @@ var spreadCallSites = map[string]string{
 	"internal/proc/killtree_windows.go:KillTree":                     "bounded: one pid",
 	"internal/run/run.go:command":                                    "bounded: a leaf spawn that runs the arguments its caller built; a caller with a path list cuts it with run.Split or run.Batch first",
 	"internal/shfake/testdata/trampoline/main.go:main":               "bounded: forwards the command line its caller gave the fake, which already fit the shell's limit once",
-	"internal/tdd/escape/issue.go:OpenIssue":                         "bounded: one title, one body and the declared label set",
-	"internal/tdd/escape/issue.go:ensureLabel":                       "bounded: one label",
 	"internal/tdd/gc/gc_session.go:backgroundGCCommand":              "bounded: the fixed gc flags and one repository path",
 	"internal/tdd/gitx/gitplumbing.go:git":                           "bounded: a leaf spawn that runs the arguments its caller built; each caller passing a path list is a wrapper call this guard sees",
 	"internal/tdd/gitx/gitplumbing.go:gitStaged":                     "batched: Run splits the staged-path list (#960)",

@@ -14,8 +14,6 @@ func checkedOutSHA(p0 string) string { return gitx.CheckedOutSHA(p0) }
 
 func git(p0 string, p1 ...string) (string, error) { return gitx.Git(p0, p1...) }
 
-func lastNonEmptyLine(p0 string) string { return gitx.LastNonEmptyLine(p0) }
-
 func mergeTipOf(p0 string) (mergeTip, bool) { return gitx.MergeTipOf(p0) }
 
 func revTree(p0 string, p1 string) (string, bool) { return gitx.RevTree(p0, p1) }

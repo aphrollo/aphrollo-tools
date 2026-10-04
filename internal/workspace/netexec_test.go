@@ -185,22 +185,3 @@ func TestGitNetworkOutput_GivesUpOnAStalledFetchAtTheDeadline(t *testing.T) {
 		t.Fatalf("gitNetworkOutput waited %s — the deadline did not fire", elapsed)
 	}
 }
-
-// ghOutput must give up on a stalled gh subprocess at ghTimeout the same way.
-func TestGhOutput_GivesUpOnAStalledCallAtTheDeadline(t *testing.T) {
-	putSlowStubOnPath(t)
-	t.Setenv("SLOWSTUB_SLEEP_MS", "3000")
-	defer func(d time.Duration) { ghTimeout = d }(ghTimeout)
-	ghTimeout = 200 * time.Millisecond
-
-	started := time.Now()
-	_, err := ghOutput(t.TempDir(), "pr", "view")
-	elapsed := time.Since(started)
-
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		t.Fatalf("expected a timeout error, got %v", err)
-	}
-	if elapsed > 2*time.Second {
-		t.Fatalf("ghOutput waited %s — the deadline did not fire", elapsed)
-	}
-}

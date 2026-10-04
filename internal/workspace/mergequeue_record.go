@@ -37,7 +37,17 @@ func refuseLiveQueue(mainRepo string) error {
 // record it cannot write is reported and the queue still runs.
 func claimQueueRecord(mainRepo string, prior *tdd.MergeQueueRecord, items []QueueItem, stderr io.Writer) (*tdd.MergeQueueRecord, error) {
 	if err := refuseLiveQueue(mainRepo); err != nil {
-		return nil, err
+		if !baseHasMergeQueue(mainRepo) {
+			return nil, err
+		}
+		// Under GitHub's merge queue the order of landing is the queue's, so waits
+		// on different PRs are safe side by side. The live queue keeps the one
+		// record; this run keeps its own in memory only and writes none.
+		rec := &tdd.MergeQueueRecord{}
+		for _, it := range items {
+			rec.PRs = append(rec.PRs, tdd.MergeQueuePR{PR: it.PR, Status: tdd.MergeQueuePending})
+		}
+		return rec, nil
 	}
 	rec := &tdd.MergeQueueRecord{Repo: mainRepo, Started: waitNow()}
 	rec.StampThisProcess()
@@ -55,10 +65,27 @@ func claimQueueRecord(mainRepo string, prior *tdd.MergeQueueRecord, items []Queu
 	return rec, nil
 }
 
+// baseHasMergeQueue is whether the repository's default branch has a GitHub merge
+// queue. A read that fails is no: the lock then holds, as it did before.
+// queueBaseBranch is the branch the queue lands on; a seam for the tests.
+var queueBaseBranch = needDefaultBranch
+
+func baseHasMergeQueue(mainRepo string) bool {
+	base, err := queueBaseBranch(mainRepo)
+	if err != nil {
+		return false
+	}
+	queued, err := ghHasMergeQueue(mainRepo, "", base)
+	return err == nil && queued
+}
+
 // settleQueuePR records pr's status, and removes the record once no PR is
 // left pending: the queue is finished.
 func settleQueuePR(rec *tdd.MergeQueueRecord, pr int, status string, stderr io.Writer) {
 	rec.Set(pr, status)
+	if rec.Repo == "" {
+		return // a run beside a live queue keeps no record
+	}
 	saveQueueRecord(rec, stderr)
 	if len(rec.Pending()) == 0 {
 		tdd.RemoveMergeQueueRecord(rec.Repo)

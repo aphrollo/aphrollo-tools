@@ -23,8 +23,8 @@ import (
 func replayGh(t *testing.T, pr string, patch map[string]string) *[]string {
 	t.Helper()
 	var calls []string
-	prev := retroGh
-	retroGh = func(dir string, timeout time.Duration, args ...string) (string, error) {
+	prev := retroRunner
+	retroRunner = func(dir string, timeout time.Duration, args ...string) ([]byte, error) {
 		calls = append(calls, strings.Join(args, " "))
 		if timeout <= 0 || timeout > retroBudget {
 			t.Errorf("gh %v ran with timeout %s, want within (0, %s]", args, timeout, retroBudget)
@@ -44,16 +44,16 @@ func replayGh(t *testing.T, pr string, patch map[string]string) *[]string {
 			name = "run-view-" + args[2] + ".json"
 		}
 		if body, ok := patch[name]; ok {
-			return body, nil
+			return []byte(body), nil
 		}
 		data, err := os.ReadFile(filepath.Join("testdata", "retro", pr, name))
 		if err != nil {
 			t.Errorf("unrecorded gh call %v: %v", args, err)
-			return "", err
+			return nil, err
 		}
-		return string(data), nil
+		return data, nil
 	}
-	t.Cleanup(func() { retroGh = prev })
+	t.Cleanup(func() { retroRunner = prev })
 	return &calls
 }
 
@@ -333,20 +333,20 @@ func TestPostMergeRetro_SinkMappingIsReadFromTheRepoConfig(t *testing.T) {
 
 func TestPostMergeRetro_GhFailureSaysSkippedOnceAndNeverRecords(t *testing.T) {
 	isolateRetro(t, "sess-ghfail")
-	prev := retroGh
+	prev := retroRunner
 	calls := 0
-	retroGh = func(dir string, timeout time.Duration, args ...string) (string, error) {
+	retroRunner = func(dir string, timeout time.Duration, args ...string) ([]byte, error) {
 		calls++
-		return "", errors.New("HTTP 502: Bad Gateway")
+		return []byte("HTTP 502: Bad Gateway"), errors.New("exit status 1")
 	}
-	t.Cleanup(func() { retroGh = prev })
+	t.Cleanup(func() { retroRunner = prev })
 
 	lane := t.TempDir()
 	// Local friction alone must not make a retro out of a failed collection.
 	logGate(t, lane, "2026-09-24T12:00:00Z precommit ratchet-rejected")
 
 	msg := runRetro(t, lane, "lane/probe-discard", 839)
-	if msg != "retro skipped: gh pr view: HTTP 502: Bad Gateway\n" {
+	if msg != "retro skipped: gh pr view: exit status 1: HTTP 502: Bad Gateway\n" {
 		t.Errorf("stderr = %q, want exactly one retro skipped line naming the failure", msg)
 	}
 	if calls != 1 {

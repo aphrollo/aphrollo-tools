@@ -16,7 +16,7 @@ import (
 // be exercised without the network or a real gh install. Like the real gh,
 // it writes message to STDOUT on success (exitCode 0 — the data path) and to
 // STDERR on failure (exitCode != 0 — gh's own error text, never mixed into
-// the data ghCombinedOutput returns on the happy path; see #883). The fake is
+// the data the gh transport returns on the happy path; see #883). The fake is
 // a shell script; see writeShGh for how Windows runs it.
 func fakeGh(t *testing.T, message string, exitCode int) {
 	t.Helper()
