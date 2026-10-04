@@ -520,3 +520,13 @@ func TestStateSizes_countsLockFilesAsTheirOwnKind(t *testing.T) {
 		t.Errorf("locks = %+v, want the lane's lock file counted", got["locks"])
 	}
 }
+
+func TestStateSizes_countsTheVerdictLockToo(t *testing.T) {
+	s := open(t, t.TempDir())
+	seedFrom(t, s, keyN(1), "", retNow, time.Hour) // a write takes verdicts/.lock
+	for _, l := range s.StateSizes(nil) {
+		if l.Name == "locks" && l.Files != 1 {
+			t.Errorf("locks = %+v, want verdicts/.lock counted once", l)
+		}
+	}
+}
