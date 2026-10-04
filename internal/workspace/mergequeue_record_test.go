@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -256,5 +258,55 @@ func TestMergeQueue_PidReusedByAnotherProcessDoesNotBlockAResume(t *testing.T) {
 	}
 	if got := strings.Join(f.merged, ","); got != "lane/two" {
 		t.Errorf("merged %q, want lane/two", got)
+	}
+}
+
+// Under a GitHub merge queue the order of landing is the queue's, so a second
+// wait on another PR is safe beside a live one: it runs, leaves the live queue's
+// record alone and writes none of its own.
+func TestMergeQueue_UnderAGitHubQueueASecondWaitRunsBesideALiveOne(t *testing.T) {
+	f := queueFake()
+	install(t, f)
+	ghHasMergeQueue = func(string, string, string) (bool, error) { return true, nil }
+	prevBase := queueBaseBranch
+	queueBaseBranch = func(string) (string, error) { return "main", nil }
+	t.Cleanup(func() { queueBaseBranch = prevBase })
+	held := &tdd.MergeQueueRecord{Repo: "/r", PRs: []tdd.MergeQueuePR{{PR: 9, Status: tdd.MergeQueuePending}}}
+	held.StampThisProcess()
+	if err := tdd.SaveMergeQueueRecord(held); err != nil {
+		t.Fatal(err)
+	}
+
+	items := []QueueItem{{PR: 21}}
+	rec, err := claimQueueRecord("/r", nil, items, io.Discard)
+
+	if err != nil {
+		t.Fatalf("a wait under a GitHub merge queue was refused by the local lock: %v", err)
+	}
+	settleQueuePR(rec, 21, tdd.MergeQueueMerged, io.Discard)
+	if got := queueStatuses(t, "/r"); got != "#9=pending" {
+		t.Errorf("the live queue's record = %q, want it untouched by the second wait", got)
+	}
+}
+
+// A base the queue question cannot be answered for keeps the lock.
+func TestMergeQueue_AnUnreadableQueueQuestionKeepsTheLock(t *testing.T) {
+	f := queueFake()
+	install(t, f)
+	ghHasMergeQueue = func(string, string, string) (bool, error) { return false, errors.New("HTTP 502") }
+	prevBase := queueBaseBranch
+	queueBaseBranch = func(string) (string, error) { return "main", nil }
+	t.Cleanup(func() { queueBaseBranch = prevBase })
+	held := &tdd.MergeQueueRecord{Repo: "/r", PRs: []tdd.MergeQueuePR{{PR: 9, Status: tdd.MergeQueuePending}}}
+	held.StampThisProcess()
+	if err := tdd.SaveMergeQueueRecord(held); err != nil {
+		t.Fatal(err)
+	}
+
+	items, _ := PlanMergeQueue("/r", []int{21})
+	err := RunMergeQueue("/r", items, "squash", true, testWait, &bytes.Buffer{}, &bytes.Buffer{})
+
+	if err == nil || !strings.Contains(err.Error(), "already runs as pid") {
+		t.Fatalf("err = %v, want the live queue's lock to hold", err)
 	}
 }
