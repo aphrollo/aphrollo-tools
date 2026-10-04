@@ -77,14 +77,16 @@ var ghBranchRules = func(wt, owner, repo, branch string) ([]byte, error) {
 
 // rulesReadResult turns the rules read's outcome into rules or a refusal. A 404
 // means the host has no rulesets (an older GHES, a plan without them): there is
-// no queue to be in, so it is an empty rule list. Anything else (auth, a 5xx, no
+// no queue to be in, so it is an empty rule list. So is a 403 that says
+// the plan lacks the feature (a private repository of a Free organisation).
+// Any other 403 (a token without the scope, SSO) is not a claim about the plan. Anything else (auth, a 5xx, no
 // network) is an error with the fix, because "no queue" is a claim.
 func rulesReadResult(branch string, out []byte, err error) ([]byte, error) {
 	if err == nil {
 		return out, nil
 	}
 	text := strings.TrimSpace(string(out))
-	if strings.Contains(text, "HTTP 404") {
+	if strings.Contains(text, "HTTP 404") || planLacksRulesets(text) {
 		return []byte("[]"), nil
 	}
 	return nil, fmt.Errorf("gh api rules/branches/%s: %v: %s — check `gh auth status` and the network, then merge again", branch, err, text)
@@ -356,4 +358,17 @@ func (m *Merge) scrubPRBody(number int, title, want string, stdout io.Writer) er
 func (m *Merge) recordQueued(q *Enqueued) {
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: m.Target.Worktree, Verdict: "queued",
 		Detail: map[string]string{"pr": strconv.Itoa(q.PR), "method": "merge queue"}})
+}
+
+// planLacksRulesets reports a 403 whose body is GitHub saying the repository's
+// plan has no rulesets, such as "Upgrade to GitHub Pro or make this repository
+// public to enable this feature." Only that wording counts: a bare 403 or
+// "Resource not accessible by integration" can be a token scope and stays a
+// refusal.
+func planLacksRulesets(text string) bool {
+	if !strings.Contains(text, "HTTP 403") {
+		return false
+	}
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "upgrade to github") || strings.Contains(lower, "to enable this feature")
 }

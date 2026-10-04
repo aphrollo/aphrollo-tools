@@ -223,3 +223,24 @@ func TestRulesHaveMergeQueue_ReadsConcatenatedPages(t *testing.T) {
 		t.Errorf("no queue rule: %v, %v", got, err)
 	}
 }
+
+// A private repository of a Free organisation has no rulesets: GitHub answers
+// the rules read with a 403 saying so (#1203). That is no queue, not a refusal;
+// a 403 that is about the token still refuses with the fix.
+func TestRulesReadResult_APlanThatLacksRulesetsIsNoQueueButATokenProblemIsNot(t *testing.T) {
+	plan := "gh: Upgrade to GitHub Pro or make this repository public to enable this feature. (HTTP 403)"
+	out, err := rulesReadResult("main", []byte(plan), errors.New("exit status 1"))
+	if err != nil || string(out) != "[]" {
+		t.Errorf("plan 403 = %q, %v; want an empty rule list", out, err)
+	}
+	for _, text := range []string{
+		"gh: Resource not accessible by personal access token (HTTP 403)",
+		"gh: Resource protected by organization SAML enforcement. (HTTP 403)",
+		"gh: Forbidden (HTTP 403)",
+	} {
+		_, err := rulesReadResult("main", []byte(text), errors.New("exit status 1"))
+		if err == nil || !strings.Contains(err.Error(), "gh auth status") {
+			t.Errorf("%q: error = %v, want a refusal carrying the fix hint", text, err)
+		}
+	}
+}
