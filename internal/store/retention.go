@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,7 +22,8 @@ import (
 // Retain is the one sweep of a repo's state directory (architecture §3
 // "Storage"), per kind of file:
 //
-//	events-YYYY-MM.jsonl   gone 16 weeks after its month ended
+//	events-YYYY-MM.jsonl   gone 16 weeks after its month ended, unless it
+//	                       holds an event of a lane that is not removed
 //	lanes/<lane>.json      gone 7 days after the lane was removed
 //	verdicts/<key>.json    SweepVerdicts: 14 days unused or lane closed; LRU 2,000
 //	jobs, out, cache       DirRule: files past an age, then the least recently
@@ -30,8 +32,8 @@ import (
 // It never removes what something live holds: only a removed lane's checkpoint
 // goes, and only under that lane's lock (a lane another process is committing
 // to is left for the next sweep); a verdict of a lane not known to be closed
-// stays until its age; a DirRule's Keep names the files a running job still
-// holds. Everything is best effort and repeatable: a file that cannot be
+// stays until its age; a DirRule's Keep (no caller sets one today) names files
+// a running job still holds. Everything is best effort and repeatable: a file that cannot be
 // removed stays and is reported, and the next sweep tries again.
 //
 // jobs/, out/ and cache/ are not under the store yet (a job record lives in
@@ -97,7 +99,10 @@ func (r RetentionReport) Bytes() int64 {
 
 // Retain applies every retention rule to the store's directory and to the
 // directories rules name. The verdicts are swept before the lanes, so a
-// verdict still finds its lane closed.
+// verdict still finds its lane closed, and the lanes before the event months,
+// so a month is judged by the lanes that are left. Files that could not be
+// removed are in the report's Errors, once each; the error is only a canceled
+// context.
 func (s *Store) Retain(ctx context.Context, opts RetentionOptions) (RetentionReport, error) {
 	if opts.Now.IsZero() {
 		opts.Now = time.Now()
@@ -106,7 +111,6 @@ func (s *Store) Retain(ctx context.Context, opts RetentionOptions) (RetentionRep
 	note := func(path string, size int64, reason string) {
 		rep.Removed = append(rep.Removed, Removal{path, size, reason})
 	}
-	s.sweepEvents(opts, note, &rep)
 	closed := map[string]bool{}
 	_, err := s.SweepVerdicts(SweepOptions{
 		Now: opts.Now, Dry: opts.Dry, Removed: note,
@@ -126,8 +130,9 @@ func (s *Store) Retain(ctx context.Context, opts RetentionOptions) (RetentionRep
 		return rep, err
 	}
 	s.sweepLanes(ctx, opts, note, &rep)
+	s.sweepEvents(opts, note, &rep)
 	rep.merge(RetainDirs(opts))
-	return rep, errors.Join(rep.Errors...)
+	return rep, nil
 }
 
 // RetainDirs applies opts.Rules alone, for directories that belong to no one
@@ -156,17 +161,59 @@ func remove(path string, dry bool, rep *RetentionReport) bool {
 	if dry {
 		return true
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := removeFile(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		rep.Errors = append(rep.Errors, err)
 		return false
 	}
 	return true
 }
 
-// sweepEvents removes the event months that ended more than EventsMaxAge ago.
-// A name that is not events-YYYY-MM.jsonl is never touched.
+// removeFile is os.Remove, a seam so a test can state what a file that will
+// not go (a sharing violation on Windows) does to the report.
+var removeFile = os.Remove
+
+// SweptThroughFile names the marker Retain leaves in the state directory: the
+// end of the newest event month it removed, RFC 3339. The log is complete from
+// that moment on and holds only some of what came before it.
+const SweptThroughFile = "events-swept-through"
+
+// SweptThrough is the moment before which the event log in dir may have lost
+// events to retention: zero when no month was ever removed. A reader that must
+// not read a missing event as "never happened" (the outside-merge scan) treats
+// anything before it as unknown.
+func SweptThrough(dir string) time.Time {
+	data, err := core.ReadFileShared(filepath.Join(dir, SweptThroughFile))
+	if err != nil {
+		return time.Time{} // absence-ok: no marker means no month was ever removed
+	}
+	at, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil {
+		return time.Time{}
+	}
+	return at
+}
+
+// markSweptThrough raises the marker to at; it never moves back.
+func (s *Store) markSweptThrough(at time.Time, rep *RetentionReport) {
+	if !at.After(SweptThrough(s.dir)) {
+		return
+	}
+	err := core.WriteFileAtomic(filepath.Join(s.dir, SweptThroughFile), []byte(at.UTC().Format(time.RFC3339)))
+	if err != nil {
+		rep.Errors = append(rep.Errors, err)
+	}
+}
+
+// sweepEvents removes the event months that ended more than EventsMaxAge ago,
+// except a month that holds an event of a lane that is not removed: the log is
+// what a lane is refolded from (a lost checkpoint, a new fold version), and a
+// refold from a log missing its first months would rebuild a partial lane
+// without saying so. A name that is not events-YYYY-MM.jsonl is never touched.
+// Removing a month moves the SweptThrough marker.
 func (s *Store) sweepEvents(opts RetentionOptions, note func(string, int64, string), rep *RetentionReport) {
 	names, _ := filepath.Glob(filepath.Join(s.dir, "events-*.jsonl"))
+	live := map[string]bool{} // lane -> not removed, judged once per sweep
+	var through time.Time
 	for _, name := range names {
 		month, err := time.Parse("events-2006-01.jsonl", filepath.Base(name))
 		if err != nil {
@@ -174,13 +221,52 @@ func (s *Store) sweepEvents(opts RetentionOptions, note func(string, int64, stri
 		}
 		ended := month.AddDate(0, 1, 0)
 		info, err := os.Stat(name)
-		if err != nil || opts.Now.Sub(ended) <= EventsMaxAge {
+		if err != nil || opts.Now.Sub(ended) <= EventsMaxAge || s.holdsLiveLane(name, live) {
 			continue
 		}
 		if remove(name, opts.Dry, rep) {
 			note(name, info.Size(), "event log month ended "+ended.Format("2006-01-02")+", past 16 weeks")
+			through = later(through, ended)
 		}
 	}
+	if !opts.Dry && !through.IsZero() {
+		s.markSweptThrough(through, rep)
+	}
+}
+
+func later(a, b time.Time) time.Time {
+	if b.After(a) {
+		return b
+	}
+	return a
+}
+
+// holdsLiveLane reports an event file with an event of a lane that is not
+// removed. A lane whose state cannot be told is live. live caches the answers.
+func (s *Store) holdsLiveLane(name string, live map[string]bool) bool {
+	data, err := os.ReadFile(name)
+	if err != nil {
+		return true // a file that cannot be read is not judged unneeded
+	}
+	for _, raw := range bytes.Split(data, []byte{'\n'}) {
+		if !bytes.Contains(raw, []byte(`"ev":`)) {
+			continue
+		}
+		var l logLine
+		if json.Unmarshal(raw, &l) != nil || l.Ev == nil || l.Lane == "" {
+			continue
+		}
+		alive, seen := live[l.Lane]
+		if !seen {
+			v, err := s.current(l.Lane, false)
+			alive = err != nil || v.rec.Lane.Life != kernel.LifeRemoved
+			live[l.Lane] = alive
+		}
+		if alive {
+			return true
+		}
+	}
+	return false
 }
 
 // laneRemoved reports a lane whose checkpoint says it was removed.
@@ -250,7 +336,8 @@ func (s *Store) sweepLane(ctx context.Context, path string, size int64, opts Ret
 		}
 	}
 	release()
-	_ = os.Remove(s.lockPath(ck.Lane)) // best effort: gone with the lane unless held
+	// The lock file stays: unlinking it while another process opens it would
+	// give a second holder a different file under the same name.
 }
 
 func modTime(path string) time.Time {

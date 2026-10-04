@@ -67,7 +67,11 @@ func retainState(repos []string, dry bool, stdout, stderr io.Writer) (freed int6
 		if _, err := os.Stat(dir); err != nil {
 			continue
 		}
-		s, err := store.Open(dir, store.Options{})
+		open := store.Open
+		if dry {
+			open = store.OpenExisting // a plan creates nothing
+		}
+		s, err := open(dir, store.Options{})
 		if err != nil {
 			fmt.Fprintf(stderr, "aphrollo gate gc: state %s: %v\n", dir, err)
 			continue

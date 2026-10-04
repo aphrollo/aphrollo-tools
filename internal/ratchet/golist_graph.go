@@ -108,6 +108,7 @@ func goListCached(root string, overlay map[string]string, cacheDir string) ([]by
 	header := fingerprint + " " + abs
 	if data, err := os.ReadFile(path); err == nil {
 		if head, body, found := bytes.Cut(data, []byte("\n")); found && string(head) == header {
+			touchCacheFile(path)
 			return body, nil
 		}
 	}

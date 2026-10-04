@@ -61,3 +61,10 @@ func TestRunTDDGC_SweepsTheStateDirectory(t *testing.T) {
 		}
 	}
 }
+
+func runGCCmd(t *testing.T, args ...string) (int, string, string) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	code := runGateGC(args, &stdout, &stderr)
+	return code, stdout.String(), stderr.String()
+}

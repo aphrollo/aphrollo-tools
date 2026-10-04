@@ -59,14 +59,24 @@ func runWhy(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo why: --repo: %v\n", err)
 		return 2
 	}
+	note := horizonNote(*repo)
 	w, ok := measure.Explain(core.ReadEvents(*repo), seq)
 	if !ok {
 		fmt.Fprintf(stderr, "aphrollo why: no event with seq %d in the log %s\n", seq, core.EventLogDir(*repo))
+		if note != "" {
+			fmt.Fprintln(stderr, note)
+		}
 		return 1
 	}
 	if *asJSON {
+		if note != "" {
+			fmt.Fprintln(stderr, note)
+		}
 		return printJSON(w, stdout, stderr)
 	}
 	fmt.Fprint(stdout, w.Text())
+	if note != "" {
+		fmt.Fprintln(stdout, note)
+	}
 	return 0
 }

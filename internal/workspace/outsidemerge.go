@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/store"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
@@ -150,6 +152,13 @@ func outsideMergesIn(repo, rng string) ([]OutsideMerge, error) {
 	primary := core.PrimaryCheckoutRoot(repo)
 	if primary == "" {
 		return nil, fmt.Errorf("no git directory for %s", repo)
+	}
+	// Retention removes old event months. A merge from before the retained log
+	// has no record to be matched against, and the verb may well have written
+	// one: it is unknown, never an outside merge, and no event or escape is
+	// emitted for it.
+	if horizon := store.SweptThrough(core.EventLogDir(repo)); !horizon.IsZero() {
+		candidates = slices.DeleteFunc(candidates, func(m OutsideMerge) bool { return m.At.Before(horizon) })
 	}
 	merged, escaped := map[string]bool{}, map[string]bool{}
 	byVerb := map[int]bool{}

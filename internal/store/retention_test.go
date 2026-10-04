@@ -2,9 +2,11 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"testing"
 	"time"
@@ -88,9 +90,6 @@ func TestRetain_aRemovedLaneGoesSevenDaysAfterRemovalAndNoLiveLaneDoes(t *testin
 		if present(s.checkpointPath(lane)) != want {
 			t.Errorf("checkpoint of %s present = %v, want %v", lane, present(s.checkpointPath(lane)), want)
 		}
-	}
-	if present(s.lockPath("lane/gone")) {
-		t.Error("the removed lane's lock file was left behind")
 	}
 }
 
@@ -295,3 +294,156 @@ func TestStateSizes_countsEachKindOfFileTheLayoutNames(t *testing.T) {
 }
 
 var _ = context.Background
+
+// oldMonth moves the current month's event file to the month name, as if it had been written then.
+func oldMonth(t *testing.T, s *Store, name string) string {
+	t.Helper()
+	from := filepath.Join(s.dir, "events-"+time.Now().UTC().Format("2006-01")+".jsonl")
+	to := filepath.Join(s.dir, name)
+	if err := os.Rename(from, to); err != nil {
+		t.Fatal(err)
+	}
+	return to
+}
+
+func TestRetain_aMonthHoldingALiveLanesEventsIsKeptAndTheLaneStillRefolds(t *testing.T) {
+	s := open(t, t.TempDir())
+	mustFact(t, s, entered("live", "s1/a"))
+	mustFact(t, s, entered("live", "s2/a"))
+	month := oldMonth(t, s, "events-2026-05.jsonl") // 20 weeks before retNow
+	want, _, err := s.Load(bounded(t), "live")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	retain(t, s, RetentionOptions{})
+	if !present(month) {
+		t.Fatal("the month that holds a live lane's events was removed")
+	}
+	// Lose the checkpoint: the refold must give the same record from the kept log.
+	if err := os.Remove(s.checkpointPath("live")); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := open(t, s.dir).Load(bounded(t), "live")
+	if err != nil || !reflect.DeepEqual(got.Lane.Actors, want.Lane.Actors) || got.Lane.Life != want.Lane.Life {
+		t.Errorf("refold after the sweep = %+v, %v; want actors %v", got.Lane, err, want.Lane.Actors)
+	}
+}
+
+func TestRetain_aMonthOfOnlyRemovedLanesGoesAndOneSharedWithALiveLaneStays(t *testing.T) {
+	s := open(t, t.TempDir())
+	mustFact(t, s, entered("dead", "s1/a"))
+	mustFact(t, s, kernel.Event{Kind: kernel.KindLaneRemoved, Lane: "dead", Actor: "s1/a", At: t0})
+	if rec, _, _ := s.Load(bounded(t), "dead"); rec.Lane.Life != kernel.LifeRemoved {
+		t.Fatalf("lane life = %q, the fixture needs a removed lane", rec.Lane.Life)
+	}
+	only := oldMonth(t, s, "events-2026-04.jsonl")
+	mustFact(t, s, entered("dead2", "s1/a"))
+	mustFact(t, s, kernel.Event{Kind: kernel.KindLaneRemoved, Lane: "dead2", Actor: "s1/a", At: t0})
+	mustFact(t, s, entered("live", "s1/a"))
+	shared := oldMonth(t, s, "events-2026-03.jsonl")
+
+	retain(t, s, RetentionOptions{})
+	if present(only) {
+		t.Error("a month holding only removed lanes' events was kept")
+	}
+	if !present(shared) {
+		t.Error("a month holding a live lane's events was removed")
+	}
+}
+
+func TestRetain_aLanesEventsWithNoCheckpointAreJudgedByRefolding(t *testing.T) {
+	s := open(t, t.TempDir())
+	mustFact(t, s, entered("gone", "s1/a"))
+	mustFact(t, s, kernel.Event{Kind: kernel.KindLaneRemoved, Lane: "gone", Actor: "s1/a", At: t0})
+	month := oldMonth(t, s, "events-2026-02.jsonl")
+	if err := os.Remove(s.checkpointPath("gone")); err != nil { // swept earlier
+		t.Fatal(err)
+	}
+	retain(t, s, RetentionOptions{})
+	if present(month) {
+		t.Error("a removed lane whose checkpoint was swept kept its event month for ever")
+	}
+}
+
+func TestSweptThrough_isTheEndOfTheNewestMonthRemovedAndNeverMovesBack(t *testing.T) {
+	s := open(t, t.TempDir())
+	if got := SweptThrough(s.dir); !got.IsZero() {
+		t.Fatalf("SweptThrough before any sweep = %v, want zero", got)
+	}
+	put(t, filepath.Join(s.dir, "events-2026-02.jsonl"), 1, 0)
+	retain(t, s, RetentionOptions{Dry: true})
+	if got := SweptThrough(s.dir); !got.IsZero() {
+		t.Errorf("a dry sweep set SweptThrough to %v", got)
+	}
+	retain(t, s, RetentionOptions{})
+	if want := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC); !SweptThrough(s.dir).Equal(want) {
+		t.Errorf("SweptThrough = %v, want %v", SweptThrough(s.dir), want)
+	}
+	put(t, filepath.Join(s.dir, "events-2026-01.jsonl"), 1, 0) // a straggler older than what was swept
+	retain(t, s, RetentionOptions{})
+	if want := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC); !SweptThrough(s.dir).Equal(want) {
+		t.Errorf("SweptThrough moved back to %v", SweptThrough(s.dir))
+	}
+}
+
+func TestRetain_theLaneLockFileIsNeverUnlinked(t *testing.T) {
+	s := open(t, t.TempDir())
+	laneAt(t, s, "lane/gone", kernel.LifeRemoved, 8*day)
+	release, err := s.lock(bounded(t), "lane/gone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	retain(t, s, RetentionOptions{})
+	if present(s.checkpointPath("lane/gone")) {
+		t.Fatal("the removed lane's checkpoint stayed")
+	}
+	if !present(s.lockPath("lane/gone")) {
+		t.Error("the lock file was unlinked: a second holder could then lock a different file")
+	}
+}
+
+func TestRetain_aFileThatCannotBeRemovedIsNeitherReportedRemovedNorCountedFreed(t *testing.T) {
+	s := open(t, t.TempDir())
+	dir := filepath.Join(s.dir, "out")
+	put(t, filepath.Join(dir, "stuck"), 100, 3*day)
+	put(t, filepath.Join(dir, "fine"), 50, 3*day)
+	seedFrom(t, s, keyN(1), "", retNow, 20*day)
+	stuck := map[string]bool{filepath.Join(dir, "stuck"): true, s.verdictPath(keyN(1)): true}
+	defer func(prev func(string) error) { removeFile = prev }(removeFile)
+	removeFile = func(p string) error {
+		if stuck[p] {
+			return errors.New("sharing violation")
+		}
+		return os.Remove(p)
+	}
+	var told []string
+	rep, err := s.Retain(bounded(t), RetentionOptions{Now: retNow, Rules: []DirRule{{Name: "out", Dir: dir, MaxAge: day}}})
+	if err != nil {
+		t.Fatalf("Retain err = %v, want nil: failures are in the report, once", err)
+	}
+	for _, r := range rep.Removed {
+		told = append(told, filepath.Base(r.Path))
+	}
+	if !slices.Equal(told, []string{"fine"}) || rep.Bytes() != 50 {
+		t.Errorf("reported removed %v (%d bytes), want only fine (50)", told, rep.Bytes())
+	}
+	if len(rep.Errors) != 2 {
+		t.Errorf("%d errors %v, want one per stuck file", len(rep.Errors), rep.Errors)
+	}
+}
+
+func TestOpenExisting_createsNothingAndADrySweepLeavesTheDirectoryAsItWas(t *testing.T) {
+	dir := t.TempDir()
+	put(t, filepath.Join(dir, "events-2026-01.jsonl"), 3, 0)
+	s, err := OpenExisting(dir, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retain(t, s, RetentionOptions{Dry: true})
+	entries, _ := os.ReadDir(dir)
+	if len(entries) != 1 {
+		t.Errorf("a dry sweep left %v, want only the event file", entries)
+	}
+}

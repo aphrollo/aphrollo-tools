@@ -96,6 +96,7 @@ func loadCache(dir, root string, laws []Law) *scanCache {
 	if onDisk.Files != nil {
 		c.Files = onDisk.Files
 	}
+	touchCacheFile(c.path)
 	return c
 }
 

@@ -26,8 +26,8 @@ type SweepOptions struct {
 	Closed func(lane string) bool
 	// Dry plans the sweep and removes nothing: the result counts what it would.
 	Dry bool
-	// Removed, when set, is told of each file removed (or, when Dry, to be
-	// removed) with its size and the reason.
+	// Removed, when set, is told of each file removed, after it was (or, when
+	// Dry, to be removed) with its size and the reason.
 	Removed func(path string, size int64, reason string)
 }
 
@@ -75,16 +75,15 @@ func (s *Store) SweepVerdicts(opts SweepOptions) (SweepResult, error) {
 	var live []file
 	var errs []error
 	remove := func(name string, size int64, reason string) bool {
+		path := filepath.Join(s.verdictDir(), name)
+		if !opts.Dry {
+			if err := removeFile(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				errs = append(errs, err)
+				return false
+			}
+		}
 		if opts.Removed != nil {
-			opts.Removed(filepath.Join(s.verdictDir(), name), size, reason)
-		}
-		if opts.Dry {
-			return true
-		}
-		err := os.Remove(filepath.Join(s.verdictDir(), name))
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			errs = append(errs, err)
-			return false
+			opts.Removed(path, size, reason)
 		}
 		return true
 	}
