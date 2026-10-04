@@ -36,6 +36,11 @@ import (
 // a running job still holds. Everything is best effort and repeatable: a file that cannot be
 // removed stays and is reported, and the next sweep tries again.
 //
+// Lock files (lanes/<lane>.lock, verdicts/.lock) are empty and never removed:
+// unlinking one a second process is about to open would give two holders two
+// files under one name, and doing it safely needs the lock protocol to verify
+// the file it locked is still the one at its path. StateSizes counts them.
+//
 // jobs/, out/ and cache/ are not under the store yet (a job record lives in
 // <state>/deferred, the ratchet cache in <state>/ratchet-cache); the caller
 // names the directories as DirRules and moving them is a later lane's.
@@ -193,15 +198,16 @@ func SweptThrough(dir string) time.Time {
 	return at
 }
 
+// writeMarker is the marker's write, a seam so a test can state what a failed
+// write does to the month it was raised for.
+var writeMarker = core.WriteFileAtomic
+
 // markSweptThrough raises the marker to at; it never moves back.
-func (s *Store) markSweptThrough(at time.Time, rep *RetentionReport) {
+func (s *Store) markSweptThrough(at time.Time) error {
 	if !at.After(SweptThrough(s.dir)) {
-		return
+		return nil
 	}
-	err := core.WriteFileAtomic(filepath.Join(s.dir, SweptThroughFile), []byte(at.UTC().Format(time.RFC3339)))
-	if err != nil {
-		rep.Errors = append(rep.Errors, err)
-	}
+	return writeMarker(filepath.Join(s.dir, SweptThroughFile), []byte(at.UTC().Format(time.RFC3339)))
 }
 
 // sweepEvents removes the event months that ended more than EventsMaxAge ago,
@@ -209,11 +215,12 @@ func (s *Store) markSweptThrough(at time.Time, rep *RetentionReport) {
 // what a lane is refolded from (a lost checkpoint, a new fold version), and a
 // refold from a log missing its first months would rebuild a partial lane
 // without saying so. A name that is not events-YYYY-MM.jsonl is never touched.
-// Removing a month moves the SweptThrough marker.
+// The SweptThrough marker is raised to a month's end BEFORE the month is
+// removed, and a month whose marker cannot be written stays: a crash between
+// the two steps must not leave events gone with nothing saying so.
 func (s *Store) sweepEvents(opts RetentionOptions, note func(string, int64, string), rep *RetentionReport) {
 	names, _ := filepath.Glob(filepath.Join(s.dir, "events-*.jsonl"))
 	live := map[string]bool{} // lane -> not removed, judged once per sweep
-	var through time.Time
 	for _, name := range names {
 		month, err := time.Parse("events-2006-01.jsonl", filepath.Base(name))
 		if err != nil {
@@ -224,21 +231,16 @@ func (s *Store) sweepEvents(opts RetentionOptions, note func(string, int64, stri
 		if err != nil || opts.Now.Sub(ended) <= EventsMaxAge || s.holdsLiveLane(name, live) {
 			continue
 		}
+		if !opts.Dry {
+			if err := s.markSweptThrough(ended); err != nil {
+				rep.Errors = append(rep.Errors, err)
+				continue
+			}
+		}
 		if remove(name, opts.Dry, rep) {
 			note(name, info.Size(), "event log month ended "+ended.Format("2006-01-02")+", past 16 weeks")
-			through = later(through, ended)
 		}
 	}
-	if !opts.Dry && !through.IsZero() {
-		s.markSweptThrough(through, rep)
-	}
-}
-
-func later(a, b time.Time) time.Time {
-	if b.After(a) {
-		return b
-	}
-	return a
 }
 
 // holdsLiveLane reports an event file with an event of a lane that is not
@@ -449,5 +451,10 @@ func (s *Store) StateSizes(rules []DirRule) []SizeLine {
 		measure("lanes", filepath.Join(s.dir, "lanes"), 0, isJSON),
 		measure("verdicts", s.verdictDir(), 0, isJSON),
 	}
+	locks := measure("locks", filepath.Join(s.dir, "lanes"), 0, func(n string) bool { return strings.HasSuffix(n, ".lock") })
+	if _, err := os.Stat(s.verdictLockPath()); err == nil {
+		locks.Files++ // the verdict lock is empty, like a lane's
+	}
+	out = append(out, locks)
 	return append(out, DirSizes(rules)...)
 }

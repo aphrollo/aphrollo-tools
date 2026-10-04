@@ -61,11 +61,13 @@ func (s *Store) SweepVerdicts(opts SweepOptions) (SweepResult, error) {
 	if err != nil {
 		return res, err
 	}
-	release, err := s.lockAt(context.Background(), s.verdictLockPath())
-	if err != nil {
-		return res, err
+	if !opts.Dry { // a plan takes no lock: taking it would create the lock file
+		release, err := s.lockAt(context.Background(), s.verdictLockPath())
+		if err != nil {
+			return res, err
+		}
+		defer release()
 	}
-	defer release()
 
 	type file struct {
 		key  string

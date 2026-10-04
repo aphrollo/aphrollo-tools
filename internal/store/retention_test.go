@@ -447,3 +447,76 @@ func TestOpenExisting_createsNothingAndADrySweepLeavesTheDirectoryAsItWas(t *tes
 		t.Errorf("a dry sweep left %v, want only the event file", entries)
 	}
 }
+
+func TestRetain_aMonthIsKeptAtExactlySixteenWeeksAndGoesJustPastIt(t *testing.T) {
+	s := open(t, t.TempDir())
+	month := filepath.Join(s.dir, "events-2026-05.jsonl") // ended 2026-06-01
+	put(t, month, 5, 0)
+	edge := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC).Add(EventsMaxAge)
+	if _, err := s.Retain(bounded(t), RetentionOptions{Now: edge}); err != nil {
+		t.Fatal(err)
+	}
+	if !present(month) {
+		t.Fatal("a month exactly 16 weeks after it ended was removed")
+	}
+	if _, err := s.Retain(bounded(t), RetentionOptions{Now: edge.Add(time.Nanosecond)}); err != nil {
+		t.Fatal(err)
+	}
+	if present(month) {
+		t.Error("a month just past 16 weeks was kept")
+	}
+}
+
+func TestRetain_theMarkerIsRaisedBeforeAMonthGoesAndAFailedWriteKeepsTheMonth(t *testing.T) {
+	s := open(t, t.TempDir())
+	month := filepath.Join(s.dir, "events-2026-05.jsonl")
+	put(t, month, 5, 0)
+	prev := writeMarker
+	defer func() { writeMarker = prev }()
+	writeMarker = func(string, []byte) error { return errors.New("disk full") }
+	rep, _ := s.Retain(bounded(t), RetentionOptions{Now: retNow})
+	if !present(month) {
+		t.Error("a month was removed although its marker could not be written: a reader would take its events for never having happened")
+	}
+	if len(rep.Errors) != 1 {
+		t.Errorf("errors = %v, want the one failed marker write", rep.Errors)
+	}
+
+	writeMarker = prev
+	// A removal that fails after the marker was raised leaves the marker raised.
+	removeFile = func(string) error { return errors.New("sharing violation") }
+	defer func() { removeFile = os.Remove }()
+	s.Retain(bounded(t), RetentionOptions{Now: retNow})
+	if want := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC); !SweptThrough(s.dir).Equal(want) {
+		t.Errorf("SweptThrough = %v, want %v raised before the removal was tried", SweptThrough(s.dir), want)
+	}
+}
+
+func TestRetain_aDryVerdictSweepCreatesNoLockFile(t *testing.T) {
+	s := open(t, t.TempDir())
+	seedFrom(t, s, keyN(1), "", retNow, time.Hour)
+	if err := os.Remove(s.verdictLockPath()); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	retain(t, s, RetentionOptions{Dry: true})
+	if present(s.verdictLockPath()) {
+		t.Error("a dry sweep created verdicts/.lock")
+	}
+}
+
+func TestStateSizes_countsLockFilesAsTheirOwnKind(t *testing.T) {
+	s := open(t, t.TempDir())
+	laneAt(t, s, "lane/a", kernel.LifeOpen, 0)
+	release, err := s.lock(bounded(t), "lane/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	release()
+	got := map[string]SizeLine{}
+	for _, l := range s.StateSizes(nil) {
+		got[l.Name] = l
+	}
+	if got["locks"].Files != 1 {
+		t.Errorf("locks = %+v, want the lane's lock file counted", got["locks"])
+	}
+}

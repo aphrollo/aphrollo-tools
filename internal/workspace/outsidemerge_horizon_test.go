@@ -42,8 +42,11 @@ func TestSyncSince_AMergeFromBeforeTheRetainedLogIsUnknownNotOutside(t *testing.
 	if evs := emitted(t); len(evs) != 0 {
 		t.Errorf("events = %+v, want none: a merge older than the retained log is unknown, not outside", evs)
 	}
-	if strings.Contains(out.String(), "recorded") {
-		t.Errorf("output = %q, want nothing recorded", out.String())
+	if strings.Contains(out.String(), "recorded 1") || strings.Contains(out.String(), "made outside") || strings.Contains(out.String(), "is in the event log") {
+		t.Errorf("output = %q, want nothing recorded and no claim that the log holds the merge", out.String())
+	}
+	if !strings.Contains(out.String(), "1 merge(s)") || !strings.Contains(out.String(), "unknown") || !strings.Contains(out.String(), "events since "+time.Now().Add(24*time.Hour).UTC().Format("2006-01")) {
+		t.Errorf("output = %q, want the one merge counted as before the retained log (events since YYYY-MM) and unknown", out.String())
 	}
 }
 
