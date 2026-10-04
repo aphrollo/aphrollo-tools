@@ -21,7 +21,7 @@ func (g *GitHub) ChecksAt(sha string) ([]host.Check, error) {
 	if err != nil {
 		return nil, err
 	}
-	runs = g.markNotStarted(runs)
+	runs = g.markNotStarted(newestPerName(runs))
 	statuses, err := g.jsonLines("api", "repos/{owner}/{repo}/commits/"+sha+"/status",
 		"--jq", `.sha as $s | .statuses[] | {name: .context, head_sha: $s, `+
 			`status: (if .state == "pending" then "in_progress" else "completed" end), `+
@@ -30,6 +30,31 @@ func (g *GitHub) ChecksAt(sha string) ([]host.Check, error) {
 		return nil, err
 	}
 	return append(runs, statuses...), nil
+}
+
+// newestPerName keeps, of the check runs that share an app and a name, only the
+// newest (the highest id): a head carries one run of a job per workflow run, and a
+// run made while the PR was a draft (every job skipped) or an attempt since
+// re-run must not decide what the latest one answers. Legacy commit statuses
+// (no id) are left as they are. Order is kept.
+func newestPerName(runs []host.Check) []host.Check {
+	newest := map[string]int64{}
+	for _, r := range runs {
+		if r.ID == 0 {
+			continue
+		}
+		if k := r.App + "|" + r.Name; r.ID > newest[k] {
+			newest[k] = r.ID
+		}
+	}
+	out := runs[:0:0]
+	for _, r := range runs {
+		if r.ID != 0 && r.ID != newest[r.App+"|"+r.Name] {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // concludedFailed reports a check that completed with a conclusion that is not
