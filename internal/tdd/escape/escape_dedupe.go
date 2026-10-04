@@ -1,9 +1,10 @@
 package escape
 
 import (
-	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 )
 
 // The dedupe that decides whether a sighting already has an issue.
@@ -49,32 +50,15 @@ func findIssueByFingerprint(repo string, labels []string, state, fingerprint str
 		return fingerprintMatch{}, false
 	}
 	for _, label := range labels {
-		out, err := runGh(repo, "issue", "list", "--label", label, "--state", state, "--limit", "200", "--json", "number,body,state,closedAt")
+		issues, err := gitHubHost(repo, 0).ListIssues(host.IssueQuery{Label: label, State: state, Limit: 200, Fields: []string{"number", "body", "state", "closedAt"}})
 		if err != nil {
 			continue
 		}
-		start, end := strings.Index(out, "["), strings.LastIndex(out, "]")
-		if start < 0 || end < start {
-			continue
-		}
-		var docs []struct {
-			Number   int    `json:"number"`
-			Body     string `json:"body"`
-			State    string `json:"state"`
-			ClosedAt string `json:"closedAt"`
-		}
-		if json.Unmarshal([]byte(out[start:end+1]), &docs) != nil {
-			continue
-		}
-		for _, d := range docs {
-			if !strings.Contains(d.Body, issueFingerprintKey+" "+fingerprint) {
+		for _, is := range issues {
+			if !strings.Contains(is.Body, issueFingerprintKey+" "+fingerprint) {
 				continue
 			}
-			m := fingerprintMatch{Number: d.Number, Open: strings.EqualFold(d.State, "OPEN")}
-			if t, err := time.Parse(time.RFC3339, d.ClosedAt); err == nil {
-				m.ClosedAt = t
-			}
-			return m, true
+			return fingerprintMatch{Number: is.Number, Open: strings.EqualFold(is.State, "OPEN"), ClosedAt: is.ClosedAt}, true
 		}
 	}
 	return fingerprintMatch{}, false

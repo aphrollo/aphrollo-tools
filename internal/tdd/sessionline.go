@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 )
 
 // The open points of every consuming repo are GitHub issues now. That is
@@ -108,14 +110,11 @@ func fetchIssueSummary(repo string, now time.Time) (string, bool) {
 	}
 	// --limit is the whole page: gh defaults to 30, which would silently
 	// under-count every repo that migrated a backlog.
-	out, err := runGhTimeout(repo, issuesFetchTimeout, "issue", "list", "--state", "open", "--limit", "1000", "--json", "labels")
+	issues, err := gitHubHost(repo, issuesFetchTimeout).ListIssues(host.IssueQuery{State: "open", Limit: 1000, Fields: []string{"labels"}})
 	if err != nil {
 		return "", false
 	}
-	total, byLabel, ok := parseIssueLabels(out)
-	if !ok {
-		return "", false
-	}
+	total, byLabel := countIssueLabels(issues)
 	// `gate escape sync`'s closed-issue reconciliation rides this same 1 h
 	// cache window rather than polling on a schedule of its own: a synced
 	// escape whose issue closed on GitHub stops counting as open debt the
@@ -128,28 +127,15 @@ func fetchIssueSummary(repo string, now time.Time) (string, bool) {
 	return RenderIssueSummary(total, byLabel, IssueLabels(repo), open), true
 }
 
-// parseIssueLabels counts the open issues and their labels. A payload it
-// cannot read is a failed fetch, not an empty repo.
-func parseIssueLabels(out string) (total int, byLabel map[string]int, ok bool) {
-	start, end := strings.Index(out, "["), strings.LastIndex(out, "]")
-	if start < 0 || end < start {
-		return 0, nil, false
-	}
-	var docs []struct {
-		Labels []struct {
-			Name string `json:"name"`
-		} `json:"labels"`
-	}
-	if json.Unmarshal([]byte(out[start:end+1]), &docs) != nil {
-		return 0, nil, false
-	}
+// countIssueLabels counts the open issues and their labels.
+func countIssueLabels(issues []host.Issue) (total int, byLabel map[string]int) {
 	byLabel = map[string]int{}
-	for _, d := range docs {
-		for _, l := range d.Labels {
-			byLabel[l.Name]++
+	for _, is := range issues {
+		for _, l := range is.Labels {
+			byLabel[l]++
 		}
 	}
-	return len(docs), byLabel, true
+	return len(issues), byLabel
 }
 
 // issueSummaryLabels is how many themes the line names before it stops being

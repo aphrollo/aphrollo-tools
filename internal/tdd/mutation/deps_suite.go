@@ -3,6 +3,7 @@
 package mutation
 
 import (
+	host "github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	suite "github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
 	time "time"
 )
@@ -53,6 +54,8 @@ func firstDeclaredList(p0 []mutantsConfigTable, p1 string) []string {
 
 func flagName(p0 string) string { return suite.FlagName(p0) }
 
+func gitHubHost(p0 string, p1 time.Duration) host.Host { return suite.GitHubHost(p0, p1) }
+
 func goReachGraphFn(p0 string) (goReachGraph, error) { return suite.GoReachGraphFn(p0) }
 
 func goRunRanATest(p0 SuiteResult) (bool, bool) { return suite.GoRunRanATest(p0) }
@@ -70,10 +73,6 @@ func logSuiteVerdict(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult)
 }
 
 func mutantsConfigTables(p0 string) []mutantsConfigTable { return suite.MutantsConfigTables(p0) }
-
-func runGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
-	return suite.RunGhTimeout(p0, p1, p2...)
-}
 
 func selectedZeroTests(p0 Runner, p1 SuiteResult) bool { return suite.SelectedZeroTests(p0, p1) }
 

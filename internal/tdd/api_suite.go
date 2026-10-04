@@ -3,6 +3,7 @@
 package tdd
 
 import (
+	host "github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	suite "github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
 	time "time"
 )
@@ -31,8 +32,6 @@ func findRootFrom(p0 string) string { return suite.FindRootFrom(p0) }
 
 func gcStatePath(p0 string) string { return suite.GcStatePath(p0) }
 
-func hasGitHubRemote(p0 string) bool { return suite.HasGitHubRemote(p0) }
+func gitHubHost(p0 string, p1 time.Duration) host.Host { return suite.GitHubHost(p0, p1) }
 
-func runGhTimeout(p0 string, p1 time.Duration, p2 ...string) (string, error) {
-	return suite.RunGhTimeout(p0, p1, p2...)
-}
+func hasGitHubRemote(p0 string) bool { return suite.HasGitHubRemote(p0) }

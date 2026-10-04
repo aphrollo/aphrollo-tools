@@ -1,13 +1,12 @@
 package suite
 
 import (
-	"bytes"
-	"fmt"
 	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/aphrollo/aphrollo-tools/internal/run"
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 )
 
 // --- the GitHub half -------------------------------------------------------
@@ -19,27 +18,22 @@ var ghAvailable = func() bool {
 	return err == nil
 }
 
-// runGh runs the GitHub CLI in dir and returns its stdout. A failure carries
-// gh's own STDERR: "exit status 1" names none of the three things that
-// actually go wrong here (a label that does not exist, no auth, no network),
-// and the operator cannot act on a verdict that does not say which.
-func runGh(dir string, args ...string) (string, error) {
-	return runGhTimeout(dir, 0, args...)
-}
-
-// runGhTimeout is runGh with a deadline. Zero means none: the escape verbs
-// are typed by a human who can see them run, while the session-start line is
-// on a path nothing is allowed to stall.
-func runGhTimeout(dir string, timeout time.Duration, args ...string) (string, error) {
-	var stderr bytes.Buffer
-	out, err := lightOutput(run.Spec{Name: "gh", Args: args, Dir: dir, Env: cleanGitEnv(), Stderr: &stderr, Timeout: timeout})
-	if err != nil {
-		if said := strings.TrimSpace(stderr.String()); said != "" {
-			return string(out), fmt.Errorf("gh %s: %w: %s", args[0], err, fitRunes(said, 400))
-		}
-		return string(out), fmt.Errorf("gh %s: %w", args[0], err)
+// gitHubHost is the host port for the repository dir sits in: the one way the
+// gate speaks to GitHub. Every call runs in the sealed environment (no GIT_*
+// variable, so a hook's GIT_DIR cannot make gh resolve the hook's repository),
+// with terminal prompts off, and a failure carries gh's own STDERR: "exit status
+// 1" names none of the three things that actually go wrong here (a label that
+// does not exist, no auth, no network), and the operator cannot act on a verdict
+// that does not say which.
+//
+// A zero timeout is no deadline: the escape verbs are typed by a human who can
+// see them run, while the session-start line is on a path nothing is allowed to
+// stall and so passes one.
+func gitHubHost(dir string, timeout time.Duration) host.Host {
+	if timeout <= 0 {
+		timeout = -1
 	}
-	return string(out), nil
+	return github.New(github.Options{Dir: dir, Timeout: timeout, Env: cleanGitEnv()})
 }
 
 // hasGitHubRemote reports whether repo pushes to GitHub. A repo that does not

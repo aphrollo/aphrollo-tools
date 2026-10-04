@@ -1,7 +1,6 @@
 package escape
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"regexp"
@@ -187,27 +186,15 @@ func verifyClosureMeta(repo, subject string, meta prMeta, fetchPatch func() (map
 // issue: GitHub honours the same keyword in a COMMIT message inside the PR,
 // so a check reading only the body lets a PR close an escape behind its back.
 func readPRMeta(repo, pr string, w io.Writer) (prMeta, error) {
-	out, err := runGh(repo, "pr", "view", pr, "--json", "body,commits,baseRefOid,headRefOid")
+	facts, err := gitHubHost(repo, 0).PRClosure(pr)
 	if err != nil {
 		return prMeta{}, err
 	}
-	var doc struct {
-		Body    string `json:"body"`
-		Commits []struct {
-			MessageHeadline string `json:"messageHeadline"`
-			MessageBody     string `json:"messageBody"`
-		} `json:"commits"`
-		BaseRefOid string `json:"baseRefOid"`
-		HeadRefOid string `json:"headRefOid"`
+	texts := []string{facts.Body}
+	for _, c := range facts.Commits {
+		texts = append(texts, c.Headline, c.Body)
 	}
-	if err := json.Unmarshal([]byte(firstJSONObject(out)), &doc); err != nil {
-		return prMeta{}, fmt.Errorf("reading PR #%s: %w", pr, err)
-	}
-	texts := []string{doc.Body}
-	for _, c := range doc.Commits {
-		texts = append(texts, c.MessageHeadline, c.MessageBody)
-	}
-	return prMeta{closes: closedIssues(repo, texts, w), texts: texts, base: doc.BaseRefOid, head: doc.HeadRefOid}, nil
+	return prMeta{closes: closedIssues(repo, texts, w), texts: texts, base: facts.Base, head: facts.Head}, nil
 }
 
 // readPRPatch fetches the PR's full patch (not --name-only: a manifest is
@@ -220,7 +207,7 @@ func readPRMeta(repo, pr string, w io.Writer) (prMeta, error) {
 // before diffing them. Only when that preparation and the diff both fail
 // does this error.
 func readPRPatch(repo, pr, base, head string) (map[string]string, error) {
-	diff, err := runGh(repo, "pr", "diff", pr)
+	diff, err := gitHubHost(repo, 0).PRDiff(pr)
 	if err == nil {
 		return parsePatch(diff), nil
 	}
@@ -528,33 +515,13 @@ func addClosesByFiles(out map[string]bool, text string) {
 
 // issueLabelsAndBody reads one issue's labels and body through gh.
 func issueLabelsAndBody(repo, number string) (map[string]bool, string, error) {
-	out, err := runGh(repo, "issue", "view", number, "--json", "labels,body")
+	is, err := gitHubHost(repo, 0).Issue(number)
 	if err != nil {
 		return nil, "", err
 	}
-	var doc struct {
-		Labels []struct {
-			Name string `json:"name"`
-		} `json:"labels"`
-		Body string `json:"body"`
-	}
-	if err := json.Unmarshal([]byte(firstJSONObject(out)), &doc); err != nil {
-		return nil, "", fmt.Errorf("reading issue #%s: %w", number, err)
-	}
 	labels := map[string]bool{}
-	for _, l := range doc.Labels {
-		labels[l.Name] = true
+	for _, l := range is.Labels {
+		labels[l] = true
 	}
-	return labels, doc.Body, nil
-}
-
-// firstJSONObject trims whatever a stub or a real gh prints around the
-// payload — a notice before it, a trailing newline after it.
-func firstJSONObject(out string) string {
-	start := strings.Index(out, "{")
-	end := strings.LastIndex(out, "}")
-	if start < 0 || end < start {
-		return strings.TrimSpace(out)
-	}
-	return out[start : end+1]
+	return labels, is.Body, nil
 }

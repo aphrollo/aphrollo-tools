@@ -45,13 +45,14 @@ func fetchCICheck(root, sha string) (string, error) {
 	if !hasGitHubRemote(root) {
 		return "", fmt.Errorf("this checkout has no GitHub remote, so there is no check to read")
 	}
-	out, err := runGhTimeout(root, ciCheckTimeout, "api",
-		"repos/{owner}/{repo}/commits/"+sha+"/check-runs?per_page=100&filter=latest",
-		"--jq", `[.check_runs[] | select(.name=="`+mutantsCICheck+`")] | first | if . == null then "" else .status + "/" + (.conclusion // "") end`)
+	status, conclusion, found, err := gitHubHost(root, ciCheckTimeout).CheckState(sha, mutantsCICheck)
 	if err != nil {
 		return "", fmt.Errorf("the check runs of %s could not be listed: %w", sha, err)
 	}
-	return strings.TrimSpace(out), nil
+	if !found {
+		return "", nil
+	}
+	return status + "/" + conclusion, nil
 }
 
 // judgeCICheck turns the check's "<status>/<conclusion>" into whether the

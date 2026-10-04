@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
+
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
 )
@@ -133,7 +135,7 @@ func (fl Filer) File(f Failure) (url string, updated bool, err error) {
 		return "", false, fmt.Errorf("%s has no GitHub remote", fl.Repo)
 	}
 	title := TitleFor(f)
-	out, err := suite.RunGh(fl.Repo, searchArgv(title)...)
+	out, err := runGh(fl.Repo, searchArgv(title)...)
 	if err != nil {
 		return "", false, fmt.Errorf("searching for an existing issue: %w", err)
 	}
@@ -142,7 +144,7 @@ func (fl Filer) File(f Failure) (url string, updated bool, err error) {
 		return "", false, err
 	}
 	if found {
-		if _, err := suite.RunGh(fl.Repo, commentArgv(number, BodyFor(f, fl.RunURL, fl.ModulePath))...); err != nil {
+		if _, err := runGh(fl.Repo, commentArgv(number, BodyFor(f, fl.RunURL, fl.ModulePath))...); err != nil {
 			return "", false, fmt.Errorf("commenting on #%d: %w", number, err)
 		}
 		return "", true, nil
@@ -158,4 +160,21 @@ func (fl Filer) File(f Failure) (url string, updated bool, err error) {
 		return "", false, fmt.Errorf("opening a new issue: %w", err)
 	}
 	return url, false, nil
+}
+
+// runGh runs gh in dir through the host adapter's runner (sealed environment, no
+// prompt, no deadline: a person watches this run) and answers its stdout. A
+// failure carries gh's own stderr, capped, so the operator can act on it.
+func runGh(dir string, args ...string) (string, error) {
+	out, err := github.ExecRunner(dir, 0, args...)
+	if err != nil {
+		if said := strings.TrimSpace(string(out)); said != "" {
+			if r := []rune(said); len(r) > 400 {
+				said = string(r[:400]) + "\u2026"
+			}
+			return "", fmt.Errorf("gh %s: %w: %s", args[0], err, said)
+		}
+		return "", fmt.Errorf("gh %s: %w", args[0], err)
+	}
+	return string(out), nil
 }
