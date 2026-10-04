@@ -205,6 +205,8 @@ func notTestedCause(verdict string) string {
 		return "infra"
 	case verdict == "no-tests-selected":
 		return "no-tests"
+	case strings.HasPrefix(verdict, "env-missing"):
+		return "env-missing"
 	}
 	return ""
 }

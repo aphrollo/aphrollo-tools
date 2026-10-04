@@ -140,3 +140,11 @@ func pytestExecRunner(root string, r Runner) (Runner, string) {
 	}
 	return pytestCachedRunner(StateDir(), otherWorktreeRoots(root), r, exec.LookPath, pytestImportable)
 }
+
+// pytestRemedyRoot is where the user builds the venv a pytest root lacks: the
+// same root in the primary checkout, which every lane may borrow from, or the
+// root itself outside any worktree. A gate that judged a throwaway merge
+// worktree names this, never that worktree.
+func pytestRemedyRoot(root string) string {
+	return cmp.Or(otherWorktreeRoots(root).remedy, root)
+}

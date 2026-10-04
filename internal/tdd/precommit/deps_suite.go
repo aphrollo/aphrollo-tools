@@ -7,6 +7,8 @@ import (
 	time "time"
 )
 
+const EnvMissingRejected = suite.EnvMissingRejected
+
 const Green = suite.Green
 
 const outcomeCheckError = suite.OutcomeCheckError

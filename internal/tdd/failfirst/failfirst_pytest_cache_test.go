@@ -77,3 +77,20 @@ func TestPytestCachedRunner_ARefusalIsNotCached(t *testing.T) {
 		t.Errorf("got %s, %q; want %s", got.Cmd, why, want)
 	}
 }
+
+// An interpreter file replaced in place (a venv upgraded, the directory
+// untouched) is probed again.
+func TestPytestCachedRunner_AnInterpreterFileRewrittenInPlaceIsProbedAgain(t *testing.T) {
+	state, root := t.TempDir(), t.TempDir()
+	py := writeFileAt(t, filepath.Join(root, ".venv", "bin", "python"))
+	probes := 0
+	pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingProbe(&probes))
+	if err := os.WriteFile(py, []byte("a different interpreter"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingProbe(&probes))
+	if probes != 2 {
+		t.Errorf("a rewritten interpreter was answered from the cache (%d probes)", probes)
+	}
+}

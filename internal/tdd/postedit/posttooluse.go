@@ -156,7 +156,7 @@ func postEditFileAs(session, target string, run SuiteRunner, editID string, touc
 	}
 	// A pytest run whose interpreter lacks a third-party module never reached
 	// a test: the environment is what is missing, so it is not a red either.
-	if line := missingModuleTerminal(snap.runner, root, res); line != "" {
+	if line := missingModuleTerminal(snap.runner, root, pytestRemedyRoot, res); line != "" {
 		return line, false
 	}
 	// A nested tests/<dir>/ file no `mod` declaration reaches also ends here:

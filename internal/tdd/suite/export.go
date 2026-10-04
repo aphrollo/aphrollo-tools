@@ -235,8 +235,8 @@ func MissingModuleCause(p0 Runner, p1 string, p2 string) string {
 	return missingModuleCause(p0, p1, p2)
 }
 
-func MissingModuleTerminal(p0 Runner, p1 string, p2 SuiteResult) string {
-	return missingModuleTerminal(p0, p1, p2)
+func MissingModuleTerminal(p0 Runner, p1 string, p2 func(root string) string, p3 SuiteResult) string {
+	return missingModuleTerminal(p0, p1, p2, p3)
 }
 
 func MutantsConfigTables(p0 string) []mutantsConfigTable { return mutantsConfigTables(p0) }

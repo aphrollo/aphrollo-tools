@@ -1,7 +1,6 @@
 package precommit
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -146,13 +145,12 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 	case !res.Passed:
 		if module := pytestMissingModule(runner, root, res); module != "" {
 			// The suite never ran: its python lacks a module the repo needs. That
-			// is an untested merge, refused with the fix, not a failing test.
-			cause := missingModuleCause(runner, root, module)
+			// is an untested merge, refused with the fix and logged as not
+			// tested, not a failing test.
+			cause := missingModuleCause(runner, pytestRemedyRoot(root), module)
 			fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → NOT TESTED — %s\n", stage, gateName, cmdString(runner), root, cause)
-			return verdictFor(gateName, stage, root, cmdString(runner), stageOutcome{
-				Kind: outcomeCheckError, Err: errors.New(cause),
-				Message: fmt.Sprintf("gate %s: %s → NOT TESTED — %s; nothing was tested, so the merge is refused", gateName, cmdString(runner), cause),
-			})
+			AppendGateLog(gateName, root, cmdString(runner), EnvMissingRejected, res.Duration)
+			return GateResult{Blocked: true, Message: fmt.Sprintf("gate %s: %s → NOT TESTED — %s; nothing was tested, so the merge is refused", gateName, cmdString(runner), cause)}
 		}
 		fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmdString(runner), root)
 		logSuiteVerdict(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res)

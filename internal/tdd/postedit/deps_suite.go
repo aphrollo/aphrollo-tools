@@ -113,8 +113,8 @@ func mechCacheHit(p0 string) bool { return suite.MechCacheHit(p0) }
 
 func mechKey(p0 string, p1 string, p2 Runner) string { return suite.MechKey(p0, p1, p2) }
 
-func missingModuleTerminal(p0 Runner, p1 string, p2 SuiteResult) string {
-	return suite.MissingModuleTerminal(p0, p1, p2)
+func missingModuleTerminal(p0 Runner, p1 string, p2 func(root string) string, p3 SuiteResult) string {
+	return suite.MissingModuleTerminal(p0, p1, p2, p3)
 }
 
 func nodeToolRunner(p0 string, p1 Runner) (Runner, string) { return suite.NodeToolRunner(p0, p1) }

@@ -5,6 +5,7 @@ package postedit
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -108,7 +109,16 @@ func TestPostEdit_AMissingThirdPartyModuleIsNotTestedNeverRed(t *testing.T) {
 			t.Errorf("line %q lacks %q", got, want)
 		}
 	}
-	if logged := gateLogText(t, cfg); !strings.Contains(logged, "env-missing") {
-		t.Errorf("gate.log lacks the env-missing verdict:\n%s", logged)
+	// Never a red: no red verdict word on the line, whatever the temp path says
+	// (a path's own "Red" sits inside a longer word, never between boundaries).
+	if redWord.MatchString(got) {
+		t.Errorf("a missing environment read as a red: %q", got)
+	}
+	logged := gateLogText(t, cfg)
+	if !strings.Contains(logged, "env-missing") || redWord.MatchString(logged) {
+		t.Errorf("gate.log wants the env-missing verdict and no red one:\n%s", logged)
 	}
 }
+
+// redWord matches a red verdict as a word: red, red-bogus, red-missing-impl.
+var redWord = regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_])red(-[a-z-]+)?($|[^A-Za-z0-9_-])`)

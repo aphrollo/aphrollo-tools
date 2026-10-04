@@ -63,7 +63,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	}
 	// A pytest run whose interpreter lacks a third-party module never reached
 	// a test: the environment is what is missing, so it is not a red either.
-	if line := missingModuleTerminal(snap.runner, root, res); line != "" {
+	if line := missingModuleTerminal(snap.runner, root, pytestRemedyRoot, res); line != "" {
 		return line, false
 	}
 	// A narrowed run that selected nothing climbs the widening ladder in

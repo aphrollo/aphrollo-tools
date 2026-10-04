@@ -345,6 +345,7 @@ escape_verify_test.go                              escape
 eventlog.go                                       core
 events.go                                          core
 events_cmd_own_test.go                              core
+events_envmissing_own_test.go                      core
 events_gateline_own_test.go                         core
 events_hardening_own_test.go                       core
 events_own_test.go                                 core

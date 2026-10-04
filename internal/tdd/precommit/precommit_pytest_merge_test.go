@@ -115,7 +115,8 @@ E   ModuleNotFoundError: No module named 'pyseto'
 // module is a suite that was not run: the merge is refused as NOT TESTED with
 // the cause and the fix, and the failure is never reported as a failing test.
 func TestGateRoot_MergeRefusesAMissingModuleAsNotTestedNeverAsAFailedTest(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := t.TempDir()
 	gitInit(t, root)
@@ -142,6 +143,14 @@ func TestGateRoot_MergeRefusesAMissingModuleAsNotTestedNeverAsAFailedTest(t *tes
 	if strings.Contains(stderr, "→ blocked") {
 		t.Errorf("a missing environment was reported as a failed suite:\n%s", stderr)
 	}
+	// One line per refusal, not the stage's own and the verdict's.
+	if n := strings.Count(stderr, "NOT TESTED"); n != 1 {
+		t.Errorf("the refusal was printed %d times, want once:\n%s", n, stderr)
+	}
+	logged := gateLogText(t, cfg)
+	if !strings.Contains(logged, "env-missing-rejected") || strings.Contains(logged, "check-error-rejected") {
+		t.Errorf("gate.log wants env-missing-rejected, not the generic check error:\n%s", logged)
+	}
 }
 
 // A repo's own module that fails to import is a real failure, still a block
@@ -165,5 +174,36 @@ func TestGateRoot_MergeStillBlocksAsAFailedTestWhenTheRepoOwnModuleIsMissing(t *
 
 	if !res.Blocked || strings.Contains(res.Message, "NOT TESTED") || !strings.Contains(stderr, "→ blocked") {
 		t.Fatalf("blocked=%v message=%q stderr:\n%s\nwant a plain failed-suite block", res.Blocked, res.Message, stderr)
+	}
+}
+
+// The merge gate judges a throwaway worktree, which no one keeps a venv in:
+// the refusal names the venv to build in the primary checkout, where the
+// resolver searches and the user works, never the merge worktree.
+func TestGateRoot_MergeNamesThePrimaryCheckoutsVenvNotTheThrowawayWorktree(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	primary := t.TempDir()
+	gitInit(t, primary)
+	write(t, primary, "backend/requirements.txt", "pyseto\npytest==8.2\n")
+	gitDo(t, primary, "add", ".")
+	gitDo(t, primary, "commit", "-qm", "base")
+	merge := filepath.Join(t.TempDir(), "gate-prmerge-1")
+	gitDo(t, primary, "worktree", "add", "-q", "--detach", merge, "HEAD")
+	write(t, merge, "backend/tests/test_calc.py", "def test_add():\n    assert True\n")
+	gitDo(t, merge, "add", ".")
+	groups := stagedRootGroups(merge)
+	run := func(r Runner, _ string) SuiteResult {
+		return SuiteResult{Passed: false, Output: collectionMissingModule, Err: "exit status 2"}
+	}
+
+	var res GateResult
+	captureStderr(t, func() { res = gateRoot("premerge", merge, groups[0], run, false) })
+
+	if want := filepath.Join(primary, "backend", ".venv"); !res.Blocked || !strings.Contains(res.Message, want) {
+		t.Errorf("blocked=%v, message %q does not name %s", res.Blocked, res.Message, want)
+	}
+	if strings.Contains(res.Message, filepath.Join(merge, "backend", ".venv")) {
+		t.Errorf("message names the throwaway merge worktree's venv: %q", res.Message)
 	}
 }

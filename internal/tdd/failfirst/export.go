@@ -38,6 +38,8 @@ func ProofInputs(p0 string, p1 []string) []string { return proofInputs(p0, p1) }
 
 func PytestExecRunner(p0 string, p1 Runner) (Runner, string) { return pytestExecRunner(p0, p1) }
 
+func PytestRemedyRoot(p0 string) string { return pytestRemedyRoot(p0) }
+
 func ReadFailFirstEnv(p0 string) []string { return readFailFirstEnv(p0) }
 
 func RecordEdit(p0 string, p1 string) string { return recordEdit(p0, p1) }
