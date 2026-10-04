@@ -1,22 +1,22 @@
 package merge
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 )
 
-// retroGh is the collector's one way to reach GitHub: the suite package's
-// deadline-bounded gh runner, behind a var so a test replays recorded
-// output instead of reaching the network.
-var retroGh = func(dir string, timeout time.Duration, args ...string) (string, error) {
-	return runGhTimeout(dir, timeout, args...)
-}
+// retroRunner is gh itself as the collector's host runs it: nil is the gh on
+// PATH, and a test hands in one that replays recorded output instead of
+// reaching the network.
+var retroRunner github.Runner
 
-// retroBudget bounds the whole collection, every gh call of it together: the
+// retroBudget bounds the whole collection, every host call of it together: the
 // merge has already landed, and a retro that held the terminal longer than
 // this would be delaying work to describe it.
 var retroBudget = 45 * time.Second
@@ -24,33 +24,33 @@ var retroBudget = 45 * time.Second
 // retroNow is the clock the budget and the refusal window read.
 var retroNow = time.Now
 
-// retroPR is `gh pr view --json number,url,createdAt,mergedAt,headRefName`.
+// retroPR is the merged PR as the retro reads it.
 type retroPR struct {
-	Number      int       `json:"number"`
-	URL         string    `json:"url"`
-	CreatedAt   time.Time `json:"createdAt"`
-	MergedAt    time.Time `json:"mergedAt"`
-	HeadRefName string    `json:"headRefName"`
+	Number      int
+	URL         string
+	CreatedAt   time.Time
+	MergedAt    time.Time
+	HeadRefName string
 }
 
-// retroRun is one row of `gh run list --json ...`, plus the failed jobs the
-// collector read for it.
+// retroRun is one pull_request run of the PR's branch, plus the failed jobs
+// the collector read for it.
 type retroRun struct {
-	ID         int64      `json:"databaseId"`
-	HeadSha    string     `json:"headSha"`
-	Conclusion string     `json:"conclusion"`
-	Attempt    int        `json:"attempt"`
-	CreatedAt  time.Time  `json:"createdAt"`
-	Workflow   string     `json:"workflowName"`
-	Failed     []retroJob `json:"-"`
+	ID         int64
+	HeadSha    string
+	Conclusion string
+	Attempt    int
+	CreatedAt  time.Time
+	Workflow   string
+	Failed     []retroJob
 }
 
-// retroJob is one job of `gh run view --json jobs`.
+// retroJob is one failed job of a run.
 type retroJob struct {
-	ID         int64         `json:"databaseId"`
-	Name       string        `json:"name"`
-	Conclusion string        `json:"conclusion"`
-	Mutants    *retroMutants `json:"-"`
+	ID         int64
+	Name       string
+	Conclusion string
+	Mutants    *retroMutants
 }
 
 // retroMutants is what a failed mutation job's log says it measured.
@@ -58,29 +58,20 @@ type retroMutants struct {
 	Survivors, TimedOut, Unmeasured int
 }
 
-const (
-	retroPRFields  = "number,url,createdAt,mergedAt,headRefName"
-	retroRunFields = "databaseId,headSha,conclusion,attempt,createdAt,workflowName"
-)
-
-// retroCollector runs one merge's gh batch against one deadline.
+// retroCollector runs one merge's host batch against one deadline.
 type retroCollector struct {
 	dir      string
 	deadline time.Time
 }
 
-// gh runs one call with whatever is left of the budget, and refuses to start
-// one once nothing is.
-func (c *retroCollector) gh(args ...string) (string, error) {
+// host is the code host bounded by whatever is left of the budget; it refuses
+// once nothing is.
+func (c *retroCollector) host() (host.Host, error) {
 	left := c.deadline.Sub(retroNow())
 	if left <= 0 {
-		return "", fmt.Errorf("gh budget of %s spent", retroBudget)
+		return nil, fmt.Errorf("gh budget of %s spent", retroBudget)
 	}
-	out, err := retroGh(c.dir, left, args...)
-	if err != nil {
-		return "", fmt.Errorf("gh %s %s: %w", args[0], args[1], err)
-	}
-	return out, nil
+	return github.New(github.Options{Dir: c.dir, Timeout: left, Runner: retroRunner}), nil
 }
 
 // collect reads the PR, its pull_request runs, the failed jobs of each
@@ -88,27 +79,29 @@ func (c *retroCollector) gh(args ...string) (string, error) {
 // the batch: a retro built on half the facts would read as the whole story.
 func (c *retroCollector) collect(pr int) (retroPR, []retroRun, error) {
 	var info retroPR
-	out, err := c.gh("pr", "view", strconv.Itoa(pr), "--json", retroPRFields)
+	h, err := c.host()
 	if err != nil {
 		return info, nil, err
 	}
-	if err := json.Unmarshal([]byte(out), &info); err != nil {
-		return info, nil, fmt.Errorf("gh pr view: %w", err)
-	}
-	out, err = c.gh("run", "list", "--branch", info.HeadRefName, "--event", "pull_request",
-		"--limit", "100", "--json", retroRunFields)
+	sum, err := h.Summary(pr)
 	if err != nil {
 		return info, nil, err
 	}
-	var runs []retroRun
-	if err := json.Unmarshal([]byte(out), &runs); err != nil {
-		return info, nil, fmt.Errorf("gh run list: %w", err)
+	info = retroPR{Number: sum.Number, URL: sum.URL, CreatedAt: sum.CreatedAt, MergedAt: sum.MergedAt, HeadRefName: sum.HeadRef}
+	if h, err = c.host(); err != nil {
+		return info, nil, err
 	}
-	for i := range runs {
-		if !retroFailed(runs[i].Conclusion) {
+	listed, err := h.RunsOn(info.HeadRefName, "pull_request", 100)
+	if err != nil {
+		return info, nil, err
+	}
+	runs := make([]retroRun, len(listed))
+	for i, r := range listed {
+		runs[i] = retroRun{ID: r.ID, HeadSha: r.HeadSHA, Conclusion: r.Conclusion, Attempt: r.Attempt, CreatedAt: r.CreatedAt, Workflow: r.Workflow}
+		if !retroFailed(r.Conclusion) {
 			continue
 		}
-		jobs, err := c.failedJobs(runs[i].ID)
+		jobs, err := c.failedJobs(r.ID)
 		if err != nil {
 			return info, nil, err
 		}
@@ -120,29 +113,31 @@ func (c *retroCollector) collect(pr int) (retroPR, []retroRun, error) {
 // failedJobs lists run's failed jobs, reading a mutation job's log for its
 // counts.
 func (c *retroCollector) failedJobs(run int64) ([]retroJob, error) {
-	out, err := c.gh("run", "view", strconv.FormatInt(run, 10), "--json", "jobs")
+	h, err := c.host()
 	if err != nil {
 		return nil, err
 	}
-	var view struct {
-		Jobs []retroJob `json:"jobs"`
-	}
-	if err := json.Unmarshal([]byte(out), &view); err != nil {
-		return nil, fmt.Errorf("gh run view: %w", err)
+	view, err := h.Run(run)
+	if err != nil {
+		return nil, err
 	}
 	var failed []retroJob
 	for _, j := range view.Jobs {
 		if !retroFailed(j.Conclusion) {
 			continue
 		}
+		job := retroJob{ID: j.ID, Name: j.Name, Conclusion: j.Conclusion}
 		if strings.Contains(j.Name, "mutants") {
-			log, err := c.gh("run", "view", "--job", strconv.FormatInt(j.ID, 10), "--log-failed")
+			if h, err = c.host(); err != nil {
+				return nil, err
+			}
+			log, err := h.JobLog(j.ID)
 			if err != nil {
 				return nil, err
 			}
-			j.Mutants = parseMutantsLog(log)
+			job.Mutants = parseMutantsLog(string(log))
 		}
-		failed = append(failed, j)
+		failed = append(failed, job)
 	}
 	return failed, nil
 }
