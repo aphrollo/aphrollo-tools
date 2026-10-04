@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -18,7 +19,7 @@ func recordFirstGhCall(t *testing.T) *string {
 	t.Helper()
 	first := new(string)
 	prev := ciHost
-	ciHost = func() host.Runs {
+	ciHost = func(context.Context) host.Runs {
 		return github.New(github.Options{Dir: t.TempDir(), Runner: func(_ string, _ time.Duration, args ...string) ([]byte, error) {
 			if *first == "" {
 				*first = strings.Join(args, " ")

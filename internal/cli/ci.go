@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -62,8 +63,8 @@ const ghCallTimeout = 90 * time.Second
 
 // ciHost is the ci verb's seam onto the code host; tests replace it with
 // recorded answers.
-var ciHost = func() host.Runs {
-	return github.New(github.Options{Dir: ".", Timeout: ghCallTimeout})
+var ciHost = func(ctx context.Context) host.Runs {
+	return github.New(github.Options{Dir: ".", Timeout: ghCallTimeout, Context: ctx})
 }
 
 func runCI(args []string, stdout, stderr io.Writer) int {
@@ -107,7 +108,9 @@ func runCI(args []string, stdout, stderr io.Writer) int {
 	if *raw {
 		explain = ciwhy.Raw
 	}
-	if err := explain(ciHost(), target, stdout); err != nil {
+	ctx, cancel := commandContext()
+	defer cancel()
+	if err := explain(ciHost(ctx), target, stdout); err != nil {
 		fmt.Fprintf(stderr, "aphrollo ci why: %v\n", err)
 		return 1
 	}
