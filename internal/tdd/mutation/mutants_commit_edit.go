@@ -38,11 +38,15 @@ func RunMutantsEdit(root, file, done string, stderr io.Writer) int {
 // not declare mutants-at-commit and for a path outside the repository.
 func editStage(root, file string) GateResult {
 	cfg, err := ReadMutantsConfig(root)
-	if err != nil || !cfg.AtCommit || !isGoModuleRepo(root) {
+	if err != nil || !cfg.AtCommit {
 		return mutantsResult(false, "")
 	}
 	rel, ok := editRelPath(root, file)
 	if !ok {
+		return mutantsResult(false, "")
+	}
+	mods := commitModules(root, []string{rel})
+	if len(mods) == 0 {
 		return mutantsResult(false, "")
 	}
 	start := commitNowFn()
@@ -50,7 +54,7 @@ func editStage(root, file string) GateResult {
 	if err != nil {
 		return commitUnmeasured("edit", root, "diff", err.Error())
 	}
-	return measureAddedLines("edit", root, cfg, added, nil, start)
+	return measureModules("edit", root, mods, cfg, added, nil, start)
 }
 
 // editRelPath is file as a slash path relative to root, taking a relative file
