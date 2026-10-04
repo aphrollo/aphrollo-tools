@@ -99,8 +99,9 @@ func TestGitSpawns_WorkspaceMerge(t *testing.T) {
 }
 
 // The ceilings are the measured counts: commit was 8 and merge 9 before the
-// verbs read the facts that sit in files from those files.
+// verbs read the facts that sit in files from those files. The merge now ends
+// with the sync step that records dropped queued PRs, which added the fifth.
 const (
 	commitSpawnCeiling = 5
-	mergeSpawnCeiling  = 4
+	mergeSpawnCeiling  = 5
 )
