@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A Bash call that changes several files records one edit per file, and its
@@ -69,5 +70,34 @@ func TestRecordEditVerdict_AnEmptyIDAppendsNothing(t *testing.T) {
 	}
 	if e := loadEditLedger(root); len(e) != 1 || e[0].ID != id || e[0].Verdict != nil {
 		t.Fatalf("ledger = %+v, want the one edit unsettled", e)
+	}
+}
+
+// Two edits recorded in one instant, as a coarse clock stamps them, are still
+// two edits: each keeps its own id and gets the verdict of the run.
+func TestRecordEdits_TwoEditsAtTheSameInstantGetDistinctIDsAndBothTheVerdict(t *testing.T) {
+	root := ledgerRepo(t)
+	write(t, root, "src/widget.rs", "pub fn widget() -> i32 { 2 }\n")
+	write(t, root, "src/other.rs", "pub fn other() -> i32 { 3 }\n")
+	frozen := time.Now()
+	prev := editNow
+	editNow = func() time.Time { return frozen }
+	t.Cleanup(func() { editNow = prev })
+
+	joined := recordEdits(root, []string{filepath.Join(root, "src/widget.rs"), filepath.Join(root, "src/other.rs")})
+	recordEditVerdict(root, joined, "cargo test --lib", Green, "test widget::tests::a ... ok\n")
+
+	ids := strings.Split(joined, ",")
+	if len(ids) != 2 || ids[0] == ids[1] {
+		t.Fatalf("ids = %q, want two distinct ids from one instant", joined)
+	}
+	edits := loadEditLedger(root)
+	if len(edits) != 2 {
+		t.Fatalf("ledger = %+v, want both edits: the second must not replace the first", edits)
+	}
+	for _, e := range edits {
+		if e.Verdict == nil || e.Verdict.Outcome != string(Green) {
+			t.Errorf("edit %s has verdict %+v, want the run's green", e.File, e.Verdict)
+		}
 	}
 }
