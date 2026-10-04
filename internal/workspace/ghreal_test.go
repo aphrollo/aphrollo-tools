@@ -197,7 +197,7 @@ func TestGhPRHead_RealClosureResolvesByNumber(t *testing.T) {
 }
 
 // TestGhPRHead_RealClosureNoSuchPullRequest proves the absence path (nil,
-// nil from ghAPIViewByRef) surfaces as an error here — unlike ghViewPRReal,
+// nil from the port's PRByRef) surfaces as an error here — unlike ghViewPRReal,
 // ghPRHead has no legitimate "no PR yet" caller.
 func TestGhPRHead_RealClosureNoSuchPullRequest(t *testing.T) {
 	repo := initRepo(t)
