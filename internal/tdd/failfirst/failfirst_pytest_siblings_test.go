@@ -101,18 +101,20 @@ func TestPytestExecRunner_AMergeWorktreeUsesTheLaneVenvWhenThePrimaryHasNone(t *
 	}
 }
 
-// TestPytestExecRunner_ThePrimaryVenvOutranksTheLaneVenv: both have a venv
-// with pytest; the primary checkout's is the one used.
-func TestPytestExecRunner_ThePrimaryVenvOutranksTheLaneVenv(t *testing.T) {
+// ratchet: test_removed TestPytestExecRunner_ThePrimaryVenvOutranksTheLaneVenv: the order is reversed, the merged lane before the primary (#1223 review)
+// TestPytestExecRunner_TheLaneVenvOutranksThePrimaryVenv: both have a venv
+// with pytest; the merged lane's is the one used, since it was built for the
+// code being merged and the primary's may be stale.
+func TestPytestExecRunner_TheLaneVenvOutranksThePrimaryVenv(t *testing.T) {
 	noPytestOnPath(t)
 	primary, lane, merge := pytestWorktrees(t)
-	want := pytestVenvIn(t, primary, "0")
-	pytestVenvIn(t, lane, "0")
+	pytestVenvIn(t, primary, "0")
+	want := pytestVenvIn(t, lane, "0")
 	backend := filepath.Join(merge, "backend")
 
 	got, why := pytestExecRunner(backend, Runner{Cmd: "pytest", Dir: backend})
 	if why != "" || got.Cmd != want {
-		t.Fatalf("got %s, %q; want the primary's %s", got.Cmd, why, want)
+		t.Fatalf("got %s, %q; want the lane's %s", got.Cmd, why, want)
 	}
 }
 
@@ -258,11 +260,8 @@ func TestOtherWorktreeRoots_SearchThePrimaryAlwaysAndALinkedWorktreeOnlyWhenItIs
 	}
 
 	fromMerge := otherWorktreeRoots(filepath.Join(merge, "backend"))
-	got := slices.Clone(fromMerge.elsewhere)
-	slices.Sort(got)
-	want := []string{root(primary), root(lane)}
-	slices.Sort(want)
-	if !slices.Equal(got, want) {
-		t.Errorf("from the merge worktree: elsewhere = %q, want the primary and the merged lane %q, not the unrelated or its own", got, want)
+	want := []string{root(lane), root(primary)}
+	if !slices.Equal(fromMerge.elsewhere, want) {
+		t.Errorf("from the merge worktree: elsewhere = %q, want the merged lane then the primary %q, not the unrelated or its own", fromMerge.elsewhere, want)
 	}
 }

@@ -44,25 +44,33 @@ func venvPythons(root string) []string {
 
 // pytestSearch is where a pytest root looks for its interpreter: the root's
 // own virtualenvs first, then those of the same root in other worktrees of its
-// repo (elsewhere, in order), then the box's python. remedy is the root whose
+// repo (elsewhere, in order, the merged lane before the primary checkout),
+// then the box's python. remedy is the root whose
 // .venv the reason tells the user to create; "" means root itself.
 type pytestSearch struct {
 	root      string
 	elsewhere []string
 	remedy    string
 	// ownTop and elsewhereTops are the worktree tops a project in a
-	// subdirectory may keep its venv at: root's own worktree, then those of
-	// elsewhere in order.
+	// subdirectory may keep its venv at: root's own worktree, and, parallel to
+	// elsewhere, the worktree each of its entries is in.
 	ownTop        string
 	elsewhereTops []string
 }
 
 // venvRoots are the directories whose virtualenvs the search looks in, nearest
 // first: the project root, its worktree's top, then each other worktree's
-// project root and top. A directory comes once.
+// project root and top in elsewhere's order. A directory comes once.
 func (s pytestSearch) venvRoots() []string {
+	dirs := []string{s.root, s.ownTop}
+	for i, dir := range s.elsewhere {
+		dirs = append(dirs, dir)
+		if i < len(s.elsewhereTops) {
+			dirs = append(dirs, s.elsewhereTops[i])
+		}
+	}
 	var out []string
-	for _, dir := range slices.Concat([]string{s.root, s.ownTop}, s.elsewhere, s.elsewhereTops) {
+	for _, dir := range dirs {
 		if dir != "" && !slices.Contains(out, dir) {
 			out = append(out, dir)
 		}
@@ -74,7 +82,7 @@ func (s pytestSearch) venvRoots() []string {
 func (s pytestSearch) venvDirs() []string {
 	var out []string
 	for _, r := range s.venvRoots() {
-		out = append(out, filepath.Join(r, ".venv"), filepath.Join(r, "venv"))
+		out = append(out, filepath.Join(r, ".venv"), filepath.Join(r, "venv"), filepath.Join(r, "env"))
 	}
 	return out
 }

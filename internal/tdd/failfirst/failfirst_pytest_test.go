@@ -262,7 +262,8 @@ func TestOtherWorktreeRoots_ALaneWithNoVenvTakesTheOneAtThePrimaryCheckoutsTop(t
 
 // TestOtherWorktreeRoots_TheProjectRootOutranksTheWorktreeRootAndThePrimary:
 // the nearest venv wins: the project's own, then its worktree's top, then the
-// primary checkout's project root, then the primary's top.
+// primary checkout's project root, then the primary's top (no merge is in
+// progress, so no lane stands between them).
 func TestOtherWorktreeRoots_TheProjectRootOutranksTheWorktreeRootAndThePrimary(t *testing.T) {
 	primary, lane, _ := pytestWorktrees(t)
 	root := filepath.Join(lane, "backend")
@@ -278,5 +279,86 @@ func TestOtherWorktreeRoots_TheProjectRootOutranksTheWorktreeRootAndThePrimary(t
 		if err := os.Remove(want); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+// TestOtherWorktreeRoots_AMergedLaneVenvOutranksTheStalePrimaryOne is the
+// merge gate's order: the lane being merged has the module, the primary's
+// older venv lacks it, and the lane's is reached first, root before top, both
+// before anything in the primary.
+func TestOtherWorktreeRoots_AMergedLaneVenvOutranksTheStalePrimaryOne(t *testing.T) {
+	primary, lane, merge := pytestWorktrees(t)
+	root := filepath.Join(merge, "backend")
+	stale := touchPython(t, igit.Canonical(filepath.Join(primary, "backend")), ".venv")
+	laneTop := touchPython(t, igit.Canonical(lane), ".venv")
+	laneRoot := touchPython(t, igit.Canonical(filepath.Join(lane, "backend")), ".venv")
+	for _, want := range []string{laneRoot, laneTop, stale} {
+		if got := resolveFrom(t, root); got != want {
+			t.Fatalf("resolved %s, want %s", got, want)
+		}
+		if err := os.Remove(want); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// writeFileAt makes an empty file, and its directories, at path.
+func writeFileAt(t *testing.T, path string) string {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestPytestProofRunner_FindsTheWindowsVenvLayoutInEachVenvDirectory: a venv
+// built on Windows keeps its interpreter at Scripts/python.exe, in .venv, venv
+// or env alike. Nothing is exec'd: the probe is injected, so this runs on
+// every host.
+func TestPytestProofRunner_FindsTheWindowsVenvLayoutInEachVenvDirectory(t *testing.T) {
+	for _, venv := range []string{".venv", "venv", "env"} {
+		root := t.TempDir()
+		want := writeFileAt(t, filepath.Join(root, venv, "Scripts", "python.exe"))
+		got, why := pytestProofRunner(pytestSearch{root: root}, Runner{Cmd: "pytest", Args: []string{"-q"}}, noInterpreter, func(string) error { return nil })
+		if why != "" || got.Cmd != want {
+			t.Errorf("%s: got %q, %q; want %s", venv, got.Cmd, why, want)
+		}
+	}
+}
+
+// TestPytestProofRunner_VenvDirectoriesAreTriedInTheOrderDotVenvVenvEnv: when a
+// root carries more than one, .venv wins, then venv, then env; and a venv that
+// cannot import pytest hands over to the next, never to the box's python first.
+func TestPytestProofRunner_VenvDirectoriesAreTriedInTheOrderDotVenvVenvEnv(t *testing.T) {
+	root := t.TempDir()
+	dot := writeFileAt(t, filepath.Join(root, ".venv", "Scripts", "python.exe"))
+	plain := writeFileAt(t, filepath.Join(root, "venv", "bin", "python"))
+	env := writeFileAt(t, filepath.Join(root, "env", "Scripts", "python.exe"))
+	broken := map[string]bool{}
+	importable := func(p string) error {
+		if broken[p] {
+			return errors.New("no pytest")
+		}
+		return nil
+	}
+	for _, want := range []string{dot, plain, env, "/usr/bin/python3"} {
+		got, why := pytestProofRunner(pytestSearch{root: root}, Runner{Cmd: "pytest"}, onPath, importable)
+		if why != "" || got.Cmd != want {
+			t.Fatalf("got %q, %q; want %s", got.Cmd, why, want)
+		}
+		broken[want] = true
+	}
+}
+
+// TestPytestProofRunner_TheSearchedListNamesTheEnvDirectory: the refusal
+// lists env/ beside .venv and venv, so a reader sees where the gate looked.
+func TestPytestProofRunner_TheSearchedListNamesTheEnvDirectory(t *testing.T) {
+	root := t.TempDir()
+	_, why := pytestProofRunner(pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, func(string) error { return nil })
+	if !strings.Contains(why, filepath.Join(root, "env")) {
+		t.Errorf("reason does not name %s:\n%s", filepath.Join(root, "env"), why)
 	}
 }
