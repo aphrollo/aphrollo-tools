@@ -84,6 +84,7 @@ func (p *apiPull) pr() *host.PR {
 		Number: p.Number, URL: p.HTMLURL, State: p.state(),
 		IsDraft: p.Draft, Mergeable: p.mergeableWord(), MergeStateStatus: p.mergeStateStatus(),
 		HeadSHA: p.Head.SHA, HeadRef: p.Head.Ref, BaseRef: p.Base.Ref, BaseRepo: p.Base.Repo.FullName,
+		MergedAt: p.MergedAt,
 	}
 }
 

@@ -149,6 +149,8 @@ type PR struct {
 	// merges into ("owner/name"); empty when the host did not say.
 	BaseRef  string
 	BaseRepo string
+	// MergedAt is when the PR merged, RFC 3339; empty while it has not.
+	MergedAt string
 }
 
 // Check is one check (or legacy commit status) on one commit. SHA is the commit
@@ -392,4 +394,11 @@ func (p Probe) TransportLine() string {
 	default:
 		return "REST available, GraphQL unavailable (blocked or unauthenticated) — pr view/create/merge use the REST fallback"
 	}
+}
+
+// LandHost is what Land needs of a host: the Landing primitives and the read
+// of a PR by branch, to see that its head did not move after the enqueue.
+type LandHost interface {
+	Landing
+	PRByBranch(branch string) (*PR, error)
 }

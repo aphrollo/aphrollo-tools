@@ -11,7 +11,7 @@ import "fmt"
 // (the head goes to it with the enqueue); the head is read again right after,
 // and a PR that moved anyway is taken back out and refused with a
 // *HeadMovedError. A PR already in the queue (a resumed run) is left as it is.
-func Land(h Host, r LandRequest) (Landed, error) {
+func Land(h LandHost, r LandRequest) (Landed, error) {
 	queued, err := h.HasMergeQueue(r.Repo, r.Base)
 	if err != nil {
 		return Landed{}, fmt.Errorf("reading whether %s has a merge queue: %w", r.Base, err)
