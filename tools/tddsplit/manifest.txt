@@ -823,6 +823,7 @@ precommit_core.go                                  core      # created by P2
 precommit_declared.go                              precommit
 precommit_declared_baseline.go                     precommit
 precommit_declared_baseline_test.go                precommit
+precommit_declared_notice_test.go                  precommit
 precommit_declared_test.go                         precommit
 precommit_diffscan.go                              precommit
 precommit_diffscan_failfirst.go                    failfirst # created by P2
@@ -860,6 +861,7 @@ precommit_mutants_commit_test.go                   precommit
 precommit_norunner.go                              precommit
 precommit_norunner_test.go                         precommit
 precommit_nosuite_test.go                          precommit
+precommit_notice.go                                precommit
 precommit_npm.go                                   precommit
 precommit_npm_argvbudget_test.go                   precommit
 precommit_npm_e2e_test.go                          precommit
