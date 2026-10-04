@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
@@ -168,12 +169,27 @@ func loadEditLedger(root string) []ledgerEdit {
 	return edits
 }
 
+// editNow is the clock an edit is stamped and named by, a seam so a test can
+// freeze it as a coarse clock is: Windows's does not move between two edits
+// recorded back to back.
+var editNow = time.Now
+
+// editIDSeq numbers the ids this process issues.
+var editIDSeq atomic.Uint64
+
+// newEditID names one edit: the clock, which orders edits across processes, and
+// a counter that keeps two edits recorded in one clock tick apart, which a
+// coarse clock does not.
+func newEditID() string {
+	return strconv.FormatInt(editNow().UnixNano(), 36) + "-" + strconv.FormatUint(editIDSeq.Add(1), 36)
+}
+
 // snapshotEdit reads file as it is now and classifies the change against
 // prev, the file's previous known state (nil: compare with HEAD's copy).
 func snapshotEdit(root, file, head string, prev *ledgerEdit) ledgerEdit {
 	e := ledgerEdit{
-		ID:   strconv.FormatInt(time.Now().UnixNano(), 36),
-		At:   time.Now().UTC(),
+		ID:   newEditID(),
+		At:   editNow().UTC(),
 		Head: head, File: file, Class: editUnknown,
 	}
 	data, err := os.ReadFile(file)
@@ -390,9 +406,11 @@ func ExtractPassingTests(output string) []string {
 }
 
 // editLatency is how long before now the edit that id names was made: an edit's
-// id is its time in nanoseconds since the epoch, in base 36.
+// id starts with its time in nanoseconds since the epoch, in base 36, then a
+// counter after a dash (newEditID).
 func editLatency(id string, now time.Time) (time.Duration, bool) {
-	ns, err := strconv.ParseInt(id, 36, 64)
+	clock, _, _ := strings.Cut(id, "-")
+	ns, err := strconv.ParseInt(clock, 36, 64)
 	if err != nil {
 		return 0, false
 	}

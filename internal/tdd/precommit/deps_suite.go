@@ -65,8 +65,6 @@ func cmdString(p0 Runner) string { return suite.CmdString(p0) }
 
 func dependentsOf(p0 map[string][]string, p1 []string) []string { return suite.DependentsOf(p0, p1) }
 
-func dirHasGoFiles(p0 string) bool { return suite.DirHasGoFiles(p0) }
-
 func doctestRunners(p0 string, p1 []string) []Runner { return suite.DoctestRunners(p0, p1) }
 
 func filesUnderRoot(p0 string, p1 string, p2 []string) []string {
@@ -74,6 +72,8 @@ func filesUnderRoot(p0 string, p1 string, p2 []string) []string {
 }
 
 func gateSuiteProof() *suiteProofLedger { return suite.GateSuiteProof() }
+
+func goLintRunner(p0 string, p1 []string) Runner { return suite.GoLintRunner(p0, p1) }
 
 func goPackageDir(p0 string, p1 string) string { return suite.GoPackageDir(p0, p1) }
 

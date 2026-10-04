@@ -318,44 +318,7 @@ func TestPostBash_RunsEveryPackageTheCommandChanged(t *testing.T) {
 	}
 }
 
-// The edit-time linter runs once per package over every changed file in it,
-// and its findings ride on the gate line.
-func TestPostBash_LintsTheChangedGoFilesOncePerPackage(t *testing.T) {
-	t.Setenv("TRELLIS_DATA", t.TempDir())
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := lawRepo(t)
-	prevLook, prevLoad, prevRun, prevSpawn := lintEditLook, lintEditLoad, lintEditRun, lintEditSpawnFn
-	t.Cleanup(func() {
-		lintEditLook, lintEditLoad, lintEditRun, lintEditSpawnFn = prevLook, prevLoad, prevRun, prevSpawn
-	})
-	lintEditLook = func() bool { return true }
-	lintEditLoad = func() (float64, int, bool) { return 0, 8, true }
-	lintEditSpawnFn = func(lintEditJob) (int, bool) { return 0, false }
-	var lintRuns [][]string
-	lintEditRun = func(_ string, args []string) (string, bool) {
-		lintRuns = append(lintRuns, args)
-		return "a.go:3:1: first (x)\nb.go:3:1: second (y)\nelsewhere.go:1:1: not ours (z)\n", false
-	}
-	cmd := "./regen.sh"
-	PreBash(bashPayload(t, "s1070lint", root, cmd))
-	mustWrite(t, filepath.Join(root, "a.go"), "package m\n\nfunc A() int { return 1 }\n")
-	mustWrite(t, filepath.Join(root, "b.go"), "package m\n\nfunc B() int { return 2 }\n")
-
-	got := PostBash(bashPayload(t, "s1070lint", root, cmd), fakeRun(true, "ok\nPASS"))
-
-	if len(lintRuns) != 1 {
-		t.Fatalf("the linter ran %d times for one package, want 1: %v", len(lintRuns), lintRuns)
-	}
-	line := firstLine(got)
-	for _, want := range []string{"golangci-lint: ", "a.go:3:1: first (x)", "b.go:3:1: second (y)"} {
-		if !strings.Contains(line, want) {
-			t.Errorf("the gate line %q does not carry %q", line, want)
-		}
-	}
-	if strings.Contains(line, "elsewhere.go") {
-		t.Errorf("a finding in a file the command did not change must not be named: %q", line)
-	}
-}
+// ratchet: test_removed TestPostBash_LintsTheChangedGoFilesOncePerPackage: the edit-time lint moved into the run (lintrun.go), so a Bash write no longer lints inline
 
 // ratchet: test_removed TestPostBash_StartsTheMutationRunAfterAGreenCall: inverted into TestPostBash_StartsNoMutationRunAfterAGreenCall, a Bash call starts no mutation run now
 //

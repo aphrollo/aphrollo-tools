@@ -53,12 +53,12 @@ func resetDeferredSweepForTest() { deferredSweepOnce = sync.Once{} }
 // than killed, and a delete that fails is not an error anyone can act on --
 // the next sweep tries again.
 func sweepDeferredJobs(now time.Time) int {
+	removed := sweepLaneState(now)
 	dir := deferredDirPath()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return 0
+		return removed
 	}
-	removed := 0
 	for _, e := range entries {
 		if e.IsDir() {
 			continue

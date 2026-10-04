@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/kernel"
 )
 
 // A cold cargo build does not fit in an edit hook's budget: 268 post-edit
@@ -99,6 +101,15 @@ type PhaseOutcome struct {
 	// its command ran or was about to: the memory cap ended it, or the box had
 	// no memory to start it. See SuiteResult.Inconclusive, which it becomes.
 	Inconclusive string `json:"inconclusive,omitempty"`
+	// TreeKey is the worktree key the phase ran on and StoreResult what the
+	// wrapper recorded for it in the lane's store (runverdict.go); both empty
+	// when nothing was recorded. The hook that reports the run uses them to
+	// mark a red as told, with no git spawn of its own.
+	// RunID names this run of the phase, so the files its lint leaves are its own
+	// and never an earlier run's still held open on the shared log path.
+	RunID       string         `json:"run_id,omitempty"`
+	TreeKey     string         `json:"tree_key,omitempty"`
+	StoreResult kernel.Verdict `json:"store_result,omitempty"`
 }
 
 // deferredMaxEnv bounds how long a detached phase may run before the next

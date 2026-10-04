@@ -1,4 +1,4 @@
-package precommit
+package suite
 
 import (
 	"slices"
@@ -54,5 +54,23 @@ func TestTouchedGoLintPackages_LintsNothingWhenNoTouchedFileHasAGoPackage(t *tes
 
 	if got := touchedGoLintPackages(root, []string{"aphrollo.toml"}); len(got) != 0 {
 		t.Errorf("scope = %q, want empty — nothing touched belongs to a Go package", got)
+	}
+}
+
+// The edit-time run and the commit stage lint with one command, so a finding
+// the run names is exactly the finding a commit would refuse. The serial flag
+// is part of it: golangci-lint's machine-wide lock otherwise fails the run
+// with a message that says nothing about the code.
+func TestGoLintRunner_IsTheCommitStagesCommandOverTheTouchedPackages(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, root, "internal/x/x.go", "package x\n")
+	write(t, root, "internal/y/y.go", "package y\n")
+
+	got := goLintRunner(root, []string{"internal/y/y.go", "internal/x/x.go"})
+
+	want := []string{"run", "--allow-serial-runners", "./internal/x", "./internal/y"}
+	if got.Cmd != "golangci-lint" || !slices.Equal(got.Args, want) || got.Dir != root {
+		t.Errorf("runner = %s %q in %q, want golangci-lint %q in %q", got.Cmd, got.Args, got.Dir, want, root)
 	}
 }

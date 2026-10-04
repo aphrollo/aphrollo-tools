@@ -64,7 +64,10 @@ func SetProcessStartTimeForTest(fn func(pid int) (time.Time, bool)) (restore fun
 // deferredEditOutcome is what the deferral path reports back to PostEdit:
 // either a finished SuiteResult, or a notice that a phase is still running.
 type deferredEditOutcome struct {
-	res      SuiteResult
+	res SuiteResult
+	// phase is the finished phase's outcome, whose lint and store fields the
+	// hook reads.
+	phase    PhaseOutcome
 	deferred bool
 	notice   string
 	// spawnFailed says nothing is running: reporting BUILDING there is a
@@ -86,6 +89,8 @@ type deferredEditOutcome struct {
 	// logToken is the gate-log verdict of an outcome that is not simply "deferred":
 	// an edit whose run waits in the queue.
 	logToken string
+	// lint is the guidance the run's own lint adds to its line (lintrun.go).
+	lint string
 }
 
 // finishedEditOutcome turns a completed phase into the outcome runEditPhases
@@ -95,7 +100,11 @@ func finishedEditOutcome(j DeferredJob, out PhaseOutcome) deferredEditOutcome {
 	if out.SetupFailed {
 		return deferredEditOutcome{res: phaseSuiteResult(j, out), Infra: true, job: j}
 	}
-	return deferredEditOutcome{res: phaseSuiteResult(j, out)}
+	lint := lintGuidance(j, out.RunID)
+	if lint != "" {
+		removeLintNotice(j.Session, out.RunID) // said on the run's line, not again
+	}
+	return deferredEditOutcome{res: phaseSuiteResult(j, out), lint: lint, phase: out}
 }
 
 // phaseStatus is what became of a spawn: finished inside the budget, still
@@ -275,6 +284,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 // one now does too, so the NEXT harvest has something real to compare against
 // rather than always missing on a nil fingerprint.
 func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *sessionState, statePath, headSHA string) string {
+	markOutcomeSeen(j.Session, out)
 	res := phaseSuiteResult(j, out)
 	if out.SetupFailed {
 		// RunPhase's own setup failed (no build slot, no log file) before the
@@ -288,7 +298,12 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
-	return judgeEditResult(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA)
+	line := judgeEditResult(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA)
+	note := lintGuidance(j, out.RunID)
+	if note != "" {
+		removeLintNotice(j.Session, out.RunID) // said on the run's line, not again
+	}
+	return withLintGuidance(line, note)
 }
 
 // judgeEditResult is editResultAdvisory's verdict half, for a finished run
