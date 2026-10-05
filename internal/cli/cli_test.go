@@ -298,35 +298,6 @@ func TestRun_Docs_UnknownSub(t *testing.T) {
 	}
 }
 
-// gitInit makes a throwaway repo with the given files (relative path → content),
-// committing them so `git ls-files` sees them tracked.
-func gitInit(t *testing.T, files map[string]string) string {
-	t.Helper()
-	isolateGit(t)
-	dir := t.TempDir()
-	run := func(args ...string) {
-		cmd := fixtureGit(append([]string{"-C", dir}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-	run("init", "-q")
-	run("config", "user.email", "t@example.com")
-	run("config", "user.name", "t")
-	for rel, body := range files {
-		p := filepath.Join(dir, rel)
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	run("add", "-A")
-	run("commit", "-q", "-m", "init")
-	return dir
-}
-
 func TestRun_Docs_Check_Clean(t *testing.T) {
 	dir := gitInit(t, map[string]string{
 		"README.md":     "see `internal/x.go` and [guide](docs/guide.md)\n",

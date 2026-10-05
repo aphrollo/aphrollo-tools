@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/gitiso"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 )
 
@@ -76,20 +77,10 @@ func initRepoAt(t *testing.T, dir string) string {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	run := func(args ...string) {
-		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
-	}
-	run("init", "-q", "-b", "main")
-	run("config", "user.email", "t@t")
-	run("config", "user.name", "t")
-	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\n\ngo 1.26\n"), 0o644); err != nil {
+	// A copy of the repo TestMain built once, not six git spawns per test.
+	if err := gitiso.CopyRepo(dir, repoTemplate()); err != nil {
 		t.Fatal(err)
 	}
-	run("add", ".")
-	run("commit", "-q", "-m", "init")
 	return dir
 }
 

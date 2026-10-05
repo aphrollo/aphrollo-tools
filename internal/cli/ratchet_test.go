@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/aphrollo/aphrollo-tools/internal/gitiso"
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -487,12 +488,8 @@ func gitCommitAll(t *testing.T, dir, msg string) {
 
 func gitInitRepo(t *testing.T, dir string) {
 	t.Helper()
-	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"}} {
-		cmd := fixtureGit(args...)
-		cmd.Dir = dir
-		if b, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, b)
-		}
+	if err := gitiso.CopyRepo(dir, emptyRepoTemplate()); err != nil {
+		t.Fatalf("copying the initialised repo into %s: %v", dir, err)
 	}
 }
 
