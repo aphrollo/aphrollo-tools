@@ -42,5 +42,5 @@ func recordStopShadow(verb string, raw []byte) {
 	if !ok || !pok {
 		return
 	}
-	shadow.RecordStop(tdd.ShadowWorld(), verb, src, pl)
+	shadow.RecordStop(tdd.ShadowWorld(), verb, src, pl, shadow.StopFacts{Unseen: true, Blocked: true})
 }

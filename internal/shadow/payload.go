@@ -19,8 +19,15 @@ type Payload struct {
 	ToolName       string `json:"tool_name"`
 	StopHookActive bool   `json:"stop_hook_active"`
 	ToolInput      struct {
-		FilePath string `json:"file_path"`
-		Command  string `json:"command"`
+		FilePath  string `json:"file_path"`
+		Command   string `json:"command"`
+		OldString string `json:"old_string"`
+		NewString string `json:"new_string"`
+		Content   string `json:"content"`
+		Edits     []struct {
+			OldString string `json:"old_string"`
+			NewString string `json:"new_string"`
+		} `json:"edits"`
 	} `json:"tool_input"`
 }
 
@@ -78,14 +85,15 @@ type Edit struct {
 	Class   kernel.FileClass
 	Unit    Unit
 	Covered bool
-	Tree    string // the tree key after the write; "" before it, when only the run knows it
+	// AddsSymbol: the write adds a func or an exported symbol (see AddsSymbol).
+	AddsSymbol bool
+	Tree       string // the tree key after the write; "" before it, when only the run knows it
 }
 
 // PreEvent is the question a PreToolUse call asks of the kernel for one edit: a
 // write of Edit in lane, made by an agent. The target is a lane's, never the
 // primary checkout's (the primary-checkout wall is a rule of its own), and
-// AddsSymbol is left false: whether an edit adds an exported symbol or a function
-// is read from the text the write leaves, which the hook has not parsed.
+// AddsSymbol is the edit's own (AddsSymbol, Go only).
 func PreEvent(p Payload, lane string, e Edit) kernel.Event {
 	tool := kernel.ToolWrite
 	if p.IsShell() {
@@ -93,7 +101,7 @@ func PreEvent(p Payload, lane string, e Edit) kernel.Event {
 	}
 	return kernel.Event{
 		Kind: kernel.KindPreTool, Claude: true, Lane: lane, Actor: p.Actor(),
-		Tool: tool, Target: kernel.PathLane, Unit: e.Unit.ID, File: e.Class, Covered: e.Covered,
+		Tool: tool, Target: kernel.PathLane, Unit: e.Unit.ID, File: e.Class, Covered: e.Covered, AddsSymbol: e.AddsSymbol,
 	}
 }
 
@@ -104,6 +112,14 @@ func EditEvent(actor, lane string, e Edit) kernel.Event {
 		Kind: kernel.KindEdit, Claude: true, Lane: lane, Actor: actor,
 		Unit: e.Unit.ID, Tree: e.Tree, File: e.Class, Covered: e.Covered,
 	}
+}
+
+// TreeEvent is an edit fact that only brings a unit's tree key up to date: an edit
+// of class other moves no state of the machine and asks for no run. A run uses it
+// to say which tree it measured, for the edits it judged were folded when they were
+// made, without a tree.
+func TreeEvent(actor, lane, unit, tree string) kernel.Event {
+	return kernel.Event{Kind: kernel.KindEdit, Claude: true, Lane: lane, Actor: actor, Unit: unit, Tree: tree, File: kernel.ClassOther}
 }
 
 // RunEvent is the fact of a run that finished: its verdict and cause for the

@@ -24,7 +24,8 @@ type shadowBox struct {
 
 func newShadowBox(t *testing.T) *shadowBox {
 	t.Helper()
-	b := &shadowBox{t: t, root: tree(t, ".git/HEAD", "go.mod", "internal/lane/lane.go", "internal/lane/lane_test.go", "README.md")}
+	// .git is a file, as a linked worktree has it: the primary checkout is not followed.
+	b := &shadowBox{t: t, root: tree(t, ".git", "go.mod", "internal/lane/lane.go", "internal/lane/lane_test.go", "internal/store/store.go", "README.md")}
 	// A lane outside the holdout arm, so the kernel's answer for red-green is the
 	// deny and not the shadowed guide.
 	b.lane = laneIn(t, RuleRedGreen, false)
@@ -59,9 +60,34 @@ func (b *shadowBox) askRedGreen(rel string) Record {
 	return recs[0]
 }
 
+// fold is what the hooks do for a finished run: each edit it judged is folded when
+// it was made, and the run's result later.
 func (b *shadowBox) fold(tree, job string, v kernel.Verdict, ids ...string) string {
 	b.t.Helper()
-	return b.world.FoldRun(b.ctx(), Fold{Root: b.root, Actor: "s1", Tree: tree, Job: job, EditIDs: ids, Verdict: v})
+	return b.foldRun(Fold{Root: b.root, Actor: "s1", Tree: tree, Job: job, EditIDs: ids, Verdict: v})
+}
+
+func (b *shadowBox) foldRun(f Fold) string {
+	b.t.Helper()
+	for _, id := range f.EditIDs {
+		for _, e := range b.ledger {
+			if e.ID == id {
+				if cause := b.world.FoldEdit(b.ctx(), EditFold{Root: b.root, Actor: "s1", EditID: id, File: e.File}); cause != "" {
+					b.t.Fatalf("FoldEdit(%s) = %q", id, cause)
+				}
+			}
+		}
+	}
+	return b.world.FoldRun(b.ctx(), f)
+}
+
+func (b *shadowBox) unit(id string) kernel.Unit {
+	b.t.Helper()
+	rec, _, err := b.store.Load(b.ctx(), b.lane)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	return rec.Units[id]
 }
 
 func TestRedGreen_ACodeEditInAnUntestedUnitIsAWouldBeBlockAgainstAnAllow(t *testing.T) {
@@ -158,8 +184,8 @@ func TestFoldRun_NamesWhyItCouldNotFold(t *testing.T) {
 	}{
 		{"a run with no tree key", Fold{Root: b.root, EditIDs: []string{"e1"}, Verdict: kernel.VerdictGreen}, lane, CauseNoTree},
 		{"a checkout with no branch", Fold{Root: b.root, Tree: "a1", EditIDs: []string{"e1"}, Verdict: kernel.VerdictGreen}, "", CauseNoLane},
-		{"edits the ledger does not hold", Fold{Root: b.root, Tree: "a1", EditIDs: []string{"gone"}, Verdict: kernel.VerdictGreen}, lane, causeNoEdit},
-		{"edits of files that are not code or tests", Fold{Root: b.root, Tree: "a1", EditIDs: []string{"e2"}, Verdict: kernel.VerdictGreen}, lane, causeNoEdit},
+		{"edits the ledger does not hold", Fold{Root: b.root, Tree: "a1", EditIDs: []string{"gone"}, Verdict: kernel.VerdictGreen}, lane, CauseNoEdit},
+		{"edits of files that are not code or tests", Fold{Root: b.root, Tree: "a1", EditIDs: []string{"e2"}, Verdict: kernel.VerdictGreen}, lane, CauseNoEdit},
 		{"a fold that is made", Fold{Root: b.root, Tree: "a1", EditIDs: []string{"e1"}, Verdict: kernel.VerdictGreen}, lane, ""},
 	}
 	for _, c := range cases {
@@ -170,24 +196,40 @@ func TestFoldRun_NamesWhyItCouldNotFold(t *testing.T) {
 	}
 }
 
-func TestStop_AnOpenRedInTheLaneIsABlockBothSidesAgreeOn(t *testing.T) {
+// ratchet: test_removed TestStop_AnOpenRedInTheLaneIsABlockBothSidesAgreeOn: replaced by TestStop_IsAskedAtEveryStopAndComparedToWhatTheLiveCheckDid, which asks every stop with aphrollo's own facts
+func TestStop_IsAskedAtEveryStopAndComparedToWhatTheLiveCheckDid(t *testing.T) {
 	b := newShadowBox(t)
 	p := Payload{SessionID: "s1", Cwd: b.root}
-	// No red recorded in the lane: aphrollo blocked on an unseen red the lane
-	// record does not hold, so the kernel would not block.
-	if got := b.world.Stop(b.ctx(), HookStop, p, b.root); got.Rule != RuleStopRed || got.Trellis != "allow" || got.Relation != TrellisSofter || got.Hook != HookStop {
-		t.Errorf("without a red in the lane record: %+v, want trellis allow against a block (softer)", got)
+	ask := func(hook string, f StopFacts) Record {
+		t.Helper()
+		r, ok := b.world.Stop(b.ctx(), hook, p, b.root, f)
+		if !ok {
+			t.Fatal("a stop on a followed lane made no record")
+		}
+		return r
+	}
+	// No red anywhere: both sides allow, and the agreement is a record too.
+	if got := ask(HookStop, StopFacts{}); got.Rule != RuleStopRed || got.Trellis != "allow" || got.Relation != Agree || got.Hook != HookStop {
+		t.Errorf("a stop with no red: %+v, want an agreeing allow", got)
+	}
+	// A live red the lane record never folded cannot be judged, and is never softer.
+	if got := ask(HookStop, StopFacts{Unseen: true, Trees: []string{"a1"}, Blocked: true}); got.Relation != Unjudged || got.Cause != CauseUnfolded {
+		t.Errorf("an unfolded red: %+v, want unjudged %q", got, CauseUnfolded)
 	}
 	b.ledger = []LedgerEdit{{ID: "e1", File: b.file("internal/lane/lane_test.go"), At: t0}}
 	if cause := b.fold("a1", "j1", kernel.VerdictRed, "e1"); cause != "" {
 		t.Fatalf("fold failed: %q", cause)
 	}
-	if got := b.world.Stop(b.ctx(), HookSubagentStop, p, b.root); got.Trellis != "block" || got.Relation != Agree || got.Hook != HookSubagentStop {
-		t.Errorf("with an open red: %+v, want both sides to block", got)
+	if got := ask(HookSubagentStop, StopFacts{Unseen: true, Trees: []string{"a1"}, Blocked: true}); got.Trellis != "block" || got.Relation != Agree || got.Hook != HookSubagentStop {
+		t.Errorf("a folded red the live check blocked on: %+v, want both sides to block", got)
+	}
+	// The live check allowed with the red unseen (the session is off): trellis would block.
+	if got := ask(HookStop, StopFacts{Unseen: true, Trees: []string{"a1"}}); got.Trellis != "block" || got.Actual != "allow" || got.Relation != TrellisStricter {
+		t.Errorf("an unseen red the live check let by: %+v, want a would-be block", got)
 	}
 	// stop_hook_active: the kernel never blocks twice.
 	p.StopHookActive = true
-	if got := b.world.Stop(b.ctx(), HookStop, p, b.root); got.Trellis != "allow" {
+	if got := ask(HookStop, StopFacts{Unseen: true, Trees: []string{"a1"}}); got.Trellis != "allow" {
 		t.Errorf("stop_hook_active: %+v, want the kernel to let the turn end", got)
 	}
 }
@@ -243,22 +285,209 @@ func TestRecordFactsAnd_AStepThatFinishesWritesItsEventsAndNoUnjudged(t *testing
 	}
 }
 
-func TestFlush_FoldsAFinishedRunIntoItsLaneAndAnUnfoldableRunIsUnjudged(t *testing.T) {
+// ratchet: test_removed TestFlush_FoldsAFinishedRunIntoItsLaneAndAnUnfoldableRunIsUnjudged: replaced by TestFlush_FoldsEditsThenRunsAndWritesAnUnjudgedRecordForWhatItCouldNotFold, as edits are folded apart from runs now
+func TestFlush_FoldsEditsThenRunsAndWritesAnUnjudgedRecordForWhatItCouldNotFold(t *testing.T) {
 	got := capture(t)
 	b := newShadowBox(t)
 	b.ledger = []LedgerEdit{{ID: "e1", File: b.file("internal/lane/lane_test.go"), At: t0}}
 	src := Source{Root: b.root, Actor: "s1", Key: "a1"}
+	// Queued in the order the hook makes them: the run before the edit it judged is
+	// still folded after it, for the edits go first in the flush.
 	QueueFold(src, b.world, Fold{Root: b.root, Actor: "s1", Tree: "a1", Job: "j1", EditIDs: []string{"e1"}, Verdict: kernel.VerdictRed})
+	QueueEditFold(src, b.world, EditFold{Root: b.root, Actor: "s1", EditID: "e1", File: b.file("internal/lane/lane_test.go")})
 	QueueFold(src, b.world, Fold{Root: b.root, Actor: "s1", Tree: "", EditIDs: []string{"e1"}, Verdict: kernel.VerdictGreen})
+	QueueFold(src, b.world, Fold{Root: b.root, Actor: "s1", Tree: "a2", EditIDs: []string{"gone"}, Verdict: kernel.VerdictGreen})
 	Flush()
-	if len(*got) != 1 || (*got)[0].Detail["rule"] != RuleFold || (*got)[0].Detail["cause"] != CauseNoTree || (*got)[0].Detail["relation"] != string(Unjudged) {
-		t.Fatalf("events = %+v, want one unjudged lane-fold for the run with no tree, and nothing for the fold made", *got)
+	causes := map[string]bool{}
+	for _, e := range *got {
+		if e.Detail["rule"] != RuleFold || e.Detail["relation"] != string(Unjudged) {
+			t.Errorf("event %+v, want only unjudged lane-fold records", e)
+		}
+		causes[e.Detail["cause"]] = true
 	}
-	rec, _, err := b.store.Load(b.ctx(), b.lane)
+	if len(*got) != 2 || !causes[CauseNoTree] || !causes[CauseNoEdit] {
+		t.Fatalf("events = %+v, want one unjudged for the run with no tree and one for the edits the ledger does not hold", *got)
+	}
+	if u := b.unit("internal/lane"); u.Phase != kernel.PhaseOpen {
+		t.Errorf("unit phase = %q, want open: the edit, then the queued red run, were folded", u.Phase)
+	}
+}
+
+// The dominant bias of the data: a test edit whose run is still in flight. The edit
+// is folded when it is made, so the unit is pending when the code edit's question
+// is asked, and the kernel does not fire.
+func TestRedGreen_ACodeEditWhileTheTestEditsRunIsInFlightIsNoFire(t *testing.T) {
+	b := newShadowBox(t)
+	b.ledger = []LedgerEdit{{ID: "e1", File: b.file("internal/lane/lane_test.go"), At: t0}}
+	if cause := b.world.FoldEdit(b.ctx(), EditFold{Root: b.root, Actor: "s1", EditID: "e1", File: b.file("internal/lane/lane_test.go")}); cause != "" {
+		t.Fatalf("FoldEdit = %q", cause)
+	}
+	if got := b.unit("internal/lane").Phase; got != kernel.PhasePending {
+		t.Fatalf("unit phase = %q, want pending after the test edit and before any run", got)
+	}
+	got := b.askRedGreen("internal/lane/lane.go")
+	if got.Trellis != "allow" || got.Relation != Agree {
+		t.Errorf("record = %+v, want no fire while the test's run is on its way", got)
+	}
+}
+
+func TestFoldEdit_FoldsOnlyCodeAndTestFilesOfFollowedLanes(t *testing.T) {
+	b := newShadowBox(t)
+	if cause := b.world.FoldEdit(b.ctx(), EditFold{Root: b.root, EditID: "e", File: b.file("README.md")}); cause != "" {
+		t.Errorf("a document: %q, want nothing folded and no cause", cause)
+	}
+	b.lane = ""
+	if cause := b.world.FoldEdit(b.ctx(), EditFold{Root: b.root, EditID: "e", File: b.file("internal/lane/lane.go")}); cause != CauseNoLane {
+		t.Errorf("no lane: %q, want %q", cause, CauseNoLane)
+	}
+}
+
+// A lane the shadow does not follow is no ask, no fold and no record: trunk by
+// name, and the primary checkout, whose .git is a directory.
+func TestWorld_DoesNotFollowTrunkLanesOrThePrimaryCheckout(t *testing.T) {
+	b := newShadowBox(t)
+	b.ledger = []LedgerEdit{{ID: "e1", File: b.file("internal/lane/lane_test.go"), At: t0}}
+	for _, lane := range []string{"main", "master", kernel.TrunkLane} {
+		b.lane = lane
+		if recs := b.world.RedGreen(b.ctx(), Payload{}, []string{b.file("internal/lane/lane.go")}); len(recs) != 0 {
+			t.Errorf("lane %s: red-green made records %+v", lane, recs)
+		}
+		if cause := b.world.FoldEdit(b.ctx(), EditFold{Root: b.root, EditID: "e1", File: b.file("internal/lane/lane_test.go")}); cause != "" {
+			t.Errorf("lane %s: FoldEdit = %q", lane, cause)
+		}
+		if cause := b.fold("a1", "j", kernel.VerdictRed, "e1"); cause != "" {
+			t.Errorf("lane %s: FoldRun = %q", lane, cause)
+		}
+		if _, ok := b.world.Stop(b.ctx(), HookStop, Payload{}, b.root, StopFacts{}); ok {
+			t.Errorf("lane %s: a stop made a record", lane)
+		}
+		if _, v, _ := b.store.Load(b.ctx(), lane); v != 0 {
+			t.Errorf("lane %s: the record was saved (version %d)", lane, v)
+		}
+	}
+	// A feature branch in the primary checkout (.git a directory) is not followed either.
+	primary := tree(t, ".git/HEAD", "go.mod", "internal/lane/lane.go")
+	b.lane = "lane/feature"
+	if recs := b.world.RedGreen(b.ctx(), Payload{}, []string{filepath.Join(primary, "internal", "lane", "lane.go")}); len(recs) != 0 {
+		t.Errorf("the primary checkout: red-green made records %+v", recs)
+	}
+}
+
+// One run, two touched packages, a command that names one: only that unit is
+// stamped with the run's verdict.
+func TestFoldRun_StampsOnlyTheUnitsTheRunsCommandCovers(t *testing.T) {
+	b := newShadowBox(t)
+	b.ledger = []LedgerEdit{
+		{ID: "e1", File: b.file("internal/lane/lane_test.go"), At: t0},
+		{ID: "e2", File: b.file("internal/store/store.go"), At: t0},
+	}
+	cause := b.foldRun(Fold{Root: b.root, Actor: "s1", Tree: "a1", Job: "j1", EditIDs: []string{"e1", "e2"},
+		Argv: []string{"go", "test", "./internal/lane"}, Verdict: kernel.VerdictRed})
+	if cause != "" {
+		t.Fatalf("FoldRun = %q", cause)
+	}
+	if got := b.unit("internal/lane"); got.Phase != kernel.PhaseOpen || got.LastReal != kernel.VerdictRed {
+		t.Errorf("the covered unit = %+v, want its red stamped", got)
+	}
+	if got := b.unit("internal/store"); got.LastReal != "" || got.Tree != "" {
+		t.Errorf("the unit the command does not name = %+v, want no verdict and no tree", got)
+	}
+}
+
+// A run that judged an older edit of a unit says nothing of it once a newer edit is
+// folded: the run is stale for the unit.
+func TestFoldRun_ALaterEditOfTheUnitLeavesTheRunStale(t *testing.T) {
+	b := newShadowBox(t)
+	b.ledger = []LedgerEdit{
+		{ID: "e1", File: b.file("internal/lane/lane_test.go"), At: t0},
+		{ID: "e2", File: b.file("internal/lane/lane.go"), At: t0.Add(time.Minute)},
+	}
+	b.foldRun(Fold{Root: b.root, Actor: "s1", Tree: "a1", Job: "j1", EditIDs: []string{"e1"}, Verdict: kernel.VerdictRed})
+	if got := b.unit("internal/lane"); got.LastReal != "" {
+		t.Errorf("unit = %+v, want a run of the older edit not stamped over the newer one", got)
+	}
+}
+
+// The fold is one transaction: a context that ends before it saves nothing, and a
+// fold of two units is one commit.
+func TestFoldRun_IsOneCommitOrNone(t *testing.T) {
+	b := newShadowBox(t)
+	b.ledger = []LedgerEdit{
+		{ID: "e1", File: b.file("internal/lane/lane_test.go"), At: t0},
+		{ID: "e2", File: b.file("internal/store/store.go"), At: t0},
+	}
+	f := Fold{Root: b.root, Actor: "s1", Tree: "a1", Job: "j1", EditIDs: []string{"e1", "e2"}, Verdict: kernel.VerdictRed}
+	for _, id := range f.EditIDs {
+		for _, e := range b.ledger {
+			if e.ID == id {
+				b.world.FoldEdit(b.ctx(), EditFold{Root: b.root, EditID: id, File: e.File})
+			}
+		}
+	}
+	_, before, _ := b.store.Load(b.ctx(), b.lane)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if cause := b.world.FoldRun(ctx, f); cause != CauseBudget {
+		t.Errorf("FoldRun on an ended context = %q, want %q", cause, CauseBudget)
+	}
+	if _, after, _ := b.store.Load(b.ctx(), b.lane); after != before {
+		t.Errorf("version %d after the overrun, want %d: nothing saved", after, before)
+	}
+	if cause := b.world.FoldRun(b.ctx(), f); cause != "" {
+		t.Fatalf("FoldRun = %q", cause)
+	}
+	if _, after, _ := b.store.Load(b.ctx(), b.lane); after != before+1 {
+		t.Errorf("version %d after folding two units, want %d: one commit", after, before+1)
+	}
+	if b.unit("internal/lane").LastReal != kernel.VerdictRed || b.unit("internal/store").LastReal != kernel.VerdictRed {
+		t.Error("both units are stamped by the one commit")
+	}
+}
+
+// A new func in a unit with a green run on the tree of its newest edit is still a
+// fire: new code is not tested code however covered the unit is.
+func TestRedGreen_ANewFuncInACoveredUnitStillFires(t *testing.T) {
+	b := newShadowBox(t)
+	b.ledger = []LedgerEdit{{ID: "e2", File: b.file("internal/lane/lane.go"), At: t0}}
+	if cause := b.fold("b2", "j2", kernel.VerdictGreen, "e2"); cause != "" {
+		t.Fatalf("fold failed: %q", cause)
+	}
+	_, err := b.store.RecordVerdict(b.ctx(), "b2", b.lane, store.Verdict{Runs: []store.RunVerdict{
+		{Runner: "go", Unit: ".|go test ./internal/lane/...", Result: kernel.VerdictGreen, MS: 1000, At: t0.Add(10 * time.Second)},
+	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u := rec.Units["internal/lane"]; u.Phase != kernel.PhaseOpen {
-		t.Errorf("unit phase = %q, want open: the queued red run was folded", u.Phase)
+	ask := func(old, now string) Record {
+		recs := b.world.RedGreen(b.ctx(), editPayload(old, now), []string{b.file("internal/lane/lane.go")})
+		if len(recs) != 1 {
+			t.Fatalf("records = %+v", recs)
+		}
+		return recs[0]
 	}
+	if got := ask("return 1", "return 2"); got.Trellis != "allow" {
+		t.Errorf("an edit of a covered unit that adds no symbol: %+v, want allow", got)
+	}
+	if got := ask("return 1", "return 1\n}\n\nfunc Added() int {\n\treturn 2"); got.Trellis != "block" || got.Relation != TrellisStricter {
+		t.Errorf("an edit adding a func to a covered unit: %+v, want a would-be block", got)
+	}
+}
+
+func TestCovered_AnEditAtTheMomentTheRunStartedIsHeldByIt(t *testing.T) {
+	u := Unit{ID: "p", Project: ".", Pkg: "p", Kind: unitGoPackage}
+	unitOf := func(string) (Unit, bool) { return u, true }
+	run := []store.RunVerdict{runOf(kernel.VerdictGreen, ".|go test ./...", t0.Add(4*time.Second), 4000)} // started at t0
+	if !Covered(u, run, []LedgerEdit{{File: "f.go", At: t0}}, unitOf) {
+		t.Error("an edit recorded at the instant the run started is not held by its tree")
+	}
+	if Covered(u, run, []LedgerEdit{{File: "f.go", At: t0.Add(time.Millisecond)}}, unitOf) {
+		t.Error("an edit a millisecond after the run started is held by its tree")
+	}
+}
+
+func editPayload(old, now string) Payload {
+	var p Payload
+	p.ToolName = "Edit"
+	p.ToolInput.OldString, p.ToolInput.NewString = old, now
+	return p
 }

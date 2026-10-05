@@ -5,6 +5,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/lang"
 )
 
 // Unit is the part of a repository the TDD machine keeps one state for.
@@ -19,9 +21,12 @@ import (
 //     carry test-name patterns, which say whether a file is a test and not what
 //     unit it is in, so they hold no root to read. The project root is the one
 //     unit these languages have, and it is named so (Kind projectRoot): a
-//     language with a finer unit would need its own row here.
+//     language with a finer unit would need its own row here. The id leads with the
+//     language row's name ("rust:crates/engine"), so a Rust crate and a node
+//     package at the same path, or two languages at the repository root ("."), never
+//     share a unit.
 type Unit struct {
-	ID      string // the key in the lane record
+	ID      string // the key in the lane record; a non-Go unit's leads with its language
 	Project string // the project root, relative to the repository root ("." for the root)
 	Pkg     string // a Go package's directory relative to its module root; "" for a project-root unit
 	Kind    string // unitGoPackage or unitProjectRoot
@@ -52,7 +57,20 @@ func UnitOf(file string, projectRoot func(string) string) (Unit, bool) {
 		return Unit{}, false
 	}
 	project := relOrDot(repo, root)
-	return Unit{ID: project, Project: project, Kind: unitProjectRoot}, true
+	return Unit{ID: languageOf(file) + ":" + project, Project: project, Kind: unitProjectRoot}, true
+}
+
+// languageOf is the name of the language row that owns file, "other" for a file no
+// row owns.
+func languageOf(file string) string {
+	t, err := lang.Defaults()
+	if err != nil {
+		return "other"
+	}
+	if l, ok := t.For(file); ok {
+		return l.Name
+	}
+	return "other"
 }
 
 // findUp is the nearest directory from dir upward holding name, "" when none does.

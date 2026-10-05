@@ -105,6 +105,7 @@ type Record struct {
 	Primary  bool // the fact is about the primary checkout, which has no lane of its own to join outcomes by
 	Guide    string
 	Unit     string // the unit the record is about, for the rules that read a unit's state
+	UnitPkg  string // a Go unit's package relative to its module root, what a proof's patterns are relative to
 	Root     string // the checkout the record is about, "" for the call's own
 	// For a run: the verdict classes each side read, and the cause.
 	TrellisVerdict, ActualVerdict, Cause, ActualCause string
@@ -302,6 +303,7 @@ func (r Record) event(s Source, lane string) core.Event {
 	set("wt", s.Root)
 	set("key", s.Key)
 	set("unit", r.Unit)
+	set("unit_pkg", r.UnitPkg)
 	set("guide", r.Guide)
 	set("trellis_verdict", r.TrellisVerdict)
 	set("aphrollo_verdict", r.ActualVerdict)
@@ -411,12 +413,16 @@ func RedGreenSteps(wd World, s Source, p Payload, files []string) []Step {
 	}}
 }
 
-// RecordStop writes the stop-red shadow record of a Stop or SubagentStop whose
-// live check blocked on an unseen red, inside one budget.
-func RecordStop(wd World, hook string, s Source, p Payload) {
+// RecordStop writes the stop-red shadow record of a Stop or SubagentStop, whatever
+// the live check did, inside one budget.
+func RecordStop(wd World, hook string, s Source, p Payload, f StopFacts) {
 	RecordFactsAnd(s, func() []Fact { return nil }, []Step{{
 		run: func(ctx context.Context) []core.Event {
-			return []core.Event{wd.Stop(ctx, hook, p, s.Root).event(s, wd.Lane(s.Root))}
+			r, ok := wd.Stop(ctx, hook, p, s.Root, f)
+			if !ok {
+				return nil
+			}
+			return []core.Event{r.event(s, wd.Lane(s.Root))}
 		},
 		skip: func(cause string) core.Event {
 			return unjudged(hook, RuleStopRed, "", cause).event(s, wd.Lane(s.Root))
@@ -429,6 +435,12 @@ type queuedRun struct {
 	fact func() (RunFact, bool)
 }
 
+type queuedEdit struct {
+	src  Source
+	w    World
+	edit EditFold
+}
+
 type queuedFold struct {
 	src  Source
 	w    World
@@ -438,6 +450,7 @@ type queuedFold struct {
 var queue struct {
 	sync.Mutex
 	runs  []queuedRun
+	edits []queuedEdit
 	folds []queuedFold
 }
 
@@ -446,6 +459,15 @@ var queue struct {
 func QueueRun(s Source, fact func() (RunFact, bool)) {
 	queue.Lock()
 	queue.runs = append(queue.runs, queuedRun{s, fact})
+	queue.Unlock()
+}
+
+// QueueEditFold holds an edit the hook has made to be folded into its lane's record
+// by Flush, after the hook has answered and ahead of any run folded in the same
+// flush, so a run finds the edits it judged already there.
+func QueueEditFold(s Source, w World, f EditFold) {
+	queue.Lock()
+	queue.edits = append(queue.edits, queuedEdit{s, w, f})
 	queue.Unlock()
 }
 
@@ -465,13 +487,16 @@ func QueueFold(s Source, w World, f Fold) {
 // lane record it changed is its own trace.
 func Flush() {
 	queue.Lock()
-	runs, folds := queue.runs, queue.folds
-	queue.runs, queue.folds = nil, nil
+	runs, edits, folds := queue.runs, queue.edits, queue.folds
+	queue.runs, queue.edits, queue.folds = nil, nil, nil
 	queue.Unlock()
-	if len(runs) == 0 && len(folds) == 0 {
+	if len(runs) == 0 && len(edits) == 0 && len(folds) == 0 {
 		return
 	}
-	steps := make([]Step, 0, len(folds))
+	steps := make([]Step, 0, len(edits)+len(folds))
+	for _, q := range edits {
+		steps = append(steps, editStep(q))
+	}
 	for _, q := range folds {
 		steps = append(steps, foldStep(q))
 	}
@@ -496,11 +521,26 @@ func Flush() {
 	}
 }
 
+func editStep(q queuedEdit) Step {
+	lane := func() string { return core.LaneOf(q.src.Root) }
+	return Step{
+		run: func(ctx context.Context) []core.Event {
+			if cause := q.w.FoldEdit(ctx, q.edit); cause != "" {
+				return []core.Event{unjudged(HookFold, RuleFold, "", cause).event(q.src, lane())}
+			}
+			return nil
+		},
+		skip: func(cause string) core.Event {
+			return unjudged(HookFold, RuleFold, "", cause).event(q.src, lane())
+		},
+	}
+}
+
 func foldStep(q queuedFold) Step {
 	lane := func() string { return core.LaneOf(q.src.Root) }
 	return Step{
 		run: func(ctx context.Context) []core.Event {
-			if cause := q.w.FoldRun(ctx, q.fold); cause != "" && cause != causeNoEdit {
+			if cause := q.w.FoldRun(ctx, q.fold); cause != "" {
 				return []core.Event{unjudged(HookFold, RuleFold, "", cause).event(q.src, lane())}
 			}
 			return nil

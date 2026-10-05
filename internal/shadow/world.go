@@ -3,8 +3,10 @@ package shadow
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -27,12 +29,13 @@ const (
 
 // The causes an unjudged record carries when a step could not be made.
 const (
-	CauseBudget = "budget"   // the record did not finish inside Budget
-	CauseNoLane = "no-lane"  // the checkout has no branch to key a lane record by
-	CauseNoUnit = "no-unit"  // the file is in no project a unit can be named for
-	CauseNoTree = "no-tree"  // the run recorded no tree key to fold its verdict under
-	CauseStore  = "store"    // the lane record could not be read or saved
-	causeNoEdit = "no-edits" // the run's edits are not in the ledger
+	CauseBudget   = "budget"   // the record did not finish inside Budget
+	CauseNoLane   = "no-lane"  // the checkout has no branch to key a lane record by
+	CauseNoUnit   = "no-unit"  // the file is in no project a unit can be named for
+	CauseNoTree   = "no-tree"  // the run recorded no tree key to fold its verdict under
+	CauseStore    = "store"    // the lane record could not be read or saved
+	CauseNoEdit   = "no-edit"  // the edits the run judged are not in the ledger, or none is code
+	CauseUnfolded = "unfolded" // the live red is one no run of the lane record was folded for
 )
 
 // Config is what the kernel decides these two rules under: tdd = enforce, the
@@ -69,6 +72,24 @@ func (w World) unitOf() func(string) (Unit, bool) {
 		}
 		return u, ok
 	}
+}
+
+// skipLane reports whether a lane is one the shadow does not follow: trunk
+// (main, master, @trunk) and the primary checkout, whose .git is a directory
+// where a linked worktree's is a file. A trunk lane's outcomes cannot be joined to
+// a change, and the primary checkout is where no lane's work should be done; a
+// call there is no ask, no fold and no record.
+func skipLane(root, lane string) bool {
+	switch lane {
+	case "main", "master", kernel.TrunkLane:
+		return true
+	}
+	repo := findUp(root, ".git")
+	if repo == "" {
+		return false
+	}
+	fi, err := os.Stat(filepath.Join(repo, ".git"))
+	return err == nil && fi.IsDir()
 }
 
 func (w World) engine(root string) (*engine.Engine, *store.Store, error) {
@@ -139,6 +160,9 @@ func (w World) RedGreen(ctx context.Context, p Payload, files []string) []Record
 			continue
 		}
 		lane := w.Lane(root)
+		if skipLane(root, lane) {
+			continue
+		}
 		key := lane + "|" + u.ID
 		if asked[key] {
 			continue
@@ -157,14 +181,14 @@ func (w World) RedGreen(ctx context.Context, p Payload, files []string) []Record
 		if _, ok := ledgers[pr]; !ok {
 			ledgers[pr] = w.Edits(pr)
 		}
-		ev := PreEvent(p, lane, Edit{File: f, Class: kernel.ClassCode, Unit: u, Covered: w.covered(ctx, st, lane, u, ledgers[pr], unitOf)})
+		ev := PreEvent(p, lane, Edit{File: f, Class: kernel.ClassCode, Unit: u, Covered: w.covered(ctx, st, lane, u, ledgers[pr], unitOf), AddsSymbol: AddsSymbol(p, f)})
 		d, err := eng.Handle(ctx, ev)
 		if err != nil && d.Outcome == "" {
 			out = append(out, withRoot(unjudged(HookPre, RuleRedGreen, u.ID, causeOf(err)), root))
 			continue
 		}
 		r := recordOf(HookPre, RuleRedGreen, "commit-proof", d, Allow)
-		r.Unit = u.ID
+		r.Unit, r.UnitPkg = u.ID, u.Pkg
 		out = append(out, withRoot(r, root))
 	}
 	return out
@@ -175,44 +199,137 @@ func withRoot(r Record, root string) Record {
 	return r
 }
 
-// Stop asks the kernel the question a Stop or SubagentStop puts to the stop-red
-// rule when aphrollo's live check blocked on a red the actor had not seen, and
-// compares the answers. The kernel reads the lane's units for a real red; the
-// unseen red is aphrollo's own finding, the one fact the kernel cannot hold.
-func (w World) Stop(ctx context.Context, hook string, p Payload, root string) Record {
+// StopFacts are aphrollo's own findings at a Stop or SubagentStop: whether the actor
+// has an unseen red outstanding (whatever the live check then did about it), the
+// trees of the lane's reds it is about, and whether the live check blocked.
+type StopFacts struct {
+	Unseen  bool
+	Trees   []string
+	Blocked bool
+}
+
+// Stop asks the kernel the question a Stop or SubagentStop puts to the stop-red rule
+// at every stop, and compares the answer to aphrollo's (a block, or an allow), so a
+// would-be block (aphrollo allowed with an unseen red outstanding) is as observable
+// as a block. The kernel reads the lane's units for a real red; the unseen red is
+// aphrollo's own finding, the one fact the kernel cannot hold. A red no run of the
+// lane record was folded for (no unit of it measured on the red's tree) is unjudged:
+// the record cannot say whether the kernel would have blocked. It reports false for
+// a stop on a lane the shadow does not follow.
+func (w World) Stop(ctx context.Context, hook string, p Payload, root string, f StopFacts) (Record, bool) {
 	lane := w.Lane(root)
+	if skipLane(root, lane) {
+		return Record{}, false
+	}
 	if lane == "" {
-		return unjudged(hook, RuleStopRed, "", CauseNoLane)
+		return unjudged(hook, RuleStopRed, "", CauseNoLane), true
 	}
-	eng, _, err := w.engine(root)
+	eng, st, err := w.engine(root)
 	if err != nil {
-		return unjudged(hook, RuleStopRed, "", CauseStore)
+		return unjudged(hook, RuleStopRed, "", CauseStore), true
 	}
-	d, err := eng.Handle(ctx, StopEvent(p, lane, true))
+	if f.Unseen {
+		rec, _, err := st.Load(ctx, lane)
+		if err != nil {
+			return unjudged(hook, RuleStopRed, "", causeOf(err)), true
+		}
+		if !foldedRed(rec.Units, f.Trees) {
+			return unjudged(hook, RuleStopRed, "", CauseUnfolded), true
+		}
+	}
+	actual := Allow
+	if f.Blocked {
+		actual = Block
+	}
+	d, err := eng.Handle(ctx, StopEvent(p, lane, f.Unseen))
 	if err != nil && d.Outcome == "" {
-		return unjudged(hook, RuleStopRed, "", causeOf(err))
+		return unjudged(hook, RuleStopRed, "", causeOf(err)), true
 	}
-	return recordOf(hook, RuleStopRed, "unseen-red", d, Block)
+	return recordOf(hook, RuleStopRed, "unseen-red", d, actual), true
+}
+
+// foldedRed reports whether some unit of the record last measured one of the trees.
+func foldedRed(units kernel.Units, trees []string) bool {
+	for _, u := range units {
+		if u.LastRealTree != "" && slices.Contains(trees, u.LastRealTree) {
+			return true
+		}
+	}
+	return false
+}
+
+// EditFold is a finished edit to fold into its lane's record: the ledger id the
+// edit hook gave it and its file.
+type EditFold struct {
+	Root, Actor, EditID, File string
+}
+
+// FoldEdit folds an edit into the lane's record the moment the hook has made it,
+// with no run needed: a test edit moves its unit to pending before any run
+// finishes, which is what the next code edit's question has to read. The edit's
+// tree is unknown here (only a run reads the tree key), so it carries none; the run
+// that later judges it brings the unit's tree up to date (FoldRun) without folding
+// the edit a second time. Covered is the unit's cover as it stood before this edit,
+// for the edit is itself newer than any run. It returns the cause when the fold
+// could not be made, "" when it was or the lane is not followed.
+func (w World) FoldEdit(ctx context.Context, f EditFold) string {
+	lane := w.Lane(f.Root)
+	if skipLane(f.Root, lane) {
+		return ""
+	}
+	if lane == "" {
+		return CauseNoLane
+	}
+	class := FileClassOf(f.File)
+	if class == kernel.ClassOther {
+		return ""
+	}
+	unitOf := w.unitOf()
+	u, ok := unitOf(f.File)
+	if !ok {
+		return CauseNoUnit
+	}
+	eng, st, err := w.engine(f.Root)
+	if err != nil {
+		return CauseStore
+	}
+	var before []LedgerEdit
+	for _, e := range w.Edits(f.Root) {
+		if e.ID != f.EditID {
+			before = append(before, e)
+		}
+	}
+	ev := EditEvent(f.Actor, lane, Edit{File: f.File, Class: class, Unit: u, Covered: w.covered(ctx, st, lane, u, before, unitOf)})
+	if err := eng.HandleAll(ctx, lane, []kernel.Event{ev}); err != nil {
+		return causeOf(err)
+	}
+	return ""
 }
 
 // Fold is a finished run to fold into the lane record: the edits it judged (their
-// ledger ids), the tree it measured and its verdict.
+// ledger ids), the command it ran, the tree it measured and its verdict.
 type Fold struct {
 	Root, Actor, Tree, Job string
 	EditIDs                []string
+	Argv                   []string // the run's command; nil when unknown, which covers every unit
 	Verdict                kernel.Verdict
 	Cause                  string
 }
 
-// FoldRun folds a finished run into the lane record: for each unit the run's
-// edits touched, those edits (with the tree the run measured, which is the tree
-// they produced: only the run reads the tree key, and no git process is spawned
-// for it) and then the run's result. An edit's Covered is the definition of
-// Covered evaluated with this run in hand: the run is the unit's run on a tree
-// holding the edit, so it covers it exactly when it is green. It returns the
-// cause when the fold could not be made, "" when it was.
+// FoldRun folds a finished run's result into the lane record, in one transaction.
+// The edits it judged are folded already (FoldEdit); for each unit they touched
+// that the run's command covers (runCovers, so a run of one of two touched packages
+// stamps only that one) the run brings the unit's tree up to the one it measured
+// (the tree-only edit event TreeEvent, no state moves) and then gives its result.
+// A unit with a newer edit than the run judged is left alone: the run is stale for
+// it. All of it is saved or none of it is: a context that ends mid-fold leaves the
+// record as it was. It returns the cause when the fold could not be made, "" when
+// it was or there was nothing for it to do.
 func (w World) FoldRun(ctx context.Context, f Fold) string {
 	lane := w.Lane(f.Root)
+	if skipLane(f.Root, lane) {
+		return ""
+	}
 	switch {
 	case lane == "":
 		return CauseNoLane
@@ -220,44 +337,51 @@ func (w World) FoldRun(ctx context.Context, f Fold) string {
 		return CauseNoTree
 	}
 	unitOf := w.unitOf()
-	type unitEdits struct {
-		unit  Unit
-		edits []Edit
+	ledger := w.Edits(f.Root)
+	newest := map[string]string{} // unit id to the id of its newest ledger edit
+	for _, e := range ledger {
+		if u, ok := unitOf(e.File); ok && FileClassOf(e.File) != kernel.ClassOther {
+			newest[u.ID] = e.ID
+		}
 	}
 	var order []string
-	byUnit := map[string]*unitEdits{}
-	for _, e := range w.Edits(f.Root) {
-		if !slices.Contains(f.EditIDs, e.ID) {
+	units := map[string]Unit{}
+	for _, e := range ledger {
+		if !slices.Contains(f.EditIDs, e.ID) || FileClassOf(e.File) == kernel.ClassOther {
 			continue
 		}
-		class := FileClassOf(e.File)
-		u, ok := unitOf(e.File)
-		if class == kernel.ClassOther || !ok {
-			continue
-		}
-		if byUnit[u.ID] == nil {
-			byUnit[u.ID] = &unitEdits{unit: u}
+		if u, ok := unitOf(e.File); ok && !slices.Contains(order, u.ID) {
 			order = append(order, u.ID)
+			units[u.ID] = u
 		}
-		byUnit[u.ID].edits = append(byUnit[u.ID].edits, Edit{File: e.File, Class: class, Unit: u, Tree: f.Tree, Covered: f.Verdict == kernel.VerdictGreen})
 	}
 	if len(order) == 0 {
-		return causeNoEdit
+		return CauseNoEdit
+	}
+	runUnit := ""
+	if f.Argv != nil {
+		runUnit = relOrDot(findUp(f.Root, ".git"), f.Root) + "|" + strings.Join(f.Argv, " ")
+	}
+	var evs []kernel.Event
+	for _, id := range order {
+		u := units[id]
+		if runUnit != "" && !runCovers(runUnit, u) {
+			continue
+		}
+		if !slices.Contains(f.EditIDs, newest[id]) {
+			continue
+		}
+		evs = append(evs, TreeEvent(f.Actor, lane, id, f.Tree), RunEvent(f.Actor, lane, id, f.Tree, f.Job, f.Verdict, f.Cause))
+	}
+	if len(evs) == 0 {
+		return ""
 	}
 	eng, _, err := w.engine(f.Root)
 	if err != nil {
 		return CauseStore
 	}
-	for _, id := range order {
-		ue := byUnit[id]
-		for _, e := range ue.edits {
-			if _, err := eng.Handle(ctx, EditEvent(f.Actor, lane, e)); err != nil {
-				return causeOf(err)
-			}
-		}
-		if _, err := eng.Handle(ctx, RunEvent(f.Actor, lane, id, f.Tree, f.Job, f.Verdict, f.Cause)); err != nil {
-			return causeOf(err)
-		}
+	if err := eng.HandleAll(ctx, lane, evs); err != nil {
+		return causeOf(err)
 	}
 	return ""
 }

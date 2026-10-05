@@ -54,8 +54,8 @@ func TestUnitOf_NamesAUnitPerLanguage(t *testing.T) {
 		{"the root package of a root module is dot", "main.go", ".", unitGoPackage, true},
 		{"a module below the repository root keeps its path", "tools/x/pkg/p.go", "tools/x/pkg", unitGoPackage, true},
 		{"the root package of a nested module is the module's path", "tools/x/x.go", "tools/x", unitGoPackage, true},
-		{"a rust file is its crate", "crates/engine/src/lib.rs", "crates/engine", unitProjectRoot, true},
-		{"a node file is its package", "web/src/app.ts", "web", unitProjectRoot, true},
+		{"a rust file is its crate", "crates/engine/src/lib.rs", "rust:crates/engine", unitProjectRoot, true},
+		{"a node file is its package", "web/src/app.ts", "typescript:web", unitProjectRoot, true},
 		{"a file in no project has no unit", "scripts/run.py", "", "", false},
 	}
 	for _, c := range cases {
@@ -63,6 +63,17 @@ func TestUnitOf_NamesAUnitPerLanguage(t *testing.T) {
 		if ok != c.ok || got.ID != c.id || got.Kind != c.kind {
 			t.Errorf("%s: UnitOf(%s) = %+v ok=%v, want id %q kind %q ok=%v", c.name, c.file, got, ok, c.id, c.kind, c.ok)
 		}
+	}
+}
+
+// A crate and a package at the same path, or two languages at the repository root,
+// are two units: the id leads with the language row's name.
+func TestUnitOf_ProjectRootUnitsOfTwoLanguagesAtOnePathDoNotCollide(t *testing.T) {
+	root := tree(t, ".git/HEAD", "Cargo.toml", "package.json", "src/lib.rs", "src/app.ts")
+	rs, _ := UnitOf(filepath.Join(root, "src", "lib.rs"), manifestRoot)
+	ts, _ := UnitOf(filepath.Join(root, "src", "app.ts"), manifestRoot)
+	if rs.ID == ts.ID || rs.ID != "rust:." || ts.ID != "typescript:." {
+		t.Errorf("units = %q and %q, want rust:. and typescript:.", rs.ID, ts.ID)
 	}
 }
 
