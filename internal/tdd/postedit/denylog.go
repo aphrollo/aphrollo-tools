@@ -140,11 +140,12 @@ func LogLawGuides(raw []byte, final Decision, found []LawFinding) {
 		return
 	}
 	root, rel := logPlace(editLogPath(in))
+	deniedFile := slashPath(rel)
 	var rest []LawFinding
 	for _, f := range found {
 		// The deny event names one law at the edited file; only that pair is
 		// already recorded.
-		if final.Action == Block && final.Policy == "ratchet:"+f.Law && slashPath(f.File) == slashPath(rel) {
+		if final.Action == Block && final.Policy == "ratchet:"+f.Law && slashPath(f.File) == deniedFile {
 			continue
 		}
 		rest = append(rest, f)
