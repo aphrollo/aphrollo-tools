@@ -8,8 +8,6 @@ import (
 	time "time"
 )
 
-const HeadWorktreeDir = core.HeadWorktreeDir
-
 const HeadWorktreePrefix = core.HeadWorktreePrefix
 
 type GateResult = core.GateResult
