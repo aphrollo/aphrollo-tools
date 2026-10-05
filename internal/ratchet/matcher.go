@@ -37,6 +37,9 @@ type FileLines struct {
 	// language spells strings and comments (see maskerFor).
 	langs *lang.Table
 	file  string
+	// text is the content as given, for a detector that lexes the whole file
+	// rather than reading its lines.
+	text string
 }
 
 // newFileLines splits content once. Cheap enough to call for a single
@@ -44,7 +47,7 @@ type FileLines struct {
 // language the lexer reads the content as, from langs, the language table of
 // the repository the file belongs to.
 func newFileLines(langs *lang.Table, file, content string) *FileLines {
-	return &FileLines{raw: splitLines(content), langs: langs, file: file}
+	return &FileLines{raw: splitLines(content), langs: langs, file: file, text: content}
 }
 
 // codeFor returns l's view of the file — comment-stripped for a CodeOnly law,
@@ -150,6 +153,8 @@ func (l Law) hitsInLines(file string, fl *FileLines) []Hit {
 		return l.regexNearHits(file, raw, code)
 	case KindDocPathResolves:
 		return l.docPathHits(file, code)
+	case KindOracleSmell:
+		return l.oracleSmellHits(file, fl)
 	}
 	return nil
 }

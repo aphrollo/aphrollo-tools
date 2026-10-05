@@ -1,0 +1,13 @@
+name        = "error_kind_blind"
+description = "A test asserts only that an error occurred (require.Error( / assert.Error( / .is_err() / pytest.raises(Exception) / toThrow() with no argument), never which one, so any failure, including the wrong one, passes. Assert the specific error (ErrorIs, ErrorAs, ErrorContains, EqualError, matches!, match=, toThrow(SpecificError)), or justify checking only occurrence with // any-error-ok: <why>. A warning: the edit-time gate warns and the commit gate judges the lines a commit adds."
+severity    = "warn"
+escape      = "any-error-ok:"
+escape_lines = 1
+
+[scope]
+include = [{{test_include|"**/*_test.go", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/*_test.rs", "**/test_*.rs", "**/tests/**/*.rs", "**/*_test.zig", "**/tests/**/*.zig", "**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.test.jsx", "**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.js", "**/*.spec.jsx"}}]
+exclude = ["**/vendor/**", "**/node_modules/**", "**/target/**", "**/testdata/**"]
+
+[matcher]
+kind     = "oracle-smell"
+detector = "error-kind-blind"

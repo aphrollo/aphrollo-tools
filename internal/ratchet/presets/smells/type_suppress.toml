@@ -1,0 +1,11 @@
+name        = "type_suppress"
+description = "A change introduces a type-checker suppression (// @ts-ignore, // @ts-nocheck, # type: ignore, # pyright: ignore). Silencing the type checker buries a real type error. Fix the type, or justify the suppression in review. A warning: a suppression is vouched for in review, not refused on sight."
+severity    = "warn"
+
+[scope]
+include = [{{source_include|"**/*.go", "**/*.rs", "**/*.py", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.rb", "**/*.java", "**/*.kt", "**/*.cs", "**/*.php"}}]
+exclude = ["**/vendor/**", "**/node_modules/**", "**/target/**", "**/testdata/**"]
+
+[matcher]
+kind     = "oracle-smell"
+detector = "type-suppress"

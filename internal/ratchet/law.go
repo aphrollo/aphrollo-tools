@@ -242,6 +242,8 @@ type Matcher struct {
 	Paired    bool
 	HunkMode  HunkRegexMode
 	NameGroup bool
+	// Detector (KindOracleSmell only) names the internal/oracle detector.
+	Detector string
 }
 
 // SchemaVersion is the law schema this binary understands. A law may declare

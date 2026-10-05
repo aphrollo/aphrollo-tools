@@ -1,0 +1,11 @@
+name        = "coverage_suppress"
+description = "A change introduces a coverage suppression (istanbul ignore, c8/v8 ignore, # pragma: no cover). Excluding code from coverage masks an untested path. Remove the marker and add a test for the path instead. A warning: a suppression is vouched for in review, not refused on sight."
+severity    = "warn"
+
+[scope]
+include = [{{source_include|"**/*.go", "**/*.rs", "**/*.py", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.rb", "**/*.java", "**/*.kt", "**/*.cs", "**/*.php"}}]
+exclude = ["**/vendor/**", "**/node_modules/**", "**/target/**", "**/testdata/**"]
+
+[matcher]
+kind     = "oracle-smell"
+detector = "coverage-suppress"

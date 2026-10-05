@@ -1,6 +1,9 @@
 package lang
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // Suppressed reports whether directives, a file's comment-preserving view,
 // carry a suppression of the kind that rows name and that is not justified in
@@ -9,7 +12,15 @@ import "strings"
 // and is admitted; any other form, or a bare disable beside a described one,
 // still counts.
 func Suppressed(rows []Language, kind, directives string) bool {
+	return len(SuppressedLines(rows, kind, directives)) > 0
+}
+
+// SuppressedLines is the 1-based lines of directives that carry a suppression of
+// the kind that is not justified in place, each once, ascending: the one place a
+// suppression is detected. Suppressed is whether there is one.
+func SuppressedLines(rows []Language, kind, directives string) []int {
 	closers := blockClosers(rows)
+	seen := map[int]bool{}
 	for _, row := range rows {
 		for _, d := range row.Suppress {
 			if d.Kind != kind {
@@ -17,12 +28,17 @@ func Suppressed(rows []Language, kind, directives string) bool {
 			}
 			for _, loc := range d.Pattern.FindAllStringIndex(directives, -1) {
 				if d.Reason == nil || !Reasoned(d, directives[loc[1]:], closers) {
-					return true
+					seen[1+strings.Count(directives[:loc[0]], "\n")] = true
 				}
 			}
 		}
 	}
-	return false
+	out := make([]int, 0, len(seen))
+	for n := range seen {
+		out = append(out, n)
+	}
+	sort.Ints(out)
+	return out
 }
 
 // Reasoned reports whether the directive text after a directive's token

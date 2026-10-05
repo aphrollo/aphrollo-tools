@@ -1,0 +1,3 @@
+internal/tdd/smell/policy.go | //     directives (//nolint, // @ts-ignore, # type: ignore) live in comments, so
+internal/tdd/core/mask_test.go | // In a Python file (#-is-comment), a `# type: ignore` directive stays visible
+internal/tdd/smell/suppress.go | // directives live in comments (//nolint, // @ts-ignore, # type: ignore). A

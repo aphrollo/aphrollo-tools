@@ -1089,9 +1089,9 @@ slotqueue.go                                       lock
 slotqueue_test.go                                  lock
 slottoken_test.go                                  lock
 smell.go                                           smell
-smell_deadline.go                                  smell
 smell_deadline_preedit_test.go                     postedit
 smell_deadline_test.go                             smell
+smell_matcher_golden_test.go                       smell
 smell_test.go                                      smell
 smellscope.go                                      smell
 smellscope_own_test.go                             smell

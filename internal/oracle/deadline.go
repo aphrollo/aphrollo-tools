@@ -1,4 +1,4 @@
-package smell
+package oracle
 
 import (
 	"regexp"
@@ -37,47 +37,6 @@ var selectOpenRe = regexp.MustCompile(`\bselect\s*\{`)
 
 // selectArmRe matches a case/default arm at the head of a line.
 var selectArmRe = regexp.MustCompile(`^\s*(?:case\b|default\b)`)
-
-// hasRealTimeWait reports a real-time sleep among the judged lines. It is
-// sleepRe line by line, minus the one shape sleepRe reads backwards: a
-// `case <-time.After(...)` arm of a select that has another arm.
-//
-// The exemption is deliberately grudging. A timer arm is admitted only when
-// the enclosing select is FOUND and carries a second arm, so a one-armed
-// `select { case <-time.After(d): }` — a sleep wearing a select — still trips,
-// and so does an arm whose select cannot be located at all. Anything other
-// than proof that this timer bounds another wait leaves the line refused.
-func hasRealTimeWait(v view) bool {
-	var context []string
-	for _, line := range strings.Split(v.Code, "\n") {
-		if !sleepRe.MatchString(line) {
-			continue
-		}
-		if !deadlineArmRe.MatchString(line) {
-			return true
-		}
-		if context == nil {
-			context = strings.Split(wholeOf(v), "\n")
-		}
-		if !boundsAnotherWait(context, line) {
-			return true
-		}
-	}
-	return false
-}
-
-// wholeOf is the file-wide masked code a policy reads for context. The judged
-// slice is only the lines an edit ADDS, so an edit that appends a timer arm to
-// a select that already exists offers one line and no block around it — the
-// select has to come from the whole post-image or the answer is wrong.
-// A view built without one (the zero value) falls back to its own code, which
-// for every whole-file caller is the same string.
-func wholeOf(v view) string {
-	if v.whole != "" {
-		return v.whole
-	}
-	return v.Code
-}
 
 // boundsAnotherWait reports whether EVERY place the given timer-arm line
 // appears in the file sits in a select with at least one other arm. All of

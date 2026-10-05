@@ -1,0 +1,12 @@
+name        = "focused_test"
+extends     = "preset:smells/focused_test"
+description = "A test contains a focused marker (it.only / describe.only / fit / fdescribe). A focused test silently drops every other test from the run, so the suite reports green while most of it never ran. Remove the focus."
+severity    = "deny"
+
+[scope]
+include = ["**/*_test.go", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/*_test.rs", "**/test_*.rs", "**/tests/**/*.rs", "**/*_test.zig", "**/tests/**/*.zig", "**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.test.jsx", "**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.js", "**/*.spec.jsx"]
+exclude = ["**/vendor/**", "**/node_modules/**", "**/target/**", "**/testdata/**"]
+
+[matcher]
+kind     = "oracle-smell"
+detector = "focused-test"

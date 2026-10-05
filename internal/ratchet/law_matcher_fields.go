@@ -3,6 +3,10 @@ package ratchet
 import (
 	"fmt"
 	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/oracle"
 )
 
 // matcherKeySpec is one key a matcher kind accepts, and whether it is
@@ -37,6 +41,7 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindCoChange:           {{"kind", true}},
 	KindHunkRegex:          {{"kind", true}, {"removed", false}, {"added", false}, {"paired", false}, {"mode", false}, {"name_group", false}},
 	KindGoDepGraphForbids:  {{"kind", true}, {"roots", true}, {"forbidden", true}, {"min_reachable", false}},
+	KindOracleSmell:        {{"kind", true}, {"detector", true}},
 }
 
 // setMinReachable validates and fills the vacuity floor shared by every
@@ -437,6 +442,12 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 		}
 	case KindMarkerInPackage:
 		m.Trigger, m.Marker = get("trigger"), get("marker")
+	case KindOracleSmell:
+		v, _ := doc.value("matcher", "detector")
+		if v.kind != tomlString || !slices.Contains(oracle.Names(), v.s) {
+			return Matcher{}, fmt.Errorf("matcher.detector = %q — a detector is one of %s", v.s, strings.Join(oracle.Names(), ", "))
+		}
+		m.Detector = v.s
 	case KindDepGraphForbids:
 		m.Key = KeyLineContent
 		m.Edges = "normal"
