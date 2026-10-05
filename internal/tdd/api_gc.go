@@ -9,6 +9,10 @@ import (
 
 type GCScope = gc.GCScope
 
+type GoCacheSettings = gc.GoCacheSettings
+
+type GoCacheTrim = gc.GoCacheTrim
+
 func AllGCScopes() GCScope { return gc.AllGCScopes() }
 
 func ApplyGCFor(p0 string, p1 []GCCandidate) (int64, []string, int) { return gc.ApplyGCFor(p0, p1) }
@@ -17,7 +21,11 @@ func BackgroundGCArgs(p0 string) []string { return gc.BackgroundGCArgs(p0) }
 
 func GCAfterWorktreeChange(p0 string, p1 string) int64 { return gc.GCAfterWorktreeChange(p0, p1) }
 
+func GoCacheTrimDue() bool { return gc.GoCacheTrimDue() }
+
 func KnownGCRepos() []string { return gc.KnownGCRepos() }
+
+func LegacyJobsLeftAlone() []string { return gc.LegacyJobsLeftAlone() }
 
 func MutantsCopiesInUse(p0 []string) []string { return gc.MutantsCopiesInUse(p0) }
 
@@ -25,11 +33,23 @@ func MutantsTempDirs() []string { return gc.MutantsTempDirs() }
 
 func ParseGCAge(p0 string) (time.Duration, error) { return gc.ParseGCAge(p0) }
 
+func ReadGoCacheSettings(p0 string) (GoCacheSettings, error) { return gc.ReadGoCacheSettings(p0) }
+
 func RecordGCSweep(p0 int64, p1 int) { gc.RecordGCSweep(p0, p1) }
 
 func RenderGC(p0 []GCCandidate, p1 bool, p2 int64) string { return gc.RenderGC(p0, p1, p2) }
 
+func RenderGoCacheTrim(p0 GoCacheTrim, p1 bool) string { return gc.RenderGoCacheTrim(p0, p1) }
+
 func ScanGC(p0 string, p1 time.Duration, p2 GCScope) []GCCandidate { return gc.ScanGC(p0, p1, p2) }
+
+func SetGoCacheDirForTest(p0 string) func() { return gc.SetGoCacheDirForTest(p0) }
+
+func SetGoCacheDirFuncForTest(p0 func() string) func() { return gc.SetGoCacheDirFuncForTest(p0) }
+
+func StampGoCacheTrim() { gc.StampGoCacheTrim() }
+
+func TrimGoCache(p0 GoCacheSettings, p1 bool) GoCacheTrim { return gc.TrimGoCache(p0, p1) }
 
 func gcReportLine() string { return gc.GcReportLine() }
 

@@ -32,6 +32,9 @@ func TestScratchName_OnlyTheShapesTheGatesRunsCreate(t *testing.T) {
 		"aphrollo-lane-abc":                true,
 		"aphrollo-ci-run-1234567890":       true,  // a local CI run's scratch, left by a killed run
 		"aphrollo-ci-run-":                 false, // no random part: not one a run made
+		"replay-1234567890":                true,  // the release replay's clones, left by a replay that was killed
+		"replay-":                          false,
+		"replay-notes":                     false,
 		"aphrollo-mutants-run.lock":        false, // a lock, never scratch
 		"aphrollo-build.lock.owner":        false,
 		"my-project":                       false,

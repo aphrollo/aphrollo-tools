@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/postedit"
 )
 
 // Disk hygiene for the build caches this binary's own gates create and use.
@@ -107,11 +108,15 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 			out = append(out, gcGraphCaches(dir)...)
 		}
 		out = append(out, gcDeferredJobFiles(deferredDirPath(), deferredJobMaxAge, time.Now())...)
+		if jobs := legacyJobsDir(); jobs != "" {
+			out = append(out, gcLegacyJobs(jobs, time.Now(), postedit.DeferredJobTargets(24*time.Hour, time.Now()))...)
+		}
 		out = append(out, gcGoTmpLitter(repo, olderThan, time.Now())...)
 	}
 	if scope.TempScratch {
 		for _, dir := range lockLitterDirs() {
 			out = append(out, gcTempScratch(dir, time.Now())...)
+			out = append(out, gcViteTemp(dir, time.Now())...)
 		}
 		if root := GoTmpRootDir(repo); root != "" {
 			out = append(out, gcTempScratch(root, time.Now())...)

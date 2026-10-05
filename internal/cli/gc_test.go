@@ -266,3 +266,132 @@ func TestRunTDDGC_KnownWalksTheTempDirScratchOnce(t *testing.T) {
 		t.Fatalf("the scratch dir is listed %d times, want once:\n%s", got, out.String())
 	}
 }
+
+func gcCacheShard(t *testing.T, cache string, age time.Duration) string {
+	t.Helper()
+	mkAgedFile(t, filepath.Join(cache, "README"), "This directory holds cached build artifacts from the Go build system.\n", 90*24*time.Hour)
+	p := filepath.Join(cache, "0a", strings.Repeat("a", 64)+"-d")
+	mkAgedFile(t, p, strings.Repeat("x", 100), age)
+	return p
+}
+
+func gcCapRepo(t *testing.T, cap string) string {
+	t.Helper()
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "aphrollo.toml"), []byte("[aphrollo]\ngocache-cap = \""+cap+"\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
+func TestRunTDDGC_TrimsTheGoCacheOverItsCapAndDryLeavesItBe(t *testing.T) {
+	gateConfigDir(t)
+	cache := t.TempDir()
+	entry := gcCacheShard(t, cache, 40*time.Hour)
+	t.Cleanup(tdd.SetGoCacheDirForTest(cache))
+	repo := gcCapRepo(t, "1KB") // 100 bytes held is under 1 KB: nothing to trim
+	var stdout, stderr bytes.Buffer
+	if code := runGateGC([]string{"--repo", repo}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	if _, err := os.Stat(entry); err != nil {
+		t.Fatalf("a cache under its cap lost an entry: %v", err)
+	}
+
+	repo = gcCapRepo(t, "0.00000001GB") // about 10 bytes
+	stdout.Reset()
+	if code := runGateGC([]string{"--repo", repo, "--dry"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "would remove 1 files") {
+		t.Errorf("dry output lacks the trim plan:\n%s", stdout.String())
+	}
+	if _, err := os.Stat(entry); err != nil {
+		t.Fatalf("--dry removed a cache entry: %v", err)
+	}
+
+	stdout.Reset()
+	if code := runGateGC([]string{"--repo", repo}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	if _, err := os.Stat(entry); err == nil {
+		t.Error("the executing sweep left an idle entry of an over-cap cache")
+	}
+	if !strings.Contains(stdout.String(), "removed 1 files") {
+		t.Errorf("output lacks the trim result:\n%s", stdout.String())
+	}
+}
+
+func TestRunTDDGC_BackgroundSweepTrimsTheCacheOnlyOncePerSixHours(t *testing.T) {
+	gateConfigDir(t)
+	cache := t.TempDir()
+	t.Cleanup(tdd.SetGoCacheDirForTest(cache))
+	repo := gcCapRepo(t, "0.00000001GB")
+	var stdout, stderr bytes.Buffer
+
+	first := gcCacheShard(t, cache, 40*time.Hour)
+	if code := runGateGC([]string{"--repo", repo, "--quiet", "--known"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	if _, err := os.Stat(first); err == nil {
+		t.Fatal("the first background sweep did not trim")
+	}
+
+	second := gcCacheShard(t, cache, 40*time.Hour)
+	if code := runGateGC([]string{"--repo", repo, "--quiet", "--known"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	if _, err := os.Stat(second); err != nil {
+		t.Error("a second background sweep inside six hours trimmed again")
+	}
+}
+
+func TestRunTDDGC_MalformedGoCacheCapIsRefused(t *testing.T) {
+	gateConfigDir(t)
+	repo := gcCapRepo(t, "lots")
+	var stdout, stderr bytes.Buffer
+	if code := runGateGC([]string{"--repo", repo, "--dry"}, &stdout, &stderr); code != 2 {
+		t.Fatalf("exit %d, want 2", code)
+	}
+	if !strings.Contains(stderr.String(), "gocache-cap") {
+		t.Errorf("stderr does not name the key: %s", stderr.String())
+	}
+}
+
+// Every gate gc run in this package would otherwise trim the operator's real
+// Go build cache: no cache unless a test names a fake one.
+func init() { tdd.SetGoCacheDirForTest("") }
+
+func TestRunTDDGC_AQuietDryRunDoesNotEvenAskForTheCache(t *testing.T) {
+	gateConfigDir(t)
+	asked := 0
+	t.Cleanup(tdd.SetGoCacheDirFuncForTest(func() string { asked++; return t.TempDir() }))
+	repo := gcCapRepo(t, "0.00000001GB")
+
+	var stdout, stderr bytes.Buffer
+	if code := runGateGC([]string{"--repo", repo, "--dry", "--quiet"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+
+	if asked != 0 || stdout.Len() != 0 {
+		t.Errorf("a dry quiet run asked for the cache %d times and printed %q: it prints nothing, so it must not walk a cache for it", asked, stdout.String())
+	}
+}
+
+func TestRunTDDGC_AGoCacheAgeUnderTheMinimumWarnsAndTheSweepStillRuns(t *testing.T) {
+	gateConfigDir(t)
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "aphrollo.toml"), []byte("[aphrollo]\ngocache-age = \"10m\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+
+	code := runGateGC([]string{"--repo", repo, "--dry"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("exit %d, want 0: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "warning") || !strings.Contains(stderr.String(), "gocache-age") {
+		t.Errorf("stderr does not warn naming the key: %s", stderr.String())
+	}
+}

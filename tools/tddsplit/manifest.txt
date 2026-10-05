@@ -225,6 +225,8 @@ deferred_edit_failfirst.go                         failfirst # created by P2
 deferred_edit_post.go                              postedit
 deferred_edit_suite.go                             suite     # created by P2
 deferred_edit_test.go                              tdd       # prefix says postedit; its test body reaches tdd
+deferred_held.go                                   postedit
+deferred_held_test.go                              postedit
 deferred_output_test.go                            postedit
 deferred_own_test.go                               core
 deferred_prompt.go                                 postedit
@@ -412,6 +414,11 @@ gateworktree_own_test.go                           core
 gc.go                                              gc
 gc_deps.go                                         gc
 gc_deps_test.go                                    gc
+gc_gocache.go                                      gc
+gc_gocache_test.go                                 gc
+gc_legacyjobs.go                                 gc
+gc_legacyjobs_foreign_test.go                      gc
+gc_legacyjobs_test.go                            gc
 gc_graphcache.go                                   gc
 gc_graphcache_test.go                              gc
 gc_gotmp.go                                        gc
@@ -426,6 +433,7 @@ gc_mutantstemp_lock.go                             lock      # created by P2
 gc_mutantstemp_mutation.go                         mutation  # created by P2
 gc_mutantstemp_test.go                             gc
 gc_mutation.go                                     mutation  # created by P2
+gc_parity_test.go                                  gc
 gc_prmergewt.go                                    gc
 gc_prmergewt_test.go                               gc
 gc_refused_order_test.go                           gc
@@ -449,6 +457,8 @@ gc_stalelock.go                                    gc
 gc_straytarget.go                                  gc
 gc_straytarget_mutation.go                         mutation  # created by P2
 gc_straytarget_test.go                             gc
+gc_vitetemp.go                                    gc
+gc_vitetemp_test.go                               gc
 gc_templitter_test.go                              gc
 gc_test.go                                         gc
 gcafterrun.go                                      tdd
@@ -482,6 +492,7 @@ go_race_scope_test.go                              suite
 go_reverse_scope.go                                suite
 go_reverse_scope_test.go                           suite
 go_test_reach.go                                   suite
+go_trimpath.go                                     suite
 goos_seam.go                                       tddtest
 gotmpdir.go                                        lock
 gotmpdir_outside_test.go                           suite     # prefix says lock; its test body reaches suite
@@ -591,6 +602,8 @@ memcap_run_windows.go                              lock
 memcap_run_windows_own_test.go                      lock
 mergeaware_test.go                                 precommit
 mergeprune.go                                      merge
+mergeprune_squash.go                               merge
+mergeprune_squash_test.go                          merge
 mergeprune_subject_test.go                         merge
 mergeprune_test.go                                 merge
 mergequeue_record.go                               merge
@@ -662,6 +675,8 @@ mutants_deps_test.go                               suite
 mutants_deps_own_test.go                           suite
 mutants_disk.go                                    mutation
 mutants_disk_test.go                               mutation
+mutants_diskfoot.go                                mutation
+mutants_diskfoot_test.go                           mutation
 mutants_drain.go                                   mutation
 mutants_drain_test.go                              mutation
 mutants_env.go                                     mutation
@@ -1038,6 +1053,8 @@ session_core.go                                    core      # created by P2
 session_identity.go                                tdd
 session_identity_test.go                           tdd
 session_test.go                                    tdd
+sessionactive.go                                   core
+sessionactive_own_test.go                          core
 sessionid.go                                       core
 sessionid_test.go                                  core
 sessionline.go                                     tdd
@@ -1129,6 +1146,7 @@ style_test.go                                      install
 suitechild.go                                      suite
 suitechild_test.go                                 suite
 suiteenv_seal_test.go                              suite
+suiteenv_trimpath_test.go                          suite
 suiteoutput.go                                     suite
 suiteoutput_dir_test.go                            postedit  # prefix says suite; its test body reaches postedit
 suiteoutput_own_test.go                            suite

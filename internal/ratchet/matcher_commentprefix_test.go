@@ -2,7 +2,6 @@ package ratchet
 
 import (
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -107,8 +106,7 @@ func TestCommentPrefix_TheNeutralMarkerIsTheNeutralRowsFirstLineComment(t *testi
 // fixed `//`. A law over a TOML file that only greps it never reads its prefix
 // and so has none to keep.
 func TestCommentPrefix_EveryDeclaredLawAndPresetKeepsItsPrefix(t *testing.T) {
-	_, file, _, _ := runtime.Caller(0) // tree-read-ok: the laws are this repository's own
-	laws, err := LoadLaws(filepath.Dir(filepath.Dir(filepath.Dir(file))))
+	laws, err := LoadLaws(filepath.Dir(filepath.Dir(ratchetPkgDir))) // tree-read-ok: the laws are this repository's own
 	if err != nil {
 		t.Fatal(err)
 	}

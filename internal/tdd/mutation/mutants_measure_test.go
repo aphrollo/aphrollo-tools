@@ -165,7 +165,7 @@ func TestDiskCheck_RefusesNamingBothNumbers(t *testing.T) {
 	// expectation-changed: the budget is per SHARD and measured, so the
 	// shortfall is stated against one shard's own need rather than against a
 	// flat per-job constant times the job count.
-	for _, want := range []string{"10 GB free", "one shard needs", "15.0 GB build dir"} {
+	for _, want := range []string{"not enough disk", "10 GB free", "one shard needs", "15.0 GB build dir"} {
 		if !strings.Contains(v.Message, want) {
 			t.Errorf("message = %q, want %q in it", v.Message, want)
 		}

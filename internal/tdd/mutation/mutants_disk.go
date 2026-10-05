@@ -82,9 +82,11 @@ var freeSpaceGBFn = freeSpaceGB
 // DIFFERENT failure they are testing for, and a runner genuinely low on disk
 // must not let that refusal fire first and mask the scenario under test.
 func SetFreeSpaceForTest(gb int, ok bool) (restore func()) {
-	prev := freeSpaceGBFn
+	prev, prevCache := freeSpaceGBFn, doctorGoCacheDirFn
 	freeSpaceGBFn = func(string) (int, bool) { return gb, ok }
-	return func() { freeSpaceGBFn = prev }
+	// A doctor line that warns walks the Go build cache for its size: never the real one.
+	doctorGoCacheDirFn = func() string { return "" }
+	return func() { freeSpaceGBFn, doctorGoCacheDirFn = prev, prevCache }
 }
 
 // doctorDiskSpace reports the free space on the drive holding this project's
@@ -99,7 +101,13 @@ func doctorDiskSpace(in DoctorInput) DoctorCheck {
 	// and the temp dir share a volume — every Linux box, and most Windows
 	// ones — reporting per directory says the same number twice.
 	byDrive := map[string]int{}
-	for _, dir := range []string{ResolveCargoTargetDir(repo), os.TempDir()} {
+	// Asked once for the whole run: the free-space reading and the size line below
+	// both use it, and `go env` is a process start.
+	cache := doctorGoCacheDirFn()
+	for _, dir := range []string{ResolveCargoTargetDir(repo), os.TempDir(), cache, laneWorktreesDir(repo)} {
+		if dir == "" {
+			continue
+		}
 		dir = nearestExistingDir(dir)
 		free, ok := freeSpaceGBFn(dir)
 		if !ok {
@@ -119,7 +127,7 @@ func doctorDiskSpace(in DoctorInput) DoctorCheck {
 	detail := strings.Join(lines, ", ")
 	if warn {
 		return DoctorCheck{Name: "disk space", Warn: true,
-			Detail: detail + fmt.Sprintf(" — under %d GB, heavy runs die mid-way", doctorDiskWarnGB)}
+			Detail: detail + fmt.Sprintf(" — under %d GB, heavy runs die mid-way; it holds: %s; `aphrollo gate gc` trims the cache and scratch", doctorDiskWarnGB, footprintLine(repo, cache))}
 	}
 	return DoctorCheck{Name: "disk space", OK: true, Detail: detail}
 }

@@ -43,6 +43,15 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	cacheSettings, err := tdd.ReadGoCacheSettings(*repo)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo gate gc: %v\n", err)
+		return 2
+	}
+	if cacheSettings.Warning != "" {
+		fmt.Fprintf(stderr, "aphrollo gate gc: warning: %s\n", cacheSettings.Warning)
+	}
+
 	repos := []string{*repo}
 	if *known {
 		repos = append(repos, tdd.KnownGCRepos()...)
@@ -74,12 +83,15 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	for _, r := range repos {
 		sweep(r, scope)
 	}
+	cacheLine := sweepGoCache(cacheSettings, apply, *known, *quiet)
 	if !apply {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
+			fmt.Fprint(stdout, cacheLine)
 			retainState(repos, true, stdout, stderr)
 			writeMutantsInUse(stdout)
 			writeProbeBackups(stdout)
+			writeLegacyJobsLeftAlone(stdout)
 		}
 		return 0
 	}
@@ -92,6 +104,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
 	retainState(repos, false, stdout, stderr)
 	fmt.Fprint(stdout, tdd.RenderGC(cands, true, freed))
+	fmt.Fprint(stdout, cacheLine)
 	writeMutantsInUse(stdout)
 	writeProbeBackups(stdout)
 	if skipped > 0 {
@@ -134,5 +147,13 @@ func gcScopeFromFlags(lockAge string) (tdd.GCScope, error) {
 func writeProbeBackups(stdout io.Writer) {
 	for _, line := range probeBackupListing(time.Now()) {
 		fmt.Fprintln(stdout, line)
+	}
+}
+
+// writeLegacyJobsLeftAlone names the directories of the config dir's jobs
+// directory the sweep leaves because nothing in them shows they are ours.
+func writeLegacyJobsLeftAlone(stdout io.Writer) {
+	for _, p := range tdd.LegacyJobsLeftAlone() {
+		fmt.Fprintf(stdout, "left alone, not shown to be ours: %s\n", p)
 	}
 }

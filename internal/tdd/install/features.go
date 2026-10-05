@@ -97,6 +97,24 @@ var features = []Feature{
 		Enable: "race-scope = \"all\"",
 	},
 	{
+		Key: "gocache-cap", Default: "20GB",
+		Effect: "the size `aphrollo gate gc` trims the Go build cache (`go env GOCACHE`) down to, taking the files unused longest first, only go's own entries, and none used within the last two hours",
+		Cost:   "a smaller cap rebuilds more of what the next build needs",
+		Enable: "gocache-cap = \"<size>\", such as \"10GB\"",
+	},
+	{
+		Key: "gocache-age", Default: "12h",
+		Effect: "how long a Go build cache file must have gone unused before the trim may remove it, however far over the cap the cache is; at least 2h, because go refreshes a cache file's time only hourly (a shorter value is refused)",
+		Cost:   "a shorter age lets the trim reach into files a recent build used",
+		Enable: "gocache-age = \"<duration>\", such as \"24h\"",
+	},
+	{
+		Key: "go-trimpath", Default: "on",
+		Effect: "the gate's go and golangci-lint runs build with -trimpath, so every lane worktree shares one set of Go build-cache entries instead of caching its own copy of every package; \"false\" keeps absolute source paths",
+		Cost:   "a test that reads its own repository through runtime.Caller sees a module path and must find the repo by its working directory, or the repo opts out",
+		Enable: "go-trimpath = \"false\"",
+	},
+	{
 		Key: "undercover", Default: "off",
 		Effect: "the commit-msg gate refuses AI attribution trailers",
 		Cost:   "none",

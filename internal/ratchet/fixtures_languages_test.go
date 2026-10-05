@@ -3,7 +3,6 @@ package ratchet
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -273,8 +272,7 @@ func TestHasLanguages_OnlyARepositoryRowCounts(t *testing.T) {
 // Every embedded row that owns an extension ships fixtures in this repository,
 // so `aphrollo ratchet test` here proves the whole default table.
 func TestRunLanguageFixtures_EveryEmbeddedRowIsProvedByThisRepositorysFixtures(t *testing.T) {
-	_, file, _, _ := runtime.Caller(0) // tree-read-ok: the fixtures are this repository's own
-	root := filepath.Dir(filepath.Dir(filepath.Dir(file)))
+	root := filepath.Dir(filepath.Dir(ratchetPkgDir)) // tree-read-ok: the fixtures are this repository's own
 	results, err := RunLanguageFixtures(root)
 	if err != nil {
 		t.Fatal(err)
@@ -296,3 +294,9 @@ func TestRunLanguageFixtures_EveryEmbeddedRowIsProvedByThisRepositorysFixtures(t
 		}
 	}
 }
+
+// ratchetPkgDir is this package's directory, read before any test can chdir.
+// The tests that read this repository's own tree start from it rather than from
+// runtime.Caller, which names a module path, not a place on disk, under the
+// -trimpath the gate builds with.
+var ratchetPkgDir = func() string { d, _ := os.Getwd(); return d }()

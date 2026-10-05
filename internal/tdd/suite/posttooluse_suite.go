@@ -206,6 +206,7 @@ func suiteEnv(r Runner, dir string) []string {
 		// golangci-lint drives the go tool for its package loading, so its
 		// go-build scratch follows the same variable.
 		scratch = goTmpEnv(dir)
+		scratch = append(scratch, goTrimpathEnv(os.Environ(), dir)...)
 	case "cargo":
 		scratch = cargoTmpEnv(dir)
 	}

@@ -198,7 +198,7 @@ func refuseOnDisk(root string, want int, unit string, log io.Writer) (Verdict, i
 			free, fit, unit, plural(fit), want, fit, shardNeedText(needs[0]))
 		return Verdict{}, fit, false
 	}
-	msg := fmt.Sprintf("mutants: refused — %d GB free, one %s needs %s (%s) and %s is kept free; "+
+	msg := fmt.Sprintf("mutants: refused — not enough disk: %d GB free, one %s needs %s (%s) and %s is kept free; "+
 		"a run that fills the drive dies mid-way and takes every verdict with it",
 		free, unit, formatBytes(needs[0].total()), shardNeedText(needs[0]), formatBytes(mutantsDiskReserveBytes))
 	logf(log, "%s", msg)

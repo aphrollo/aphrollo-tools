@@ -3,7 +3,6 @@ package workspace
 import (
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
@@ -151,5 +150,5 @@ func (m *Merge) scrubPRBody(number int, title, want string, stdout io.Writer) er
 // merge GitHub makes later is the verb's own when local trunk takes it in.
 func (m *Merge) recordQueued(q *Enqueued) {
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: m.Target.Worktree, Verdict: "queued",
-		Detail: map[string]string{"pr": strconv.Itoa(q.PR), "method": "merge queue"}})
+		Detail: m.mergeDetail(q.PR, "merge queue")})
 }

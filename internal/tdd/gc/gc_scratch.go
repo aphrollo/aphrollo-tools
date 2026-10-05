@@ -44,13 +44,19 @@ var (
 	// ciRunScratchRe is the shape os.MkdirTemp gives the scratch directory of a
 	// local CI run (aphrollo ci run): a run that is killed leaves it behind.
 	ciRunScratchRe = regexp.MustCompile(`^aphrollo-ci-run-\d+$`)
+	// replayScratchRe is the shape os.MkdirTemp gives the work directory of the
+	// release replay (tools/replay): its clones of the repository and the builds
+	// made from them, 8.7 GB each on a Linux box when a run was killed before
+	// its own cleanup. The tool removes it when it ends; this is the next
+	// sweep, for the run that never got to.
+	replayScratchRe = regexp.MustCompile(`^replay-\d+$`)
 )
 
 // scratchName reports whether a directory name is one of the shapes the
 // gate's own runs create.
 func scratchName(name string) bool {
 	switch {
-	case goBuildScratchRe.MatchString(name), goTestTempRe.MatchString(name), ciRunScratchRe.MatchString(name):
+	case goBuildScratchRe.MatchString(name), goTestTempRe.MatchString(name), ciRunScratchRe.MatchString(name), replayScratchRe.MatchString(name):
 		return true
 	case strings.HasPrefix(name, "aphrollo-lane-"):
 		return true
