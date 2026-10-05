@@ -3,6 +3,7 @@ package escape
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -17,6 +18,11 @@ func gitworldRepoKey(repo string) string {
 				return normalizeRepoSpelling(common)
 			}
 		}
+	}
+	// A lane pruned since cannot be asked: <parent>/.worktrees/<repo>/<lane> is
+	// the lane of <parent>/<repo>.
+	if lanes := filepath.Dir(repo); filepath.Base(filepath.Dir(lanes)) == ".worktrees" {
+		return normalizeRepoSpelling(filepath.Join(filepath.Dir(filepath.Dir(lanes)), filepath.Base(lanes)))
 	}
 	return normalizeRepoSpelling(repo)
 }
