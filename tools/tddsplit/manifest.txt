@@ -416,6 +416,8 @@ gc_deps.go                                         gc
 gc_deps_test.go                                    gc
 gc_gocache.go                                      gc
 gc_gocache_test.go                                 gc
+gc_legacyjobs.go                                 gc
+gc_legacyjobs_test.go                            gc
 gc_graphcache.go                                   gc
 gc_graphcache_test.go                              gc
 gc_gotmp.go                                        gc
