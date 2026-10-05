@@ -78,3 +78,22 @@ func Recorded(dir string) map[string]bool {
 	}
 	return set
 }
+
+// RecordSHAs appends each of shas, as given, to dir's repository's record: the
+// new commits a rebase or an amend wrote, which fire post-rewrite and neither
+// post-commit nor post-merge. Best-effort, like Record.
+func RecordSHAs(dir string, shas []string) {
+	path, _ := fileFor(dir)
+	if path == "" || len(shas) == 0 {
+		return
+	}
+	if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = f.WriteString(strings.Join(shas, "\n") + "\n")
+	_ = f.Close()
+}
