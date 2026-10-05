@@ -667,6 +667,8 @@ mutants_deps_test.go                               suite
 mutants_deps_own_test.go                           suite
 mutants_disk.go                                    mutation
 mutants_disk_test.go                               mutation
+mutants_diskfoot.go                                mutation
+mutants_diskfoot_test.go                           mutation
 mutants_drain.go                                   mutation
 mutants_drain_test.go                              mutation
 mutants_env.go                                     mutation
