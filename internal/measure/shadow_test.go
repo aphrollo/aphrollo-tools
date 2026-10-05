@@ -308,6 +308,7 @@ func TestShadow_TextPrintsTheWindowsAndEveryCount(t *testing.T) {
 		"  note                " + shadowNotes[2],
 		"  note                " + shadowNotes[3],
 		"  note                " + shadowNotes[4],
+		"  note                " + shadowNotes[5],
 		"  wrong block         an override of the same rule within 10 min of the fire on its lane",
 		"  catch / pass        a later commit gate refusal, red CI or escape / the lane's merge, within " + strconv.Itoa(ShadowHorizonDays) + " days",
 		"deny-law-edit          2 fires  agree 1  would-be block 1  softer 0 (0 held out)  mismatch 0  not comparable 0  unjudged 0  held out 1",
