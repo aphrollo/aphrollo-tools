@@ -78,6 +78,9 @@ type Checks interface {
 	RunFailedJobs(id int64, attempt int) ([]string, error)
 	// RunFirstAttempt is how the first attempt of a run ended.
 	RunFirstAttempt(id int64) (status, conclusion string, err error)
+	// RerunFailedJobs asks the host to run again the failed, cancelled and
+	// timed-out jobs of one Actions run.
+	RerunFailedJobs(run int64) error
 	// CheckState is the newest check run named name on the commit sha; found is
 	// false when the commit has none.
 	CheckState(sha, name string) (status, conclusion string, found bool, err error)
@@ -181,12 +184,15 @@ type Check struct {
 	ID         int64  `json:"id"`
 	App        string `json:"app"`
 	NotStarted bool   `json:"-"`
-	Name       string `json:"name"`
-	SHA        string `json:"head_sha"`
-	Status     string `json:"status"`     // queued | in_progress | completed
-	Conclusion string `json:"conclusion"` // success | failure | ... once completed
-	StartedAt  string `json:"started_at"` // RFC 3339; empty for a commit status
-	URL        string `json:"html_url"`
+	// NotAcquired is a NotStarted job GitHub cancelled because no hosted runner
+	// took it: asking for it again can work, where a billing lock never does.
+	NotAcquired bool   `json:"-"`
+	Name        string `json:"name"`
+	SHA         string `json:"head_sha"`
+	Status      string `json:"status"`     // queued | in_progress | completed
+	Conclusion  string `json:"conclusion"` // success | failure | ... once completed
+	StartedAt   string `json:"started_at"` // RFC 3339; empty for a commit status
+	URL         string `json:"html_url"`
 }
 
 // RunInfo is what the Actions run behind a check says about itself.
@@ -458,4 +464,22 @@ func (p Probe) TransportLine() string {
 type LandHost interface {
 	Landing
 	PRByBranch(branch string) (*PR, error)
+}
+
+// RunID is the Actions run the check belongs to, read from its URL; 0 when the
+// check is not an Actions job (a commit status, another app).
+func RunID(c Check) int64 {
+	_, rest, ok := strings.Cut(c.URL, "/actions/runs/")
+	if !ok {
+		return 0
+	}
+	digits := rest
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		digits = rest[:i]
+	}
+	n, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }

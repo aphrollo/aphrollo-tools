@@ -80,6 +80,7 @@ func (g *GitHub) markNotStarted(runs []host.Check) []host.Check {
 		}
 		if n, err := g.jobSteps(r.ID); err == nil && n == 0 {
 			runs[i].NotStarted = true
+			runs[i].NotAcquired = strings.EqualFold(r.Conclusion, "cancelled") && g.hostedNotAcquired(r.ID)
 		}
 	}
 	return runs
@@ -191,4 +192,32 @@ func (g *GitHub) RunFirstAttempt(id int64) (status, conclusion string, err error
 		conclusion = f[1]
 	}
 	return status, conclusion, nil
+}
+
+// notAcquiredMessage is the annotation GitHub puts on a hosted job no runner
+// picked up in time.
+const notAcquiredMessage = "was not acquired by Runner of type hosted"
+
+// hostedNotAcquired reports whether the job's annotations say no hosted runner
+// ever acquired it. An unreadable annotation list says no.
+func (g *GitHub) hostedNotAcquired(id int64) bool {
+	anns, err := g.JobAnnotations(id)
+	if err != nil {
+		return false
+	}
+	for _, a := range anns {
+		if strings.Contains(a, notAcquiredMessage) {
+			return true
+		}
+	}
+	return false
+}
+
+// RerunFailedJobs asks GitHub to run again the failed jobs of one Actions run.
+func (g *GitHub) RerunFailedJobs(run int64) error {
+	out, err := g.gh("api", "--method", "POST", "repos/{owner}/{repo}/actions/runs/"+strconv.FormatInt(run, 10)+"/rerun-failed-jobs")
+	if err != nil {
+		return fmt.Errorf("gh api actions/runs/%d/rerun-failed-jobs: %v: %s", run, err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
