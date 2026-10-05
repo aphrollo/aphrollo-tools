@@ -8,10 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -66,13 +66,13 @@ func runGateCargo(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		pollInterval: defaultCargoPollInterval,
 		realCargo:    realCargo,
 	}
-	if raw := strings.TrimSpace(os.Getenv("APHROLLO_CARGO_WAIT_SECS")); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
-			cfg.waitBudget = time.Duration(n) * time.Second
-		}
-	}
+	cfg.waitBudget = cargoWaitBudget()
 	return runCargoShim(args, stdin, stdout, stderr, cfg)
 }
+
+// cargoWaitBudget is how long the shim queues for the build lock: budgets.cargo_wait_s,
+// defaultCargoWaitBudget when nothing sets it.
+func cargoWaitBudget() time.Duration { return config.Box().Seconds("budgets.cargo_wait_s") }
 
 // runCargoShim is the shim's testable core: no lock (a hooks/gate cargo run
 // already holds it -- APHROLLO_BUILD_LOCK_HELD=1) passes straight through;
