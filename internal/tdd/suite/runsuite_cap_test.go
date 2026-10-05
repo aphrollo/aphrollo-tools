@@ -26,14 +26,21 @@ func TestRunSuite_MemoryCapEndsARunawayAsInconclusive(t *testing.T) {
 	prevWait, prevChild := waitForHeadroomFn, suiteChildFn
 	t.Cleanup(func() { waitForHeadroomFn, suiteChildFn = prevWait, prevChild })
 	waitForHeadroomFn = func(string, time.Duration) string { return "" }
-	suiteChildFn = func(run.Spec, MemCap) suiteChildEnd {
+	defer SetMemCapForTest(MemCap{MB: 150, Why: "test"})()
+	var given MemCap
+	suiteChildFn = func(_ run.Spec, c MemCap) suiteChildEnd {
+		given = c
 		return suiteChildEnd{
 			err:    errors.New("exit status 1"),
-			capped: CapResult{Killed: true, Kills: 1, Cap: MemCap{MB: 150, Why: "test"}, Mode: "watchdog"},
+			capped: CapResult{Killed: true, Kills: 1, Cap: c, Mode: "watchdog"},
 		}
 	}
 
 	res := RunSuite(30*time.Second)(Runner{Cmd: "go", Args: []string{"test", "./..."}}, t.TempDir())
+
+	if given.MB != 150 {
+		t.Fatalf("the child was held to %d MB, want the configured 150", given.MB)
+	}
 
 	if res.Inconclusive != "OOM-KILLED at 0.1 GB" {
 		t.Fatalf("Inconclusive = %q (Passed=%v TimedOut=%v Err=%q), want %q", res.Inconclusive, res.Passed, res.TimedOut, res.Err, "OOM-KILLED at 0.1 GB")
