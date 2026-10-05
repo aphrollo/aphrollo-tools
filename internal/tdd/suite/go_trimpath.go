@@ -1,9 +1,14 @@
 package suite
 
 import (
+	"context"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 // A go command the gate starts builds with -trimpath, so every lane shares one
@@ -30,6 +35,10 @@ func goTrimpathEnv(env []string, dir string) []string {
 		if v, ok := strings.CutPrefix(kv, "GOFLAGS="); ok {
 			flags = v
 		}
+	}
+	if strings.TrimSpace(flags) == "" {
+		// The environment names none, so go reads the one saved with `go env -w`.
+		flags = savedGoFlags()
 	}
 	if slicesContainsField(flags, "-trimpath") || goTrimpathOptedOut(dir) {
 		return nil
@@ -60,4 +69,33 @@ func goTrimpathOptedOut(dir string) bool {
 			return false
 		}
 	}
+}
+
+var (
+	savedGoFlagsMu    sync.Mutex
+	savedGoFlagsCache = map[string]string{}
+)
+
+// goEnvFlagsTimeout bounds the one `go env GOFLAGS` read.
+const goEnvFlagsTimeout = 5 * time.Second
+
+// savedGoFlags is the GOFLAGS value go reads from its env file, asked once per
+// process for each GOENV setting. A go that cannot answer in time leaves it
+// empty, and the gate then binds -trimpath alone.
+func savedGoFlags() string {
+	key := os.Getenv("GOENV")
+	savedGoFlagsMu.Lock()
+	defer savedGoFlagsMu.Unlock()
+	if v, ok := savedGoFlagsCache[key]; ok {
+		return v
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), goEnvFlagsTimeout)
+	defer cancel()
+	// exec-ok: one bounded read of go's own setting, with a deadline above
+	cmd := exec.CommandContext(ctx, "go", "env", "GOFLAGS")
+	cmd.Stderr = io.Discard // an unreadable setting reads as none; the bind then carries -trimpath alone
+	out, _ := cmd.Output()
+	v := strings.TrimSpace(string(out))
+	savedGoFlagsCache[key] = v
+	return v
 }

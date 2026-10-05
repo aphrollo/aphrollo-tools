@@ -68,3 +68,21 @@ func TestSuiteEnv_TheRunnersOwnGOFLAGSWins(t *testing.T) {
 		t.Errorf("GOFLAGS = %q, want the runner's own binding to be the last word", got)
 	}
 }
+
+// A value saved with `go env -w GOFLAGS=...` is what go reads when the
+// environment names none; binding GOFLAGS=-trimpath alone would hide it, so the
+// gate's runs would lose the repo's -mod=vendor or -tags.
+func TestSuiteEnv_TrimpathKeepsAGoflagsValueSavedInTheGoEnvFile(t *testing.T) {
+	t.Setenv("GOFLAGS", "")
+	envFile := filepath.Join(t.TempDir(), "goenv")
+	if err := os.WriteFile(envFile, []byte("GOFLAGS=-mod=vendor -tags=integration\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GOENV", envFile)
+
+	got := lastEnvValue(suiteEnv(Runner{Cmd: "go"}, makeGoRepo(t)), "GOFLAGS")
+
+	if got != "-mod=vendor -tags=integration -trimpath" {
+		t.Errorf("GOFLAGS = %q, want the saved flags kept and -trimpath added", got)
+	}
+}
