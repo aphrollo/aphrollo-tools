@@ -94,3 +94,12 @@ func TestOracleSmell_ABaselinedHitIsKeyedByItsText(t *testing.T) {
 		t.Fatalf("baseline form = %v, want text-keyed so a moved line is not a regression", got)
 	}
 }
+
+func TestOracleSmell_AHitOnTheLastLineIsNamedWhetherOrNotTheFileEndsInANewline(t *testing.T) {
+	law := oracleLaw(t, "test-sleep", "")
+	for _, src := range []string{"a\ntime.Sleep(1)", "a\ntime.Sleep(1)\n"} {
+		if got := hitLines(law.HitsIn("a/x_test.go", src)); len(got) != 1 || got[0] != 2 {
+			t.Errorf("hit lines over %q = %v, want [2]", src, got)
+		}
+	}
+}
