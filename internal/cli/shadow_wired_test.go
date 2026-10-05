@@ -66,9 +66,11 @@ func TestRun_PreToolUse_ShadowsAWaivedPrimaryWriteAsAWouldBeBlock(t *testing.T) 
 	if code := Run([]string{"gate", "pretooluse"}, stdin, &out, &errb); code != 0 {
 		t.Fatalf("exit code = %d, want 0: the waiver lets the write through\nstdout:%s", code, out.String())
 	}
-	got := shadowEvents(primary)
+	// The write is of a code file, so the red-green rule is asked of it too: its own
+	// record is the subject of the tests of that rule.
+	got := shadowOfRule(primary, "primary-write")
 	if len(got) != 1 {
-		t.Fatalf("%d shadow events, want 1: %+v", len(got), got)
+		t.Fatalf("%d primary-write shadow events, want 1: %+v", len(got), shadowEvents(primary))
 	}
 	d := got[0].Detail
 	if d["rule"] != "primary-write" || d["trellis"] != "block" || d["aphrollo"] != "warn" || d["relation"] != "trellis-stricter" {

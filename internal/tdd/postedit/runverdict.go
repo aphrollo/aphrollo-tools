@@ -380,21 +380,33 @@ func redRunOf(v store.Verdict, unit string) (store.RunVerdict, bool) {
 // its line is no verdict). Every run is held, the foreground one and the harvested
 // alike; one that is no verdict on either side is recorded as unjudged. It reads
 // nothing: res is the result already read, taken before any adjustment, and the
-// record is written by shadow.Flush after the hook has answered.
-func queueShadowRun(phase string, out PhaseOutcome, res SuiteResult, root, session, word string) {
+// record is written by shadow.Flush after the hook has answered. The run is also
+// held to be folded into its lane's record (shadow.QueueFold): editID names the
+// edits it judged, and the tree key the run wrapper read is the tree they made.
+func queueShadowRun(phase string, out PhaseOutcome, res SuiteResult, root, session, editID string, argv []string, word string) {
 	verdict, cause, ok := phaseVerdictOf(phase, res, out)
-	ok = ok && word != ""
-	shadow.QueueRun(shadow.Source{Root: root, Actor: session, Key: out.TreeKey}, func() (shadow.RunFact, bool) {
-		return shadow.RunFact{Word: word, Verdict: verdict, Cause: cause}, ok
+	src := shadow.Source{Root: root, Actor: session, Key: out.TreeKey}
+	shadow.QueueRun(src, func() (shadow.RunFact, bool) {
+		return shadow.RunFact{Word: word, Verdict: verdict, Cause: cause}, ok && word != ""
 	})
+	if ok {
+		shadow.QueueFold(src, shadowWorld(), shadow.Fold{
+			Root: root, Actor: session, Tree: out.TreeKey, Job: out.RunID,
+			EditIDs: strings.Split(editID, shadowEditIDSep), Argv: argv, Verdict: verdict, Cause: cause,
+		})
+	}
 }
 
+// shadowEditIDSep is the separator failfirst joins the ids of the edits one run judged by.
+const shadowEditIDSep = ","
+
 // queueForegroundRun is queueShadowRun for a run the hook itself ran to its end,
-// which carries no phase outcome: the exit it would have is read from the result.
-func queueForegroundRun(res SuiteResult, root, session, word string) {
-	out := PhaseOutcome{}
+// which carries no phase outcome: the exit it would have is read from the result,
+// and the tree is the key of the run it widened, when it did.
+func queueForegroundRun(res SuiteResult, root, session, editID, treeKey string, argv []string, word string) {
+	out := PhaseOutcome{TreeKey: treeKey}
 	if !res.Passed {
 		out.ExitCode = 1
 	}
-	queueShadowRun("run", out, res, root, session, word)
+	queueShadowRun("run", out, res, root, session, editID, argv, word)
 }

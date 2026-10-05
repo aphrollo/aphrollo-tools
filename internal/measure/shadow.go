@@ -45,6 +45,7 @@ type ShadowRule struct {
 	Wrong         int    `json:"would_be_wrong"`
 	Passes        int    `json:"would_be_passes"`
 	Open          int    `json:"would_be_open"`
+	Overruns      int    `json:"budget_overruns"`
 }
 
 // Rate is the share of the rule's fires where both sides agreed, "" while the
@@ -67,10 +68,12 @@ type Shadow struct {
 // shadowNotes say what the numbers are not: they are read from facts the hooks
 // recorded, and the kernel is not running as it will once it decides.
 var shadowNotes = []string{
-	"observed only where a hook acted: no fact exists where aphrollo did nothing, so agreement is overstated, and trellis acting alone is seen only for a waived primary-checkout write",
-	"the kernel ran on its default config: aphrollo declares no rule pins or isolation setting to read, so the levels are the kernel's own",
-	"would-be-block outcomes (wrong, catch, pass) currently come only from waived primary-checkout writes, which mostly stay open, and a law's escape comment is not logged as an override: this data measures agreement, softer and verdict classes, not the value of a would-be block",
-	"a run both sides read alike is an agreeing shadow event; a run no verdict was made of is counted unjudged and never as agreement",
+	"observed only where a hook acted: no fact exists where aphrollo did nothing, so agreement is overstated; trellis acting alone is seen at a waived primary-checkout write and, for red-green, at each code edit",
+	"the kernel ran on its default config, except red-green and stop-red, which it is asked under tdd = enforce (the level the document blocks them at): aphrollo declares no rule pins or isolation setting to read, so the other levels are the kernel's own",
+	"red-green is observed: asked at PreToolUse of each code edit against the lane's record, where aphrollo always allows (it holds the proof at the commit), so every kernel guide or block is a would-be block; an edit's unit is covered when a run of it was green on a tree holding its newest edit, and a unit with no run yet reads as uncovered; whether an edit adds a symbol is read for Go only (a new func, or a new exported type, var or const in the edit's text), and is false for every other language and for a Bash write; the fires of a non-Go unit stay open, for there is no package proof to join them to; edits and runs on trunk lanes and the primary checkout are not asked",
+	"stop-red is asked at every Stop and SubagentStop with aphrollo's own unseen-red fact, so a block and an allow are both recorded; a red the lane record never folded, including one known only from a job record, is unjudged, never softer",
+	"a red-green would-be block is a catch when the commit proof later refuses on the lane (a proof must name packages holding the edit's unit), a pass when such a proof passes or the lane merges, and wrong on /tdd off within the wrong-block window; a pass only says the commit gate later proved red→green, which aphrollo already enforces, so passes are near-tautological and catches are rare by structure; the other would-be blocks still come mostly from waived primary-checkout writes, and a law's escape comment is not logged as an override",
+	"a run both sides read alike is an agreeing shadow event; a run no verdict was made of, and a red-green, stop-red or lane-fold record that lacked a lane, unit, tree or store or outran the budget, is counted unjudged with its cause and never as agreement",
 }
 
 // ComputeShadow folds the shadow events of the window. What follows a fire is
@@ -130,6 +133,9 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 			r.NotComparable++
 		case "unjudged":
 			r.Unjudged++
+			if e.Detail["cause"] == "budget" {
+				r.Overruns++
+			}
 		}
 	}
 	for _, r := range rules {
@@ -167,7 +173,11 @@ func followOf(evs []stamped, i int) follow {
 	if fire.Lane == "" || fire.Detail["primary"] == "true" || isTrunkLane(fire.Lane) {
 		return followOpen
 	}
-	caught, merged := false, false
+	// A red-green fire is judged by the commit proof (the stage that holds red→green
+	// in aphrollo): a proof refusal on the lane is the catch, a proof that passed the
+	// pass. Any other commit refusal (lint, vet, docs) says nothing of it.
+	proof := fire.Detail["rule"] == "red-green"
+	caught, merged, proved := false, false, false
 	for _, e := range evs[i+1:] {
 		if e.at.Sub(fire.at) > shadowHorizon {
 			break
@@ -181,7 +191,11 @@ func followOf(evs []stamped, i int) follow {
 		switch {
 		case !merged && e.Kind == "override" && !isAllowedRerun(e) && e.at.Sub(fire.at) <= WrongBlockWindow && overrideAbout(e, fire):
 			return followWrong
-		case e.Kind == "commit_gate_result" && e.Verdict == "blocked",
+		case proof && e.Kind == "commit_gate" && e.Stage == "precommit" && e.Verdict == "violated" && proofAbout(e, fire):
+			caught = true
+		case proof && e.Kind == "commit_gate" && e.Stage == "precommit" && e.Verdict == "red-proven" && proofAbout(e, fire):
+			proved = true
+		case e.Kind == "commit_gate_result" && e.Verdict == "blocked" && !proof,
 			e.Kind == "ci" && e.Verdict == "red",
 			e.Kind == "escape" && e.Verdict != "false-positive":
 			caught = true
@@ -192,10 +206,42 @@ func followOf(evs []stamped, i int) follow {
 	switch {
 	case caught:
 		return followCatch
-	case merged:
+	case merged || proved:
 		return followPass
 	}
 	return followOpen
+}
+
+// proofAbout reports whether a commit proof's run is about the unit a red-green fire
+// named. A proof is about a unit only when it names packages (go's ./pkg, ./pkg/...
+// or ./...) and one of them holds the unit's package, compared from the unit's
+// module root (the fire's unit_pkg, the package relative to its module, which is
+// what a proof's own patterns are relative to). A proof that names none, whether a
+// whole-project run or a stage's label such as postedit-ledger, is about no unit
+// and decides nothing for it.
+func proofAbout(proof, fire stamped) bool {
+	unit := fire.Detail["unit"]
+	if unit == "" {
+		return true
+	}
+	target, ok := fire.Detail["unit_pkg"]
+	if !ok {
+		target = unit
+	}
+	for _, arg := range strings.Fields(proof.Cmd) {
+		if arg != "." && !strings.HasPrefix(arg, "./") {
+			continue
+		}
+		pat := strings.TrimPrefix(arg, "./")
+		base, tree := strings.CutSuffix(pat, "/...")
+		switch {
+		case pat == "...", pat == target:
+			return true
+		case tree && (target == base || strings.HasPrefix(target, base+"/")):
+			return true
+		}
+	}
+	return false
 }
 
 // isTrunkLane is a lane name that is a trunk's: the primary checkout's.
@@ -211,6 +257,8 @@ var overrideWords = map[string][]string{
 	"rerun-suite":   {"override-bash-"},
 	"bypass-verb":   {"direct-pr", "pr-open"},
 	"attribution":   {"undercover"},
+	"red-green":     {"override-off"},
+	"stop-red":      {"override-off"},
 }
 
 // overrideAbout reports whether the override waives the rule the fire was about:
@@ -251,6 +299,9 @@ func (s Shadow) Text() string {
 			r.Rule, r.Fires, r.Agree, r.Stricter, r.Softer, r.SoftHeldOut, r.Mismatch, r.NotComparable, r.Unjudged, r.HeldOut)
 		if r.Stricter > 0 {
 			p("%swould-be blocks: catches %d  wrong %d  passes %d  open %d", cont, r.Catches, r.Wrong, r.Passes, r.Open)
+		}
+		if r.Overruns > 0 {
+			p("%sbudget overruns %d: records that did not finish inside the hook's budget, counted unjudged", cont, r.Overruns)
 		}
 		if rate := r.Rate(); rate != "" {
 			p("%sagreement %s of %d fires", cont, rate, r.Fires)

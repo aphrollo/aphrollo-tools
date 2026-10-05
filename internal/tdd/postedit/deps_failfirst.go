@@ -6,7 +6,11 @@ import (
 	failfirst "github.com/aphrollo/aphrollo-tools/internal/tdd/failfirst"
 )
 
+type ledgerEdit = failfirst.LedgerEdit
+
 func headSHAFor(p0 string) string { return failfirst.HeadSHAFor(p0) }
+
+func loadEditLedger(p0 string) []ledgerEdit { return failfirst.LoadEditLedger(p0) }
 
 func pytestExecRunner(p0 string, p1 Runner) (Runner, string) {
 	return failfirst.PytestExecRunner(p0, p1)

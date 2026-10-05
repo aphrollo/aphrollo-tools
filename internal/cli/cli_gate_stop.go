@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 
+	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -20,8 +21,26 @@ var stopHookEvents = map[string]tdd.StopEvent{
 // a payload it cannot read allows.
 func runStopCheck(verb string, raw []byte, stdout, stderr io.Writer) int {
 	event := stopHookEvents[verb]
-	out, errOut, code := tdd.RenderStopVerdict(event, tdd.DecideStop(event, raw))
+	verdict := tdd.DecideStop(event, raw)
+	out, errOut, code := tdd.RenderStopVerdict(event, verdict)
 	stdout.Write(out)
 	stderr.Write(errOut)
+	// After the answer is written: the shadow record never changes it. Every Stop and
+	// SubagentStop is asked of the kernel's stop-red rule, with aphrollo's own
+	// unseen-red fact, whether the live check blocked or not.
+	if event != tdd.StopHookTaskCompleted {
+		recordStopShadow(verb, raw, shadow.StopFacts{Unseen: verdict.Red, Trees: verdict.RedTrees, Blocked: verdict.Block})
+	}
 	return code
+}
+
+// recordStopShadow records what the kernel's stop-red rule would have decided
+// beside what the live check just did, inside the shadow budget.
+func recordStopShadow(verb string, raw []byte, facts shadow.StopFacts) {
+	src, ok := hookSource(raw)
+	pl, pok := shadow.ParsePayload(raw)
+	if !ok || !pok {
+		return
+	}
+	shadow.RecordStop(tdd.ShadowWorld(), verb, src, pl, facts)
 }

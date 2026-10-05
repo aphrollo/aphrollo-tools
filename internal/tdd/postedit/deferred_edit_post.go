@@ -96,9 +96,9 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	}
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
 	if widened {
-		queueForegroundRun(kernelRes, root, session, string(outcome))
+		queueForegroundRun(kernelRes, root, session, snap.editID, out.phase.TreeKey, runnerArgv(snap.runner), string(outcome))
 	} else {
-		queueShadowRun(out.job.Phase, out.phase, kernelRes, root, session, string(outcome))
+		queueShadowRun(out.job.Phase, out.phase, kernelRes, root, session, snap.editID, out.job.Runner, string(outcome))
 	}
 	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)
 	if outcome.IsRed() {

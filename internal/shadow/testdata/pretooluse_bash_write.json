@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/w/repo","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"cd internal/lane && printf x > lane.go && ls"}}

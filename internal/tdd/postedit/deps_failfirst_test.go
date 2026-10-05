@@ -12,8 +12,4 @@ const editTestOnly = failfirst.EditTestOnly
 
 const editUnknown = failfirst.EditUnknown
 
-type ledgerEdit = failfirst.LedgerEdit
-
 func ExtractPassingTests(p0 string) []string { return failfirst.ExtractPassingTests(p0) }
-
-func loadEditLedger(p0 string) []ledgerEdit { return failfirst.LoadEditLedger(p0) }

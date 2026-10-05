@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/gitx"
 )
 
@@ -94,6 +95,11 @@ func postEditFileAs(session, target string, run SuiteRunner, editID string, touc
 	// One event per edit, so edits per message and per batch are counted from
 	// the log, beside the hook.timing of the message boundary.
 	AppendEvent(Event{Kind: "edit", Root: root, Actor: session, Detail: map[string]string{"edit": editID}})
+	// The edit is folded into its lane's record after the answer, with no run: a test
+	// edit is pending before its run finishes (shadow.Flush).
+	if editID != "" {
+		shadow.QueueEditFold(shadow.Source{Root: root, Actor: session}, shadowWorld(), shadow.EditFold{Root: root, Actor: session, EditID: editID, File: target})
+	}
 
 	snap, ok := captureStateSnapshot(session, target, root, touched)
 	if !ok {
@@ -214,7 +220,7 @@ func postEditFileAs(session, target string, run SuiteRunner, editID string, touc
 	}
 
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
-	queueForegroundRun(res, root, session, string(outcome))
+	queueForegroundRun(res, root, session, snap.editID, "", runnerArgv(snap.runner), string(outcome))
 	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)
 	if outcome.IsRed() {
 		return withNote(redSummary(snap.runner, root, outcome, res.Output), widenNote), false

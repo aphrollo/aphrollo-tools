@@ -391,3 +391,31 @@ func TestRenderStopVerdict_AnAllowRendersNothingForEveryEvent(t *testing.T) {
 		}
 	}
 }
+
+// The unseen-red fact is aphrollo's own and does not depend on what the check did
+// with it: it is set where the check blocks, where it allows under stop_hook_active,
+// and is not set where no red is outstanding.
+func TestDecideStop_ReportsTheUnseenRedWhateverTheCheckDidAboutIt(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	project := t.TempDir()
+	target := filepath.Join(project, "lib.rs")
+	mustWrite(t, target, "pub fn a() {}\n")
+	payload := func(active bool) []byte {
+		b, _ := json.Marshal(map[string]any{"session_id": "s-fact", "cwd": project, "stop_hook_active": active})
+		return b
+	}
+	if v := DecideStop(StopHookStop, payload(false)); v.Red || v.Block {
+		t.Fatalf("no red outstanding: %+v, want neither a block nor an unseen red", v)
+	}
+	RecordFinishedRedDeferredJobForTest(project, target, "s-fact", "tests::a_breaks")
+	if v := DecideStop(StopHookStop, payload(true)); v.Block || !v.Red {
+		t.Errorf("stop_hook_active with an unseen red: %+v, want an allow that still reports the red", v)
+	}
+	if v := DecideStop(StopHookStop, payload(false)); !v.Block || !v.Red {
+		t.Errorf("an unseen red: %+v, want a block that reports the red", v)
+	}
+	if v := DecideStop(StopHookTaskCompleted, payload(false)); v.Red {
+		t.Errorf("a task check reports no unseen-red fact: %+v", v)
+	}
+}

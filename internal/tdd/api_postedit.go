@@ -3,6 +3,7 @@
 package tdd
 
 import (
+	shadow "github.com/aphrollo/aphrollo-tools/internal/shadow"
 	postedit "github.com/aphrollo/aphrollo-tools/internal/tdd/postedit"
 	time "time"
 )
@@ -112,6 +113,8 @@ func RevokeForSession(p0 string, p1 string, p2 string) (string, error) {
 func RunPhase(p0 string) int { return postedit.RunPhase(p0) }
 
 func SetDiscardClockForTest(p0 func() time.Time) func() { return postedit.SetDiscardClockForTest(p0) }
+
+func ShadowWorld() shadow.World { return postedit.ShadowWorld() }
 
 func UndercoverBashDecision(p0 []byte) Decision { return postedit.UndercoverBashDecision(p0) }
 

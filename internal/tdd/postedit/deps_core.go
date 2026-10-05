@@ -66,6 +66,8 @@ func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }
 
 func EventLogDir(p0 string) string { return core.EventLogDir(p0) }
 
+func LaneOf(p0 string) string { return core.LaneOf(p0) }
+
 func LogToken(p0 string) string { return core.LogToken(p0) }
 
 func SessionID() string { return core.SessionID() }
