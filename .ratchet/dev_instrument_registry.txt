@@ -5,27 +5,36 @@
 # any more is stale.
 #
 # Grouped by what the switch is FOR.
+#
+# The settings are not here any more: the ten that were user-facing
+# (budgets.*, box.*, reply_style) are keys of the box config, and their
+# variables survive one more release as deprecated aliases, listed in
+# internal/config/env.go with the key each became. What is left is a test seam
+# (a path or binary override, a fake's handshake), a marker the gate sets for
+# its own children, or a value another service injects: none is a setting a
+# user is meant to keep. The user-facing variables are TRELLIS_OFF,
+# TRELLIS_CONFIG and TRELLIS_DATA.
 
 # --- build/git queue and lock control (internal/tdd, internal/cli) ---
 APHROLLO_BUILD_LOCK_HELD | internal/tdd/lock/buildlock.go | Set to "1" around a cargo run that already holds the machine-wide build lock, so a nested cargo invocation (a build script, the tdd cargo shim) passes straight through instead of deadlocking on the lock its own parent holds.
-APHROLLO_BUILD_SLOTS | internal/tdd/lock/buildslots.go | The box's build-slot count, read once at process start to cap concurrent cargo runs.
-APHROLLO_CARGO_WAIT_SECS | internal/cli/cargo_shim.go | Overrides the cargo shim's queue wait budget before it gives up and reports queued rather than running.
+APHROLLO_BUILD_SLOTS | internal/config/env.go | Deprecated, read for one more release: the box config key box.build_slots replaces it, and reading the variable prints a notice. The box's build-slot count, read once at process start to cap concurrent cargo runs.
+APHROLLO_CARGO_WAIT_SECS | internal/config/env.go | Deprecated, read for one more release: the box config key budgets.cargo_wait_s replaces it, and reading the variable prints a notice. Overrides the cargo shim's queue wait budget before it gives up and reports queued rather than running.
 APHROLLO_GIT_QUEUED | internal/tdd/gitx/buildlock_gitx.go | Set to "1" around a git invocation that already holds the per-repo git lock, so a git call the pre-commit hook spawns (worktree add/remove, apply, diff --cached) never waits on the lock its own parent process holds.
-APHROLLO_MECH_PARALLEL | internal/tdd/suite/splitplan.go | How many of a split `go test` list's runs the commit and merge gates start at once (default: the build-slot count, never more than there are runs). 1 runs them one after another.
-APHROLLO_MECH_TOTAL_SECS | internal/tdd/suite/splitplan.go | The wall-clock cap, in seconds, on all the runs one split `go test` list is cut into (default 2700s): each run still holds its own per-run budget inside it, and what the cap ends is reported as a timeout naming the packages, never a pass.
+APHROLLO_MECH_PARALLEL | internal/config/env.go | Deprecated, read for one more release: the box config key box.mech_parallel replaces it, and reading the variable prints a notice. How many of a split `go test` list's runs the commit and merge gates start at once (default: the build-slot count, never more than there are runs). 1 runs them one after another.
+APHROLLO_MECH_TOTAL_SECS | internal/config/env.go | Deprecated, read for one more release: the box config key budgets.mech_total_s replaces it, and reading the variable prints a notice. The wall-clock cap, in seconds, on all the runs one split `go test` list is cut into (default 2700s): each run still holds its own per-run budget inside it, and what the cap ends is reported as a timeout naming the packages, never a pass.
 APHROLLO_SPAWN_DEPTH | internal/proc/selfexec.go | Counts how many self-spawns deep a gate process is (a detached phase runner or sweep started by a hook); a process at the cap refuses to start another copy of itself, so a spawn loop ends after two generations.
-APHROLLO_GIT_WAIT_SECS | internal/cli/git_shim.go | Overrides the git shim's queue wait budget before it gives up and reports queued rather than running.
-APHROLLO_LINT_WAIT_SECS | internal/cli/lint_shim.go | Overrides `gate lint`'s wait budget for the box-wide lint lock before it gives up and reports nothing was linted.
-APHROLLO_LOCK_WAIT_SECS | internal/cli/cli.go | The commit gate's build-slot wait budget (default 1200s).
+APHROLLO_GIT_WAIT_SECS | internal/config/env.go | Deprecated, read for one more release: the box config key budgets.git_wait_s replaces it, and reading the variable prints a notice. Overrides the git shim's queue wait budget before it gives up and reports queued rather than running.
+APHROLLO_LINT_WAIT_SECS | internal/config/env.go | Deprecated, read for one more release: the box config key budgets.lint_wait_s replaces it, and reading the variable prints a notice. Overrides `gate lint`'s wait budget for the box-wide lint lock before it gives up and reports nothing was linted.
+APHROLLO_LOCK_WAIT_SECS | internal/config/env.go | Deprecated, read for one more release: the box config key budgets.lock_wait_s replaces it, and reading the variable prints a notice. The commit gate's build-slot wait budget (default 1200s).
 APHROLLO_SLOT_TOKEN | internal/tdd/lock/buildslots.go | Carries the build slot a long verb's spawned cargo children inherit rather than acquiring their own; stripped from a process (e.g. `cargo run`) that must not inherit it.
 
 # --- the anti-cheat / edit-time gate (internal/tdd) ---
-APHROLLO_DEFERRED_MAX_SECS | internal/tdd/postedit/deferred.go | Bounds how long a detached build/run phase may run before the next hook gives up on it (default 600s).
+APHROLLO_DEFERRED_MAX_SECS | internal/config/env.go | Deprecated, read for one more release: the box config key budgets.deferred_max_s replaces it, and reading the variable prints a notice. Bounds how long a detached build/run phase may run before the next hook gives up on it (default 600s).
 APHROLLO_DISCARD | internal/cli/git_shim_discard_wall.go | Set to "1" to pass a discarding git verb (reset --hard, clean -fd, branch -D, ...) through the discard wall for one invocation, for work the object store still holds (staged, committed, stashed); every use is logged as override-discard-env. It REFUSES an invocation that would destroy unstaged work and names the files — APHROLLO_DISCARD_UNSTAGED is the marker for that. The one-shot alternative is `aphrollo gate allow discard`.
 APHROLLO_DISCARD_UNSTAGED | internal/cli/git_shim_discard_wall.go | The louder marker: set to "1" to let one discarding git verb destroy work that exists nowhere but the working tree. It names every file it is about to destroy on stderr before git runs, and every use is logged as override-discard-unstaged. Not the marker for ordinary scripted use — APHROLLO_DISCARD is.
-APHROLLO_POSTEDIT_BUDGET_SECS | internal/tdd/postedit/deferred.go | The edit hook's one foreground budget, covering the build and run phases together (default 100s).
+APHROLLO_POSTEDIT_BUDGET_SECS | internal/config/env.go | Deprecated, read for one more release: the box config key budgets.edit_s replaces it, and reading the variable prints a notice. The edit hook's one foreground budget, covering the build and run phases together (default 100s).
 APHROLLO_PRIMARY_EDITS | internal/tdd/postedit/primary.go | Turns off, for one process, the refusal to edit source in a primary checkout that has linked worktrees and holds main. The per-session escape is `/tdd primary-edits on`.
-APHROLLO_REPLY_STYLE | internal/tdd/install/style.go | Sets the machine-wide default reply style ("plain" turns the terse-reply block off everywhere unless a session overrides it back).
+APHROLLO_REPLY_STYLE | internal/config/env.go | Deprecated, read for one more release: the box config key reply_style replaces it, and reading the variable prints a notice. Sets the machine-wide default reply style ("plain" turns the terse-reply block off everywhere unless a session overrides it back).
 
 # --- the global git gate install (internal/tdd/install/gitgate.go) ---
 APHROLLO_HOOKS_DIR_UNSAFE | internal/tdd/install/gitgate.go | Set to "1" to force installGitGate past its refusal of a --git-hooks-dir under a temp root or a scratchpad segment; the one sanctioned caller is a dogfood run that also points GIT_CONFIG_GLOBAL at a throwaway file, never the box's real global config.
@@ -56,8 +65,6 @@ APHROLLO_TICKET_ID | internal/workspace/submit_signal.go | The full ticket UUID 
 # individual issues. Every one of these is set only by a test (t.Setenv) and
 # read only by test-built code (an in-process fake binary's own source, or a
 # helper that exists for the test). None reaches a shipping code path. ---
-APHROLLO_DEV_BIN | internal/workspace/claim_test.go | Set by claim's own test suite to stand in for the dev binary path; currently unread by any production code path — recorded here so it is not an invisible instrument, and left as a finding rather than "fixed" in this pass (see the PR report).
-APHROLLO_TEST_BUDGET_SECS | internal/cli/budget_env_test.go | Drives envDurationSecs's own table test through its parse/default branches.
 APHROLLO_TEST_GIT_COMMON_DIR | internal/cli/git_shim_scope_test.go | Read by a synthetic fake-git binary the git shim's scope test builds, to report back which repo it ran against.
 APHROLLO_TEST_GIT_DIR | internal/cli/git_shim_scope_test.go | Read by the same synthetic fake-git binary, alongside APHROLLO_TEST_GIT_COMMON_DIR.
 APHROLLO_TEST_PRGATE_REAL_SIGNAL_CHILD | internal/tdd/merge/premergepr_realsignal_test.go | Set on a re-exec'd copy of this test binary so the SAME test function runs as the real-SIGTERM proof's child instead of its parent orchestrator.

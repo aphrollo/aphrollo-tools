@@ -117,6 +117,7 @@ const (
 	rankUserRepo
 	rankAlias
 	rankRepo
+	rankEnv
 	rankFlag
 )
 
@@ -134,6 +135,7 @@ func Load(o Options) *Config {
 	if o.Repo != "" {
 		r.repoFiles(o.Repo)
 	}
+	r.envs()
 	r.flags(o.Flags)
 	return r.resolve()
 }
@@ -151,7 +153,7 @@ func (r *reader) diag(file string, layer Layer, line int, key, msg string) {
 // userFile reads the user's config.toml: its root keys, then the keys of the
 // [repo."<id>"] section that names this repo.
 func (r *reader) userFile(path, repoID string) {
-	doc := r.parse(path, User, normalizeUser, nil)
+	doc := r.parse(path, User, normalizeUser)
 	if doc == nil {
 		return
 	}
@@ -166,9 +168,9 @@ func (r *reader) userFile(path, repoID string) {
 
 // repoFiles reads the repo's trellis.toml, and aphrollo.toml as its alias.
 func (r *reader) repoFiles(repo string) {
-	r.aliasFile(filepath.Join(repo, "aphrollo.toml"))
+	r.aliasFiles(repo)
 	path := filepath.Join(repo, "trellis.toml")
-	if doc := r.parse(path, Repo, nil, nil); doc != nil {
+	if doc := r.parse(path, Repo, nil); doc != nil {
 		r.claimsFrom(doc, path, Repo, rankRepo, "", nil)
 	}
 }
@@ -301,9 +303,9 @@ var lineErr = regexp.MustCompile(`^line (\d+): `)
 
 // parse reads path with tomlsubset, a line at a time as far as it takes: a line
 // the reader refuses is named, set aside, and the file is read again without
-// it, so one bad line never costs the keys beside it. onBad hears each refused
-// line; nil means the refusal is a diagnostic naming the line's key.
-func (r *reader) parse(path string, layer Layer, normalize func(string) string, onBad func(lineNo int, line, msg string)) *tomlsubset.Document {
+// it, so one bad line never costs the keys beside it. Each refused line
+// is a diagnostic naming the line's key.
+func (r *reader) parse(path string, layer Layer, normalize func(string) string) *tomlsubset.Document {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
@@ -330,11 +332,7 @@ func (r *reader) parse(path string, layer Layer, normalize func(string) string, 
 		}
 		msg := strings.TrimPrefix(err.Error(), m[0])
 		bad := lines[n-1]
-		if onBad != nil {
-			onBad(n, bad, msg)
-		} else {
-			r.badLine(path, layer, n, bad, msg)
-		}
+		r.badLine(path, layer, n, bad, msg)
 		if strings.HasPrefix(strings.TrimSpace(bad), "[") {
 			// Its keys must not move into the table above.
 			lines[n-1] = "[__refused." + strconv.Itoa(n) + "]"

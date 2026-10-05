@@ -122,6 +122,9 @@ func sourceOf(s config.Setting) string {
 	if s.Layer == config.Flag {
 		return "flag"
 	}
+	if s.Layer == config.Env {
+		return "env " + s.Alias + " (deprecated)"
+	}
 	if s.Alias != "" {
 		return fmt.Sprintf("%s alias %s", s.Layer, s.Alias)
 	}

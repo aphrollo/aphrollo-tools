@@ -163,7 +163,7 @@ func tddStatus(session string) string {
 		return "TDD: no session id, enforcement state unavailable."
 	}
 	state := "ON"
-	if s.Overrides.Off {
+	if s.GateOff() {
 		state = "OFF"
 	}
 	var b strings.Builder
@@ -193,7 +193,7 @@ func reinforce(session, cwd string) string {
 		return ""
 	}
 	s, _ := loadSession(session)
-	if s == nil || s.Overrides.Off {
+	if s == nil || s.GateOff() {
 		return ""
 	}
 	root := findRootFrom(cwd)
@@ -319,7 +319,7 @@ func HandleSessionStart(raw []byte) string {
 		return ""
 	}
 	s, _ := loadSession(in.SessionID)
-	if s != nil && s.Overrides.Off {
+	if s != nil && s.GateOff() {
 		return ""
 	}
 	// Disk hygiene rides along here because session start is the only

@@ -8,10 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -67,13 +67,13 @@ func runGateGit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		indexLockGrace: defaultGitIndexLockGrace,
 		realGit:        realGit,
 	}
-	if raw := strings.TrimSpace(os.Getenv("APHROLLO_GIT_WAIT_SECS")); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n >= 0 {
-			cfg.waitBudget = time.Duration(n) * time.Second
-		}
-	}
+	cfg.waitBudget = gitWaitBudget()
 	return runGitShim(args, stdin, stdout, stderr, cfg)
 }
+
+// gitWaitBudget is how long the shim queues for the per-repo git lock: budgets.git_wait_s,
+// defaultGitWaitBudget when nothing sets it.
+func gitWaitBudget() time.Duration { return config.Box().Seconds("budgets.git_wait_s") }
 
 // runGitShim is the shim's testable core. Re-entrancy (requirement 4): if
 // this process is itself already inside a locked git/cargo invocation

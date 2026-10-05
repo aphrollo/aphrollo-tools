@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/config/decl"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
@@ -67,16 +68,7 @@ func aphrolloConfigured(ws string) bool {
 // all, keys or not — the presence question tomlBoolIn's key lookup cannot
 // answer on its own, since an empty table has no key to find.
 func tomlTableExists(path, table string) bool {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	for line := range strings.Lines(string(data)) {
-		if strings.TrimSpace(line) == table {
-			return true
-		}
-	}
-	return false
+	return decl.Read(path, strings.Trim(table, "[]")).Header
 }
 
 // defaultCommitMsgCheck runs the default (undercover-independent) checks

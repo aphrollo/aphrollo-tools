@@ -203,7 +203,7 @@ func warnStop(event StopEvent, in stopInput, red bool) StopVerdict {
 // session's own switch (/tdd off), and a payload with no session id has no
 // state to judge. The tdd setting is read beside it, in DecideStop.
 func stopCheckEnforced(state *sessionState) bool {
-	return state != nil && !state.Overrides.Off
+	return state != nil && !state.GateOff()
 }
 
 const (

@@ -304,3 +304,44 @@ func TestRunCargoLocked_KeysOnTheRunnersOwnTargetDir(t *testing.T) {
 		t.Fatal("a run into root A's OWN target dir must still contend with the holder")
 	}
 }
+
+// buildslotsUserConfig points the box layers at a config.toml holding text and
+// clears the deprecated variables, so only the file speaks.
+func buildslotsUserConfig(t *testing.T, text string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("TRELLIS_CONFIG", dir)
+	for _, v := range []string{buildSlotsEnv, "APHROLLO_MECH_PARALLEL", "APHROLLO_MECH_TOTAL_SECS"} {
+		t.Setenv(v, "")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The slot count and the split plan's two knobs are keys of the box config,
+// with the floors their variables had.
+func TestBuildSlotCount_ReadsTheUsersConfigWithTheOldFloor(t *testing.T) {
+	buildslotsUserConfig(t, "[box]\nbuild_slots = 5\n")
+	if got := buildSlotCount(); got != 5 {
+		t.Fatalf("build_slots = 5 gave %d", got)
+	}
+	buildslotsUserConfig(t, "[box]\nbuild_slots = 0\n")
+	if got := buildSlotCount(); got != 1 {
+		t.Fatalf("a zero slot count must floor at 1, got %d", got)
+	}
+}
+
+func TestSplitPlanKnobs_AreKeysOfTheUsersConfig(t *testing.T) {
+	buildslotsUserConfig(t, "[budgets]\nmech_total_s = 900\n\n[box]\nbuild_slots = 4\nmech_parallel = 2\n")
+	if got := splitOverallBudget(); got != 900*time.Second {
+		t.Errorf("mech_total_s = 900 gave %s", got)
+	}
+	if got := splitParallelism(8); got != 2 {
+		t.Errorf("mech_parallel = 2 gave width %d", got)
+	}
+	buildslotsUserConfig(t, "[box]\nbuild_slots = 4\n")
+	if got := splitParallelism(8); got != 4 {
+		t.Errorf("no mech_parallel: width %d, want the 4 slots", got)
+	}
+}

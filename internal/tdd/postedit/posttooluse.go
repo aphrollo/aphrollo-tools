@@ -283,7 +283,7 @@ type stateSnapshot struct {
 // stays silent.
 func captureStateSnapshot(session, target, root string, touched []string) (stateSnapshot, bool) {
 	state, statePath := loadSession(session)
-	if state != nil && state.Overrides.Off {
+	if state.GateOff() {
 		return stateSnapshot{}, false
 	}
 	base, ok := DetectRunner(root)

@@ -7,47 +7,6 @@ import (
 	"strings"
 )
 
-// tomlStringsIn reads one string-ARRAY key from one table of a TOML file,
-// sorted and deduped; empty for an absent key or an unreadable manifest. Same
-// line scanner as tomlBoolIn, and same reasoning: the key sits directly under
-// its table in any real manifest, and a parse miss costs only the feature
-// staying off.
-func tomlStringsIn(path, table, key string) []string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	inTable, inArray := false, false
-	var pkgs []string
-	for line := range strings.Lines(string(data)) {
-		trimmed := strings.TrimSpace(line)
-		if !inArray && strings.HasPrefix(trimmed, "[") {
-			inTable = trimmed == table
-			continue
-		}
-		if !inTable {
-			continue
-		}
-		if !inArray {
-			k, val, found := strings.Cut(trimmed, "=")
-			if !found || strings.TrimSpace(k) != key {
-				continue
-			}
-			inArray = true
-			trimmed = val
-		}
-		pkgs = append(pkgs, quotedWords(trimmed)...)
-		// The array's OWN closing bracket, never one an entry's quoted
-		// reason happens to mention — "start indexes '[' and end indexes
-		// ']'" is a real accept-list reason, and closing on it dropped
-		// every entry after it (issue #139).
-		if strings.Contains(stripQuoted(trimmed), "]") {
-			inArray = false
-		}
-	}
-	return dedupeSorted(pkgs)
-}
-
 // tomlArrayCommaError reports the array declaring key under table in path as
 // malformed when two of its quoted elements sit back to back with no ','
 // between them — real TOML requires one between every pair of array

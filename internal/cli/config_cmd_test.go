@@ -216,3 +216,13 @@ func TestConfig_FeaturesStaysReachableAsTheDefaultAndAsASubcommand(t *testing.T)
 		}
 	}
 }
+
+func TestConfigShow_NamesADeprecatedVariableAsTheSourceOfAKey(t *testing.T) {
+	e := newCfgEnv(t)
+	t.Setenv("APHROLLO_LOCK_WAIT_SECS", "77")
+	_, out, _ := e.run("show", "--dir", e.repo)
+	row := strings.Join(showRow(out, "budgets.lock_wait_s"), " ")
+	if !strings.Contains(row, "77") || !strings.Contains(row, "env APHROLLO_LOCK_WAIT_SECS (deprecated)") {
+		t.Errorf("row = %q", row)
+	}
+}

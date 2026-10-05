@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/config/decl"
 )
 
 // Runner is a test command: a program and its arguments, run from the project
@@ -64,66 +66,37 @@ func cargoPackageName(manifest string) string {
 	return ""
 }
 
-// tomlBoolIn reads one boolean key from one table of a TOML file. A line
-// scanner suffices for the same reason cargoPackageName uses one: the key sits
-// directly under its table in any real manifest, and a parse miss costs only
-// the feature staying off.
+// tomlBoolIn reads one boolean key from one table of a TOML file, through the
+// one reader of those tables (internal/config/decl): false for an absent key,
+// an unreadable value, or an unreadable file.
 func tomlBoolIn(path, table, key string) bool {
 	v, _ := tomlBoolSetIn(path, table, key)
 	return v
 }
 
 // tomlBoolSetIn is tomlBoolIn with the fact tomlBoolIn throws away: whether
-// the key was WRITTEN. A default that differs from `false` needs to tell an
-// absent key from one somebody set, and only the reader knows.
+// the key was set to a boolean. A default that differs from `false` needs to
+// tell an absent key from one somebody set, and only the reader knows.
 func tomlBoolSetIn(path, table, key string) (value, set bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false, false
-	}
-	inTable := false
-	for line := range strings.Lines(string(data)) {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") {
-			inTable = trimmed == table
-			continue
-		}
-		if !inTable {
-			continue
-		}
-		k, val, found := strings.Cut(trimmed, "=")
-		if found && strings.TrimSpace(k) == key {
-			return strings.TrimSpace(val) == "true", true
-		}
-	}
-	return false, false
+	return decl.Read(path, declTable(table)).Flag(key)
 }
 
-// tomlStringIn reads one scalar string key from one table of a TOML file,
-// quotes stripped. "", false for an absent key or an unreadable manifest —
-// same line scanner and same reasoning as tomlBoolIn.
+// tomlStringIn reads one scalar key from one table of a TOML file: a string as
+// it is, a number or boolean as its text. "", false for an absent key or an
+// unreadable file.
 func tomlStringIn(path, table, key string) (value string, set bool) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", false
-	}
-	inTable := false
-	for line := range strings.Lines(string(data)) {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") {
-			inTable = trimmed == table
-			continue
-		}
-		if !inTable {
-			continue
-		}
-		k, val, found := strings.Cut(trimmed, "=")
-		if found && strings.TrimSpace(k) == key {
-			return strings.Trim(strings.TrimSpace(val), `"`), true
-		}
-	}
-	return "", false
+	return decl.Read(path, declTable(table)).Raw(key)
 }
+
+// tomlStringsIn reads one string-array key from one table of a TOML file,
+// sorted and deduped; empty for an absent key or an unreadable file.
+func tomlStringsIn(path, table, key string) []string {
+	return dedupeSorted(decl.Read(path, declTable(table)).List(key))
+}
+
+// declTable is a table as the callers spell it, "[aphrollo]", without its
+// brackets.
+func declTable(table string) string { return strings.Trim(table, "[]") }
 
 // dedupeSorted returns names deduped and sorted, so an identical worktree
 // always yields an identical argv — the mech cache keys on that command.

@@ -3,11 +3,10 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -122,13 +121,13 @@ Subcommands:
                     FindProjectRoot to come back empty for it. aphrollo update runs
                     this against the CANDIDATE binary before swapping it in (#532)
   cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
-                    per-target-dir build slots the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
-                    APHROLLO_BUILD_SLOTS, APHROLLO_REAL_CARGO)
+                    per-target-dir build slots the hooks/gates use (config: budgets.cargo_wait_s,
+                    box.build_slots)
   git               git-queue shim: queue a DIRECT index-mutating git invocation behind a
                     per-repo lock so concurrent sessions sharing one checkout don't collide
-                    on .git/index.lock (APHROLLO_GIT_WAIT_SECS, APHROLLO_REAL_GIT)
+                    on .git/index.lock (config: budgets.git_wait_s)
   lint              lint wrapper: run golangci-lint behind the box-wide, cross-account
-                    lint lock (APHROLLO_LINT_WAIT_SECS) so a local commit gate and a
+                    lint lock (config: budgets.lint_wait_s) so a local commit gate and a
                     CI runner sharing this box never collide on golangci-lint's own
                     lock instead of finding it clean or dirty
 
@@ -204,12 +203,12 @@ const (
 // operator on a busy box turns.
 const defaultPrecommitLockWait = 1200 * time.Second
 
-// The operator budget knobs live HERE, beside the defaults they override,
-// so every env switch this binary reads is declared in one place instead of
-// wherever it happens to be used:
+// The operator budget knobs are keys of the box's config (the user's
+// config.toml, [budgets]), with their old APHROLLO_* variables still read for
+// one more release:
 //
-//	APHROLLO_POSTEDIT_BUDGET_SECS  the edit hook's suite budget (default 100s)
-//	APHROLLO_LOCK_WAIT_SECS        the commit gate's build-slot wait (default 1200s)
+//	budgets.edit_s       the edit hook's suite budget (default 110s)
+//	budgets.lock_wait_s  the commit gate's build-slot wait (default 1200s)
 //
 // The edit hook's own build-slot wait is deliberately NOT tunable: it is
 // zero by contract (one try, then QUEUED-SKIPPED), because an edit that
@@ -219,23 +218,7 @@ func postEditBudget() time.Duration {
 }
 
 func precommitLockWait() time.Duration {
-	return envDurationSecs("APHROLLO_LOCK_WAIT_SECS", defaultPrecommitLockWait)
-}
-
-// envDurationSecs reads a whole-number-of-seconds env knob. Anything that is
-// not one — unset, empty, negative, junk — keeps the shipped default: a
-// mistyped budget must never silently become zero and turn every run into an
-// instant timeout.
-func envDurationSecs(key string, def time.Duration) time.Duration {
-	raw := strings.TrimSpace(os.Getenv(key))
-	if raw == "" {
-		return def
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 0 {
-		return def
-	}
-	return time.Duration(n) * time.Second
+	return config.Box().Seconds("budgets.lock_wait_s")
 }
 
 // isHelpArg reports whether s asks for help. Every subcommand below that

@@ -2,11 +2,12 @@ package mutation
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/config/decl"
 )
 
 // The mutation stage is configured the way ratchet is: keys in the repo's own
@@ -286,23 +287,5 @@ func firstDeclaredCount(tables []mutantsConfigTable, key, unit string) (int, err
 // mistaken as one that wrote `mutation-receipt = true`. receipt-word-ok: the
 // retired key again, named because the refusal names it.
 func tomlKeySetIn(path, table, key string) bool {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return false
-	}
-	inTable := false
-	for line := range strings.Lines(string(data)) {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "[") {
-			inTable = trimmed == table
-			continue
-		}
-		if !inTable {
-			continue
-		}
-		if k, _, found := strings.Cut(trimmed, "="); found && strings.TrimSpace(k) == key {
-			return true
-		}
-	}
-	return false
+	return decl.Read(path, strings.Trim(table, "[]")).Written(key)
 }

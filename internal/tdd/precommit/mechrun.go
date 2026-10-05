@@ -280,7 +280,7 @@ func queuedRejectMessage(r Runner, targetDir string, waited time.Duration) strin
 	if o, ok := ReadBuildSlotOwner(targetDir); ok {
 		fmt.Fprintf(&b, "holder: %q in %s (pid %d, held %s)\n", o.Cmd, o.Cwd, o.PID, time.Since(o.Started).Round(time.Second))
 	}
-	b.WriteString("Wait for that build to finish and commit again, raise APHROLLO_LOCK_WAIT_SECS, or commit with --no-verify if you mean to skip the gate.\n")
+	b.WriteString("Wait for that build to finish and commit again, raise budgets.lock_wait_s in the user's config, or commit with --no-verify if you mean to skip the gate.\n")
 	return b.String()
 }
 

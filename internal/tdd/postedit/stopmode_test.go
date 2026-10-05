@@ -209,3 +209,17 @@ func TestRenderStopVerdict_GuidanceIsAMessageNotADecision(t *testing.T) {
 		}
 	}
 }
+
+func TestStopMode_TrellisOffSilencesTheStopAndTheEditHookLikeTddOff(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	crate := mkProject(t, "Cargo.toml")
+	redJobAt(t, crate)
+	t.Setenv("TRELLIS_OFF", "1")
+	got := DecideStop(StopHookStop, stopPayload(t, "stop.json", stopFields(crate)))
+	if got.Block || got.Guidance != "" {
+		t.Fatalf("verdict = %+v, want nothing under TRELLIS_OFF", got)
+	}
+	if _, ok := captureStateSnapshot(stopSession, filepath.Join(crate, "src", "lib.rs"), crate, nil); ok {
+		t.Fatal("the edit hook must stay silent under TRELLIS_OFF, as it does under /tdd off")
+	}
+}

@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
 )
 
@@ -335,12 +335,7 @@ func fileContentHash(path string) string {
 // deferredMax is the ceiling on a detached phase's life: past this the next
 // hook abandons it rather than waiting forever on a wedged process.
 func deferredMax() time.Duration {
-	if raw := strings.TrimSpace(os.Getenv(deferredMaxEnv)); raw != "" {
-		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
-			return time.Duration(n) * time.Second
-		}
-	}
-	return defaultDeferredMax
+	return time.Duration(config.Box().Positive("budgets.deferred_max_s")) * time.Second
 }
 
 // decodeJob parses a job record, so the detached wrapper reads exactly what
@@ -358,13 +353,5 @@ func decodeJob(data []byte) (DeferredJob, bool) {
 // continues detached. Split budgets could not express "the build ate it all",
 // which is the case that actually happens.
 func PostEditBudget() time.Duration {
-	raw := strings.TrimSpace(os.Getenv("APHROLLO_POSTEDIT_BUDGET_SECS"))
-	if raw == "" {
-		return DefaultPostEditTimeout
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil || n < 0 {
-		return DefaultPostEditTimeout
-	}
-	return time.Duration(n) * time.Second
+	return config.Box().Seconds("budgets.edit_s")
 }

@@ -2,12 +2,12 @@ package escape
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/config/decl"
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 )
@@ -77,40 +77,9 @@ func IssueLabels(repo string) []string {
 }
 
 // tomlArrayKey reads one string-array key out of one table of a TOML file,
-// sorted and deduped. It is the same line scanner cargoAphrolloPackages uses
-// on Cargo.toml, pointed at a different file and table: the key sits directly
-// under its table in any real config, and a parse miss costs only a declared
-// list the tool then does not enforce.
+// sorted and deduped, through the one reader of those tables.
 func tomlArrayKey(path, table, key string) []string {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	inTable, inArray := false, false
-	var out []string
-	for line := range strings.Lines(string(data)) {
-		trimmed := strings.TrimSpace(line)
-		if !inArray && strings.HasPrefix(trimmed, "[") {
-			inTable = trimmed == "["+table+"]"
-			continue
-		}
-		if !inTable {
-			continue
-		}
-		if !inArray {
-			k, val, found := strings.Cut(trimmed, "=")
-			if !found || strings.TrimSpace(k) != key {
-				continue
-			}
-			inArray = true
-			trimmed = val
-		}
-		out = append(out, quotedWords(trimmed)...)
-		if strings.Contains(trimmed, "]") {
-			inArray = false
-		}
-	}
-	return dedupeSorted(out)
+	return dedupeSorted(decl.Read(path, table).List(key))
 }
 
 // CheckIssueLabels refuses a label the repo has not declared, for a caller

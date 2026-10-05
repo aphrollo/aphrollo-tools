@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -28,11 +29,11 @@ const defaultLintWait = 300 * time.Second
 
 // lintWaitDeadline resolves how long `gate lint` waits for the box-wide
 // lint lock, through the SAME parser every other operator budget knob in
-// this package uses (envDurationSecs, cli_gate.go) rather than a second
-// hand-rolled one: APHROLLO_LINT_WAIT_SECS when it names a whole, non-negative
+// this package uses (the config schema's budgets) rather than a second
+// hand-rolled one: budgets.lint_wait_s when it is a whole, non-negative
 // number of seconds, else defaultLintWait.
 func lintWaitDeadline() time.Duration {
-	return envDurationSecs("APHROLLO_LINT_WAIT_SECS", defaultLintWait)
+	return config.Box().Seconds("budgets.lint_wait_s")
 }
 
 // acquireLintLock is tdd.AcquireLintLock by default; a var so a test can

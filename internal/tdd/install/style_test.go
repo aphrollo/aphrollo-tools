@@ -1,6 +1,8 @@
 package install
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -50,5 +52,26 @@ func TestReplyStyleFor_SessionOverrideWinsOverEnv(t *testing.T) {
 	}
 	if got := replyStyleFor(sess); got != "terse" {
 		t.Fatalf("replyStyleFor = %q, want terse (session override over env default)", got)
+	}
+}
+
+// reply_style in the user's config sets the machine-wide default, as the
+// deprecated variable did, and a session's own override still wins over it.
+func TestReplyStyleFor_TheUsersConfigSetsTheMachineDefault(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(ReplyStyleEnvVar, "")
+	dir := t.TempDir()
+	t.Setenv("TRELLIS_CONFIG", dir)
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte("reply_style = \"plain\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := replyStyleFor("sess-config"); got != "plain" {
+		t.Fatalf("replyStyleFor = %q, want plain", got)
+	}
+	if err := setReplyStyle("sess-config", "terse"); err != nil {
+		t.Fatal(err)
+	}
+	if got := replyStyleFor("sess-config"); got != "terse" {
+		t.Fatalf("a session override must win over the config, got %q", got)
 	}
 }
