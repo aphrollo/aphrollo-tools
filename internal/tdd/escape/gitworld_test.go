@@ -68,6 +68,7 @@ func gitworldAddLane(t *testing.T, root, branch string) string {
 // record, however many lanes and branch names it comes through.
 func TestNoteGitWorldEscape_OneClassFromTwoLanesWithDifferentBranchesIsOneRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 	laneA := gitworldAddLane(t, root, "lane/a")
 	laneB := gitworldAddLane(t, root, "lane/b")
@@ -84,6 +85,7 @@ func TestNoteGitWorldEscape_OneClassFromTwoLanesWithDifferentBranchesIsOneRecord
 // different miss from a new branch.
 func TestNoteGitWorldEscape_ADifferentChangedPartIsAnotherRecord(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root := makeGoRepo(t)
 
 	NoteGitWorldEscape(root, "test-map build", "the branches changed:\n+refs/heads/feat/one", io.Discard)
