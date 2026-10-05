@@ -143,3 +143,47 @@ func (e *Engine) guided(rec Record, ev kernel.Event) (Record, bool) {
 	rec.Guided[ev.Unit] = f
 	return rec, true
 }
+
+// HandleAll applies a sequence of facts to one lane as a single transaction:
+// each is decided against the record the one before left, and the whole lot is
+// saved in one Commit, with every event in the log, or none of it is. A context
+// that ends, a store that fails or a lane that keeps changing under it saves
+// nothing, so a caller never leaves a record half folded. Every event must be a
+// fact; an event that names another lane or asks a question is refused whole.
+func (e *Engine) HandleAll(ctx context.Context, lane string, evs []kernel.Event) error {
+	if lane == "" {
+		return ErrNoLane
+	}
+	if len(evs) == 0 {
+		return nil
+	}
+	for _, ev := range evs {
+		if ev.Kind.Question() || ev.Lane != lane {
+			return fmt.Errorf("engine: HandleAll takes facts of lane %q only, got %q of lane %q", lane, ev.Kind, ev.Lane)
+		}
+	}
+	attempts := e.attempts()
+	for range attempts {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		rec, version, err := e.Store.Load(ctx, lane)
+		if err != nil {
+			return fmt.Errorf("engine: load lane %q: %w", lane, err)
+		}
+		next := rec
+		for _, ev := range evs {
+			d := kernel.Decide(next.Lane, next.DecideUnits(ev.Unit), ev, e.Config)
+			next = Record{Lane: d.Lane, Units: d.Units, Guided: next.Settled(ev.Unit), Delivered: next.Delivered}
+		}
+		_, err = e.Store.Commit(ctx, lane, version, next, evs)
+		switch {
+		case err == nil:
+			return nil
+		case errors.Is(err, ErrConflict):
+			continue
+		}
+		return fmt.Errorf("engine: save lane %q: %w", lane, err)
+	}
+	return fmt.Errorf("%w: lane %q after %d attempts", ErrContended, lane, attempts)
+}
