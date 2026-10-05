@@ -95,3 +95,19 @@ func TestLogEditDecision_TheDenyEventNamesAFileBelowTheRootWithForwardSlashes(t 
 		t.Fatalf("event files = %v, want the deny and the escape event both at sub/dir/a_test.go", files)
 	}
 }
+
+// Only the (law, file) pair the deny event names is skipped: the same law at
+// another file is a finding no event carries yet.
+func TestLogLawGuides_ASecondFileOfTheDeniedLawStillGetsItsGuide(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := lawRepo(t)
+	raw, _ := json.Marshal(map[string]any{"tool_name": "Write", "tool_input": map[string]any{"file_path": filepath.Join(root, "widget.go")}})
+	found := []LawFinding{{Law: "denied", Deny: true, File: "widget.go"}, {Law: "denied", Deny: true, File: "other.go"}}
+
+	LogLawGuides(raw, Decision{Action: Block, Policy: "ratchet:denied"}, found)
+
+	if got := guideEvents(t, root); len(got) != 1 || got[0] != "ratchet:denied|other.go|preedit" {
+		t.Fatalf("guide events = %v, want one for the denied law at other.go", got)
+	}
+}

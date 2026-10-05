@@ -129,8 +129,8 @@ func logLawGuides(root, stage string, hits []LawFinding) {
 }
 
 // LogLawGuides records the findings of the pre-edit judge that no deny event
-// carries: every one when the write went ahead, and every one but the law the
-// deny event names when it was refused.
+// carries: every one when the write went ahead, and every one but the law and
+// file the deny event names when it was refused.
 func LogLawGuides(raw []byte, final Decision, found []LawFinding) {
 	if len(found) == 0 {
 		return
@@ -139,10 +139,12 @@ func LogLawGuides(raw []byte, final Decision, found []LawFinding) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return
 	}
-	root, _ := logPlace(editLogPath(in))
+	root, rel := logPlace(editLogPath(in))
 	var rest []LawFinding
 	for _, f := range found {
-		if final.Action == Block && final.Policy == "ratchet:"+f.Law {
+		// The deny event names one law at the edited file; only that pair is
+		// already recorded.
+		if final.Action == Block && final.Policy == "ratchet:"+f.Law && slashPath(f.File) == slashPath(rel) {
 			continue
 		}
 		rest = append(rest, f)
