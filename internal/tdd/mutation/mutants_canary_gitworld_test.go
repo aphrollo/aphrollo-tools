@@ -164,14 +164,14 @@ func TestSnapshotGitWorld_AGitworldMoveOntoAnUnpublishedCommitIsAChange(t *testi
 // system temp dir; it is the gate's by its name.
 func TestIsGateWorktree_TheHeadBaselineCheckoutByNameAndByDir(t *testing.T) {
 	for _, path := range []string{
-		filepath.Join(t.TempDir(), HeadWorktreeDir, HeadWorktreePrefix+"3809243464"),
+		filepath.Join(t.TempDir(), "head-wt", HeadWorktreePrefix+"3809243464"),
 		filepath.Join(t.TempDir(), HeadWorktreePrefix+"42"),
 	} {
 		if !isGateWorktree(path) {
 			t.Errorf("%s is not taken for a gate checkout", path)
 		}
 	}
-	if isGateWorktree(filepath.Join(t.TempDir(), HeadWorktreeDir, "other")) {
+	if isGateWorktree(filepath.Join(t.TempDir(), "head-wt", "other")) {
 		t.Error("an unrelated checkout under head-wt is taken for the gate's")
 	}
 }
