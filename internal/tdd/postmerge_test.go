@@ -311,3 +311,23 @@ func TestPostMergeSweep_BothInstallersWriteThePostMergeShim(t *testing.T) {
 		t.Fatal("per-repo install must write the post-merge hook too")
 	}
 }
+
+// A rebase or an amend fires post-rewrite and neither post-commit nor
+// post-merge, so both installers must write a `post-rewrite` hook calling the
+// `postrewrite` subcommand for the canary to know the commits it wrote.
+func TestPostRewrite_BothInstallersWriteThePostRewriteShim(t *testing.T) {
+	for name, hooks := range map[string][]struct{ Name, Sub string }{"global": gitGateHooks, "per-repo": perRepoHooks} {
+		found := false
+		for _, h := range hooks {
+			if h.Name == "post-rewrite" {
+				found = true
+				if h.Sub != "postrewrite" {
+					t.Errorf("the %s post-rewrite shim calls %q, want postrewrite", name, h.Sub)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("the %s install must write a post-rewrite hook", name)
+		}
+	}
+}

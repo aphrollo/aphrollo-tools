@@ -40,6 +40,9 @@ var gitGateHooks = []struct{ Name, Sub string }{
 	// `prune-lanes-on-merge = true` (see postmerge.go). It cannot block —
 	// the merge has already happened.
 	{"post-merge", "postmerge"},
+	// post-rewrite records the commits a rebase or an amend wrote, which fire
+	// neither post-commit nor post-merge. Never blocks.
+	{"post-rewrite", "postrewrite"},
 	// pre-push is the undercover ref wall for a push that bypasses the git
 	// shim: it refuses a pushed ref whose local or remote name carries a
 	// tell, and is inert unless a workspace opts in with `undercover = true`.

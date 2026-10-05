@@ -49,6 +49,9 @@ var perRepoHooks = []struct{ Name, Sub string }{
 	// the sweep `aphrollo workspace merge` has always ended with, now
 	// reachable from a plain `git merge`. See gitGateHooks.
 	{"post-merge", "postmerge"},
+	// post-rewrite records the commits a rebase or an amend wrote, which fire
+	// neither post-commit nor post-merge. Never blocks.
+	{"post-rewrite", "postrewrite"},
 	// pre-push is the undercover ref wall. See gitGateHooks.
 	{"pre-push", "prepush"},
 }
