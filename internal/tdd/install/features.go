@@ -97,6 +97,18 @@ var features = []Feature{
 		Enable: "race-scope = \"all\"",
 	},
 	{
+		Key: "gocache-cap", Default: "20GB",
+		Effect: "the size `aphrollo gate gc` trims the Go build cache (`go env GOCACHE`) down to, taking the files unused longest first and none used within the last hour",
+		Cost:   "a smaller cap rebuilds more of what the next build needs",
+		Enable: "gocache-cap = \"<size>\", such as \"10GB\"",
+	},
+	{
+		Key: "gocache-age", Default: "12h",
+		Effect: "how long a Go build cache file must have gone unused before the trim may remove it, however far over the cap the cache is; never under an hour",
+		Cost:   "a shorter age lets the trim reach into files a recent build used",
+		Enable: "gocache-age = \"<duration>\", such as \"24h\"",
+	},
+	{
 		Key: "undercover", Default: "off",
 		Effect: "the commit-msg gate refuses AI attribution trailers",
 		Cost:   "none",

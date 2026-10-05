@@ -43,6 +43,12 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	cacheSettings, err := tdd.ReadGoCacheSettings(*repo)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo gate gc: %v\n", err)
+		return 2
+	}
+
 	repos := []string{*repo}
 	if *known {
 		repos = append(repos, tdd.KnownGCRepos()...)
@@ -74,9 +80,11 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	for _, r := range repos {
 		sweep(r, scope)
 	}
+	cacheLine := sweepGoCache(cacheSettings, apply, *known)
 	if !apply {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
+			fmt.Fprint(stdout, cacheLine)
 			retainState(repos, true, stdout, stderr)
 			writeMutantsInUse(stdout)
 			writeProbeBackups(stdout)
@@ -92,6 +100,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
 	retainState(repos, false, stdout, stderr)
 	fmt.Fprint(stdout, tdd.RenderGC(cands, true, freed))
+	fmt.Fprint(stdout, cacheLine)
 	writeMutantsInUse(stdout)
 	writeProbeBackups(stdout)
 	if skipped > 0 {
