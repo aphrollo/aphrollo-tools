@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // `workspace merge --wait` wiring, driven end to end through Run over a real
@@ -38,6 +39,7 @@ func mergeWaitRepo(t *testing.T) (repo, live, done string) {
 	git(done, "add", "done.txt")
 	git(done, "commit", "-q", "-m", "landed work")
 	git(repo, "merge", "-q", "--no-ff", "-m", "merge lane/done", "lane/done")
+	cliAgeLaneGit(t, done)
 	git(repo, "worktree", "add", "-q", "-b", "lane/live", live)
 	writeFile(t, filepath.Join(live, "live.txt"), "live\n")
 	git(live, "add", "live.txt")
@@ -119,5 +121,23 @@ func TestWorkspaceMergeWait_QueueThatStopsStillSweepsTheLandedLane(t *testing.T)
 	}
 	if _, err := os.Stat(done); !os.IsNotExist(err) {
 		t.Errorf("the landed lane %s survived a queue that stopped (stat err %v)\nstderr: %s", done, err, stderr)
+	}
+}
+
+// cliAgeLaneGit sets the times of a lane's git state back an hour. The sweep
+// keeps a lane whose git state changed in the last 30 minutes, since a builder
+// may be in it, and a fixture lane made a moment ago looks like one.
+func cliAgeLaneGit(t *testing.T, wt string) {
+	t.Helper()
+	out, err := fixtureGit("-C", wt, "rev-parse", "--absolute-git-dir").Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitdir := strings.TrimSpace(string(out))
+	old := time.Now().Add(-time.Hour)
+	for _, rel := range []string{"index", "HEAD", filepath.Join("logs", "HEAD")} {
+		if err := os.Chtimes(filepath.Join(gitdir, rel), old, old); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
 	}
 }
