@@ -167,12 +167,18 @@ func TestPruneMergedLanesAfterMerge_NeverPrunesTheMainCloneItself(t *testing.T) 
 // Before issue #382's clean-tree guard this scenario used a DIRTY worktree to
 // make git itself refuse the removal; that path is now caught earlier, by
 // worktreeHasUncommittedWork, with its own "kept ... uncommitted work"
-// message (see TestPruneMergedLanes_KeepsADirtyMergeCommitLandedLane). A lock
-// is what still forces `worktree remove` itself to fail on an otherwise CLEAN
-// tree, exercising the removal-error path this test is actually for.
+// message (see TestPruneMergedLanes_KeepsADirtyMergeCommitLandedLane). A refusal
+// from `worktree remove` itself on an otherwise CLEAN tree exercises the
+// removal-error path this test is actually for (a lock used to force it, and is
+// now a named keep before the removal is tried: TestPruneMergedLanes_KeepsALockedLane).
 func TestPruneMergedLanesAfterMerge_RemovalFailureIsReportedAndTheBranchSurvives(t *testing.T) {
 	mainRepo, mergedWT, freshWT := pruneRepo(t)
-	gitDo(t, mainRepo, "worktree", "lock", mergedWT)
+	prev := gitWorktreeRemoveFn
+	gitWorktreeRemoveFn = func(repo, _ string) error {
+		_, err := git(repo, "worktree", "remove", filepath.Join(repo, "no-such-worktree"))
+		return err
+	}
+	t.Cleanup(func() { gitWorktreeRemoveFn = prev })
 
 	var out, errb bytes.Buffer
 	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)

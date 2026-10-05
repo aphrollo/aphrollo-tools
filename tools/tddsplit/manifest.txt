@@ -594,6 +594,8 @@ memcap_run_windows.go                              lock
 memcap_run_windows_own_test.go                      lock
 mergeaware_test.go                                 precommit
 mergeprune.go                                      merge
+mergeprune_squash.go                               merge
+mergeprune_squash_test.go                          merge
 mergeprune_subject_test.go                         merge
 mergeprune_test.go                                 merge
 mergequeue_record.go                               merge
@@ -1041,6 +1043,8 @@ session_core.go                                    core      # created by P2
 session_identity.go                                tdd
 session_identity_test.go                           tdd
 session_test.go                                    tdd
+sessionactive.go                                   core
+sessionactive_own_test.go                          core
 sessionid.go                                       core
 sessionid_test.go                                  core
 sessionline.go                                     tdd

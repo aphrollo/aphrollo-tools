@@ -6,6 +6,7 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
@@ -66,6 +67,8 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 	}
 	merged := mergedBranchTips(mainRepo, trunk)
 	mainlineTips := trunkFirstParentTips(mainRepo, trunk)
+	recorded := recordedLaneMerges(mainRepo)
+	holds := newLaneHolds(mainRepo, time.Now())
 	mainClean := cleanWorktreePath(mainRepo)
 	excludeClean := cleanWorktreePath(exclude)
 	var pruned []PrunedLane
@@ -79,16 +82,26 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 			continue
 		}
 		examined++
+		how := "merged into " + trunk
 		tip, ok := merged[wt.branch]
 		if !ok {
-			continue // not merged into trunk at all
+			// Not an ancestor: a squash merge lands this way. See mergeprune_squash.go.
+			if how = squashLandedHow(mainRepo, trunk, wt.branch, recorded); how == "" {
+				continue // not merged into trunk at all
+			}
+			how = "landed on " + trunk + ": " + how
+		} else {
+			if mainlineTips[tip] {
+				continue // no commits of its own (issue #144, generalized by #382)
+			}
+			if reason := zeroCommitLaneKeepReason(mainRepo, wt.branch); reason != "" {
+				fmt.Fprintf(stderr, "prune-lanes: kept %s (%s): %s\n", wt.path, wt.branch, reason)
+				continue // issue #644: never carried a commit, or cannot be proven to have
+			}
 		}
-		if mainlineTips[tip] {
-			continue // no commits of its own (issue #144, generalized by #382)
-		}
-		if reason := zeroCommitLaneKeepReason(mainRepo, wt.branch); reason != "" {
+		if reason := holds.reason(wt.path); reason != "" {
 			fmt.Fprintf(stderr, "prune-lanes: kept %s (%s): %s\n", wt.path, wt.branch, reason)
-			continue // issue #644: never carried a commit, or cannot be proven to have
+			continue
 		}
 		dirty, err := worktreeHasUncommittedWork(wt.path)
 		if err != nil {
@@ -103,7 +116,7 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 			fmt.Fprintf(stderr, "prune-lanes: could not prune %s (%s): %v\n", wt.path, wt.branch, err)
 			continue
 		}
-		fmt.Fprintf(stdout, "prune-lanes: pruned %s (%s, merged into %s)\n", wt.path, wt.branch, trunk)
+		fmt.Fprintf(stdout, "prune-lanes: pruned %s (%s, %s)\n", wt.path, wt.branch, how)
 		pruned = append(pruned, PrunedLane{Worktree: wt.path, Branch: wt.branch})
 	}
 	if len(pruned) == 0 {
@@ -358,9 +371,17 @@ func removeMergedLaneWorktree(mainRepo, path, branch string) error {
 	if err := depinstall.RemoveLinks(path); err != nil {
 		return err
 	}
-	if _, err := git(mainRepo, "worktree", "remove", path); err != nil {
+	if err := gitWorktreeRemoveFn(mainRepo, path); err != nil {
 		return err
 	}
 	_, err := git(mainRepo, "branch", "-D", "--", branch)
+	return err
+}
+
+// gitWorktreeRemoveFn is the `git worktree remove` of a landed lane, a seam so
+// a test can make git refuse a removal the sweep's own checks would have caught
+// first (a locked worktree is now kept before it gets this far).
+var gitWorktreeRemoveFn = func(mainRepo, path string) error {
+	_, err := git(mainRepo, "worktree", "remove", path)
 	return err
 }

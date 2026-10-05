@@ -1,0 +1,222 @@
+package merge
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/core"
+)
+
+// squashPruneRepo is a main repo whose lane landed the way the merge queue
+// lands one: as a SQUASH commit, so the lane's own tip is not an ancestor of
+// main and `--merged` never lists it. Trunk then moves on with an unrelated
+// commit.
+func squashPruneRepo(t *testing.T) (mainRepo, laneWT string) {
+	t.Helper()
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	mainRepo = t.TempDir()
+	gitInit(t, mainRepo)
+	gitDo(t, mainRepo, "checkout", "-q", "-B", "main")
+	commitInitial(t, mainRepo)
+
+	laneWT = filepath.Join(t.TempDir(), "sq")
+	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/squashed", laneWT)
+	write(t, laneWT, "feature.go", "package main\n\n// feature\n")
+	gitDo(t, laneWT, "add", "-A")
+	gitDo(t, laneWT, "commit", "-qm", "lane work")
+	write(t, laneWT, "feature.go", "package main\n\n// feature, refined\n")
+	gitDo(t, laneWT, "commit", "-qam", "lane work again")
+
+	gitDo(t, mainRepo, "merge", "-q", "--squash", "lane/squashed")
+	gitDo(t, mainRepo, "commit", "-qm", "feature (#7)")
+	write(t, mainRepo, "other.go", "package main\n\n// unrelated\n")
+	gitDo(t, mainRepo, "add", "-A")
+	gitDo(t, mainRepo, "commit", "-qm", "unrelated trunk work")
+	return mainRepo, laneWT
+}
+
+func prunedLanes(t *testing.T, mainRepo string) (pruned []PrunedLane, stdout, stderr string) {
+	t.Helper()
+	var out, errb bytes.Buffer
+	pruned = PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
+	return pruned, out.String(), errb.String()
+}
+
+func TestPruneMergedLanes_PrunesASquashMergedLaneWhoseTreeTrunkAlreadyHolds(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+
+	pruned, out, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 1 || pruned[0].Branch != "lane/squashed" {
+		t.Fatalf("pruned = %+v, want lane/squashed (stdout %q, stderr %q)", pruned, out, errs)
+	}
+	if _, err := os.Stat(laneWT); !os.IsNotExist(err) {
+		t.Errorf("the squash-merged lane's worktree survived: %v", err)
+	}
+	if gitOutT(t, mainRepo, "branch", "--list", "lane/squashed") != "" {
+		t.Error("the squash-merged lane's branch survived")
+	}
+}
+
+func TestPruneMergedLanes_KeepsASquashMergedLaneThatCarriesWorkTrunkLacks(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	write(t, laneWT, "later.go", "package main\n\n// written after the squash\n")
+	gitDo(t, laneWT, "add", "-A")
+	gitDo(t, laneWT, "commit", "-qm", "work after the merge")
+
+	pruned, _, _ := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 {
+		t.Fatalf("pruned %+v: a lane with a commit trunk lacks must stay", pruned)
+	}
+	if _, err := os.Stat(laneWT); err != nil {
+		t.Errorf("worktree removed: %v", err)
+	}
+}
+
+// squashConflictRepo is a squash-merged lane whose file trunk then rewrote, so
+// the tree test cannot judge it: the recorded merge is the only evidence.
+func squashConflictRepo(t *testing.T) (mainRepo, laneWT string) {
+	t.Helper()
+	mainRepo, laneWT = squashPruneRepo(t)
+	write(t, mainRepo, "feature.go", "package main\n\n// rewritten on trunk\n")
+	gitDo(t, mainRepo, "commit", "-qam", "trunk rewrites the feature")
+	return mainRepo, laneWT
+}
+
+func recordLaneMerge(laneWT string, at time.Time) {
+	core.AppendEvent(core.Event{Kind: "merge", Root: laneWT, Verdict: "ok", At: at.UTC().Format(time.RFC3339),
+		Detail: map[string]string{"pr": "7", "method": "merge queue"}})
+}
+
+func TestPruneMergedLanes_PrunesALaneTheMergeVerbRecordedAsMergedAfterItsLastCommit(t *testing.T) {
+	mainRepo, laneWT := squashConflictRepo(t)
+	recordLaneMerge(laneWT, time.Now().Add(time.Minute))
+
+	pruned, out, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 1 || pruned[0].Branch != "lane/squashed" {
+		t.Fatalf("pruned = %+v, want lane/squashed (stdout %q, stderr %q)", pruned, out, errs)
+	}
+}
+
+func TestPruneMergedLanes_KeepsAConflictingLaneWithNoRecordedMerge(t *testing.T) {
+	mainRepo, laneWT := squashConflictRepo(t)
+
+	pruned, _, _ := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 {
+		t.Fatalf("pruned %+v with neither ancestry, tree nor a recorded merge to show it landed", pruned)
+	}
+	if _, err := os.Stat(laneWT); err != nil {
+		t.Errorf("worktree removed: %v", err)
+	}
+}
+
+func TestPruneMergedLanes_KeepsALaneCommittedToAfterItsRecordedMerge(t *testing.T) {
+	mainRepo, laneWT := squashConflictRepo(t)
+	recordLaneMerge(laneWT, time.Now().Add(-2*time.Hour))
+
+	pruned, _, _ := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 {
+		t.Fatalf("pruned %+v: the lane's newest commit is newer than the merge the log records", pruned)
+	}
+}
+
+func TestPruneMergedLanes_KeepsALaneASessionWorkedInRecently(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	pruneSessionIn(t, "sess-live", laneWT, time.Now().Add(-5*time.Minute))
+
+	pruned, _, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 {
+		t.Fatalf("pruned %+v out from under a session active 5 minutes ago", pruned)
+	}
+	if !strings.Contains(errs, "session") {
+		t.Errorf("stderr %q does not say a session holds the lane", errs)
+	}
+	if _, err := os.Stat(laneWT); err != nil {
+		t.Errorf("worktree removed: %v", err)
+	}
+}
+
+func TestPruneMergedLanes_PrunesALaneWhoseOnlySessionWentQuietLongAgo(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	pruneSessionIn(t, "sess-old", laneWT, time.Now().Add(-3*time.Hour))
+
+	pruned, _, _ := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 1 {
+		t.Fatalf("pruned = %+v, want the quiet lane removed", pruned)
+	}
+}
+
+func TestPruneMergedLanes_KeepsALockedLane(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	gitDo(t, mainRepo, "worktree", "lock", "--reason", "agent holds it", laneWT)
+
+	pruned, _, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 || !strings.Contains(errs, "locked") {
+		t.Fatalf("pruned %+v, stderr %q: a locked worktree must be kept and named", pruned, errs)
+	}
+}
+
+func TestPruneMergedLanes_KeepsALaneClaimedOnTheDevTier(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	claims := t.TempDir()
+	t.Setenv("APHROLLO_DEVCLAIM_DIR", claims)
+	if err := os.Symlink(laneWT, filepath.Join(claims, "web")); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+
+	pruned, _, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 || !strings.Contains(errs, "claim") {
+		t.Fatalf("pruned %+v, stderr %q: a lane the dev units serve must be kept and named", pruned, errs)
+	}
+	if _, err := os.Stat(laneWT); err != nil {
+		t.Errorf("worktree removed: %v", err)
+	}
+}
+
+func TestPruneMergedLanes_RemovesTheLanesInstalledDependenciesWithIt(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	write(t, laneWT, ".gitignore", "node_modules/\n.venv/\n")
+	gitDo(t, laneWT, "add", ".gitignore")
+	gitDo(t, laneWT, "commit", "-qm", "ignore installs")
+	gitDo(t, mainRepo, "merge", "-q", "--squash", "lane/squashed")
+	gitDo(t, mainRepo, "commit", "-qm", "ignore installs (#8)")
+	write(t, laneWT, "node_modules/pkg/index.js", "x")
+	write(t, laneWT, ".venv/lib/site.py", "x")
+
+	pruned, _, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 1 {
+		t.Fatalf("pruned = %+v, stderr %q", pruned, errs)
+	}
+	if _, err := os.Stat(laneWT); !os.IsNotExist(err) {
+		t.Errorf("the lane directory, with its installs, survived: %v", err)
+	}
+}
+
+// pruneSessionIn writes the state file of a session that last stamped a result
+// in root at the given time.
+func pruneSessionIn(t *testing.T, id, root string, at time.Time) {
+	t.Helper()
+	dir := core.StateDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"schema":%d,"by_project":{%q:{"ts":%q}}}`, core.StateSchema, filepath.ToSlash(root), at.UTC().Format(time.RFC3339))
+	if err := os.WriteFile(filepath.Join(dir, id+".json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
