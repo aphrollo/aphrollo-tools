@@ -491,3 +491,35 @@ func editPayload(old, now string) Payload {
 	p.ToolInput.OldString, p.ToolInput.NewString = old, now
 	return p
 }
+
+// An edit is itself newer than any run, so the cover its fold carries is the unit's
+// as it stood before the edit: a covered unit's new code edit leaves no
+// untested-code guidance on the unit, an uncovered one does.
+func TestFoldEdit_CarriesTheUnitsCoverAsItStoodBeforeTheEdit(t *testing.T) {
+	b := newShadowBox(t)
+	b.ledger = []LedgerEdit{{ID: "e2", File: b.file("internal/lane/lane_test.go"), At: t0}}
+	if cause := b.fold("b2", "j2", kernel.VerdictGreen, "e2"); cause != "" {
+		t.Fatalf("fold failed: %q", cause)
+	}
+	_, err := b.store.RecordVerdict(b.ctx(), "b2", b.lane, store.Verdict{Runs: []store.RunVerdict{
+		{Runner: "go", Unit: ".|go test ./internal/lane/...", Result: kernel.VerdictGreen, MS: 1000, At: t0.Add(10 * time.Second)},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.ledger = append(b.ledger, LedgerEdit{ID: "e3", File: b.file("internal/lane/lane.go"), At: t0.Add(time.Minute)})
+	if cause := b.world.FoldEdit(b.ctx(), EditFold{Root: b.root, Actor: "s1", EditID: "e3", File: b.file("internal/lane/lane.go")}); cause != "" {
+		t.Fatalf("FoldEdit = %q", cause)
+	}
+	if b.unit("internal/lane").GuidedUntested {
+		t.Error("a code edit of a covered unit was folded as untested code")
+	}
+	// The same edit of a unit no run covers is untested code.
+	b.ledger = append(b.ledger, LedgerEdit{ID: "e4", File: b.file("internal/store/store.go"), At: t0})
+	if cause := b.world.FoldEdit(b.ctx(), EditFold{Root: b.root, Actor: "s1", EditID: "e4", File: b.file("internal/store/store.go")}); cause != "" {
+		t.Fatalf("FoldEdit = %q", cause)
+	}
+	if !b.unit("internal/store").GuidedUntested {
+		t.Error("a code edit of an uncovered unit was folded as covered")
+	}
+}
