@@ -383,3 +383,33 @@ func TestSetWaiver_AddsAndRemovesAWallWaiver(t *testing.T) {
 		t.Fatalf("setWaiver with no session id: err = %v, want errNoSession", err)
 	}
 }
+
+// TRELLIS_OFF turns the gate off the way `/tdd off` does, for the whole
+// process: a nil state (a payload with no session) is off too.
+func TestGateOff_TrellisOffIsTheProcessWideSpellingOfTddOff(t *testing.T) {
+	t.Setenv("TRELLIS_OFF", "")
+	var on *sessionState
+	if on.GateOff() {
+		t.Fatal("no variable, no state: the gate is on")
+	}
+	session := &sessionState{}
+	if session.GateOff() {
+		t.Fatal("a session that never said /tdd off is on")
+	}
+	session.Overrides.Off = true
+	if !session.GateOff() {
+		t.Fatal("/tdd off must still switch the gate off")
+	}
+	for _, v := range []string{"1", "true", "TRUE", "yes", "on", " 1 "} {
+		t.Setenv("TRELLIS_OFF", v)
+		if !(&sessionState{}).GateOff() || !on.GateOff() {
+			t.Errorf("TRELLIS_OFF=%q must turn the gate off", v)
+		}
+	}
+	for _, v := range []string{"0", "false", "no", "off", "maybe"} {
+		t.Setenv("TRELLIS_OFF", v)
+		if (&sessionState{}).GateOff() {
+			t.Errorf("TRELLIS_OFF=%q must leave the gate on", v)
+		}
+	}
+}

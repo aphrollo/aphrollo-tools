@@ -346,6 +346,17 @@ func AppendGateLogDetail(stage, root, cmd, verdict string, dur time.Duration, de
 	AppendEvent(Event{Kind: kind, Root: root, Stage: stage, Cmd: eventCmd(stage, kind, cmd), Verdict: verdict, Secs: dur.Seconds(), Detail: lineEventDetail(kind, verdict, detail)})
 }
 
+// GateOff reports whether enforcement is off: the session said `/tdd off`, or
+// TRELLIS_OFF is set to 1, true, yes or on for the whole process. A nil state
+// (a payload with no session) is on unless the variable says otherwise.
+func (s *sessionState) GateOff() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("TRELLIS_OFF"))) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return s != nil && s.Overrides.Off
+}
+
 // setOff persists the per-session enforcement override (the `/tdd off|on`
 // escape hatch). It loads, flips the flag, and saves, preserving any recorded
 // project outcomes. An empty session id has nowhere to persist, so it errors.

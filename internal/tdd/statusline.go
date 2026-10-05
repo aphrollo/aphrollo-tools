@@ -50,7 +50,7 @@ func StatusLine(raw []byte) string {
 	var in statusLineInput
 	_ = json.Unmarshal(raw, &in)
 
-	if s, _ := loadSession(in.SessionID); s != nil && s.Overrides.Off {
+	if s, _ := loadSession(in.SessionID); s != nil && s.GateOff() {
 		return badge(ansiGray, tagOff)
 	}
 	colour, tag := statusState(in.SessionID, in.Cwd)
