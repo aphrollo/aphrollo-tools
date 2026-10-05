@@ -5,11 +5,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 )
 
 // A `go test -race` run over twenty packages is one command with one budget.
@@ -40,11 +40,6 @@ const (
 	// cut into runs that finish, low enough that a handful of them stay one run.
 	unknownRacePkgSecs  = 90.0
 	unknownPlainPkgSecs = 30.0
-	// defaultOverallBudget bounds all the runs of one split list together.
-	defaultOverallBudget = 45 * time.Minute
-
-	mechOverallEnv  = "APHROLLO_MECH_TOTAL_SECS"
-	mechParallelEnv = "APHROLLO_MECH_PARALLEL"
 )
 
 // GoTestPlan is how one `go test` run of a package list is carried out: as
@@ -142,17 +137,14 @@ func (p GoTestPlan) Describe() string {
 // number keeps the default: a mistyped cap must never become an instant
 // timeout.
 func splitOverallBudget() time.Duration {
-	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(mechOverallEnv))); err == nil && n > 0 {
-		return time.Duration(n) * time.Second
-	}
-	return defaultOverallBudget
+	return time.Duration(config.Box().Positive("budgets.mech_total_s")) * time.Second
 }
 
 // splitParallelism is how many runs go side by side: the build-slot count
 // unless the operator names another, never more than there are runs.
 func splitParallelism(runs int) int {
 	n := buildSlotCount()
-	if v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(mechParallelEnv))); err == nil && v >= 1 {
+	if v := config.Box().Positive("box.mech_parallel"); v >= 1 {
 		n = v
 	}
 	return max(1, min(n, runs))

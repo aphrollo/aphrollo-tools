@@ -120,7 +120,11 @@ var schema = []Key{
 	{Name: "budgets.git_wait_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(1200), Layers: inUser, Table: "budgets", Field: "git_wait_s"},
 	{Name: "budgets.lint_wait_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(300), Layers: inUser, Table: "budgets", Field: "lint_wait_s"},
 	{Name: "budgets.deferred_max_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(600), Layers: inUser, Table: "budgets", Field: "deferred_max_s"},
+	// budgets.mech_total_s bounds all the runs of one split `go test` list together.
 	{Name: "budgets.mech_total_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(2700), Layers: inUser, Table: "budgets", Field: "mech_total_s"},
+	// box.build_slots defaults to two: two sessions building into one target dir at half
+	// jobs each, the observed sweet spot between one session at a time and the
+	// link-wave OOM an uncapped free-for-all produced.
 	{Name: "box.build_slots", Kind: tomlsubset.Int, Min: anyInt, Default: num(2), Layers: inUser, Table: "box", Field: "build_slots"},
 	{Name: "box.mech_parallel", Kind: tomlsubset.Int, Min: anyInt, Default: num(0), Layers: inUser, Table: "box", Field: "mech_parallel"},
 	{Name: "reply_style", Kind: tomlsubset.String, Enum: []string{"terse", "plain"}, Default: str("terse"), Layers: inUser, Field: "reply_style"},

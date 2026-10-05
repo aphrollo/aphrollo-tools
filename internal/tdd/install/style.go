@@ -2,8 +2,9 @@ package install
 
 import (
 	_ "embed"
-	"os"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 )
 
 // The gate used to rely on a third-party "caveman" plugin to keep replies
@@ -36,7 +37,7 @@ func effectiveReplyStyle(s *sessionState) string {
 	if s != nil && s.Overrides.Style != "" {
 		return s.Overrides.Style
 	}
-	if os.Getenv(ReplyStyleEnvVar) == "plain" {
+	if config.Box().Get("reply_style").Value.S == "plain" {
 		return "plain"
 	}
 	return "terse"

@@ -28,6 +28,7 @@ func TestPositive_ZeroAndNegativeKeepTheDefault(t *testing.T) {
 	}{
 		{"", 2700},
 		{"[budgets]\nmech_total_s = 60\n", 60},
+		{"[budgets]\nmech_total_s = 1\n", 1},
 		{"[budgets]\nmech_total_s = 0\n", 2700},
 		{"[budgets]\nmech_total_s = -1\n", 2700},
 	} {

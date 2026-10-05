@@ -7,9 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 )
 
 // Two locks, because there are two different constraints:
@@ -30,14 +31,9 @@ import (
 // -- a full box must never leave target dirs locked by builds that never
 // started.
 
-// buildSlotsEnv overrides how many concurrent builds one target dir admits.
+// buildSlotsEnv is the deprecated variable of box.build_slots, how many
+// concurrent builds one target dir admits; the config reads it.
 const buildSlotsEnv = "APHROLLO_BUILD_SLOTS"
-
-// defaultBuildSlots is the shipped slot count: two sessions building into
-// one target dir at half jobs each, which is the observed sweet spot
-// between "one session at a time" and the link-wave OOM an uncapped
-// free-for-all produced.
-const defaultBuildSlots = 2
 
 // BuildSlot identifies an acquired build slot: which slot of the target
 // dir's key, the lock and owner files it owns, and the CARGO_BUILD_JOBS
@@ -53,18 +49,7 @@ type BuildSlot struct {
 // negative count would admit nobody) and falling back to the default for
 // anything unparseable.
 func buildSlotCount() int {
-	raw := strings.TrimSpace(os.Getenv(buildSlotsEnv))
-	if raw == "" {
-		return defaultBuildSlots
-	}
-	n, err := strconv.Atoi(raw)
-	if err != nil {
-		return defaultBuildSlots
-	}
-	if n < 1 {
-		return 1
-	}
-	return n
+	return max(1, config.Box().Get("box.build_slots").Value.N)
 }
 
 // resolveTargetDir resolves the directory a cargo build launched at
