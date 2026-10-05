@@ -112,3 +112,20 @@ func TestRecordedSince_IsWhatWasRecordedAfterTheMark(t *testing.T) {
 		t.Errorf("recorded since 0 = %v, want all three", all)
 	}
 }
+
+func TestRecordedSince_TheEdgesOfTheMark(t *testing.T) {
+	dir := repoWithState(t)
+	run(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
+	a, b := strings.Repeat("1", 40), strings.Repeat("2", 40)
+	RecordSHAs(dir, []string{a, b})
+
+	if got := RecordedSince(dir, 2); len(got) != 0 {
+		t.Errorf("since the mark at the end = %v, want nothing", got)
+	}
+	if got := RecordedSince(dir, 1); len(got) != 1 || !got[b] {
+		t.Errorf("since 1 = %v, want only the second", got)
+	}
+	if got := RecordedSince(dir, -5); len(got) != 2 {
+		t.Errorf("since a negative mark = %v, want everything", got)
+	}
+}
