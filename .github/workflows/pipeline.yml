@@ -414,11 +414,15 @@ jobs:
       # there. This is a stopgap raising the deadline to the number the
       # package needs, not a fix for the underlying runtime: #135 (splitting
       # the package) is the real fix, tracked by #424, which stays open.
+      # 1500s, not 600s (#1239): a pull_request run on a developer box (ci run, the
+      # fallback when hosted runners never start) runs this step below normal
+      # priority beside other work, and internal/cli alone then outran 600s under
+      # -race. The hosted job is still bounded by timeout-minutes above.
       - name: Test (race + shuffle)
         if: needs.changes.outputs.code == 'true'
         run: |
           set -o pipefail
-          go test -race -count=1 -shuffle=on -timeout=600s -v ./... | tee test-output.log
+          go test -race -count=1 -shuffle=on -timeout=1500s -v ./... | tee test-output.log
       # The refactor/sqlc e2e tests self-skip silently (a `t.Skip` reads as a
       # pass), so a pipe wiring or capability-negotiation regression could
       # land on main green with nobody noticing the coverage never ran. This

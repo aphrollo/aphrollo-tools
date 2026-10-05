@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -218,5 +219,27 @@ func TestPipeline_TestWindowsRunsTheRaceSuiteInShardsOnAHostedWindowsRunner(t *t
 	}
 	if strings.Contains(job, "self-hosted") {
 		t.Errorf("test-windows must run on a hosted runner")
+	}
+}
+
+// A pull_request run on this repo's own box (ci run, the local fallback when
+// hosted runners are down) runs the `test` job below normal priority beside
+// whatever else the box is doing, and internal/cli alone then outran 600s under
+// -race. go's -timeout is per test binary, so the job's one number is the
+// ceiling for the slowest package: it has to be the one the Windows shards
+// already give a loaded run.
+func TestPipeline_TestJobTimeoutOutlastsALoadedRaceRunOfTheCliPackage(t *testing.T) {
+	t.Parallel()
+	job := pipelineJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"), "test")
+	m := regexp.MustCompile(`go test -race -count=1 -shuffle=on -timeout=(\d+)s`).FindStringSubmatch(job)
+	if m == nil {
+		t.Fatalf("the test job runs no `go test -race ... -timeout=<n>s`:\n%s", job)
+	}
+	secs, err := strconv.Atoi(m[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secs < 1500 {
+		t.Errorf("the test job's -timeout is %ds, want at least 1500s: internal/cli passed 600s only on an idle box", secs)
 	}
 }
