@@ -18,6 +18,8 @@ func StateDir() string { return core.StateDir() }
 
 func TryAcquireFileLock(p0 string) (func(), bool) { return core.TryAcquireFileLock(p0) }
 
+func aphrolloTomlString(p0 string, p1 string) (string, bool) { return core.AphrolloTomlString(p0, p1) }
+
 func formatBytes(p0 int64) string { return core.FormatBytes(p0) }
 
 func formatDays(p0 time.Duration) string { return core.FormatDays(p0) }
