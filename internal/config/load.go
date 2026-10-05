@@ -251,7 +251,7 @@ func (r *reader) flags(flags map[string]string) {
 
 // resolve picks, per key, the claim that wins.
 func (r *reader) resolve() *Config {
-	cfg := &Config{settings: map[string]Setting{}, diags: r.diags, legacy: r.legacy}
+	cfg := &Config{settings: map[string]Setting{}, diags: ordered(r.diags), legacy: r.legacy}
 	best := map[string]claim{}
 	for _, c := range r.claims {
 		if cur, ok := best[c.key.Name]; !ok || c.rank >= cur.rank {
@@ -381,4 +381,24 @@ func normalizeUser(text string) string {
 		lines[i] = m[1] + id + l[len(m[0]):]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// ordered puts diagnostics in the order the layers were read and, within one
+// file, by line: a refused line is found before the keys beside it are
+// judged, and the reader should not see that.
+func ordered(diags []Diagnostic) []Diagnostic {
+	firstSeen := map[string]int{}
+	for _, d := range diags {
+		if _, ok := firstSeen[d.File]; !ok {
+			firstSeen[d.File] = len(firstSeen)
+		}
+	}
+	sort.SliceStable(diags, func(i, j int) bool {
+		a, b := diags[i], diags[j]
+		if a.File != b.File {
+			return firstSeen[a.File] < firstSeen[b.File]
+		}
+		return a.Line < b.Line
+	})
+	return diags
 }
