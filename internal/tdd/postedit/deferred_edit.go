@@ -293,7 +293,7 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 		// overwrite the last REAL outcome in state — same posture as a
 		// timeout (issues #350, #354).
 		AppendGateLog("postedit", root, strings.Join(j.Runner, " "), InfraFailed, res.Duration)
-		queueShadowRun(j.Phase, out, res, root, j.Session, j.EditID, string(InfraFailed))
+		queueShadowRun(j.Phase, out, res, root, j.Session, j.EditID, j.Runner, string(InfraFailed))
 		return infraFailureLine(root, j, res)
 	}
 	kernelRes := res // as read, before the empty-pass adjustment below
@@ -301,7 +301,7 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 		res.Passed = true
 	}
 	line, word := judgeEditResultWord(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA)
-	queueShadowRun(j.Phase, out, kernelRes, root, j.Session, j.EditID, word)
+	queueShadowRun(j.Phase, out, kernelRes, root, j.Session, j.EditID, j.Runner, word)
 	note := lintGuidance(j, out.RunID)
 	if note != "" {
 		removeLintNotice(j.Session, out.RunID) // said on the run's line, not again

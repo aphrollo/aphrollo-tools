@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -36,10 +37,14 @@ const (
 type StopVerdict struct {
 	Block  bool
 	Reason string
-	// Red is set when the block is a red the session had not been told of (the
-	// lane's own or a finished deferred run's), the fact the shadow record of the
-	// kernel's stop-red rule reads. It changes nothing in what is rendered.
-	Red bool
+	// Red is aphrollo's own finding at a Stop or SubagentStop: the actor has a red it
+	// had not been told of outstanding (the lane's own or a finished deferred
+	// run's), whatever the check then did about it (it allows under stop_hook_active
+	// and with the gate off). RedTrees are the trees of the lane's reds it is about,
+	// none for a red only a job record holds. The shadow record of the kernel's
+	// stop-red rule reads both; they change nothing in what is rendered.
+	Red      bool
+	RedTrees []string
 }
 
 // stopInput is the part of the Stop, SubagentStop and TaskCompleted payloads
@@ -69,6 +74,50 @@ func DecideStop(event StopEvent, raw []byte) StopVerdict {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return StopVerdict{}
 	}
+	// The unseen-red fact is read before the check, which marks what it tells seen.
+	var red bool
+	var trees []string
+	if event != StopHookTaskCompleted {
+		red, trees = unseenRedFact(event, in.SessionID, in.Cwd)
+	}
+	v := decideStop(event, in)
+	if event != StopHookTaskCompleted {
+		v.Red, v.RedTrees = red, trees
+	}
+	return v
+}
+
+// unseenRedFact says whether the actor has a red it has not been told of: a lane
+// red the store holds for the tree cwd stands in (its tree key is returned), or a
+// finished deferred run of the session (the whole session for a Stop, the cwd's
+// checkout for a SubagentStop). It marks and removes nothing.
+func unseenRedFact(event StopEvent, session, cwd string) (bool, []string) {
+	if session == "" {
+		return false, nil
+	}
+	var trees []string
+	if cwd != "" && anyLaneRed() {
+		tree := stopTreeFn(cwd)
+		// The pointers' own keys, unchecked against the tree as it is now: that is a
+		// git spawn the check itself makes once and this read must not add.
+		for _, p := range laneRedsWithin(tree) {
+			if !redSeen(session, p.Key) && !slices.Contains(trees, p.Key) {
+				trees = append(trees, p.Key)
+			}
+		}
+	}
+	if len(trees) > 0 {
+		return true, trees
+	}
+	reds := finishedReds(session)
+	if len(reds) > 0 && event == StopHookSubagentStop && cwd != "" {
+		reds = redsWithin(reds, stopTreeFn(cwd))
+	}
+	return len(reds) > 0, nil
+}
+
+// decideStop is DecideStop's check, over a payload already read.
+func decideStop(event StopEvent, in stopInput) StopVerdict {
 	state, _ := loadSession(in.SessionID)
 	if !stopCheckEnforced(state) {
 		return StopVerdict{}

@@ -295,7 +295,7 @@ func (w World) FoldEdit(ctx context.Context, f EditFold) string {
 	}
 	var before []LedgerEdit
 	for _, e := range w.Edits(f.Root) {
-		if e.ID != f.EditID {
+		if !slices.Contains(strings.Split(f.EditID, ","), e.ID) { // a shell call's edits share one joined id
 			before = append(before, e)
 		}
 	}
