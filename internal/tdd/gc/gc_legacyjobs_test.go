@@ -9,17 +9,17 @@ import (
 func TestGCLegacyJobs_ProposesOnlyAWeekIdleJobDirectoriesNoLiveRecordPointsInto(t *testing.T) {
 	jobs := t.TempDir()
 	stale := filepath.Join(jobs, "job-stale")
-	mkFile(t, filepath.Join(stale, "out", "log.txt"), "x", 10*24*time.Hour)
+	mkFile(t, filepath.Join(stale, "tmp", "base-target", "log.txt"), "x", 10*24*time.Hour)
 	fresh := filepath.Join(jobs, "job-fresh")
-	mkFile(t, filepath.Join(fresh, "log.txt"), "x", 24*time.Hour)
+	mkFile(t, filepath.Join(fresh, "tmp", "base-target", "log.txt"), "x", 24*time.Hour)
 	mixed := filepath.Join(jobs, "job-mixed")
-	mkFile(t, filepath.Join(mixed, "old.txt"), "x", 10*24*time.Hour)
+	mkFile(t, filepath.Join(mixed, "tmp", "base-target", "old.txt"), "x", 10*24*time.Hour)
 	mkFile(t, filepath.Join(mixed, "new.txt"), "x", time.Hour)
 	live := filepath.Join(jobs, "job-live")
-	mkFile(t, filepath.Join(live, "log.txt"), "x", 10*24*time.Hour)
+	mkFile(t, filepath.Join(live, "tmp", "base-target", "log.txt"), "x", 10*24*time.Hour)
 	mkFile(t, filepath.Join(jobs, "stray-file.txt"), "x", 10*24*time.Hour)
 
-	got := gcLegacyJobs(jobs, time.Now(), []string{filepath.Join(live, "log.txt")})
+	got := gcLegacyJobs(jobs, time.Now(), []string{filepath.Join(live, "tmp", "base-target", "log.txt")})
 
 	if len(got) != 1 || got[0].Path != stale || got[0].Kind != GCKindTempLitter || got[0].Size == 0 {
 		t.Fatalf("candidates = %+v, want exactly %s", got, stale)

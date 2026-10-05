@@ -91,6 +91,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 			retainState(repos, true, stdout, stderr)
 			writeMutantsInUse(stdout)
 			writeProbeBackups(stdout)
+			writeLegacyJobsLeftAlone(stdout)
 		}
 		return 0
 	}
@@ -146,5 +147,13 @@ func gcScopeFromFlags(lockAge string) (tdd.GCScope, error) {
 func writeProbeBackups(stdout io.Writer) {
 	for _, line := range probeBackupListing(time.Now()) {
 		fmt.Fprintln(stdout, line)
+	}
+}
+
+// writeLegacyJobsLeftAlone names the directories of the config dir's jobs
+// directory the sweep leaves because nothing in them shows they are ours.
+func writeLegacyJobsLeftAlone(stdout io.Writer) {
+	for _, p := range tdd.LegacyJobsLeftAlone() {
+		fmt.Fprintf(stdout, "left alone, not shown to be ours: %s\n", p)
 	}
 }

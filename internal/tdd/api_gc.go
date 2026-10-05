@@ -25,6 +25,8 @@ func GoCacheTrimDue() bool { return gc.GoCacheTrimDue() }
 
 func KnownGCRepos() []string { return gc.KnownGCRepos() }
 
+func LegacyJobsLeftAlone() []string { return gc.LegacyJobsLeftAlone() }
+
 func MutantsCopiesInUse(p0 []string) []string { return gc.MutantsCopiesInUse(p0) }
 
 func MutantsTempDirs() []string { return gc.MutantsTempDirs() }
