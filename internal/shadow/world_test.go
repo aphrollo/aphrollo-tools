@@ -2,6 +2,7 @@ package shadow
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -387,6 +388,9 @@ func TestWorld_DoesNotFollowTrunkLanesOrThePrimaryCheckout(t *testing.T) {
 	primary := tree(t, ".git/HEAD", ".git/worktrees/wt/HEAD", "go.mod", "internal/lane/lane.go")
 	plain := tree(t, ".git/HEAD", "go.mod", "internal/lane/lane.go")
 	b.lane = "lane/feature"
+	if err := os.MkdirAll(filepath.Join(plain, ".git", "worktrees"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if recs := b.world.RedGreen(b.ctx(), Payload{}, []string{filepath.Join(primary, "internal", "lane", "lane.go")}); len(recs) != 0 {
 		t.Errorf("the primary checkout: red-green made records %+v", recs)
 	}
