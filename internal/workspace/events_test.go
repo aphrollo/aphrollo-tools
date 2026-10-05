@@ -150,8 +150,8 @@ func TestMergeApply_RecordsTheMergeAndTheCIItRead(t *testing.T) {
 
 	evs := emitted(t)
 	merges := ofKind(evs, "merge")
-	if len(merges) != 1 || merges[0].Detail["pr"] != "18" || merges[0].Detail["method"] != "squash" {
-		t.Fatalf("merge events = %+v, want one for PR 18 by squash", merges)
+	if len(merges) != 1 || merges[0].Detail["pr"] != "18" || merges[0].Detail["method"] != "squash" || merges[0].Detail["head"] != "abc123" {
+		t.Fatalf("merge events = %+v, want one for PR 18 by squash naming the head abc123 it landed", merges)
 	}
 	cis := ofKind(evs, "ci")
 	if len(cis) != 1 || cis[0].Detail["sha"] != "abc123" || cis[0].Detail["pr"] != "18" {

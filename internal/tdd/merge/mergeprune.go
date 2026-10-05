@@ -86,8 +86,15 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 		tip, ok := merged[wt.branch]
 		if !ok {
 			// Not an ancestor: a squash merge lands this way. See mergeprune_squash.go.
-			if how = squashLandedHow(mainRepo, trunk, wt.branch, recorded); how == "" {
+			var pushed bool
+			how, pushed = squashLandedHow(mainRepo, trunk, wt.branch, recorded)
+			if how == "" {
 				continue // not merged into trunk at all
+			}
+			if !pushed && !laneTipOnARemote(mainRepo, wt.branch) {
+				// `branch -D` below would be the last copy of these commits.
+				fmt.Fprintf(stderr, "prune-lanes: kept %s (%s): unpushed commits (no remote holds its tip)\n", wt.path, wt.branch)
+				continue
 			}
 			how = "landed on " + trunk + ": " + how
 		} else {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -25,59 +24,86 @@ import (
 //     made in memory by `git merge-tree`, is clean and leaves trunk's own tree
 //     unchanged: every change the lane made is in trunk.
 //  2. The merge verb recorded the lane as merged (a merge event with its lane
-//     and verdict ok, written by `workspace merge` and by the queue's landing),
-//     and the lane's newest commit is not newer than that record. Trunk may
-//     have moved on and rewritten the lane's files since, which the first fact
-//     cannot judge; a commit made after the record is work trunk never saw.
+//     and verdict ok, written by `workspace merge` and by the queue's landing)
+//     and the head commit it landed, and the lane's tip is that head or an
+//     ancestor of it. Trunk may have moved on and rewritten the lane's files
+//     since, which the first fact cannot judge. A commit made after the merge
+//     is not the head and not behind it, so it is work trunk never saw; times
+//     are never compared, so a skewed clock cannot hide one.
 //
 // A branch that is not an ancestor always has a commit trunk lacks, so neither
 // fact can read a lane that never carried work (issues #144, #382, #644) as
 // landed.
+//
+// The sweep deletes the lane's branch with `branch -D`, which keeps no commit
+// alive but the ones trunk or a remote holds. Fact 2 proves the tip was pushed
+// (GitHub merged that very head). Fact 1 proves only that the changes are in
+// trunk, which a commit and its revert satisfy with nothing pushed, so a lane
+// on fact 1 alone is removed only when some remote-tracking ref holds its tip
+// (laneTipOnARemote); otherwise it is kept as having unpushed commits.
 
 // laneQuietFor is how long a session must have left a lane alone before the
 // sweep may remove it. The kernel's own settle time for a merged lane (§3).
 const laneQuietFor = 30 * time.Minute
 
-// recordedLaneMerges is, per lane branch, the time of each merge the event log
-// records for it.
-func recordedLaneMerges(mainRepo string) map[string][]time.Time {
-	out := map[string][]time.Time{}
-	for _, e := range core.ReadEvents(mainRepo) {
+// recordedLaneMerges is, per lane branch, the head commit of each merge the
+// event log records for it. A merge landed by the queue after the verb left
+// takes its head from the queued event of the same PR.
+func recordedLaneMerges(mainRepo string) map[string][]string {
+	events := core.ReadEvents(mainRepo)
+	headOfPR := map[string]string{}
+	for _, e := range events {
+		if e.Kind == "merge" && e.Detail["pr"] != "" && e.Detail["head"] != "" {
+			headOfPR[e.Detail["pr"]] = e.Detail["head"]
+		}
+	}
+	out := map[string][]string{}
+	for _, e := range events {
 		if e.Kind != "merge" || e.Verdict != "ok" || e.Lane == "" {
 			continue
 		}
-		if at, err := time.Parse(time.RFC3339, e.At); err == nil {
-			out[e.Lane] = append(out[e.Lane], at)
+		head := e.Detail["head"]
+		if head == "" {
+			head = headOfPR[e.Detail["pr"]]
+		}
+		if head != "" {
+			out[e.Lane] = append(out[e.Lane], head)
 		}
 	}
 	return out
 }
 
 // squashLandedHow names the evidence that branch landed on trunk although its
-// tip is not an ancestor of it, or "" when there is none.
-func squashLandedHow(mainRepo, trunk, branch string, recorded map[string][]time.Time) string {
+// tip is not an ancestor of it, or "" when there is none. pushed says the
+// evidence also proves the tip reached a remote.
+func squashLandedHow(mainRepo, trunk, branch string, recorded map[string][]string) (how string, pushed bool) {
 	ref := "refs/heads/" + branch
-	if times := recorded[branch]; len(times) > 0 {
-		if tip, ok := tipCommitTime(mainRepo, ref); ok {
-			for _, at := range times {
-				if !tip.After(at) {
-					return "its merge is recorded"
-				}
+	tip := gitOut(mainRepo, "rev-parse", "--verify", "-q", ref+"^{commit}")
+	if tip != "" {
+		for _, head := range recorded[branch] {
+			if tip == head || tipBehind(mainRepo, tip, head) {
+				return "its merge is recorded", true
 			}
 		}
 	}
 	if laneTreeInTrunk(mainRepo, trunk, ref) {
-		return "trunk holds its changes"
+		return "trunk holds its changes", false
 	}
-	return ""
+	return "", false
 }
 
-func tipCommitTime(mainRepo, ref string) (time.Time, bool) {
-	sec, err := strconv.ParseInt(gitOut(mainRepo, "log", "-1", "--format=%ct", ref), 10, 64)
-	if err != nil {
-		return time.Time{}, false
-	}
-	return time.Unix(sec, 0), true
+// tipBehind reports whether tip is head or an ancestor of it.
+func tipBehind(mainRepo, tip, head string) bool {
+	_, err := git(mainRepo, "merge-base", "--is-ancestor", tip, head)
+	return err == nil
+}
+
+// laneTipOnARemote reports whether some remote-tracking ref already holds
+// every commit of the lane's tip: `rev-list <tip> --not --remotes` is empty.
+// A repo with no remote, or a git that cannot answer, reads as no.
+func laneTipOnARemote(mainRepo, branch string) bool {
+	out, err := git(mainRepo, "rev-list", "-n", "1", "refs/heads/"+branch, "--not", "--remotes")
+	return err == nil && strings.TrimSpace(out) == ""
 }
 
 // laneTreeInTrunk reports whether merging ref into trunk changes nothing: the

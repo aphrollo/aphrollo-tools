@@ -50,6 +50,7 @@ func prunedLanes(t *testing.T, mainRepo string) (pruned []PrunedLane, stdout, st
 
 func TestPruneMergedLanes_PrunesASquashMergedLaneWhoseTreeTrunkAlreadyHolds(t *testing.T) {
 	mainRepo, laneWT := squashPruneRepo(t)
+	pruneLanePush(t, mainRepo, "lane/squashed")
 
 	pruned, out, errs := prunedLanes(t, mainRepo)
 
@@ -66,6 +67,7 @@ func TestPruneMergedLanes_PrunesASquashMergedLaneWhoseTreeTrunkAlreadyHolds(t *t
 
 func TestPruneMergedLanes_KeepsASquashMergedLaneThatCarriesWorkTrunkLacks(t *testing.T) {
 	mainRepo, laneWT := squashPruneRepo(t)
+	pruneLanePush(t, mainRepo, "lane/squashed")
 	write(t, laneWT, "later.go", "package main\n\n// written after the squash\n")
 	gitDo(t, laneWT, "add", "-A")
 	gitDo(t, laneWT, "commit", "-qm", "work after the merge")
@@ -90,14 +92,25 @@ func squashConflictRepo(t *testing.T) (mainRepo, laneWT string) {
 	return mainRepo, laneWT
 }
 
-func recordLaneMerge(laneWT string, at time.Time) {
-	core.AppendEvent(core.Event{Kind: "merge", Root: laneWT, Verdict: "ok", At: at.UTC().Format(time.RFC3339),
-		Detail: map[string]string{"pr": "7", "method": "merge queue"}})
+func recordLaneMerge(laneWT, head string) {
+	core.AppendEvent(core.Event{Kind: "merge", Root: laneWT, Verdict: "ok",
+		Detail: map[string]string{"pr": "7", "method": "merge queue", "head": head}})
+}
+
+// pruneLanePush gives the repo an origin and pushes the lane to it, as the lane
+// of a PR is before it merges.
+func pruneLanePush(t *testing.T, mainRepo, branch string) {
+	t.Helper()
+	remote := filepath.Join(t.TempDir(), "origin.git")
+	gitDo(t, t.TempDir(), "init", "-q", "--bare", remote)
+	gitDo(t, mainRepo, "remote", "add", "origin", remote)
+	gitDo(t, mainRepo, "push", "-q", "origin", branch)
 }
 
 func TestPruneMergedLanes_PrunesALaneTheMergeVerbRecordedAsMergedAfterItsLastCommit(t *testing.T) {
 	mainRepo, laneWT := squashConflictRepo(t)
-	recordLaneMerge(laneWT, time.Now().Add(time.Minute))
+	// Never pushed from here: the recorded head is itself the proof GitHub held it.
+	recordLaneMerge(laneWT, gitValue(t, laneWT, "rev-parse", "HEAD"))
 
 	pruned, out, errs := prunedLanes(t, mainRepo)
 
@@ -121,17 +134,21 @@ func TestPruneMergedLanes_KeepsAConflictingLaneWithNoRecordedMerge(t *testing.T)
 
 func TestPruneMergedLanes_KeepsALaneCommittedToAfterItsRecordedMerge(t *testing.T) {
 	mainRepo, laneWT := squashConflictRepo(t)
-	recordLaneMerge(laneWT, time.Now().Add(-2*time.Hour))
+	recordLaneMerge(laneWT, gitValue(t, laneWT, "rev-parse", "HEAD"))
+	write(t, laneWT, "after.go", "package main\n\n// made after the queued head\n")
+	gitDo(t, laneWT, "add", "-A")
+	gitDo(t, laneWT, "commit", "-qm", "work after the merged head")
 
 	pruned, _, _ := prunedLanes(t, mainRepo)
 
 	if len(pruned) != 0 {
-		t.Fatalf("pruned %+v: the lane's newest commit is newer than the merge the log records", pruned)
+		t.Fatalf("pruned %+v: the lane holds a commit after the head the log records", pruned)
 	}
 }
 
 func TestPruneMergedLanes_KeepsALaneASessionWorkedInRecently(t *testing.T) {
 	mainRepo, laneWT := squashPruneRepo(t)
+	pruneLanePush(t, mainRepo, "lane/squashed")
 	pruneSessionIn(t, "sess-live", laneWT, time.Now().Add(-5*time.Minute))
 
 	pruned, _, errs := prunedLanes(t, mainRepo)
@@ -149,6 +166,7 @@ func TestPruneMergedLanes_KeepsALaneASessionWorkedInRecently(t *testing.T) {
 
 func TestPruneMergedLanes_PrunesALaneWhoseOnlySessionWentQuietLongAgo(t *testing.T) {
 	mainRepo, laneWT := squashPruneRepo(t)
+	pruneLanePush(t, mainRepo, "lane/squashed")
 	pruneSessionIn(t, "sess-old", laneWT, time.Now().Add(-3*time.Hour))
 
 	pruned, _, _ := prunedLanes(t, mainRepo)
@@ -160,6 +178,7 @@ func TestPruneMergedLanes_PrunesALaneWhoseOnlySessionWentQuietLongAgo(t *testing
 
 func TestPruneMergedLanes_KeepsALockedLane(t *testing.T) {
 	mainRepo, laneWT := squashPruneRepo(t)
+	pruneLanePush(t, mainRepo, "lane/squashed")
 	gitDo(t, mainRepo, "worktree", "lock", "--reason", "agent holds it", laneWT)
 
 	pruned, _, errs := prunedLanes(t, mainRepo)
@@ -171,6 +190,7 @@ func TestPruneMergedLanes_KeepsALockedLane(t *testing.T) {
 
 func TestPruneMergedLanes_KeepsALaneClaimedOnTheDevTier(t *testing.T) {
 	mainRepo, laneWT := squashPruneRepo(t)
+	pruneLanePush(t, mainRepo, "lane/squashed")
 	claims := t.TempDir()
 	t.Setenv("APHROLLO_DEVCLAIM_DIR", claims)
 	if err := os.Symlink(laneWT, filepath.Join(claims, "web")); err != nil {
@@ -192,6 +212,7 @@ func TestPruneMergedLanes_RemovesTheLanesInstalledDependenciesWithIt(t *testing.
 	write(t, laneWT, ".gitignore", "node_modules/\n.venv/\n")
 	gitDo(t, laneWT, "add", ".gitignore")
 	gitDo(t, laneWT, "commit", "-qm", "ignore installs")
+	pruneLanePush(t, mainRepo, "lane/squashed")
 	gitDo(t, mainRepo, "merge", "-q", "--squash", "lane/squashed")
 	gitDo(t, mainRepo, "commit", "-qm", "ignore installs (#8)")
 	write(t, laneWT, "node_modules/pkg/index.js", "x")
@@ -218,5 +239,32 @@ func pruneSessionIn(t *testing.T, id, root string, at time.Time) {
 	body := fmt.Sprintf(`{"schema":%d,"by_project":{%q:{"ts":%q}}}`, core.StateSchema, filepath.ToSlash(root), at.UTC().Format(time.RFC3339))
 	if err := os.WriteFile(filepath.Join(dir, id+".json"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPruneMergedLanes_KeepsALaneWhoseOnlyCommitsAreACommitAndItsRevertNeverPushed(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	mainRepo := t.TempDir()
+	gitInit(t, mainRepo)
+	gitDo(t, mainRepo, "checkout", "-q", "-B", "main")
+	commitInitial(t, mainRepo)
+	laneWT := filepath.Join(t.TempDir(), "rv")
+	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/reverted", laneWT)
+	write(t, laneWT, "scratch.go", "package main\n\n// tried and dropped\n")
+	gitDo(t, laneWT, "add", "-A")
+	gitDo(t, laneWT, "commit", "-qm", "try something")
+	gitDo(t, laneWT, "revert", "--no-edit", "HEAD")
+	write(t, mainRepo, "other.go", "package main\n\n// trunk moves on\n")
+	gitDo(t, mainRepo, "add", "-A")
+	gitDo(t, mainRepo, "commit", "-qm", "unrelated trunk work")
+
+	pruned, _, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 || !strings.Contains(errs, "unpushed") {
+		t.Fatalf("pruned %+v, stderr %q: two commits no remote holds are the last copy and must be kept", pruned, errs)
+	}
+	if gitOutT(t, mainRepo, "branch", "--list", "lane/reverted") == "" {
+		t.Error("the lane's branch was deleted")
 	}
 }

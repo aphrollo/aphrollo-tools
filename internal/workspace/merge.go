@@ -96,6 +96,10 @@ type Merge struct {
 	DeleteBranch bool   // delete the PR branch after merging
 	CI           string // --ci mode (auto | local | github); empty reads the repo's setting
 	MethodSet    bool   // the operator named the method (--squash|--merge|--rebase) rather than taking the default
+	// judgedHead is the PR head this merge judged, set once it is resolved: the
+	// commit the merge record names, so a later sweep can tell the lane's own
+	// commits from any it made after.
+	judgedHead string
 }
 
 // MergePlan validates the merge without touching gh; the PR is resolved at Apply
@@ -286,6 +290,7 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 	if useBody {
 		subject, message = mergeSubject(prTitle, pr.Number), body
 	}
+	m.judgedHead = head
 	q, err := m.landOnBase(pr, head, base, subject, message, useBody, stdout)
 	if err != nil || q != nil {
 		return q, err
@@ -301,7 +306,7 @@ func (m *Merge) landed(number int, prURL, via string, stdout, stderr io.Writer) 
 	// this record to tell this merge from one made outside the verb, and would
 	// otherwise count it as an outside one (see outsidemerge.go).
 	tdd.AppendEvent(tdd.Event{Kind: "merge", Root: m.Target.Worktree, Verdict: "ok",
-		Detail: map[string]string{"pr": strconv.Itoa(number), "method": via}})
+		Detail: m.mergeDetail(number, via)})
 	fmt.Fprintf(stdout, "merged PR #%d (%s): %s\n", number, via, prURL)
 	if m.DeleteBranch {
 		skipped, err := ghDeleteRemoteBranch(m.Target.Worktree, m.Target.Branch)
@@ -360,4 +365,22 @@ func (m *Merge) refuseGitHubCI(ci CIStatus, stderr io.Writer) error {
 		detail = "ci " + detail
 	}
 	return fmt.Errorf("refusing to merge %s: required checks are not green (%s)", m.Target.Branch, detail)
+}
+
+// mergeDetail is the detail of a merge event: the PR, the method and the head
+// commit the merge landed. The head is the commit GitHub took, so it was pushed,
+// and the prune sweep matches a lane's tip against it. A merge that never judged
+// a head (a wait that resumed in another run) names the lane's own HEAD, which
+// the verb required to be the PR head before it merged; unreadable, it is left
+// off and the lane is judged without it.
+func (m *Merge) mergeDetail(number int, via string) map[string]string {
+	d := map[string]string{"pr": strconv.Itoa(number), "method": via}
+	head := m.judgedHead
+	if head == "" {
+		head, _ = wtHeadSHA(m.Target.Worktree)
+	}
+	if head != "" {
+		d["head"] = head
+	}
+	return d
 }
