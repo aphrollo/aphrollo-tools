@@ -6,7 +6,9 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -122,5 +124,22 @@ func TestConfigDirIsSetThroughOneHelper(t *testing.T) {
 		if strings.Contains(string(body), marker) {
 			t.Errorf("%s sets CLAUDE_CONFIG_DIR directly — call gateConfigDir(t) instead", name)
 		}
+	}
+}
+
+// A hook waits 150 ms for its shadow record; a test on a loaded box must not.
+// Set at package load, before TestMain runs anything, so no test sees the
+// hook's own budget. See TestPackageIsolation_ShadowRecordsAreNotCutAtTheHooksBudget.
+func init() { shadow.Budget = time.Minute }
+
+// A shadow record is built inside shadow.Budget, 150 ms in a hook. A test that
+// runs the hook on a loaded box, or with git behind a slow queue, outruns that:
+// the record is then an unjudged "budget" event instead of the one the test
+// reads, and the goroutine that was left behind writes its record later, into
+// whichever test's event root is current. The package's tests judge what the
+// records say, not how fast the box is, so the budget is a minute here.
+func TestPackageIsolation_ShadowRecordsAreNotCutAtTheHooksBudget(t *testing.T) {
+	if shadow.Budget < 10*time.Second {
+		t.Fatalf("shadow.Budget = %s in this package's tests: a loaded box turns a shadow record into a budget skip and strays the build into the next test", shadow.Budget)
 	}
 }

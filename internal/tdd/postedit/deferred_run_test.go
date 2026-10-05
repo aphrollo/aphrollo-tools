@@ -306,12 +306,16 @@ func TestRecordSpawnedProcess_SetsStartedWhenTheChildHasNotYet(t *testing.T) {
 
 // A phase queued behind a busy slot keeps its place for the whole of its
 // life, not a quarter of it: giving up early ended the run as an infra
-// failure the session never saw coming, the code untested. The slot is
-// released after the old quarter-of-max wait (1s of a 4s ceiling) has
-// passed; the phase must still build.
+// failure the session never saw coming, the code untested. The length of the
+// wait is read off the function the phase passes to its queue, never timed,
+// and the hand-off is driven by the queue's own signal: the slot is released
+// once the phase is queued, and the phase must then build.
 func TestRunPhase_AQueuedPhaseOutwaitsAQuarterOfItsLife(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(deferredMaxEnv, "4")
+	if got := deferredSlotWait(); got != 4*time.Second {
+		t.Fatalf("a queued phase waits %s for its slot, want its whole 4s life", got)
+	}
 	withIsolatedBuildLock(t)
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "ran.txt")
@@ -321,9 +325,8 @@ func TestRunPhase_AQueuedPhaseOutwaitsAQuarterOfItsLife(t *testing.T) {
 	}
 	var once sync.Once
 	free := func() { once.Do(release) }
-	freed := time.AfterFunc(2500*time.Millisecond, free)
-	defer freed.Stop()
 	t.Cleanup(free)
+	defer SetSlotRequestQueuedHookForTest(func(string) { free() })()
 
 	j := DeferredJob{Project: dir, Phase: "build", Dir: dir, Runner: append([]string{"cargo"}, writeMarkerCmd(marker)[1:]...),
 		Log: filepath.Join(dir, "p.log"), Result: filepath.Join(dir, "p.result.json")}
