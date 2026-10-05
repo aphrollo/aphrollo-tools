@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/w/repo","hook_event_name":"PreToolUse","tool_name":"Write","tool_input":{"file_path":"/w/repo/internal/lane/lane_test.go","content":"package lane"}}

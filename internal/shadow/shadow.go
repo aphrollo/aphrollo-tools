@@ -3,12 +3,19 @@
 // record-only: nothing here returns a decision to a hook, a record that cannot be
 // written inside the budget is dropped, and no record carries a command's text.
 //
-// Only rules the kernel decides from facts the hook already holds are shadowed.
-// Each is asked of kernel.Decide with an empty lane State and no units, so a rule
-// that starts reading state would skew the data: the test of this package asks
-// every shadowed rule under populated states and fails if the answer moves.
-// Red→green needs a unit's state and the coverage of an edit, which no live hook
-// has, so it is not shadowed and nothing is recorded for it.
+// The stateless rules are the ones the kernel decides from facts the hook already
+// holds. Each is asked of kernel.Decide with an empty lane State and no units, so a
+// rule that starts reading state would skew the data: the test of this package asks
+// every such rule under populated states and fails if the answer moves.
+//
+// Red→green and stop-red read a unit's state, and are asked of the lane's real
+// record instead (world.go): the engine loads it from the store, the adapters
+// (payload.go) build the question from the hook's payload, a unit is named per edited
+// file (unit.go), Covered says whether its newest edit is on a tree a green run of
+// it measured (covered.go), and every finished run is folded into the record
+// (World.FoldRun) after the hook has answered. All of it runs inside the same
+// Budget as the other records; what does not finish is an unjudged record with its
+// cause, never a guess.
 //
 // A hook writes its records after it has answered, and does wait for them: up to
 // Budget, past which the record is dropped. A PostToolUse hook queues the run it
@@ -24,6 +31,7 @@
 package shadow
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -96,6 +104,8 @@ type Record struct {
 	HeldOut  bool // the kernel put this fire in the holdout arm
 	Primary  bool // the fact is about the primary checkout, which has no lane of its own to join outcomes by
 	Guide    string
+	Unit     string // the unit the record is about, for the rules that read a unit's state
+	Root     string // the checkout the record is about, "" for the call's own
 	// For a run: the verdict classes each side read, and the cause.
 	TrellisVerdict, ActualVerdict, Cause, ActualCause string
 }
@@ -184,16 +194,23 @@ func decide(f Fact, lane string, st kernel.State, us kernel.Units) kernel.Decisi
 // it to what aphrollo did. The kernel sees an empty lane State and no units.
 func Judge(f Fact, lane string) Record {
 	d := decide(f, lane, kernel.State{}, nil)
+	r := recordOf(HookPre, f.Rule, f.LiveRule, d, f.Actual)
+	r.Primary = f.Event.Target == kernel.PathPrimary
+	return r
+}
+
+// recordOf compares a kernel decision to what aphrollo did about the same rule.
+func recordOf(hook, rule, live string, d kernel.Decision, actual Action) Record {
 	t := trellisWord(d)
 	rel := Agree
-	switch a, b := rank(t), rank(string(f.Actual)); {
+	switch a, b := rank(t), rank(string(actual)); {
 	case a > b:
 		rel = TrellisStricter
 	case a < b:
 		rel = TrellisSofter
 	}
-	return Record{Hook: HookPre, Rule: f.Rule, LiveRule: f.LiveRule, Trellis: t, Actual: string(f.Actual),
-		Relation: rel, HeldOut: d.HeldOut, Primary: f.Event.Target == kernel.PathPrimary}
+	return Record{Hook: hook, Rule: rule, LiveRule: live, Trellis: t, Actual: string(actual),
+		Relation: rel, HeldOut: d.HeldOut}
 }
 
 // RunFact is one finished run: aphrollo's verdict word for it, and the verdict
@@ -284,6 +301,7 @@ func (r Record) event(s Source, lane string) core.Event {
 	set("live_rule", r.LiveRule)
 	set("wt", s.Root)
 	set("key", s.Key)
+	set("unit", r.Unit)
 	set("guide", r.Guide)
 	set("trellis_verdict", r.TrellisVerdict)
 	set("aphrollo_verdict", r.ActualVerdict)
@@ -310,26 +328,31 @@ var waited atomic.Int64
 // wait up to Budget for its record after it has answered.
 func TakeWaited() time.Duration { return time.Duration(waited.Swap(0)) }
 
-// bounded runs fn and waits for it no longer than Budget. fn runs on its own
+// boundedUntil runs fn and waits for it no longer than Budget. fn runs on its own
 // goroutine, so a hook that outruns the budget moves on; a panic in it is
-// dropped, never raised into the hook. The wait is counted for TakeWaited.
-func bounded(fn func()) {
+// dropped, never raised into the hook. The wait is counted for TakeWaited. ctx is
+// cancelled when the budget is spent, which ends every wait fn makes on it (a
+// store lock, a load). It reports whether fn finished inside the budget. With
+// recording off it runs nothing and reports true.
+func boundedUntil(fn func(ctx context.Context)) bool {
 	if !Enabled {
-		return
+		return true
 	}
 	start := time.Now()
 	defer func() { waited.Add(int64(time.Since(start))) }()
+	ctx, cancel := context.WithTimeout(context.Background(), Budget)
+	defer cancel()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		defer func() { _ = recover() }()
-		fn()
+		fn(ctx)
 	}()
-	t := time.NewTimer(Budget)
-	defer t.Stop()
 	select {
 	case <-done:
-	case <-t.C:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
@@ -338,8 +361,15 @@ func bounded(fn func()) {
 // look at the repository is not paid for outside it. A fact names its own root
 // when it is about another checkout than the call's. It never returns anything to
 // the hook.
-func RecordFacts(s Source, facts func() []Fact) {
-	bounded(func() {
+func RecordFacts(s Source, facts func() []Fact) { RecordFactsAnd(s, facts, nil) }
+
+// RecordFactsAnd is RecordFacts with the red→green steps of the same call in the
+// same budget: the call waits once, however many records it makes. A step that did
+// not finish inside the budget is written as unjudged, with its cause, and counted
+// in Overruns; it is never guessed.
+func RecordFactsAnd(s Source, facts func() []Fact, steps []Step) {
+	w := &window{}
+	finished := boundedUntil(func(ctx context.Context) {
 		for _, f := range facts() {
 			fs := s
 			if f.Root != "" {
@@ -348,7 +378,50 @@ func RecordFacts(s Source, facts func() []Fact) {
 			lane := core.LaneOf(fs.Root)
 			appendEvent(Judge(f, lane).event(fs, lane))
 		}
+		runSteps(ctx, w, steps)
 	})
+	if !finished {
+		settle(w, steps)
+	}
+}
+
+// RedGreenSteps is the step of a PreToolUse call that shadows red→green over the
+// files it is about to write. It makes none for a call that writes no code or
+// test file.
+func RedGreenSteps(wd World, s Source, p Payload, files []string) []Step {
+	if !hasWrites(files) {
+		return nil
+	}
+	return []Step{{
+		run: func(ctx context.Context) []core.Event {
+			recs := wd.RedGreen(ctx, p, files)
+			evs := make([]core.Event, 0, len(recs))
+			for _, r := range recs {
+				rs := s
+				if r.Root != "" {
+					rs.Root = r.Root
+				}
+				evs = append(evs, r.event(rs, wd.Lane(rs.Root)))
+			}
+			return evs
+		},
+		skip: func(cause string) core.Event {
+			return unjudged(HookPre, RuleRedGreen, "", cause).event(s, wd.Lane(s.Root))
+		},
+	}}
+}
+
+// RecordStop writes the stop-red shadow record of a Stop or SubagentStop whose
+// live check blocked on an unseen red, inside one budget.
+func RecordStop(wd World, hook string, s Source, p Payload) {
+	RecordFactsAnd(s, func() []Fact { return nil }, []Step{{
+		run: func(ctx context.Context) []core.Event {
+			return []core.Event{wd.Stop(ctx, hook, p, s.Root).event(s, wd.Lane(s.Root))}
+		},
+		skip: func(cause string) core.Event {
+			return unjudged(hook, RuleStopRed, "", cause).event(s, wd.Lane(s.Root))
+		},
+	}})
 }
 
 type queuedRun struct {
@@ -356,9 +429,16 @@ type queuedRun struct {
 	fact func() (RunFact, bool)
 }
 
+type queuedFold struct {
+	src  Source
+	w    World
+	fold Fold
+}
+
 var queue struct {
 	sync.Mutex
-	runs []queuedRun
+	runs  []queuedRun
+	folds []queuedFold
 }
 
 // QueueRun holds a finished run to be recorded by Flush, after the hook has
@@ -369,18 +449,34 @@ func QueueRun(s Source, fact func() (RunFact, bool)) {
 	queue.Unlock()
 }
 
+// QueueFold holds a finished run to be folded into its lane's record by Flush,
+// after the hook has answered, in the same budget as the run's own record.
+func QueueFold(s Source, w World, f Fold) {
+	queue.Lock()
+	queue.folds = append(queue.folds, queuedFold{s, w, f})
+	queue.Unlock()
+}
+
 // Flush writes one shadow event for each queued run, agreeing ones too, inside
 // one budget, and empties the queue. A run whose fact reports false, or whose
-// word names no verdict, is written as unjudged.
+// word names no verdict, is written as unjudged. The queued folds follow in the
+// same budget: a fold that cannot be made (no tree key, no lane, the budget) is
+// one unjudged record naming the cause, and one that is made writes none, for the
+// lane record it changed is its own trace.
 func Flush() {
 	queue.Lock()
-	runs := queue.runs
-	queue.runs = nil
+	runs, folds := queue.runs, queue.folds
+	queue.runs, queue.folds = nil, nil
 	queue.Unlock()
-	if len(runs) == 0 {
+	if len(runs) == 0 && len(folds) == 0 {
 		return
 	}
-	bounded(func() {
+	steps := make([]Step, 0, len(folds))
+	for _, q := range folds {
+		steps = append(steps, foldStep(q))
+	}
+	w := &window{}
+	finished := boundedUntil(func(ctx context.Context) {
 		for _, q := range runs {
 			f, ok := q.fact()
 			lane := core.LaneOf(q.src.Root)
@@ -393,7 +489,26 @@ func Flush() {
 			}
 			appendEvent(r.event(q.src, lane))
 		}
+		runSteps(ctx, w, steps)
 	})
+	if !finished {
+		settle(w, steps)
+	}
+}
+
+func foldStep(q queuedFold) Step {
+	lane := func() string { return core.LaneOf(q.src.Root) }
+	return Step{
+		run: func(ctx context.Context) []core.Event {
+			if cause := q.w.FoldRun(ctx, q.fold); cause != "" && cause != causeNoEdit {
+				return []core.Event{unjudged(HookFold, RuleFold, "", cause).event(q.src, lane())}
+			}
+			return nil
+		},
+		skip: func(cause string) core.Event {
+			return unjudged(HookFold, RuleFold, "", cause).event(q.src, lane())
+		},
+	}
 }
 
 // unjudgedRun is the record of a run nothing could be judged of.
