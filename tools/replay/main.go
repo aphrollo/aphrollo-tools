@@ -31,6 +31,7 @@ type config struct {
 	Repo, Prev, Work, HeadBin, PrevBin, Only string
 	Seed                                     uint64
 	Lines, Files                             int
+	Keep                                     bool
 }
 
 func main() {
@@ -50,6 +51,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.Uint64Var(&cfg.Seed, "seed", 1, "seed of the synthetic tree")
 	fs.IntVar(&cfg.Lines, "lines", 200000, "line budget of the synthetic tree, a stand-in for a consumer of fanvue's scale")
 	fs.IntVar(&cfg.Files, "files", 24, "files of each tree the gate judges as edits")
+	fs.BoolVar(&cfg.Keep, "keep", false, "leave the scratch directory in place (default: removed at the end, a given -work included)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -81,10 +83,12 @@ func replay(cfg config, stdout io.Writer) (failed bool, err error) {
 		if work, err = os.MkdirTemp("", "replay-"); err != nil {
 			return false, err
 		}
-		defer os.RemoveAll(work)
 	}
 	if work, err = filepath.Abs(work); err != nil {
 		return false, err
+	}
+	if !cfg.Keep {
+		defer removeWork(work)
 	}
 	if cfg.Repo, err = filepath.Abs(cfg.Repo); err != nil {
 		return false, err
@@ -146,4 +150,20 @@ func replay(cfg config, stdout io.Writer) (failed bool, err error) {
 		}
 	}
 	return failed, nil
+}
+
+// replayWorkDirs are the directories a replay creates under its work directory:
+// the two binaries, the clone the previous release is built from, and a tree and
+// a state store for each of the two trees it reads. A clone of this repository
+// is gigabytes, and a CI step that named its own -work left them on the runner.
+var replayWorkDirs = []string{"area", "bin", "previous-src", "self", "synthetic", "self-store", "synthetic-store"}
+
+// removeWork removes what the replay made under work, and work itself when that
+// leaves it empty. A directory the caller named may hold other things, which
+// stay.
+func removeWork(work string) {
+	for _, d := range replayWorkDirs {
+		_ = os.RemoveAll(filepath.Join(work, d))
+	}
+	_ = os.Remove(work)
 }
