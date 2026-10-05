@@ -61,6 +61,11 @@ func runPostCommit(stdout, stderr io.Writer) int {
 // fires in every repo on the box and after every `git pull`, and the sweep
 // removes worktrees and deletes branches.
 func runPostMerge(stdout, stderr io.Writer) int {
+	// A merge commit fires this hook and never post-commit: the canary's record
+	// of commits made through the real path needs it. Fails open.
+	if root := tdd.RepoRoot("."); root != "" {
+		commitrecord.Record(root)
+	}
 	workspace.PostMergeRecord(".", stderr)
 	tdd.PostMergeSweep(".", stdout, stderr)
 	return 0

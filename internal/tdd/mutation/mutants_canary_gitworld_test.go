@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/commitrecord"
 )
 
 // A lane is named after whatever its owner chose (feat/x, fix/y), not only
@@ -99,4 +101,77 @@ func TestSnapshotGitWorld_AGitworldFastForwardOverUnpublishedCommitsIsAChange(t 
 	gitDo(t, lane, "merge", "-q", "--ff-only", "main")
 
 	requireChange(t, before.changesTo(snapshotGitWorld(lane)), checkedOutLabel)
+}
+
+// The owner merging origin's trunk into the lane makes a merge commit, which
+// fires post-merge and not post-commit; the hook records it all the same.
+func TestSnapshotGitWorld_AGitworldRecordedMergeCommitIsNotAChange(t *testing.T) {
+	lane := recordedLane(t)
+	repo := filepath.Dir(strings.TrimSpace(gitOutT(t, lane, "rev-parse", "--path-format=absolute", "--git-common-dir")))
+	ownerCommit(t, lane, "lane work")
+	gitDo(t, repo, "commit", "-q", "--allow-empty", "-m", "trunk moved")
+	before := snapshotGitWorld(lane)
+
+	gitDo(t, lane, "merge", "-q", "--no-ff", "-m", "Merge main into lane", "main")
+	commitrecord.Record(lane)
+
+	requireNoHeadChange(t, before.changesTo(snapshotGitWorld(lane)))
+}
+
+// A merge no hook recorded is a leak like any other unrecorded commit.
+func TestSnapshotGitWorld_AGitworldUnrecordedMergeCommitIsAChange(t *testing.T) {
+	lane := recordedLane(t)
+	repo := filepath.Dir(strings.TrimSpace(gitOutT(t, lane, "rev-parse", "--path-format=absolute", "--git-common-dir")))
+	ownerCommit(t, lane, "lane work")
+	gitDo(t, repo, "commit", "-q", "--allow-empty", "-m", "trunk moved")
+	before := snapshotGitWorld(lane)
+
+	gitDo(t, lane, "merge", "-q", "--no-ff", "-m", "leaked merge", "main")
+
+	requireChange(t, before.changesTo(snapshotGitWorld(lane)), checkedOutLabel)
+}
+
+// A reset or rebase onto a commit that is on origin's trunk moves the checkout
+// to a commit that is no descendant of the old one.
+func TestSnapshotGitWorld_AGitworldMoveOntoAPublishedCommitIsNotAChange(t *testing.T) {
+	lane := recordedLane(t)
+	repo := filepath.Dir(strings.TrimSpace(gitOutT(t, lane, "rev-parse", "--path-format=absolute", "--git-common-dir")))
+	ownerCommit(t, lane, "lane work")
+	gitDo(t, repo, "commit", "-q", "--allow-empty", "-m", "trunk moved")
+	gitDo(t, repo, "update-ref", "refs/remotes/origin/main", "main")
+	before := snapshotGitWorld(lane)
+
+	gitDo(t, lane, "reset", "-q", "--hard", "main")
+
+	requireNoHeadChange(t, before.changesTo(snapshotGitWorld(lane)))
+}
+
+// The same move onto a commit that is on no remote stays a change.
+func TestSnapshotGitWorld_AGitworldMoveOntoAnUnpublishedCommitIsAChange(t *testing.T) {
+	lane := recordedLane(t)
+	repo := filepath.Dir(strings.TrimSpace(gitOutT(t, lane, "rev-parse", "--path-format=absolute", "--git-common-dir")))
+	ownerCommit(t, lane, "lane work")
+	gitDo(t, repo, "update-ref", "refs/remotes/origin/main", "main")
+	gitDo(t, repo, "commit", "-q", "--allow-empty", "-m", "fixture")
+	before := snapshotGitWorld(lane)
+
+	gitDo(t, lane, "reset", "-q", "--hard", "main")
+
+	requireChange(t, before.changesTo(snapshotGitWorld(lane)), checkedOutLabel)
+}
+
+// Where the gate state dir is not available the head checkout lands in the
+// system temp dir; it is the gate's by its name.
+func TestIsGateWorktree_TheHeadBaselineCheckoutByNameAndByDir(t *testing.T) {
+	for _, path := range []string{
+		filepath.Join(t.TempDir(), HeadWorktreeDir, HeadWorktreePrefix+"3809243464"),
+		filepath.Join(t.TempDir(), HeadWorktreePrefix+"42"),
+	} {
+		if !isGateWorktree(path) {
+			t.Errorf("%s is not taken for a gate checkout", path)
+		}
+	}
+	if isGateWorktree(filepath.Join(t.TempDir(), HeadWorktreeDir, "other")) {
+		t.Error("an unrelated checkout under head-wt is taken for the gate's")
+	}
 }

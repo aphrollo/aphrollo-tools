@@ -150,6 +150,12 @@ func ownerCommitted(was, now gitWorldPart) bool {
 	if was.Repo == "" || was.Text == "" || now.Text == "" || was.Text == now.Text {
 		return false
 	}
+	published := localTrunk(now.Repo)
+	if onOrigin(now.Repo, now.Text, published) {
+		// A move onto a commit somebody pushed (a pull, a reset or a rebase onto
+		// origin's trunk) is the owner's: a test process cannot have made it.
+		return true
+	}
 	if _, err := gitx.Git(now.Repo, "merge-base", "--is-ancestor", was.Text, now.Text); err != nil {
 		return false
 	}
@@ -158,7 +164,6 @@ func ownerCommitted(was, now gitWorldPart) bool {
 		return false
 	}
 	recorded := commitrecord.Recorded(now.Repo)
-	published := localTrunk(now.Repo)
 	return !slices.ContainsFunc(between, func(sha string) bool {
 		return !recorded[sha] && !onOrigin(now.Repo, sha, published)
 	})
@@ -341,13 +346,12 @@ func worktreeLaneDir(lane string) string {
 // checkout.
 func isGateWorktree(path string) bool {
 	name := filepath.Base(path)
-	for _, prefix := range []string{"gate-trunkpreview-", "gate-prmerge-", "gate-failfirst-"} {
+	for _, prefix := range []string{"gate-trunkpreview-", "gate-prmerge-", "gate-failfirst-", HeadWorktreePrefix} {
 		if strings.HasPrefix(name, prefix) {
 			return true
 		}
 	}
-	slashed := filepath.ToSlash(path)
-	return strings.Contains(slashed, "/failfirst-wt/") || strings.Contains(slashed, "/head-wt/.aphrollo-head-")
+	return strings.Contains(filepath.ToSlash(path), "/failfirst-wt/")
 }
 
 // isWatchedWorktree reports whether a registration at path is one a leak

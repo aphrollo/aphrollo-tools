@@ -9,6 +9,10 @@ import (
 
 const Block = core.Block
 
+const HeadWorktreeDir = core.HeadWorktreeDir
+
+const HeadWorktreePrefix = core.HeadWorktreePrefix
+
 const Source = core.Source
 
 const Test = core.Test

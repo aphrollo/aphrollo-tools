@@ -155,10 +155,10 @@ func runPrelude(prelude []Runner, dir string, run SuiteRunner) {
 // and removed, once fn returns.
 func atHead(repoRoot, rel string, fn func(base string) error) error {
 	parent := ""
-	if dir := StateDir(); dir != "" && os.MkdirAll(filepath.Join(dir, "head-wt"), 0o700) == nil {
-		parent = filepath.Join(dir, "head-wt")
+	if dir := StateDir(); dir != "" && os.MkdirAll(filepath.Join(dir, HeadWorktreeDir), 0o700) == nil {
+		parent = filepath.Join(dir, HeadWorktreeDir)
 	}
-	base, err := os.MkdirTemp(parent, ".aphrollo-head-")
+	base, err := os.MkdirTemp(parent, HeadWorktreePrefix)
 	if err != nil {
 		return err
 	}
