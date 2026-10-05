@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-// countingProbe is an import probe that says yes and counts its runs.
-func countingProbe(n *int) func(string) error {
+// countingInterpreterProbe is an import probe that says yes and counts its runs.
+func countingInterpreterProbe(n *int) func(string) error {
 	return func(string) error { *n++; return nil }
 }
 
@@ -19,7 +19,7 @@ func TestPytestCachedRunner_ASecondResolutionSpawnsNoPython(t *testing.T) {
 	want := writeFileAt(t, filepath.Join(root, ".venv", "bin", "python"))
 	probes := 0
 	for i := range 3 {
-		got, why := pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest", Args: []string{"-q"}}, noInterpreter, countingProbe(&probes))
+		got, why := pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest", Args: []string{"-q"}}, noInterpreter, countingInterpreterProbe(&probes))
 		if why != "" || got.Cmd != want || got.Args[0] != "-m" {
 			t.Fatalf("resolution %d: got %+v, %q; want %s -m pytest", i, got, why, want)
 		}
@@ -35,13 +35,13 @@ func TestPytestCachedRunner_ANewVenvAheadOfTheCachedOneIsProbedAndWins(t *testin
 	state, root := t.TempDir(), t.TempDir()
 	older := writeFileAt(t, filepath.Join(root, "env", "bin", "python"))
 	probes := 0
-	got, _ := pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingProbe(&probes))
+	got, _ := pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingInterpreterProbe(&probes))
 	if got.Cmd != older {
 		t.Fatalf("first resolution chose %s, want %s", got.Cmd, older)
 	}
 	newer := writeFileAt(t, filepath.Join(root, ".venv", "bin", "python"))
 
-	got, why := pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingProbe(&probes))
+	got, why := pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingInterpreterProbe(&probes))
 	if why != "" || got.Cmd != newer || probes != 2 {
 		t.Errorf("after a venv was built ahead: got %s, %q after %d probes; want %s after 2", got.Cmd, why, probes, newer)
 	}
@@ -53,13 +53,13 @@ func TestPytestCachedRunner_ARebuiltVenvDirectoryIsProbedAgain(t *testing.T) {
 	state, root := t.TempDir(), t.TempDir()
 	py := writeFileAt(t, filepath.Join(root, ".venv", "bin", "python"))
 	probes := 0
-	pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingProbe(&probes))
+	pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingInterpreterProbe(&probes))
 	later := time.Now().Add(time.Hour)
 	if err := os.Chtimes(filepath.Join(root, ".venv"), later, later); err != nil {
 		t.Fatal(err)
 	}
 
-	pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingProbe(&probes))
+	pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingInterpreterProbe(&probes))
 	if probes != 2 {
 		t.Errorf("a changed venv directory was answered from the cache (%d probes for %s)", probes, py)
 	}
@@ -84,12 +84,12 @@ func TestPytestCachedRunner_AnInterpreterFileRewrittenInPlaceIsProbedAgain(t *te
 	state, root := t.TempDir(), t.TempDir()
 	py := writeFileAt(t, filepath.Join(root, ".venv", "bin", "python"))
 	probes := 0
-	pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingProbe(&probes))
+	pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingInterpreterProbe(&probes))
 	if err := os.WriteFile(py, []byte("a different interpreter"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
-	pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingProbe(&probes))
+	pytestCachedRunner(state, pytestSearch{root: root}, Runner{Cmd: "pytest"}, noInterpreter, countingInterpreterProbe(&probes))
 	if probes != 2 {
 		t.Errorf("a rewritten interpreter was answered from the cache (%d probes)", probes)
 	}
