@@ -3,19 +3,37 @@ package gc
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 )
 
+// gocacheRoot is a directory that looks like a Go build cache: it holds the README
+// go writes into it.
+func gocacheRoot(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	mkFile(t, filepath.Join(dir, "README"), "This directory holds cached build artifacts from the Go build system.\n", 90*24*time.Hour)
+	return dir
+}
+
+var gocacheNameRe = regexp.MustCompile(`^([0-9a-f]+)-([ad])$`)
+
+// gocacheFile writes a file of size bytes last used age ago. A name such as
+// "0a/aaaa-d" is padded to the 64 hex digits go names an entry by; any other name
+// is written as it stands.
 func gocacheFile(t *testing.T, dir, rel string, size int, age time.Duration) string {
 	t.Helper()
+	if m := gocacheNameRe.FindStringSubmatch(filepath.Base(rel)); m != nil {
+		rel = filepath.Join(filepath.Dir(rel), strings.Repeat("0", 64-len(m[1]))+m[1]+"-"+m[2])
+	}
 	mkFile(t, filepath.Join(dir, rel), strings.Repeat("x", size), age)
 	return filepath.Join(dir, rel)
 }
 
 func TestGoCacheTrim_RemovesOldestIdleFilesDownToTheCapAndNothingElse(t *testing.T) {
-	dir := t.TempDir()
+	dir := gocacheRoot(t)
 	oldest := gocacheFile(t, dir, "0a/aaaa-d", 100, 40*time.Hour)
 	older := gocacheFile(t, dir, "0b/bbbb-d", 100, 30*time.Hour)
 	idle := gocacheFile(t, dir, "0c/cccc-a", 100, 20*time.Hour)
@@ -50,7 +68,7 @@ func TestGoCacheTrim_RemovesOldestIdleFilesDownToTheCapAndNothingElse(t *testing
 }
 
 func TestGoCacheTrim_StopsAtTheCapBeforeTouchingYoungerIdleFiles(t *testing.T) {
-	dir := t.TempDir()
+	dir := gocacheRoot(t)
 	oldest := gocacheFile(t, dir, "0a/aaaa-d", 100, 40*time.Hour)
 	next := gocacheFile(t, dir, "0b/bbbb-d", 100, 30*time.Hour)
 
@@ -68,7 +86,7 @@ func TestGoCacheTrim_StopsAtTheCapBeforeTouchingYoungerIdleFiles(t *testing.T) {
 }
 
 func TestGoCacheTrim_UnderTheCapTouchesNothing(t *testing.T) {
-	dir := t.TempDir()
+	dir := gocacheRoot(t)
 	p := gocacheFile(t, dir, "0a/aaaa-d", 100, 400*time.Hour)
 
 	got := trimGoCache(dir, 1000, 12*time.Hour, time.Now(), true)
@@ -82,7 +100,7 @@ func TestGoCacheTrim_UnderTheCapTouchesNothing(t *testing.T) {
 }
 
 func TestGoCacheTrim_AgeBarNeverDropsBelowAnHour(t *testing.T) {
-	dir := t.TempDir()
+	dir := gocacheRoot(t)
 	recent := gocacheFile(t, dir, "0a/aaaa-d", 100, 30*time.Minute)
 
 	got := trimGoCache(dir, 0, time.Minute, time.Now(), true)
@@ -96,7 +114,7 @@ func TestGoCacheTrim_AgeBarNeverDropsBelowAnHour(t *testing.T) {
 }
 
 func TestGoCacheTrim_DryReportsAndRemovesNothing(t *testing.T) {
-	dir := t.TempDir()
+	dir := gocacheRoot(t)
 	p := gocacheFile(t, dir, "0a/aaaa-d", 100, 40*time.Hour)
 
 	got := trimGoCache(dir, 0, 12*time.Hour, time.Now(), false)
@@ -168,7 +186,7 @@ func TestGoCacheTrimDue_OncePerSixHours(t *testing.T) {
 }
 
 func TestTrimGoCacheOf_ReadsTheCachePathFromGoEnvOnce(t *testing.T) {
-	dir := t.TempDir()
+	dir := gocacheRoot(t)
 	p := gocacheFile(t, dir, "0a/aaaa-d", 100, 40*time.Hour)
 	calls := 0
 	prev := goCacheDirFn
@@ -199,10 +217,135 @@ func TestGoEnvGoCache_NamesTheDirectoryGoEnvReports(t *testing.T) {
 	}
 }
 
-func TestGoEnvGoCache_ADisabledCacheIsNoDirectory(t *testing.T) {
+// ratchet: test_removed TestGoEnvGoCache_ADisabledCacheIsNoDirectory: goEnvGoCache now answers what go printed, and the guard refuses "off" with a message: TestGoCacheTrim_RefusesADirectoryThatIsNotAGoCache
+
+func TestGoEnvGoCache_ReportsADisabledCacheAsGoPrintsIt(t *testing.T) {
 	t.Setenv("GOCACHE", "off")
 
-	if got := goEnvGoCache(); got != "" {
-		t.Errorf("goEnvGoCache() = %q with the cache off, want none", got)
+	if got := goEnvGoCache(); got != "off" {
+		t.Errorf("goEnvGoCache() = %q with the cache off, want off", got)
+	}
+}
+
+func TestGoCacheTrim_OnlyEntriesNamedLikeGoNamesThemAreRemoved(t *testing.T) {
+	dir := gocacheRoot(t)
+	entry := gocacheFile(t, dir, "0a/aaaa-d", 100, 40*time.Hour)
+	var kept []string
+	for _, rel := range []string{
+		"0a/notes.txt",                         // not an entry at all
+		"0a/" + strings.Repeat("a", 64),        // no -a or -d tag
+		"0a/" + strings.Repeat("a", 63) + "-a", // 63 digits
+		"0a/" + strings.Repeat("A", 64) + "-a", // upper case
+		"0a/" + strings.Repeat("a", 64) + "-x", // another tag
+		"0a/" + strings.Repeat("a", 64) + "-a.bak",
+	} {
+		mkFile(t, filepath.Join(dir, rel), strings.Repeat("x", 100), 40*time.Hour)
+		kept = append(kept, filepath.Join(dir, rel))
+	}
+
+	got := trimGoCache(dir, 0, 12*time.Hour, time.Now(), true)
+
+	if got.Files != 1 {
+		t.Errorf("removed %d files, want only the one entry: %+v", got.Files, got)
+	}
+	if _, err := os.Stat(entry); err == nil {
+		t.Error("the entry survived")
+	}
+	for _, p := range kept {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s is not one of go's entries and was removed: %v", p, err)
+		}
+	}
+}
+
+func TestGoCacheTrim_RefusesADirectoryThatIsNotAGoCache(t *testing.T) {
+	dir := t.TempDir() // no README, no trim.txt
+	p := gocacheFile(t, dir, "0a/aaaa-d", 100, 40*time.Hour)
+
+	got := trimGoCache(dir, 0, 12*time.Hour, time.Now(), true)
+
+	if got.Refused == "" || !strings.Contains(got.Refused, "README") {
+		t.Errorf("Refused = %q, want a message naming the missing README", got.Refused)
+	}
+	if got.Files != 0 {
+		t.Errorf("removed %d files from a directory that is no Go cache", got.Files)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Errorf("file removed: %v", err)
+	}
+}
+
+func TestGoCacheTrim_ATrimTxtAloneMakesItAGoCache(t *testing.T) {
+	dir := t.TempDir()
+	mkFile(t, filepath.Join(dir, "trim.txt"), "1", 90*24*time.Hour)
+	gocacheFile(t, dir, "0a/aaaa-d", 100, 40*time.Hour)
+
+	if got := trimGoCache(dir, 0, 12*time.Hour, time.Now(), true); got.Refused != "" || got.Files != 1 {
+		t.Errorf("trim = %+v, want the entry removed", got)
+	}
+}
+
+func TestGoCacheRefusal_NamesWhyADirectoryIsNotOneToTrim(t *testing.T) {
+	home, _ := os.UserHomeDir()
+	root := filepath.VolumeName(home) + string(filepath.Separator)
+	for name, dir := range map[string]string{
+		"empty":    "",
+		"off":      "off",
+		"relative": filepath.Join("some", "cache"),
+		"home":     home,
+		"temp":     os.TempDir(),
+		"root":     root,
+	} {
+		if why := goCacheRefusal(dir); why == "" {
+			t.Errorf("%s (%q) was accepted as a cache to trim", name, dir)
+		}
+	}
+	if why := goCacheRefusal(gocacheRoot(t)); why != "" {
+		t.Errorf("a cache directory was refused: %s", why)
+	}
+}
+
+func TestTrimGoCache_APathGoEnvGaveThatIsNoCacheIsRefusedAndReported(t *testing.T) {
+	prev := goCacheDirFn
+	goCacheDirFn = func() string { return "off" }
+	t.Cleanup(func() { goCacheDirFn = prev })
+
+	got := TrimGoCache(GoCacheSettings{Cap: 1, Age: DefaultGoCacheAge}, true)
+
+	if got.Refused == "" || !strings.Contains(RenderGoCacheTrim(got, true), "not trimmed") {
+		t.Errorf("trim = %+v, rendered %q, want a refusal that the line says", got, RenderGoCacheTrim(got, true))
+	}
+}
+
+func TestGoCacheTrim_NeverUsesAFileFromTheLastTwoHoursWhateverAgeIsAsked(t *testing.T) {
+	dir := gocacheRoot(t)
+	p := gocacheFile(t, dir, "0a/aaaa-d", 100, 90*time.Minute)
+
+	got := trimGoCache(dir, 0, time.Minute, time.Now(), true)
+
+	if got.Files != 0 {
+		t.Errorf("removed a file used 90 minutes ago: %+v", got)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Errorf("file removed: %v", err)
+	}
+}
+
+func TestReadGoCacheSettings_AnAgeUnderTwoHoursIsRefusedNamingTheKey(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "aphrollo.toml"), []byte("[aphrollo]\ngocache-age = \"90m\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ReadGoCacheSettings(root)
+
+	if err == nil || !strings.Contains(err.Error(), "gocache-age") || !strings.Contains(err.Error(), "2h") {
+		t.Errorf("err = %v, want the key and the 2h minimum named", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "aphrollo.toml"), []byte("[aphrollo]\ngocache-age = \"2h\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ReadGoCacheSettings(root); err != nil || got.Age != 2*time.Hour {
+		t.Errorf("2h itself is the minimum and must be allowed, got %+v, %v", got, err)
 	}
 }

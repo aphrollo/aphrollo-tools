@@ -43,6 +43,8 @@ func ScanGC(p0 string, p1 time.Duration, p2 GCScope) []GCCandidate { return gc.S
 
 func SetGoCacheDirForTest(p0 string) func() { return gc.SetGoCacheDirForTest(p0) }
 
+func SetGoCacheDirFuncForTest(p0 func() string) func() { return gc.SetGoCacheDirFuncForTest(p0) }
+
 func StampGoCacheTrim() { gc.StampGoCacheTrim() }
 
 func TrimGoCache(p0 GoCacheSettings, p1 bool) GoCacheTrim { return gc.TrimGoCache(p0, p1) }

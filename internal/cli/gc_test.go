@@ -269,7 +269,8 @@ func TestRunTDDGC_KnownWalksTheTempDirScratchOnce(t *testing.T) {
 
 func gcCacheShard(t *testing.T, cache string, age time.Duration) string {
 	t.Helper()
-	p := filepath.Join(cache, "0a", "aaaa-d")
+	mkAgedFile(t, filepath.Join(cache, "README"), "This directory holds cached build artifacts from the Go build system.\n", 90*24*time.Hour)
+	p := filepath.Join(cache, "0a", strings.Repeat("a", 64)+"-d")
 	mkAgedFile(t, p, strings.Repeat("x", 100), age)
 	return p
 }
@@ -360,3 +361,19 @@ func TestRunTDDGC_MalformedGoCacheCapIsRefused(t *testing.T) {
 // Every gate gc run in this package would otherwise trim the operator's real
 // Go build cache: no cache unless a test names a fake one.
 func init() { tdd.SetGoCacheDirForTest("") }
+
+func TestRunTDDGC_AQuietDryRunDoesNotEvenAskForTheCache(t *testing.T) {
+	gateConfigDir(t)
+	asked := 0
+	t.Cleanup(tdd.SetGoCacheDirFuncForTest(func() string { asked++; return t.TempDir() }))
+	repo := gcCapRepo(t, "0.00000001GB")
+
+	var stdout, stderr bytes.Buffer
+	if code := runGateGC([]string{"--repo", repo, "--dry", "--quiet"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+
+	if asked != 0 || stdout.Len() != 0 {
+		t.Errorf("a dry quiet run asked for the cache %d times and printed %q: it prints nothing, so it must not walk a cache for it", asked, stdout.String())
+	}
+}

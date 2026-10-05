@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,7 +27,14 @@ import (
 // missing entry, and a file it holds open is one this trim fails to remove
 // and moves past. Go stamps an entry's mtime when it uses it, at most once an
 // hour, so a file touched inside the last hour is in use whatever the age
-// setting says.
+// setting says; the age is held to two hours so the margin is a whole refresh.
+//
+// Three guards keep the trim to a Go cache. Only a file named the way go names
+// an entry (64 lower-case hex digits, then -a or -d) is ever removed. The
+// directory must hold the README go writes into a cache, or its trim.txt, and
+// must not be unset, off, relative, the home directory, the temp directory or a
+// filesystem root: a GOCACHE pointed at one of those is a mistake the trim
+// refuses to act on, and says so.
 
 const (
 	// DefaultGoCacheCap is the size the cache is trimmed down to.
@@ -36,9 +44,11 @@ const (
 
 	goCacheCapKey = "gocache-cap"
 	goCacheAgeKey = "gocache-age"
-	// goCacheMinAge is the floor of the age bar: Go refreshes an entry's mtime
-	// only once it is an hour old, so anything younger may be in use.
-	goCacheMinAge = time.Hour
+	// GoCacheMinAge is the least gocache-age allowed and the floor of the age
+	// bar. Go refreshes an entry's mtime only once it is an hour old, so a file
+	// can read an hour older than its last use; two hours leaves a whole refresh
+	// of margin.
+	GoCacheMinAge = 2 * time.Hour
 	// goCacheTrimEvery is the least time between two trims.
 	goCacheTrimEvery = 6 * time.Hour
 	goCacheStampFile = "gocache-trim-last"
@@ -52,10 +62,12 @@ type GoCacheSettings struct {
 
 // GoCacheTrim is what one trim did, or in a dry run would do.
 type GoCacheTrim struct {
-	Dir   string
-	Total int64 // bytes the cache entries hold before the trim
-	Files int   // entries removed (or proposed)
-	Freed int64 // bytes of those
+	Dir string
+	// Refused is why the directory was not trimmed, "" when it was.
+	Refused string
+	Total   int64 // bytes the cache entries hold before the trim
+	Files   int   // entries removed (or proposed)
+	Freed   int64 // bytes of those
 }
 
 // ParseGoCacheCap reads a size such as "20GB", "512 MB" or "1TB".
@@ -94,6 +106,9 @@ func ReadGoCacheSettings(root string) (GoCacheSettings, error) {
 		if err != nil {
 			return s, fmt.Errorf("%s = %q: %v", goCacheAgeKey, v, err)
 		}
+		if d < GoCacheMinAge {
+			return s, fmt.Errorf("%s = %q is under the %s minimum: go refreshes a cache file's time only hourly, so a younger file may be in use", goCacheAgeKey, v, GoCacheMinAge)
+		}
 		s.Age = d
 	}
 	return s, nil
@@ -107,20 +122,46 @@ func goEnvGoCache() string {
 	if err != nil {
 		return ""
 	}
-	dir := strings.TrimSpace(string(out))
-	if dir == "" || dir == "off" || !filepath.IsAbs(dir) {
-		return ""
+	return strings.TrimSpace(string(out))
+}
+
+var goCacheEntryRe = regexp.MustCompile(`^[0-9a-f]{64}-[ad]$`)
+
+// goCacheRefusal is why dir is not a directory to trim, or "".
+func goCacheRefusal(dir string) string {
+	switch {
+	case dir == "":
+		return "go env GOCACHE gave no directory"
+	case dir == "off":
+		return "the Go build cache is off (GOCACHE=off)"
+	case !filepath.IsAbs(dir):
+		return fmt.Sprintf("GOCACHE %q is a relative path", dir)
 	}
-	return dir
+	clean := filepath.Clean(dir)
+	if filepath.Dir(clean) == clean {
+		return fmt.Sprintf("GOCACHE %q is a filesystem root", dir)
+	}
+	home, _ := os.UserHomeDir()
+	for name, special := range map[string]string{"home directory": home, "temp directory": os.TempDir()} {
+		if special != "" && pathKey(special) == pathKey(clean) {
+			return fmt.Sprintf("GOCACHE %q is the %s", dir, name)
+		}
+	}
+	for _, marker := range []string{"README", "trim.txt"} {
+		if info, err := os.Stat(filepath.Join(clean, marker)); err == nil && info.Mode().IsRegular() {
+			return ""
+		}
+	}
+	return fmt.Sprintf("GOCACHE %q holds neither the README nor the trim.txt go writes into its cache", dir)
 }
 
 // TrimGoCache trims the cache `go env GOCACHE` names, asked once. apply false
 // reports what it would remove.
 func TrimGoCache(s GoCacheSettings, apply bool) GoCacheTrim {
-	dir := goCacheDirFn()
-	if dir == "" {
+	if goCacheOffForTest {
 		return GoCacheTrim{}
 	}
+	dir := goCacheDirFn()
 	return trimGoCache(dir, s.Cap, s.Age, time.Now(), apply)
 }
 
@@ -140,7 +181,11 @@ type goCacheFile struct {
 
 func trimGoCache(dir string, capBytes int64, age time.Duration, now time.Time, apply bool) GoCacheTrim {
 	res := GoCacheTrim{Dir: dir}
-	age = max(age, goCacheMinAge)
+	age = max(age, GoCacheMinAge)
+	if why := goCacheRefusal(dir); why != "" {
+		res.Refused = why
+		return res
+	}
 	shards, err := os.ReadDir(dir)
 	if err != nil {
 		return res
@@ -155,7 +200,7 @@ func trimGoCache(dir string, capBytes int64, age time.Duration, now time.Time, a
 			continue
 		}
 		for _, e := range entries {
-			if e.IsDir() {
+			if e.IsDir() || !goCacheEntryRe.MatchString(e.Name()) {
 				continue
 			}
 			info, err := e.Info()
@@ -222,6 +267,9 @@ func StampGoCacheTrim() { stampGoCacheTrim(time.Now()) }
 
 // RenderGoCacheTrim is the line a sweep prints for the trim.
 func RenderGoCacheTrim(t GoCacheTrim, applied bool) string {
+	if t.Refused != "" {
+		return "go build cache not trimmed: " + t.Refused + "\n"
+	}
 	if t.Dir == "" {
 		return ""
 	}
@@ -235,7 +283,21 @@ func RenderGoCacheTrim(t GoCacheTrim, applied bool) string {
 // SetGoCacheDirForTest names a fake cache in place of `go env GOCACHE` and
 // returns the restore. A setter, so a test above gc (the verb's) reaches it.
 func SetGoCacheDirForTest(dir string) (restore func()) {
-	prev := goCacheDirFn
-	goCacheDirFn = func() string { return dir }
-	return func() { goCacheDirFn = prev }
+	if dir == "" {
+		return SetGoCacheDirFuncForTest(nil)
+	}
+	return SetGoCacheDirFuncForTest(func() string { return dir })
+}
+
+// goCacheOffForTest turns the trim off altogether: the state a test package
+// starts in, so no test of the verb reaches a real cache.
+var goCacheOffForTest bool
+
+// SetGoCacheDirFuncForTest names the function that answers the cache path, so a
+// test can count how often it is asked, and returns the restore. A nil fn
+// turns the trim off.
+func SetGoCacheDirFuncForTest(fn func() string) (restore func()) {
+	prev, prevOff := goCacheDirFn, goCacheOffForTest
+	goCacheDirFn, goCacheOffForTest = fn, fn == nil
+	return func() { goCacheDirFn, goCacheOffForTest = prev, prevOff }
 }

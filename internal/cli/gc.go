@@ -80,7 +80,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	for _, r := range repos {
 		sweep(r, scope)
 	}
-	cacheLine := sweepGoCache(cacheSettings, apply, *known)
+	cacheLine := sweepGoCache(cacheSettings, apply, *known, *quiet)
 	if !apply {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
