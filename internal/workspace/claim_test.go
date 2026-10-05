@@ -85,7 +85,6 @@ func TestClaimPlan_ResolvesAndRenders(t *testing.T) {
 	repo, branch := claimRepo(t)
 	devclaim := t.TempDir()
 	t.Setenv("APHROLLO_DEVCLAIM_DIR", devclaim)
-	t.Setenv("APHROLLO_DEV_BIN", "/opt/fake/aphrollo-dev")
 	t.Setenv("APHROLLO_DEV_SUDO", "0")
 
 	c, err := ClaimPlan(repo, branch, "", "", false) // svc derived from web repo name

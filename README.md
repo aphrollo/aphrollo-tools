@@ -115,9 +115,9 @@ no edit to a released changelog section or a merged fragment.
   package never recorded, 30s without `-race`), and a list that fits stays the
   one command it was. Every package is in exactly one run, with the flags it
   always had. Runs go side by side up to the build-slot count
-  (`APHROLLO_MECH_PARALLEL` overrides), each starting through the
+  (`box.mech_parallel` in the user's config overrides), each starting through the
   memory-headroom wait and under the memory cap, all inside one overall cap
-  (`APHROLLO_MECH_TOTAL_SECS`, 2700 by default). The verdict is green only if
+  (`budgets.mech_total_s`, 2700 by default). The verdict is green only if
   every run is; a run that does not finish makes the result a timeout that
   names its packages and the runs that never started, never a pass, and a run
   that fails ends the starting of new ones.
@@ -127,7 +127,7 @@ no edit to a released changelog section or a merged fragment.
   names both runs (`race-scope = "all"` keeps one `-race` run over everything).
   Race runs on one box go side by side as far as the box carries them: the
   smaller of free memory / 8 GB and cores / 8, never more than
-  `APHROLLO_BUILD_SLOTS`, the pool cargo builds share, and one when free memory
+  `box.build_slots`, the pool cargo builds share, and one when free memory
   cannot be read. A run that has to wait says where it stands on one line, at
   most once a minute: `gate: merge queue position 2 of 4 (est. ~11 min; holder:
   <lane> pid <n>)`, the estimate taken from the recent `go test -race` runs in
@@ -160,6 +160,8 @@ Law schema, matcher kinds and baselines: [.ratchet/README.md](.ratchet/README.md
 `[aphrollo]` in `aphrollo.toml`, or `[workspace.metadata.aphrollo]` in a cargo
 workspace's `Cargo.toml`. `aphrollo config` prints the opt-in keys (the first
 rows) with this repo's values; a repo's first `aphrollo install` prints them once. `aphrollo config show` prints every setting of the schema (`internal/config`) with the layer it came from (built-in, the user's `config.toml`, the repo's `trellis.toml`, or the `aphrollo.toml` key it is an alias of), and names a key or value a file got wrong; `aphrollo config set <key> <value> [--user or --repo]|--repo] [--dry]` writes one.
+
+The box's own settings (`budgets.edit_s`, `lock_wait_s`, `cargo_wait_s`, `git_wait_s`, `lint_wait_s`, `deferred_max_s`, `mech_total_s`, `box.build_slots`, `box.mech_parallel`, `reply_style`) live in the user's `config.toml` (`aphrollo config show` lists them). They were environment variables; the old `APHROLLO_*` names still work for one more release and print a notice naming the key. `TRELLIS_OFF=1` switches the gate's session checks off for a process, as `/tdd off` does for a session; `TRELLIS_CONFIG` and `TRELLIS_DATA` move the config and data roots. Every other `APHROLLO_*` variable is a test seam or a marker the gate sets for its own children, registered in `.ratchet/dev_instrument_registry.txt`.
 
 With `undercover = true` a tool identity is refused at commit, pre-push and `workspace merge` and flagged at session start and by `gate doctor`; the Bash/PowerShell hook, the git shim, pre-push and `workspace create`/`claim`/`pr`/`ship`/`submit` refuse a tell ref name; `pr`/`ship`/`submit`, `issue`, `feedback` and the Bash/PowerShell hook (for a `gh pr`, `gh issue` or `gh api` call) check text before `gh`. The Bash/PowerShell hook judges `gh pr`/`gh issue` create, edit, comment, review and merge text, and a `gh api` request's title, body and head fields, `--input` JSON file and GraphQL mutation. Every check runs on this box before the text reaches GitHub; nothing in CI repeats it.
 

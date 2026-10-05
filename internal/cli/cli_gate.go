@@ -121,13 +121,13 @@ Subcommands:
                     FindProjectRoot to come back empty for it. aphrollo update runs
                     this against the CANDIDATE binary before swapping it in (#532)
   cargo             cargo-queue shim: queue a DIRECT cargo invocation behind the same
-                    per-target-dir build slots the hooks/gates use (APHROLLO_CARGO_WAIT_SECS,
-                    APHROLLO_BUILD_SLOTS, APHROLLO_REAL_CARGO)
+                    per-target-dir build slots the hooks/gates use (config: budgets.cargo_wait_s,
+                    box.build_slots)
   git               git-queue shim: queue a DIRECT index-mutating git invocation behind a
                     per-repo lock so concurrent sessions sharing one checkout don't collide
-                    on .git/index.lock (APHROLLO_GIT_WAIT_SECS, APHROLLO_REAL_GIT)
+                    on .git/index.lock (config: budgets.git_wait_s)
   lint              lint wrapper: run golangci-lint behind the box-wide, cross-account
-                    lint lock (APHROLLO_LINT_WAIT_SECS) so a local commit gate and a
+                    lint lock (config: budgets.lint_wait_s) so a local commit gate and a
                     CI runner sharing this box never collide on golangci-lint's own
                     lock instead of finding it clean or dirty
 

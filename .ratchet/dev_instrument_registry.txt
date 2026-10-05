@@ -5,6 +5,15 @@
 # any more is stale.
 #
 # Grouped by what the switch is FOR.
+#
+# The settings are not here any more: the ten that were user-facing
+# (budgets.*, box.*, reply_style) are keys of the box config, and their
+# variables survive one more release as deprecated aliases, listed in
+# internal/config/env.go with the key each became. What is left is a test seam
+# (a path or binary override, a fake's handshake), a marker the gate sets for
+# its own children, or a value another service injects: none is a setting a
+# user is meant to keep. The user-facing variables are TRELLIS_OFF,
+# TRELLIS_CONFIG and TRELLIS_DATA.
 
 # --- build/git queue and lock control (internal/tdd, internal/cli) ---
 APHROLLO_BUILD_LOCK_HELD | internal/tdd/lock/buildlock.go | Set to "1" around a cargo run that already holds the machine-wide build lock, so a nested cargo invocation (a build script, the tdd cargo shim) passes straight through instead of deadlocking on the lock its own parent holds.
@@ -56,7 +65,6 @@ APHROLLO_TICKET_ID | internal/workspace/submit_signal.go | The full ticket UUID 
 # individual issues. Every one of these is set only by a test (t.Setenv) and
 # read only by test-built code (an in-process fake binary's own source, or a
 # helper that exists for the test). None reaches a shipping code path. ---
-APHROLLO_DEV_BIN | internal/workspace/claim_test.go | Set by claim's own test suite to stand in for the dev binary path; currently unread by any production code path — recorded here so it is not an invisible instrument, and left as a finding rather than "fixed" in this pass (see the PR report).
 APHROLLO_TEST_GIT_COMMON_DIR | internal/cli/git_shim_scope_test.go | Read by a synthetic fake-git binary the git shim's scope test builds, to report back which repo it ran against.
 APHROLLO_TEST_GIT_DIR | internal/cli/git_shim_scope_test.go | Read by the same synthetic fake-git binary, alongside APHROLLO_TEST_GIT_COMMON_DIR.
 APHROLLO_TEST_PRGATE_REAL_SIGNAL_CHILD | internal/tdd/merge/premergepr_realsignal_test.go | Set on a re-exec'd copy of this test binary so the SAME test function runs as the real-SIGTERM proof's child instead of its parent orchestrator.
