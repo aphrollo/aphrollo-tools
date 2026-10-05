@@ -2,6 +2,7 @@ package merge
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -153,7 +154,7 @@ func (h laneHolds) reason(wt string) string {
 	if at, ok := gitStateChanged(wt, h.now); ok {
 		return fmt.Sprintf("its git state changed %d min ago", int(h.now.Sub(at).Minutes()))
 	}
-	return newerIgnoredEnvFile(wt)
+	return newerIgnoredFile(wt)
 }
 
 // lockedWorktrees reads the `locked` lines of `git worktree list --porcelain`.
@@ -212,35 +213,72 @@ func gitStateChanged(wt string, now time.Time) (time.Time, bool) {
 	return newest, !newest.IsZero() && now.Sub(newest) < laneQuietFor
 }
 
-// newerIgnoredEnvFile names the reason to keep a lane that holds a gitignored
-// .env* file written after the lane's last commit: such a file (a secret, a
-// local setting) exists nowhere else, and removing the worktree deletes it. An
-// older one is taken to be the lane's own long-settled copy and goes with it,
-// as every gitignored file does.
-func newerIgnoredEnvFile(wt string) string {
-	entries, err := os.ReadDir(wt)
-	if err != nil {
-		return ""
+// ignoredRebuildable are the directory names a gitignored tree of is a build or
+// dependency product: it can be made again, so a file in it never keeps a lane.
+var ignoredRebuildable = map[string]bool{
+	"node_modules": true, ".venv": true, "venv": true, "env": true, "target": true,
+	"dist": true, "build": true, ".next": true, "__pycache__": true,
+	".pytest_cache": true, "coverage": true,
+}
+
+func underRebuildableDir(rel string) bool {
+	for _, part := range strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == '\\' }) {
+		if ignoredRebuildable[part] {
+			return true
+		}
 	}
+	return false
+}
+
+// newerIgnoredFile names the reason to keep a lane that holds a gitignored file
+// written after the lane's last commit: such a file (a secret, a local setting,
+// a dump) exists nowhere else, and removing the worktree deletes it. One
+// `git status --ignored` lists them, nested ones too; a wholly ignored
+// directory is read for its newest file. Dependency and build output is left
+// out (node_modules, virtualenvs, target, dist, build, .next, caches,
+// coverage). An older ignored file is the lane's own long-settled copy and goes
+// with it.
+func newerIgnoredFile(wt string) string {
+	status := gitOut(wt, "status", "--ignored", "--porcelain", "-z")
 	var last time.Time
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasPrefix(e.Name(), ".env") {
+	for entry := range strings.SplitSeq(status, "\x00") {
+		rel, ok := strings.CutPrefix(entry, "!! ")
+		if !ok || underRebuildableDir(rel) {
 			continue
 		}
 		if last.IsZero() {
 			sec, err := strconv.ParseInt(gitOut(wt, "log", "-1", "--format=%ct", "HEAD"), 10, 64)
 			if err != nil {
-				return "last commit time unreadable, so its .env files cannot be judged"
+				return "last commit time unreadable, so its gitignored files cannot be judged"
 			}
 			last = time.Unix(sec, 0)
 		}
-		info, err := e.Info()
-		if err != nil || !info.ModTime().After(last) {
-			continue
-		}
-		if _, err := git(wt, "check-ignore", "-q", "--", e.Name()); err == nil {
-			return "gitignored " + e.Name() + " is newer than its last commit"
+		if name, found := newestUnder(filepath.Join(wt, filepath.FromSlash(rel)), wt, last); found {
+			return "gitignored " + name + " is newer than its last commit"
 		}
 	}
 	return ""
+}
+
+// newestUnder is the path (relative to wt) of a file at path, or inside it,
+// modified after last, skipping rebuildable directories.
+func newestUnder(path, wt string, last time.Time) (string, bool) {
+	name := ""
+	_ = filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || name != "" {
+			return nil
+		}
+		rel, _ := filepath.Rel(wt, p)
+		if d.IsDir() {
+			if underRebuildableDir(rel) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info, err := d.Info(); err == nil && info.ModTime().After(last) {
+			name = filepath.ToSlash(rel)
+		}
+		return nil
+	})
+	return name, name != ""
 }

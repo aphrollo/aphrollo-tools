@@ -334,6 +334,44 @@ func TestPruneMergedLanes_KeepsALaneWithAnIgnoredEnvFileNewerThanItsLastCommit(t
 	}
 }
 
+func TestPruneMergedLanes_KeepsALaneWithANestedIgnoredFileNewerThanItsLastCommit(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	write(t, laneWT, ".gitignore", ".env*\n")
+	gitDo(t, laneWT, "add", ".gitignore")
+	gitDo(t, laneWT, "commit", "-qm", "ignore env files")
+	gitDo(t, mainRepo, "merge", "-q", "--squash", "lane/squashed")
+	gitDo(t, mainRepo, "commit", "-qm", "ignore env (#9)")
+	pruneLanePush(t, mainRepo, "lane/squashed")
+	write(t, laneWT, "apps/web/.env.local", "SECRET=1\n")
+	pruneAgeLaneGit(t, laneWT)
+
+	pruned, _, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 || !strings.Contains(errs, "apps/web/.env.local") {
+		t.Fatalf("pruned %+v, stderr %q: a nested ignored file written after the last commit exists nowhere else", pruned, errs)
+	}
+}
+
+func TestPruneMergedLanes_ANewFileInIgnoredDependencyAndBuildDirectoriesDoesNotKeepALane(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	write(t, laneWT, ".gitignore", "node_modules/\ntarget/\ndist/\n")
+	gitDo(t, laneWT, "add", ".gitignore")
+	gitDo(t, laneWT, "commit", "-qm", "ignore build output")
+	gitDo(t, mainRepo, "merge", "-q", "--squash", "lane/squashed")
+	gitDo(t, mainRepo, "commit", "-qm", "ignore build output (#9)")
+	pruneLanePush(t, mainRepo, "lane/squashed")
+	write(t, laneWT, "node_modules/pkg/index.js", "x\n")
+	write(t, laneWT, "target/debug/app", "x\n")
+	write(t, laneWT, "web/dist/main.js", "x\n")
+	pruneAgeLaneGit(t, laneWT)
+
+	pruned, _, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 1 {
+		t.Fatalf("pruned = %+v, stderr %q: rebuildable output must not hold a lane", pruned, errs)
+	}
+}
+
 func TestPruneMergedLanes_AnOldIgnoredEnvFileGoesWithTheLaneAndTheLineSaysSo(t *testing.T) {
 	mainRepo, laneWT := squashPruneRepo(t)
 	write(t, laneWT, ".gitignore", ".env*\n")
