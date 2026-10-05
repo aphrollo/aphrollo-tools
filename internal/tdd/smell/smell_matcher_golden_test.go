@@ -2,6 +2,7 @@ package smell
 
 import (
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,16 +13,20 @@ import (
 )
 
 // The smells are matcher kinds of the law engine as well as policies of the
-// edit gate, and the two must say the same thing. This is the golden: for every
-// text of a corpus, the policy (the old detector, as the gate runs it) and the
-// preset law (the new matcher, as `ratchet check` runs it) agree on whether the
-// smell is there, and the lines the law names are lines the policy hits on.
-// The corpus is each policy's own fixtures read as every language the smells
-// know, the law fixtures of this repo, and every Go file of the module.
+// edit gate, and the two must say the same thing, escapes included: a line the
+// gate waves through must not be refused by the law at commit (issue #968). This
+// is the golden. For every text of a corpus, the policy (the old detector, as the
+// gate runs it) and the preset law (the new matcher, as `ratchet check` runs it)
+// name the same lines. A line-local smell is held to the exact set: the lines the
+// gate hits judging that one line as added, and the lines the law names. A smell
+// that reads its neighbours (an error-kind safety net two lines either side, a
+// test's whole body) is held to the whole file, where both say the same thing,
+// and to each line the law names being a hit of the gate over its neighbourhood.
+// The corpus is each policy's own fixtures (hit, clean and escaped) read as
+// every language the smells know, the law fixtures of this repo, and every Go
+// file of the module.
 
-// smellgoldenLaw is the preset law of a policy, with the law engine's own
-// escape (which asks for a reason) taken off: the gate's escape is judged on
-// the lines an edit adds, a different question from detection.
+// smellgoldenLaw is the preset law of a policy, as shipped.
 func smellgoldenLaw(t *testing.T, policyName string) ratchet.Law {
 	t.Helper()
 	name := strings.ReplaceAll(policyName, "-", "_")
@@ -37,7 +42,6 @@ func smellgoldenLaw(t *testing.T, policyName string) ratchet.Law {
 	if err != nil {
 		t.Fatalf("preset %s: %v", name, err)
 	}
-	law.Escape = ""
 	return law
 }
 
@@ -95,6 +99,26 @@ func smellgoldenCorpus(t *testing.T) []smellgoldenText {
 	return out
 }
 
+// smellgoldenContextual are the policies whose verdict on a line depends on the
+// lines around it.
+var smellgoldenContextual = map[string]bool{"error-kind-blind": true, "panic-only-oracle": true}
+
+// smellgoldenFires reports whether the gate, judging exactly the lines, refuses
+// or warns of the policy: the verdict of an edit that adds those lines, escapes
+// honoured.
+func smellgoldenFires(p policy, text smellgoldenText, lines map[int]bool) bool {
+	d := evaluateAdded(text.content, lines, langOf("", text.path), []policy{p}, commitPhase)
+	return d.Policy == p.name
+}
+
+func smellgoldenLineSet(from, to, last int) map[int]bool {
+	out := map[int]bool{}
+	for n := max(from, 1); n <= min(to, last); n++ {
+		out[n] = true
+	}
+	return out
+}
+
 func TestSmellMatchers_AgreeWithTheEditGatePoliciesOverTheCorpus(t *testing.T) {
 	policies := testPolicies
 	laws := map[string]ratchet.Law{}
@@ -103,33 +127,92 @@ func TestSmellMatchers_AgreeWithTheEditGatePoliciesOverTheCorpus(t *testing.T) {
 	}
 	hits := map[string]int{}
 	for _, text := range smellgoldenCorpus(t) {
-		v := newView(text.content, langOf("", text.path))
+		total := strings.Count(text.content, "\n") + 1
+		everything := smellgoldenLineSet(1, total, total)
 		for _, p := range policies {
-			law := laws[p.name]
-			found := law.HitsIn(text.path, text.content)
-			if old := p.hit(v); old != (len(found) > 0) {
-				t.Errorf("%s over %s: the policy says %v, the law names %d line(s)", p.name, text.path, old, len(found))
+			found := laws[p.name].HitsIn(text.path, text.content)
+			named := map[int]bool{}
+			for _, h := range found {
+				named[h.Line] = true
+			}
+			whole := smellgoldenFires(p, text, everything)
+			if whole != (len(named) > 0) {
+				t.Errorf("%s over %s: the gate says %v over the whole file, the law names %d line(s)", p.name, text.path, whole, len(named))
 				continue
 			}
-			if len(found) == 0 {
+			if !whole {
 				continue
 			}
 			hits[p.name]++
-			if p.name == "panic-only-oracle" {
-				continue // its hit is the declaration line; the body is what the policy reads
+			if smellgoldenContextual[p.name] {
+				for n := range named {
+					window := smellgoldenLineSet(n-2, n+2, total)
+					if p.name == "panic-only-oracle" {
+						window = smellgoldenLineSet(n, total, total)
+					}
+					if !smellgoldenFires(p, text, window) {
+						t.Errorf("%s over %s: the law names line %d and the gate does not fire over its neighbourhood", p.name, text.path, n)
+					}
+				}
+				continue
 			}
-			lines := map[int]bool{}
-			for _, h := range found {
-				lines[h.Line] = true
+			gate := map[int]bool{}
+			for n := 1; n <= total; n++ {
+				if smellgoldenFires(p, text, map[int]bool{n: true}) {
+					gate[n] = true
+				}
 			}
-			if !p.hit(restrict(v, lines)) {
-				t.Errorf("%s over %s: the policy does not hit on the line(s) %v the law names", p.name, text.path, lines)
+			if !maps.Equal(gate, named) {
+				t.Errorf("%s over %s: the gate hits lines %v, the law names %v", p.name, text.path, slices.Sorted(maps.Keys(gate)), slices.Sorted(maps.Keys(named)))
 			}
 		}
 	}
 	for _, p := range policies {
 		if hits[p.name] == 0 {
 			t.Errorf("%s: no text of the corpus trips it, so the agreement proves only silence", p.name)
+		}
+	}
+}
+
+// The escape fixtures pin the equivalence where it was broken: a bare token and
+// a token with a reason admit the line they sit on and the one below, for the
+// gate and for the law alike, and the lines they do not reach are still named.
+func TestSmellMatchers_AnEscapedLineIsAdmittedByTheGateAndTheLawAlike(t *testing.T) {
+	want := map[string][]int{
+		"test-sleep":        {4, 6},
+		"disabled-test":     {4, 6},
+		"error-kind-blind":  {7},
+		"panic-only-oracle": {13},
+	}
+	for name, lines := range want {
+		data, err := os.ReadFile(filepath.Join("testdata", "policies", name, "escaped.txt"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var p policy
+		for _, q := range testPolicies {
+			if q.name == name {
+				p = q
+			}
+		}
+		var got []int
+		for _, h := range smellgoldenLaw(t, name).HitsIn("fixture.go", string(data)) {
+			got = append(got, h.Line)
+		}
+		if !slices.Equal(got, lines) {
+			t.Errorf("%s: the law names lines %v, want %v", name, got, lines)
+		}
+		total := strings.Count(string(data), "\n") + 1
+		for n := 1; n <= total; n++ {
+			if smellgoldenContextual[name] {
+				continue
+			}
+			if fired := smellgoldenFires(p, smellgoldenText{"fixture.go", string(data)}, map[int]bool{n: true}); fired != slices.Contains(lines, n) {
+				t.Errorf("%s: the gate fires on line %d = %v, want %v", name, n, fired, slices.Contains(lines, n))
+			}
+		}
+		if got := smellgoldenFires(p, smellgoldenText{"fixture.go", string(data)}, smellgoldenLineSet(1, total, total)); !got {
+			t.Errorf("%s: the gate does not fire over the whole fixture, whose unescaped lines it must still name", name)
 		}
 	}
 }

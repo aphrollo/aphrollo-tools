@@ -1,0 +1,20 @@
+package a
+
+// panic-only-ok:
+func TestA_smoke(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("%v", r)
+		}
+	}()
+	_ = f(1)
+}
+
+func TestA_other(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("%v", r)
+		}
+	}()
+	_ = f(2)
+}
