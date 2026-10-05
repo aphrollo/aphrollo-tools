@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // postMergeRepo is pruneRepo's shape — a landed lane and a fresh one — with
@@ -38,7 +39,22 @@ func postMergeRepo(t *testing.T, manifest, body string) (mainRepo, mergedWT, fre
 	freshWT = filepath.Join(t.TempDir(), "fresh")
 	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/fresh", freshWT)
 
+	postmergeAgeLaneGit(t, mergedWT)
 	return mainRepo, mergedWT, freshWT
+}
+
+// postmergeAgeLaneGit sets the times of a lane's git state back an hour: a lane
+// whose git state changed in the last 30 minutes is held by a builder, and the
+// sweep keeps it.
+func postmergeAgeLaneGit(t *testing.T, wt string) {
+	t.Helper()
+	gitdir := gitValue(t, wt, "rev-parse", "--absolute-git-dir")
+	old := time.Now().Add(-time.Hour)
+	for _, rel := range []string{"index", "HEAD", filepath.Join("logs", "HEAD")} {
+		if err := os.Chtimes(filepath.Join(gitdir, rel), old, old); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
 }
 
 const optInToml = "[aphrollo]\nprune-lanes-on-merge = true\n"
@@ -199,6 +215,8 @@ func TestPostCommitMergeSweep_SweepsALaneLandedByAConflictResolvedCommit(t *test
 	write(t, mainRepo, "shared.go", "package main\n\n// resolved\n")
 	gitDo(t, mainRepo, "add", "-A")
 	gitDo(t, mainRepo, "commit", "-qm", "merge lane/conflict resolved")
+
+	postmergeAgeLaneGit(t, laneWT)
 
 	var out, errb bytes.Buffer
 	pruned := PostCommitMergeSweep(mainRepo, &out, &errb)
