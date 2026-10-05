@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -163,21 +165,42 @@ func TestResolvePRStates_RunsConcurrentlyBoundedAndReportsErrorsAsUnknown(t *tes
 	for i := range entries {
 		entries[i] = worktreeEntry{Path: fmt.Sprintf("/wt/%d", i), Branch: fmt.Sprintf("feat/%d", i)}
 	}
+	// Every lookup holds until four are inside at once: a serial run never
+	// gets there and is named by the guard below, however loaded the box is.
+	var inFlight, peak atomic.Int32
+	allFour := make(chan struct{})
+	var once sync.Once
 	stubPRState(t, func(_, branch string) (string, error) {
-		// real-time: proves real bounded-concurrency overlap across goroutines
-		time.Sleep(200 * time.Millisecond)
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			p := peak.Load()
+			if n <= p || peak.CompareAndSwap(p, n) {
+				break
+			}
+		}
+		if n >= 4 {
+			once.Do(func() { close(allFour) })
+		}
+		select {
+		case <-allFour:
+		case <-time.After(30 * time.Second):
+		}
 		if branch == "feat/3" {
 			return "", errors.New("gh: boom")
 		}
 		return "OPEN", nil
 	})
 
-	start := time.Now()
 	states := resolvePRStates(entries)
-	elapsed := time.Since(start)
 
-	if elapsed >= time.Second {
-		t.Errorf("resolvePRStates took %s for 6 lookups at 200ms each — want overlap (bounded to 4 concurrent), not serial", elapsed)
+	select {
+	case <-allFour:
+	default:
+		t.Errorf("resolvePRStates never had 4 lookups in flight (peak %d): want overlap, not serial", peak.Load())
+	}
+	if got := peak.Load(); got > 4 {
+		t.Errorf("peak concurrency = %d, want it bounded to 4", got)
 	}
 	if len(states) != len(entries) {
 		t.Fatalf("len(states) = %d, want %d", len(states), len(entries))
@@ -202,19 +225,17 @@ func TestResolvePRStates_TimesOutToUnknown(t *testing.T) {
 	oldTimeout := listPRLookupTimeout
 	listPRLookupTimeout = 30 * time.Millisecond
 	t.Cleanup(func() { listPRLookupTimeout = oldTimeout })
+	// The lookup blocks until the test ends, so an answer of "?" can only be
+	// the deadline having fired while the lookup was still in flight.
+	stuck := make(chan struct{})
+	t.Cleanup(func() { close(stuck) })
 	stubPRState(t, func(_, _ string) (string, error) {
-		// real-time: proves the real context deadline fires past its window
-		time.Sleep(500 * time.Millisecond)
+		<-stuck
 		return "OPEN", nil
 	})
 
-	start := time.Now()
 	states := resolvePRStates([]worktreeEntry{{Path: "/wt/0", Branch: "feat/x"}})
-	elapsed := time.Since(start)
 
-	if elapsed >= 200*time.Millisecond {
-		t.Errorf("resolvePRStates should have returned at the shrunk timeout, took %s", elapsed)
-	}
 	if len(states) != 1 || states[0] != "?" {
 		t.Errorf("states = %v, want [\"?\"]", states)
 	}
