@@ -426,6 +426,7 @@ gc_mutantstemp_lock.go                             lock      # created by P2
 gc_mutantstemp_mutation.go                         mutation  # created by P2
 gc_mutantstemp_test.go                             gc
 gc_mutation.go                                     mutation  # created by P2
+gc_parity_test.go                                  gc
 gc_prmergewt.go                                    gc
 gc_prmergewt_test.go                               gc
 gc_refused_order_test.go                           gc
