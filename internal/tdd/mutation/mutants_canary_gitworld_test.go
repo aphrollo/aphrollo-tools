@@ -225,3 +225,21 @@ func TestSnapshotGitWorld_AGitworldBackwardResetOntoAPublishedCommitIsAChange(t 
 
 	requireChange(t, before.changesTo(snapshotGitWorld(lane)), checkedOutLabel)
 }
+
+// The record is per repository, so a sibling lane's recorded commits are on it
+// too: moving this checkout onto a sibling's tip passes over commits that were
+// recorded before the run began, which a rewrite of this lane's own commits
+// cannot be.
+func TestSnapshotGitWorld_AGitworldMoveOntoASiblingLanesRecordedTipIsAChange(t *testing.T) {
+	lane := recordedLane(t)
+	repo := filepath.Dir(strings.TrimSpace(gitOutT(t, lane, "rev-parse", "--path-format=absolute", "--git-common-dir")))
+	sibling := filepath.Join(t.TempDir(), "sib2")
+	gitDo(t, repo, "worktree", "add", "-q", "-b", "sib2", sibling)
+	ownerCommit(t, sibling, "sibling's work")
+	ownerCommit(t, lane, "lane work")
+	before := snapshotGitWorld(lane)
+
+	gitDo(t, lane, "reset", "-q", "--hard", "sib2")
+
+	requireChange(t, before.changesTo(snapshotGitWorld(lane)), checkedOutLabel)
+}

@@ -89,3 +89,26 @@ func TestRecordSHAs_KeepsExactlyTheShasGivenAcrossCalls(t *testing.T) {
 		t.Error("a sha given for a directory outside any repository reached this repository's record")
 	}
 }
+
+func TestRecordedSince_IsWhatWasRecordedAfterTheMark(t *testing.T) {
+	dir := repoWithState(t)
+	run(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
+	a, b, c := strings.Repeat("1", 40), strings.Repeat("2", 40), strings.Repeat("3", 40)
+	if got := Mark(dir); got != 0 {
+		t.Fatalf("mark of an empty record = %d, want 0", got)
+	}
+	RecordSHAs(dir, []string{a, b})
+	mark := Mark(dir)
+	RecordSHAs(dir, []string{c})
+
+	if mark != 2 {
+		t.Errorf("mark = %d, want 2", mark)
+	}
+	got := RecordedSince(dir, mark)
+	if len(got) != 1 || !got[c] {
+		t.Errorf("recorded since the mark = %v, want only the third", got)
+	}
+	if all := RecordedSince(dir, 0); len(all) != 3 {
+		t.Errorf("recorded since 0 = %v, want all three", all)
+	}
+}

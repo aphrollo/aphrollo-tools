@@ -97,3 +97,45 @@ func RecordSHAs(dir string, shas []string) {
 	_, _ = f.WriteString(strings.Join(shas, "\n") + "\n")
 	_ = f.Close()
 }
+
+// Mark is how many commits dir's repository has recorded so far: a point in the
+// record that RecordedSince can be asked about later.
+func Mark(dir string) int {
+	return len(recordedLines(dir))
+}
+
+// RecordedSince is the commits recorded after mark, in the order written: what
+// a caller that took a Mark earlier can tell was made since.
+func RecordedSince(dir string, mark int) map[string]bool {
+	set := map[string]bool{}
+	lines := recordedLines(dir)
+	if mark < 0 {
+		mark = 0
+	}
+	if mark >= len(lines) {
+		return set
+	}
+	for _, sha := range lines[mark:] {
+		set[sha] = true
+	}
+	return set
+}
+
+// recordedLines is the record's entries in the order written.
+func recordedLines(dir string) []string {
+	path, _ := fileFor(dir)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var lines []string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}

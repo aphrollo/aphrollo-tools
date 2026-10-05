@@ -36,6 +36,9 @@ type gitWorldPart struct {
 	// Repo is, for the checked-out commit, the checkout it was read in, so the
 	// commits a move passed over can be looked up; "" for every other part.
 	Repo string
+	// Mark is, for the checked-out commit, how many commits the record held when
+	// it was read: a rewrite is vouched for only by records written after it.
+	Mark int
 	// Excused is, for the branches, the ones a worktree had checked out when they
 	// were read, one per line: a lane's branch whatever its name. "" otherwise.
 	Excused string
@@ -71,7 +74,8 @@ func snapshotGitWorld(root string) gitWorld {
 		w = append(w, gitWorldPart{Label: "the worktree registrations", Present: true, Text: registrations})
 		w = append(w, gitWorldPart{Label: worktreeHeadsLabel, Present: true, Text: heads})
 		w = append(w, gitWorldPart{Label: branchesLabel, Present: true, Text: withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads")), Excused: worktreeBranches(heads)})
-		w = append(w, gitWorldPart{Label: checkedOutLabel, Present: true, Text: checkedOutSHA(lane), Repo: lane})
+		mark := commitrecord.Mark(lane)
+		w = append(w, gitWorldPart{Label: checkedOutLabel, Present: true, Text: checkedOutSHA(lane), Repo: lane, Mark: mark})
 		trunk := localTrunk(lane)
 		tip, log := "", ""
 		if trunk != "" {
@@ -168,7 +172,13 @@ func ownerCommitted(was, now gitWorldPart) bool {
 	if len(between) == 0 {
 		return false
 	}
+	// The record is per repository, so a sibling lane's commits are on it: a move
+	// that is no descendant (a rebase or an amend) is vouched for only by what was
+	// recorded after was was read, which is where post-rewrite writes.
 	recorded := commitrecord.Recorded(now.Repo)
+	if !isAncestor(now.Repo, was.Text, now.Text) {
+		recorded = commitrecord.RecordedSince(now.Repo, was.Mark)
+	}
 	return !slices.ContainsFunc(between, func(sha string) bool {
 		return !recorded[sha] && !onOrigin(now.Repo, sha, published)
 	})
