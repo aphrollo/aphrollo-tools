@@ -105,13 +105,14 @@ func (p *preShadow) hasWork() bool {
 // and never fails on it.
 func (p *preShadow) record() {
 	src, ok := hookSource(p.raw)
-	// A call with no fact and nothing the primary wall judged has nothing to record,
-	// and starts no goroutine.
-	if !ok || !p.hasWork() {
+	steps := p.redGreen(src)
+	// A call with no fact, nothing the primary wall judged and no code file to
+	// write has nothing to record, and starts no goroutine.
+	if !ok || (!p.hasWork() && len(steps) == 0) {
 		return
 	}
 	blocked := p.primaryBlocked()
-	shadow.RecordFacts(src, func() []shadow.Fact {
+	shadow.RecordFactsAnd(src, func() []shadow.Fact {
 		facts := slices.Clone(p.facts)
 		if blocked || p.primary.Waived {
 			if root := p.primary.Landing(p.raw); root != "" {
@@ -125,7 +126,22 @@ func (p *preShadow) record() {
 			}
 		}
 		return facts
-	})
+	}, steps)
+}
+
+// redGreen is the red→green step of the call: asked of each code file it writes,
+// when the call went ahead. Aphrollo's own decision for it is always allow, the
+// proof being held at the commit, so a call a wall or a law stopped is not asked:
+// the edit it was about does not happen.
+func (p *preShadow) redGreen(src shadow.Source) []shadow.Step {
+	if p.final == shadow.Block {
+		return nil
+	}
+	pl, ok := shadow.ParsePayload(p.raw)
+	if !ok {
+		return nil
+	}
+	return shadow.RedGreenSteps(tdd.ShadowWorld(), src, pl, pl.Targets())
 }
 
 // hookSource is where a hook's records are filed: the root of the file an edit
