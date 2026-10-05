@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/compat"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
 
@@ -66,4 +67,15 @@ func RepoID(root string) string {
 		}
 	}
 	return core.RepoStateKey(filepath.Clean(common))
+}
+
+// ForDir reads every layer for the repo dir stands in, the way a hook reads
+// them: the repo is found by walking up for a .git entry, never by asking git.
+// Outside any repo, only the built-in and user layers are read.
+func ForDir(dir string) *Config {
+	repo := ""
+	if dir != "" {
+		repo = compat.RepoRoot(dir)
+	}
+	return Load(Options{Repo: repo, RepoID: RepoID(repo)})
 }

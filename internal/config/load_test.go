@@ -245,3 +245,25 @@ func TestConfigRoot_FollowsTheEnvironmentLikeTheDataRoot(t *testing.T) {
 		t.Fatalf("the default root should end in trellis, got %q", got)
 	}
 }
+
+func TestForDir_FindsTheRepoByWalkingUpAndReadsOutsideOneWithoutIt(t *testing.T) {
+	t.Setenv("TRELLIS_CONFIG", t.TempDir())
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(repo, "trellis.toml"), "tdd = \"warn\"\n")
+	deep := filepath.Join(repo, "a", "b")
+	if err := os.MkdirAll(deep, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := ForDir(deep).Get("tdd"); got.Value.S != "warn" || got.Layer != Repo {
+		t.Fatalf("tdd from a subdirectory = %+v, want warn from the repo", got)
+	}
+	if got := ForDir(t.TempDir()).Get("tdd"); got.Layer != BuiltIn {
+		t.Fatalf("tdd outside a repo = %+v, want built-in", got)
+	}
+	if got := ForDir("").Get("tdd"); got.Layer != BuiltIn {
+		t.Fatalf("tdd for no directory = %+v, want built-in, not the working directory's repo", got)
+	}
+}

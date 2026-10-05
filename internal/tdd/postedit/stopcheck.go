@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 )
 
 // The stop checks answer the three hooks that end something: Stop (the turn),
@@ -45,6 +47,10 @@ type StopVerdict struct {
 	// stop-red rule reads both; they change nothing in what is rendered.
 	Red      bool
 	RedTrees []string
+	// Guidance is what a stop says when the setting lets it through: the turn is
+	// not blocked, and the harness shows the text as a message. Never set with
+	// Block.
+	Guidance string
 }
 
 // stopInput is the part of the Stop, SubagentStop and TaskCompleted payloads
@@ -80,7 +86,14 @@ func DecideStop(event StopEvent, raw []byte) StopVerdict {
 	if event != StopHookTaskCompleted {
 		red, trees = unseenRedFact(event, in.SessionID, in.Cwd)
 	}
-	v := decideStop(event, in)
+	var v StopVerdict
+	switch stopMode(in.Cwd) {
+	case modeOff:
+	case modeWarn:
+		v = warnStop(event, in, red)
+	default:
+		v = decideStop(event, in)
+	}
 	if event != StopHookTaskCompleted {
 		v.Red, v.RedTrees = red, trees
 	}
@@ -148,10 +161,47 @@ func decideStop(event StopEvent, in stopInput) StopVerdict {
 	return StopVerdict{}
 }
 
-// stopCheckEnforced says whether the stop checks run for this session. Today
-// only the session's own switch answers (/tdd off), and a payload with no
-// session id has no state to judge; the setting that grades the gate as
-// enforce, warn or off reads here.
+// The tdd setting's values the stop checks tell apart. enforce is the live default and blocks as the
+// checks always have; the schema's built-in is in internal/config, and phase
+// A's A/B flips it to warn there, not here. warn lets every stop through with
+// guidance only; off says nothing.
+const (
+	modeWarn = "warn"
+	modeOff  = "off"
+)
+
+// stopMode is the tdd setting for the repo cwd stands in, through every layer.
+// A value no layer can hold is the schema's business: it falls back to the
+// built-in, and never to off.
+func stopMode(cwd string) string {
+	return config.ForDir(cwd).Get("tdd").Value.S
+}
+
+// warnStop is the stop check under tdd = warn: it never blocks, and says once
+// that the turn ends with a red its agent has not been told of. It reads the
+// same fact the shadow record does and consumes nothing, so the red is still
+// there for the agent's next hook to report. TaskCompleted is not held open
+// and has nothing to say.
+func warnStop(event StopEvent, in stopInput, red bool) StopVerdict {
+	state, _ := loadSession(in.SessionID)
+	if !stopCheckEnforced(state) || !red || in.StopHookActive {
+		return StopVerdict{}
+	}
+	switch event {
+	case StopHookStop:
+	case StopHookSubagentStop:
+		if in.Cwd == "" {
+			return StopVerdict{}
+		}
+	default:
+		return StopVerdict{}
+	}
+	return StopVerdict{Guidance: "gate (tdd = warn): this turn ends with a red its agent has not been told of; the next hook reports it. tdd = enforce blocks the stop on it."}
+}
+
+// stopCheckEnforced says whether the stop checks run for this session: the
+// session's own switch (/tdd off), and a payload with no session id has no
+// state to judge. The tdd setting is read beside it, in DecideStop.
 func stopCheckEnforced(state *sessionState) bool {
 	return state != nil && !state.Overrides.Off
 }
@@ -315,7 +365,13 @@ func failedProjectLines(state *sessionState, tree string) []string {
 // nothing.
 func RenderStopVerdict(event StopEvent, v StopVerdict) (stdout, stderr []byte, code int) {
 	if !v.Block {
-		return nil, nil, 0
+		if v.Guidance == "" {
+			return nil, nil, 0
+		}
+		b, _ := json.Marshal(struct {
+			SystemMessage string `json:"systemMessage"`
+		}{SystemMessage: v.Guidance})
+		return b, nil, 0
 	}
 	if event == StopHookTaskCompleted {
 		return nil, []byte(v.Reason + "\n"), 2
