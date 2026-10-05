@@ -104,17 +104,21 @@ func RatchetAdvisoryFindings(raw []byte) (Decision, []LawFinding) {
 
 	before := onDiskContent(path)
 	_, statErr := os.Stat(path)
-	res, err := ratchet.Check(ratchet.Options{
-		Root:     root,
-		Proposed: map[string]string{relSlash: content},
-		Files:    []string{relSlash},
-		// The graph laws judge the module, not the file: skipped when this
-		// edit cannot move the graph, else judged over the graph the edit
-		// would leave and cached by tree state.
-		SkipGraphLaws: !graphMayChange(relSlash, statErr == nil, before, content),
-		GraphOverlay:  map[string]string{relSlash: content},
-		GraphCacheDir: StateDir(),
-	})
+	// The edit stage of the one planner: the file alone, with the content the edit
+	// would leave. It fails open: any error below lets the edit through.
+	opts := ratchet.Plan{
+		Root:    root,
+		Stage:   ratchet.StageEdit,
+		Files:   []string{relSlash},
+		Overlay: map[string]string{relSlash: content},
+	}.Options()
+	// The graph laws judge the module, not the file: skipped when this edit cannot
+	// move the graph, else judged over the graph the edit would leave and cached by
+	// tree state.
+	opts.SkipGraphLaws = !graphMayChange(relSlash, statErr == nil, before, content)
+	opts.GraphOverlay = map[string]string{relSlash: content}
+	opts.GraphCacheDir = StateDir()
+	res, err := ratchet.Check(opts)
 	if err != nil || len(res.Findings) == 0 {
 		return Decision{}, nil
 	}
@@ -196,31 +200,32 @@ func judgeRatchet(gateName, repoRoot string, graph func() (ratchet.GraphTree, er
 		return GateResult{}
 	}
 	started := time.Now()
-	res, err := ratchetCheckFn(ratchet.Options{
-		GraphTree:      graph,
-		Root:           repoRoot,
-		Proposed:       indexOverlay(repoRoot),
-		Tracked:        trackedFiles(repoRoot),
-		TrackedIgnored: trackedIgnoredFiles(repoRoot),
-		CacheDir:       StateDir(),
-		// A diff-scoped law (symbol-removed, co-change, hunk-regex) needs the
-		// base the staged set is measured from — HEAD for a plain commit and
-		// a merge that lands work, the incoming trunk tip for a trunk sync
-		// into a lane (gitx.StagedBaseRev, the same base stagedFiles diffs
-		// against) — plus, for a `[scope] changed = "staged"` law, the files
-		// THIS commit actually stages: without it co-change/hunk-regex
-		// answer nothing on every real commit (see changedInput), which is
-		// the "law that silently does nothing" shape #320 is about, not a
-		// rejection anyone would ever see. Pre-images read at HEAD during a
-		// trunk sync charged the lane with trunk's own changes to any file
-		// the lane also touched.
-		Base:        gitx.StagedBaseRev(repoRoot),
-		StagedFiles: stagedFiles(repoRoot),
-		// The renames among those files, from the same diff, so a moved
-		// file's pre-image is read where it came from and a pure move is
-		// no change to a diff-scoped law.
-		Renames: gitx.StagedRenames(repoRoot),
-	})
+	// The commit stage of the one planner: the whole tree, from the base, over the
+	// index. It fails closed -- a plan that cannot be made is a refusal below.
+	opts := ratchet.Plan{
+		Root:    repoRoot,
+		Stage:   ratchet.StageCommit,
+		Base:    gitx.StagedBaseRev(repoRoot),
+		Files:   stagedFiles(repoRoot),
+		Overlay: indexOverlay(repoRoot),
+	}.Options()
+	opts.GraphTree = graph
+	opts.Tracked = trackedFiles(repoRoot)
+	opts.TrackedIgnored = trackedIgnoredFiles(repoRoot)
+	opts.CacheDir = StateDir()
+	// A diff-scoped law (symbol-removed, co-change, hunk-regex) needs the base the
+	// staged set is measured from -- HEAD for a plain commit and a merge that
+	// lands work, the incoming trunk tip for a trunk sync into a lane
+	// (gitx.StagedBaseRev, the same base stagedFiles diffs against) -- plus, for a
+	// `[scope] changed = "staged"` law, the files THIS commit actually stages:
+	// without it co-change/hunk-regex answer nothing on every real commit (see
+	// changedInput), the "law that silently does nothing" shape #320 is about.
+	// Pre-images read at HEAD during a trunk sync charged the lane with trunk's
+	// own changes to any file the lane also touched. The renames among the staged
+	// files come from the same diff, so a moved file's pre-image is read where it
+	// came from and a pure move is no change to a diff-scoped law.
+	opts.Renames = gitx.StagedRenames(repoRoot)
+	res, err := ratchetCheckFn(opts)
 	if err != nil {
 		return ratchetCheckErrorResult(gateName, repoRoot, err, started)
 	}

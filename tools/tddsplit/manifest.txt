@@ -970,6 +970,7 @@ ratchethint.go                                     lawgate
 ratchethint_test.go                                tdd       # prefix says lawgate; its test body reaches tdd
 ratchetindex_test.go                               lawgate
 ratchetonpr_workflow_pin_test.go                   tdd
+ratchetplan_property_test.go                       lawgate
 ratchetpostedit.go                                 lawgate
 ratchetpostedit_languages_test.go                   lawgate
 ratchetpostedit_test.go                            lawgate

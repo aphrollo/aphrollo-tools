@@ -355,9 +355,9 @@ type Law struct {
 // LawsDir is where a consuming repo keeps its laws, relative to the repo root.
 const LawsDir = ".ratchet/laws"
 
-// LoadLaws reads every law under <root>/.ratchet/laws, sorted by name. A repo
+// loadLawsUncached reads every law under <root>/.ratchet/laws, sorted by name. A repo
 // with no laws dir loads zero laws and no error — the engine is opt-in.
-func LoadLaws(root string) ([]Law, error) {
+func loadLawsUncached(root string) ([]Law, error) {
 	dir := filepath.Join(root, filepath.FromSlash(LawsDir))
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
