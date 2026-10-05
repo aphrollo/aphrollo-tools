@@ -70,6 +70,8 @@ func LogBashSuiteDecision(p0 []byte, p1 Decision) { postedit.LogBashSuiteDecisio
 
 func LogEditDecision(p0 []byte, p1 Decision) { postedit.LogEditDecision(p0, p1) }
 
+func LogLawGuides(p0 []byte, p1 Decision, p2 []LawFinding) { postedit.LogLawGuides(p0, p1, p2) }
+
 func LogOverride(p0 string, p1 string, p2 string) { postedit.LogOverride(p0, p1, p2) }
 
 func PostBash(p0 []byte, p1 SuiteRunner) string { return postedit.PostBash(p0, p1) }

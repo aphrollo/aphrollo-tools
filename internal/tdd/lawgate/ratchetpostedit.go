@@ -93,14 +93,21 @@ func (j *editJudge) headOf() headFiles {
 // law that cannot be judged here (unreadable, a git failure) says nothing:
 // the commit gate judges it again.
 func editLawRefusals(root string, rels []string) []string {
+	lines, _ := editLawRefusalHits(root, rels)
+	return lines
+}
+
+// editLawRefusalHits is editLawRefusals that also names each refused law and
+// file, one per finding, for the event that records what the edit stage said.
+func editLawRefusalHits(root string, rels []string) ([]string, []LawFinding) {
 	if root == "" || len(rels) == 0 || !ratchet.HasLaws(root) {
-		return nil
+		return nil, nil
 	}
 	// The edit stage fails open: a plan that cannot be made says nothing here and
 	// the commit, which fails closed on the same error, judges.
 	steps, err := ratchet.Plan{Root: root, Stage: ratchet.StageEdit, Base: "HEAD", Files: rels}.Steps()
 	if err != nil {
-		return nil
+		return nil, nil // absence-ok: the edit stage fails open; the commit gate fails closed on the same error
 	}
 	j := newEditJudge(root, rels)
 	// The per-file laws share one narrowed scan; every other law runs alone.
@@ -138,7 +145,11 @@ func editLawRefusals(root string, rels []string) []string {
 			}
 		}
 	}
-	return ratchet.Result{Findings: findings}.Lines()
+	var hits []LawFinding
+	for _, f := range findings {
+		hits = append(hits, LawFinding{Law: f.Law, Deny: true, File: f.File})
+	}
+	return ratchet.Result{Findings: findings}.Lines(), hits
 }
 
 // plan is the Check a law gets for this edit, and false when this edit

@@ -226,7 +226,7 @@ func TestRatchetAdvisoryFindings_EachFindingCarriesItsOwnLawAndSeverity(t *testi
 			"content": "let a = x.clamp(0.0, 1.0);\nlet b = y.clamp(0.0, 1.0);\n",
 		})
 		d, found := RatchetAdvisoryFindings(raw)
-		if len(found) != 1 || found[0] != (LawFinding{Law: "nan-guard", Deny: c.deny}) {
+		if len(found) != 1 || found[0] != (LawFinding{Law: "nan-guard", Deny: c.deny, File: "crates/a/src/lib.rs"}) {
 			t.Errorf("severity %s: findings = %+v, want nan-guard with deny=%v", c.severity, found, c.deny)
 		}
 		if d.Policy != "ratchet:nan-guard" || (d.Action == Block) != c.deny {

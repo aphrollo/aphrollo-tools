@@ -62,6 +62,8 @@ func RatchetAdvisory(raw []byte) Decision {
 type LawFinding struct {
 	Law  string
 	Deny bool
+	// File is the repo-relative file the finding is at.
+	File string
 }
 
 // RatchetAdvisoryFindings is RatchetAdvisory that also answers each finding the
@@ -136,7 +138,7 @@ func RatchetAdvisoryFindings(raw []byte) (Decision, []LawFinding) {
 	}
 	var found []LawFinding
 	for _, f := range res.Findings {
-		found = append(found, LawFinding{Law: f.Law, Deny: f.Severity == ratchet.Deny.String()})
+		found = append(found, LawFinding{Law: f.Law, Deny: f.Severity == ratchet.Deny.String(), File: f.File})
 	}
 	return Decision{
 		Action: action,
@@ -249,7 +251,7 @@ func judgeRatchet(gateName, repoRoot string, graph func() (ratchet.GraphTree, er
 	if res.Blocked() {
 		msg := fmt.Sprintf("gate %s: ratchet → REJECTED\n  %s",
 			gateName, strings.Join(res.Lines(), "\n  "))
-		AppendGateLog(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started))
+		AppendGateLogDetail(gateName, repoRoot, "ratchet check", "ratchet-rejected", time.Since(started), refusalDetail(res.Findings))
 		return GateResult{Blocked: true, Message: msg}
 	}
 	fmt.Fprintf(os.Stderr, "gate %s: ratchet → clean (%d law(s), %d file(s))\n", gateName, res.Laws, res.FilesScanned)

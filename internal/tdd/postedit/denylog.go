@@ -106,3 +106,41 @@ func denyDetail(d Decision) map[string]string {
 	}
 	return map[string]string{"cause": cause, "override": override}
 }
+
+// logLawGuides records, one event each, the law and file of every finding the
+// edit stage named without denying the write: the commit-time measure of
+// refusals the edit check missed matches a commit's refused pairs against these
+// and the deny events.
+func logLawGuides(root, stage string, hits []LawFinding) {
+	seen := map[string]bool{}
+	for _, h := range hits {
+		key := h.Law + "|" + h.File
+		if seen[key] || h.File == "" {
+			continue
+		}
+		seen[key] = true
+		AppendEvent(Event{Kind: "guide", Root: root, Stage: stage, Detail: map[string]string{"rule": "ratchet:" + h.Law, "file": h.File}})
+	}
+}
+
+// LogLawGuides records the findings of the pre-edit judge that no deny event
+// carries: every one when the write went ahead, and every one but the law the
+// deny event names when it was refused.
+func LogLawGuides(raw []byte, final Decision, found []LawFinding) {
+	if len(found) == 0 {
+		return
+	}
+	var in preToolUseInput
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return
+	}
+	root, _ := logPlace(editLogPath(in))
+	var rest []LawFinding
+	for _, f := range found {
+		if final.Action == Block && final.Policy == "ratchet:"+f.Law {
+			continue
+		}
+		rest = append(rest, f)
+	}
+	logLawGuides(root, "preedit", rest)
+}

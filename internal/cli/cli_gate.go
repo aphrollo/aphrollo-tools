@@ -524,8 +524,10 @@ func gatePreToolUse(raw []byte, stderr io.Writer, obs *preShadow) tdd.Decision {
 	// The declared laws judge the content this edit WOULD write. A content
 	// smell already blocking keeps its own reason; otherwise the more severe
 	// verdict wins, so a deny law denies the write before it lands.
+	var found []tdd.LawFinding
 	if decision.Action != tdd.Block {
-		advisory, found := tdd.RatchetAdvisoryFindings(raw)
+		var advisory tdd.Decision
+		advisory, found = tdd.RatchetAdvisoryFindings(raw)
 		obs.law(found)
 		decision = mergeRatchetAdvisory(decision, advisory)
 	}
@@ -536,6 +538,7 @@ func gatePreToolUse(raw []byte, stderr io.Writer, obs *preShadow) tdd.Decision {
 		decision = tdd.WorktreeAdvisory(raw)
 	}
 	tdd.LogEditDecision(raw, decision)
+	tdd.LogLawGuides(raw, decision, found)
 	return decision
 }
 

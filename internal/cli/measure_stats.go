@@ -20,7 +20,9 @@ repo by default): lane speed (first event to merge, p50/p90), first-run CI
 green by cause and OS, gate wall time per lane, not-tested runs by cause,
 edit-to-verdict latency, edits per message, denies by rule, overrides and
 wrong blocks (an override within 10 minutes of a deny on the same lane), and
-escapes by class. Read-only.
+escapes by class, and the commit refusals the edit check missed: the (law, file)
+pairs a commit refused on a law that no edit-time deny or guide of the same lane
+named earlier, over the window (the one to trend to 0). Read-only.
 
   --lane <name>    only that lane's events
   --week           only the last 7 days

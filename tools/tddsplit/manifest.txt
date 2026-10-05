@@ -527,6 +527,7 @@ issue_test.go                                      install   # prefix says escap
 judgedhead_test.go                                 merge
 killtree_test.go                                   postedit
 knownwall_test.go                                  postedit
+lawguide_event_test.go                             postedit
 lintlock.go                                        lock
 lintlock_test.go                                   lock
 lintnotice.go                                      postedit
@@ -976,6 +977,8 @@ ratchetpostedit_languages_test.go                   lawgate
 ratchetpostedit_test.go                            lawgate
 ratchetreadme.go                                   tdd
 ratchetreadme_test.go                              tdd
+ratchetrefusal.go                                  lawgate
+ratchetrefusal_test.go                             lawgate
 ratchetschema_test.go                              lawgate
 ratchetstage_baselinehint_test.go                  lawgate
 ratchetstage_commita_test.go                       lawgate
