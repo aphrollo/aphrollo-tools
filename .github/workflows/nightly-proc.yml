@@ -1,0 +1,56 @@
+name: Nightly process tier
+
+# The tests behind `//go:build proc` spawn real long processes, kill whole
+# process trees on a timeout, start real language servers or wait out real
+# seconds. Each of them has a faster sibling in the default tier that pins the
+# same behaviour (see the list in the pull request that moved them), so the
+# pull request's run does not wait for them; this workflow runs them, and the
+# rest of the suite beside them, once a night on both operating systems the
+# tool ships for. A red night is read like a red `test` job: the failing test
+# is named in the log.
+
+on:
+  schedule:
+    - cron: "40 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-proc
+  cancel-in-progress: false
+
+jobs:
+  proc:
+    # A fork's scheduled run has no business consuming runner minutes for a
+    # repository it does not own -- the guard nightly-flake-hunt.yml states.
+    if: github.repository == 'aphrollo/aphrollo-tools' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      # Fixtures compare exact bytes; Git for Windows would check out CRLF.
+      - shell: bash
+        run: git config --global core.autocrlf false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Test with the proc tag
+        shell: bash
+        env:
+          # runner.temp is the long spelling of the temp dir on Windows; the
+          # default is the 8.3 short name, which tests comparing paths read as
+          # a different directory.
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
+        run: go test -tags proc -count=1 -shuffle=on -timeout=75m ./...

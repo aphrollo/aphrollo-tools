@@ -1,3 +1,5 @@
+//go:build proc
+
 package refactor
 
 import (

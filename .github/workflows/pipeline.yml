@@ -263,7 +263,7 @@ jobs:
           cache: true
       - name: Workflow pin tests
         if: needs.changes.outputs.workflow == 'true'
-        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_|TestNightlyFuzzWorkflow_|TestNightlyMutantsWorkflow_|TestNightlyFlakeHuntWorkflow_|TestReplayWorkflow_)' ./internal/tdd ./internal/cli
+        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_|TestNightlyFuzzWorkflow_|TestNightlyMutantsWorkflow_|TestNightlyFlakeHuntWorkflow_|TestNightlyProcWorkflow_|TestReplayWorkflow_)' ./internal/tdd ./internal/cli
       - name: actionlint
         if: needs.changes.outputs.workflow == 'true'
         run: |
@@ -429,7 +429,7 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: |
           set -uo pipefail
-          names='TestRename_Gopls_CrossFile TestFindReferences_Gopls TestRename_Gopls_Apply TestOutline_Gopls TestShow_Gopls TestRename_Pyright TestRename_RustAnalyzer TestRename_TypeScript TestCheckCleanRepoReportsNoDrift TestCheckDetectsDrift TestReportedOnlyConfigDoesNotFlagGatedDrift TestRegenScopedAppliesOnlyChangedQuery'
+          names='TestRename_Gopls_CrossFile TestFindReferences_Gopls TestRename_Gopls_Apply TestOutline_Gopls TestShow_Gopls TestCheckCleanRepoReportsNoDrift TestCheckDetectsDrift TestReportedOnlyConfigDoesNotFlagGatedDrift TestRegenScopedAppliesOnlyChangedQuery'
           {
             echo "### refactor/sqlc e2e coverage (LSP servers + sqlc binary)"
             echo
