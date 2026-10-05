@@ -240,14 +240,14 @@ func TestRecordFactsAnd_AStepThatOutrunsTheBudgetIsWrittenUnjudgedAndCounted(t *
 	Budget = 30 * time.Millisecond
 	t.Cleanup(func() { Budget = old })
 	before := Overruns.Load()
-	released := make(chan struct{})
+	hold, returned := make(chan struct{}), make(chan struct{})
 	slow := Step{
-		run: func(ctx context.Context) []core.Event {
+		run: func(context.Context) []core.Event {
 			select {
-			case <-ctx.Done():
+			case <-hold:
 			case <-time.After(10 * time.Second):
 			}
-			close(released)
+			close(returned)
 			return []core.Event{{Kind: core.KindShadow, Detail: map[string]string{"rule": "late"}}}
 		},
 		skip: func(cause string) core.Event {
@@ -255,16 +255,33 @@ func TestRecordFactsAnd_AStepThatOutrunsTheBudgetIsWrittenUnjudgedAndCounted(t *
 		},
 	}
 	RecordFactsAnd(Source{Root: t.TempDir()}, func() []Fact { return nil }, []Step{slow})
-	select {
-	case <-released:
-	case <-time.After(10 * time.Second):
-		t.Fatal("the step was not told the budget was spent")
-	}
 	if len(*got) != 1 || (*got)[0].Detail["relation"] != string(Unjudged) || (*got)[0].Detail["cause"] != CauseBudget || (*got)[0].Detail["rule"] != RuleRedGreen {
-		t.Errorf("events = %+v, want one unjudged red-green record naming the budget", *got)
+		t.Fatalf("events = %+v, want one unjudged red-green record naming the budget", *got)
 	}
 	if Overruns.Load() != before+1 {
 		t.Errorf("Overruns = %d, want %d: the overrun is counted", Overruns.Load(), before+1)
+	}
+	close(hold)
+	select {
+	case <-returned:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the step never finished")
+	}
+}
+
+// Exactly one of the two writers speaks for a step: once the hook has closed the
+// window, a step that finishes late has its events refused.
+func TestWindow_RefusesWhatALateStepWritesAfterTheHookClosedIt(t *testing.T) {
+	got := capture(t)
+	w := &window{}
+	if !w.commit(0, []core.Event{{Kind: core.KindShadow}}) {
+		t.Fatal("an open window refused a step")
+	}
+	if n := w.close(); n != 1 {
+		t.Errorf("close = %d, want 1 step committed", n)
+	}
+	if w.commit(1, []core.Event{{Kind: core.KindShadow}}) || len(*got) != 1 {
+		t.Errorf("a closed window took a late step: %d events", len(*got))
 	}
 }
 
