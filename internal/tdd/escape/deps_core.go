@@ -39,8 +39,6 @@ func normalizeRepoSpelling(p0 string) string { return core.NormalizeRepoSpelling
 
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }
 
-func quotedWords(p0 string) []string { return core.QuotedWords(p0) }
-
 func repoStateKey(p0 string) string { return core.RepoStateKey(p0) }
 
 func writeFileAtomic(p0 string, p1 []byte) error { return core.WriteFileAtomic(p0, p1) }
