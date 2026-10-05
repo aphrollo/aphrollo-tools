@@ -181,7 +181,7 @@ func TestIssueSummaryLineGivesUpOnASlowFetch(t *testing.T) {
 	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := makeGitHubRepo(t)
 	stubGhScript(t, map[string]string{"issue list": `[{"labels":[]}]`})
-	t.Setenv("GH_STUB_SLEEP_MS", "3000")
+	t.Setenv("GH_STUB_SLEEP_MS", "20000") // far past any delay a loaded box adds to a 200 ms deadline: the deadline always wins
 	defer func(d time.Duration) { issuesFetchTimeout = d }(issuesFetchTimeout)
 	issuesFetchTimeout = 200 * time.Millisecond
 
