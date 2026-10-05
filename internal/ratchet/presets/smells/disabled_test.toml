@@ -1,8 +1,10 @@
+schema      = 2
 name        = "disabled_test"
-description = "A test is disabled (it.skip / xit / t.Skip / @pytest.mark.skip / return error.SkipZigTest). A skipped test reports green while proving nothing. Delete the test or fix it; a skip that is a platform guard is admitted with a reason: // skip-ok: <why>."
+description = "A test is disabled (it.skip / xit / t.Skip / @pytest.mark.skip / return error.SkipZigTest). A skipped test reports green while proving nothing. Delete the test or fix it; a skip that is a platform guard is admitted by // skip-ok: <why>."
 severity    = "deny"
 escape      = "skip-ok:"
 escape_lines = 1
+escape_reason = false
 
 [scope]
 include = [{{test_include|"**/*_test.go", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/*_test.rs", "**/test_*.rs", "**/tests/**/*.rs", "**/*_test.zig", "**/tests/**/*.zig", "**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.test.jsx", "**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.js", "**/*.spec.jsx"}}]

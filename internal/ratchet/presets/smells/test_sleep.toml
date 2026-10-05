@@ -1,8 +1,10 @@
+schema      = 2
 name        = "test_sleep"
-description = "A test contains a real-time sleep (time.Sleep / setTimeout-as-wait / asyncio.sleep). Real-time sleeps make tests slow and flaky. Use a fake clock, an injected timer, or explicit synchronization instead; a case <-time.After arm of a select that has another arm bounds a wait and is not a sleep. A sleep that is the point is admitted with a reason: // real-time: <why>."
+description = "A test contains a real-time sleep (time.Sleep / setTimeout-as-wait / asyncio.sleep). Real-time sleeps make tests slow and flaky. Use a fake clock, an injected timer, or explicit synchronization instead; a case <-time.After arm of a select that has another arm bounds a wait and is not a sleep. A sleep that is the point is admitted by // real-time: <why>."
 severity    = "deny"
 escape      = "real-time:"
 escape_lines = 1
+escape_reason = false
 
 [scope]
 include = [{{test_include|"**/*_test.go", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/*_test.rs", "**/test_*.rs", "**/tests/**/*.rs", "**/*_test.zig", "**/tests/**/*.zig", "**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.test.jsx", "**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.js", "**/*.spec.jsx"}}]

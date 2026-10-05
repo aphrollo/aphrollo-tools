@@ -1,9 +1,11 @@
+schema      = 2
 name        = "panic_only_oracle"
 extends     = "preset:smells/panic_only_oracle"
 description = "A Go test's only assertion is a defer/recover panic-catcher while a call under test has its result discarded (_ = fn(...)): it proves the code does not panic and nothing about what it computes. Mark a smoke check whose whole claim is not panicking with // panic-only-ok: <why>; otherwise assert on the discarded value. A warning: the edit-time gate warns and the commit gate judges the lines a commit adds."
 severity    = "warn"
 escape      = "panic-only-ok:"
 escape_lines = 1
+escape_reason = false
 
 [scope]
 include = ["**/*_test.go", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/*_test.rs", "**/test_*.rs", "**/tests/**/*.rs", "**/*_test.zig", "**/tests/**/*.zig", "**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.test.jsx", "**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.js", "**/*.spec.jsx"]

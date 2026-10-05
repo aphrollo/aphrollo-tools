@@ -30,11 +30,33 @@ func (l Law) oracleSmellHits(file string, fl *FileLines) []Hit {
 	}
 	lines, _ := oracle.Detect(l.Matcher.Detector, in)
 	var hits []Hit
+	marked := l.oracleEscapeLines(lexer, fl.text, len(fl.raw))
 	for _, n := range lines {
-		if n < 1 || n > len(fl.raw) || l.escaped(file, fl.raw, n-1) {
+		if n < 1 || n > len(fl.raw) || marked[n] {
 			continue
 		}
 		hits = append(hits, l.hit(file, n, strings.TrimSpace(fl.raw[n-1])))
 	}
 	return hits
+}
+
+// oracleEscapeLines are the lines the law's escape admits, judged the way the
+// edit-time smell gate judges it: a token in a comment of the directives view
+// (strings blanked, so a quoted token admits nothing) admits its own line and the
+// EscapeLines below it, and a bare token counts unless the law asks a reason.
+func (l Law) oracleEscapeLines(lexer *mask.Lexer, text string, n int) map[int]bool {
+	out := map[int]bool{}
+	if l.Escape == "" {
+		return out
+	}
+	for i, line := range strings.Split(lexer.Lex(text, true, false), "\n") {
+		at := strings.Index(line, l.Escape)
+		if at < 0 || (!l.EscapeBare && strings.TrimSpace(line[at+len(l.Escape):]) == "") {
+			continue
+		}
+		for k := i + 1; k <= i+1+l.EscapeLines && k <= n; k++ {
+			out[k] = true
+		}
+	}
+	return out
 }

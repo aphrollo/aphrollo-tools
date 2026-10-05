@@ -103,3 +103,30 @@ func TestOracleSmell_AHitOnTheLastLineIsNamedWhetherOrNotTheFileEndsInANewline(t
 		}
 	}
 }
+
+func TestOracleSmell_EscapeReasonFalseAdmitsTheBareTokenAsTheEditGateDoes(t *testing.T) {
+	src := "func TestA_x(t *testing.T) {\n\tt.Skip(\"a\") // skip-ok:\n\t// skip-ok:\n\tt.Skip(\"b\")\n\tt.Skip(\"c\") // skip-ok: a reason\n\tw := 1\n\tt.Skip(\"d\")\n\tx := f() // skip-ok:\n\tt.Skip(\"e\")\n}\n"
+	bare := oracleLaw(t, "disabled-test", "escape = \"skip-ok:\"\nescape_lines = 1\nescape_reason = false\n")
+	if got := hitLines(bare.HitsIn("a/x_test.go", src)); len(got) != 1 || got[0] != 7 {
+		t.Fatalf("bare-token law hit lines = %v, want [7]: the token on the line or the one above admits, with or without a reason, even as a trailing comment of the line above", got)
+	}
+	strict := oracleLaw(t, "disabled-test", "escape = \"skip-ok:\"\nescape_lines = 1\n")
+	if got := hitLines(strict.HitsIn("a/x_test.go", src)); len(got) != 4 || got[0] != 2 || got[3] != 9 {
+		t.Fatalf("reasoned-token law hit lines = %v, want the bare-token lines 2, 4, 7, 9 named", got)
+	}
+}
+
+func TestOracleSmell_AQuotedEscapeTokenAdmitsNothing(t *testing.T) {
+	law := oracleLaw(t, "disabled-test", "escape = \"skip-ok:\"\nescape_lines = 1\nescape_reason = false\n")
+	src := "func TestA_x(t *testing.T) {\n\ts := \"skip-ok: not a comment\"\n\tt.Skip(\"a\")\n}\n"
+	if got := hitLines(law.HitsIn("a/x_test.go", src)); len(got) != 1 || got[0] != 3 {
+		t.Fatalf("hit lines = %v, want [3]: a token inside a string is data", got)
+	}
+}
+
+func TestParseLaw_EscapeReasonIsABoolean(t *testing.T) {
+	_, err := ParseLaw("name = \"smell\"\ndescription = \"d\"\nseverity = \"deny\"\nescape_reason = \"no\"\n\n[scope]\ninclude = [\"**/*\"]\n\n[matcher]\nkind = \"regex-absent\"\npattern = \"x\"\n", "smell")
+	if err == nil || !strings.Contains(err.Error(), "escape_reason") {
+		t.Fatalf("err = %v, want a refusal naming escape_reason", err)
+	}
+}

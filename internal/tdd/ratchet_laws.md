@@ -27,6 +27,7 @@ description  = "A float clamp is not a NaN guard"
 severity     = "deny"                          # deny | warn
 escape       = "// nan-safe:"                  # optional: suppresses a hit
 escape_lines = 2                               # optional: how far above (default 2)
+escape_reason = false                          # optional, schema 2: the bare token admits, no reason after it (default true)
 baseline     = ".ratchet/baselines/nan-guard.txt"   # optional
 code_only    = true                            # optional: strip trailing comments first
 mask_strings = true                            # optional: blank string CONTENTS first, keep comments
