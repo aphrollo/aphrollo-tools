@@ -22,6 +22,9 @@ const (
 	BuiltIn Layer = iota
 	User
 	Repo
+	// Env is a deprecated APHROLLO_* variable standing in for a key: above every
+	// file, below a flag.
+	Env
 	Flag
 )
 
@@ -31,6 +34,8 @@ func (l Layer) String() string {
 		return "user"
 	case Repo:
 		return "repo"
+	case Env:
+		return "env"
 	case Flag:
 		return "flag"
 	default:
@@ -106,6 +111,19 @@ var schema = []Key{
 	}},
 	{Name: "budgets.commit_s", Kind: tomlsubset.Int, Min: 1, Default: num(60), Layers: inRepo, Table: "budgets", Field: "commit_s"},
 	{Name: "budgets.merge_s", Kind: tomlsubset.Int, Min: 1, Default: num(300), Layers: inRepo, Table: "budgets", Field: "merge_s"},
+	// The settings of a box, not of a repo: each was an APHROLLO_* variable. Their
+	// consumers floor or default a value they cannot use, as they did the variable,
+	// so a number is not range-checked here.
+	{Name: "budgets.edit_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(110), Layers: inUser, Table: "budgets", Field: "edit_s"},
+	{Name: "budgets.lock_wait_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(1200), Layers: inUser, Table: "budgets", Field: "lock_wait_s"},
+	{Name: "budgets.cargo_wait_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(1200), Layers: inUser, Table: "budgets", Field: "cargo_wait_s"},
+	{Name: "budgets.git_wait_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(1200), Layers: inUser, Table: "budgets", Field: "git_wait_s"},
+	{Name: "budgets.lint_wait_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(300), Layers: inUser, Table: "budgets", Field: "lint_wait_s"},
+	{Name: "budgets.deferred_max_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(600), Layers: inUser, Table: "budgets", Field: "deferred_max_s"},
+	{Name: "budgets.mech_total_s", Kind: tomlsubset.Int, Min: anyInt, Default: num(2700), Layers: inUser, Table: "budgets", Field: "mech_total_s"},
+	{Name: "box.build_slots", Kind: tomlsubset.Int, Min: anyInt, Default: num(2), Layers: inUser, Table: "box", Field: "build_slots"},
+	{Name: "box.mech_parallel", Kind: tomlsubset.Int, Min: anyInt, Default: num(0), Layers: inUser, Table: "box", Field: "mech_parallel"},
+	{Name: "reply_style", Kind: tomlsubset.String, Enum: []string{"terse", "plain"}, Default: str("terse"), Layers: inUser, Field: "reply_style"},
 	{Name: "test.reads", Kind: tomlsubset.List, Default: list(), Layers: inRepo, Table: "test", Field: "reads"},
 	{Name: "test.slow_tag", Kind: tomlsubset.String, Default: str(""), Layers: inRepo, Table: "test", Field: "slow_tag"},
 }
@@ -115,6 +133,9 @@ const (
 	rulesPrefix      = "rules."
 	foregroundPrefix = "budgets.foreground_s."
 )
+
+// anyInt is a Min that rejects no integer.
+const anyInt = -1 << 31
 
 var severities = []string{"block", "warn", "guide", "off"}
 

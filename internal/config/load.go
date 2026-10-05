@@ -117,6 +117,7 @@ const (
 	rankUserRepo
 	rankAlias
 	rankRepo
+	rankEnv
 	rankFlag
 )
 
@@ -134,6 +135,7 @@ func Load(o Options) *Config {
 	if o.Repo != "" {
 		r.repoFiles(o.Repo)
 	}
+	r.envs()
 	r.flags(o.Flags)
 	return r.resolve()
 }
