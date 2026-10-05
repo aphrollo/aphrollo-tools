@@ -27,11 +27,11 @@ func LogEditDecision(raw []byte, d Decision) {
 	root, rel := logPlace(editLogPath(in))
 	if d.Action == Block {
 		detail := denyDetail(d)
-		detail["file"] = rel
+		detail["file"] = slashPath(rel)
 		AppendGateLogDetail("preedit", root, rel, "pretooluse-denied:"+LogToken(policyName(d)), 0, detail)
 	}
 	for _, esc := range d.Escapes {
-		AppendGateLogDetail("preedit", root, rel, LogToken(esc), 0, map[string]string{"file": rel})
+		AppendGateLogDetail("preedit", root, rel, LogToken(esc), 0, map[string]string{"file": slashPath(rel)})
 	}
 }
 
@@ -63,6 +63,11 @@ func policyName(d Decision) string {
 	}
 	return "unnamed"
 }
+
+// slashPath is a repo-relative path as the events spell it, with forward slashes
+// whatever the host: the measures match a path of one event against another's,
+// and a commit refusal names its files that way.
+func slashPath(p string) string { return strings.ReplaceAll(p, "\\", "/") }
 
 // logPlace splits an edited path into the (root, path-within-root) pair a log
 // line carries. Neither field may be empty: the parser reads the line by

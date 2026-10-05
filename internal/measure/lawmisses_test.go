@@ -88,3 +88,13 @@ func TestText_ShowsTheMissedRefusalsAndTheGoModGap(t *testing.T) {
 		}
 	}
 }
+
+func TestLawMisses_ABackslashPathOfAnEditEventMatchesTheCommitsSlashPath(t *testing.T) {
+	events := []tdd.Event{
+		editDeny(10, "lane/a", "module_size", `internal\tdd\a.go`),
+		commitRefusal(20, "lane/a", "module_size|internal/tdd/a.go"),
+	}
+	if got := compute(events, Options{}).LawMisses; got.Pairs != 1 || got.Missed != 0 {
+		t.Fatalf("law misses = %+v, want the pair covered by the edit that spelled its path with backslashes", got)
+	}
+}

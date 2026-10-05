@@ -2,6 +2,7 @@ package postedit
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -62,5 +63,35 @@ func TestLogLawGuides_NothingFoundIsNoEvent(t *testing.T) {
 	LogLawGuides([]byte(`{}`), Decision{}, nil)
 	if got := guideEvents(t, root); len(got) != 0 {
 		t.Fatalf("guide events = %v, want none", got)
+	}
+}
+
+func TestSlashPath_ABackslashIsASlash(t *testing.T) {
+	if got := slashPath(`internal\tdd\a.go`); got != "internal/tdd/a.go" {
+		t.Fatalf("slashPath = %q, want forward slashes", got)
+	}
+}
+
+// A deny of a file below the repo root names it with forward slashes, whatever
+// the host's separator: the commit refusal's event names it that way, and the
+// measure matches the two.
+func TestLogEditDecision_TheDenyEventNamesAFileBelowTheRootWithForwardSlashes(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	repo := goRepo(t, "proj", "main")
+	if err := os.MkdirAll(filepath.Join(repo, "sub", "dir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(map[string]any{"tool_input": map[string]string{"file_path": filepath.Join(repo, "sub", "dir", "a_test.go")}})
+
+	LogEditDecision(raw, Decision{Action: Block, Policy: "ratchet:no-todo", Reason: "r", Escapes: []string{"smell-escape:x"}})
+
+	var files []string
+	for _, e := range ReadEvents(repo) {
+		if f := e.Detail["file"]; f != "" {
+			files = append(files, f)
+		}
+	}
+	if len(files) != 2 || files[0] != "sub/dir/a_test.go" || files[1] != "sub/dir/a_test.go" {
+		t.Fatalf("event files = %v, want the deny and the escape event both at sub/dir/a_test.go", files)
 	}
 }

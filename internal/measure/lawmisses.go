@@ -34,10 +34,11 @@ func editSeenPair(e stamped) string {
 		return ""
 	}
 	law, ok := strings.CutPrefix(e.Detail["rule"], "ratchet:")
-	if !ok || e.Detail["file"] == "" {
+	file := strings.ReplaceAll(e.Detail["file"], "\\", "/")
+	if !ok || file == "" {
 		return ""
 	}
-	return law + "|" + e.Detail["file"]
+	return law + "|" + file
 }
 
 func foldLawMisses(s scope, window time.Duration) LawMisses {
