@@ -36,6 +36,10 @@ const (
 type StopVerdict struct {
 	Block  bool
 	Reason string
+	// Red is set when the block is a red the session had not been told of (the
+	// lane's own or a finished deferred run's), the fact the shadow record of the
+	// kernel's stop-red rule reads. It changes nothing in what is rendered.
+	Red bool
 }
 
 // stopInput is the part of the Stop, SubagentStop and TaskCompleted payloads
@@ -126,7 +130,7 @@ func laneRedVerdict(session, cwd string) StopVerdict {
 	if lines := deliverReds(session, redsWithin(finishedReds(session), tree)); len(lines) > 0 {
 		reason += "\n" + strings.Join(lines, "\n")
 	}
-	return StopVerdict{Block: true, Reason: reason}
+	return StopVerdict{Block: true, Reason: reason, Red: true}
 }
 
 // unseenRedVerdict blocks once with the verdict line of every unseen red:
@@ -140,7 +144,7 @@ func unseenRedVerdict(session, lane string) StopVerdict {
 	if len(reds) == 0 {
 		return StopVerdict{}
 	}
-	return StopVerdict{Block: true, Reason: unseenRedPreface + "\n" + strings.Join(deliverReds(session, reds), "\n")}
+	return StopVerdict{Block: true, Reason: unseenRedPreface + "\n" + strings.Join(deliverReds(session, reds), "\n"), Red: true}
 }
 
 // taskVerdict keeps a task open while the tree it ran in is red: an unseen red

@@ -214,7 +214,7 @@ func postEditFileAs(session, target string, run SuiteRunner, editID string, touc
 	}
 
 	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
-	queueForegroundRun(res, root, session, string(outcome))
+	queueForegroundRun(res, root, session, snap.editID, "", string(outcome))
 	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)
 	if outcome.IsRed() {
 		return withNote(redSummary(snap.runner, root, outcome, res.Output), widenNote), false

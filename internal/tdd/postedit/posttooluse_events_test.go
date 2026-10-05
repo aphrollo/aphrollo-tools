@@ -115,7 +115,7 @@ func TestHarvest_AnAgreeingRunWritesACompactShadowEvent(t *testing.T) {
 		t.Fatalf("harvest = %q, want the red line", line)
 	}
 	shadow.Flush()
-	got := eventsOfKind(root, "shadow")
+	got := kashadowRunEvents(root)
 	if len(got) != 1 {
 		t.Fatalf("an agreeing red wrote %d shadow events, want 1: %+v", len(got), got)
 	}
@@ -136,7 +136,7 @@ func TestPostEdit_AForegroundRunIsShadowedAfterTheAnswer(t *testing.T) {
 		t.Fatalf("%d shadow events written before the flush, want none", n)
 	}
 	shadow.Flush()
-	got := eventsOfKind(root, "shadow")
+	got := kashadowRunEvents(root)
 	if len(got) != 1 || got[0].Detail["relation"] != "agree" || got[0].Detail["hook"] != "posttooluse-run" {
 		t.Errorf("shadow events = %+v, want one agreeing run record", got)
 	}
@@ -162,7 +162,7 @@ func TestHarvest_ABogusRedIsNotComparableNeverAMismatch(t *testing.T) {
 	}
 	shadow.Flush()
 
-	got := eventsOfKind(root, "shadow")
+	got := kashadowRunEvents(root)
 	if len(got) != 1 {
 		t.Fatalf("%d shadow events, want 1: %+v", len(got), got)
 	}
@@ -199,4 +199,18 @@ func TestHarvest_ShadowingARunReadsThePhaseLogNoMoreOften(t *testing.T) {
 	if off == 0 || on != off {
 		t.Errorf("the harvest read the phase log %d times with shadowing off and %d times with it on, want the same non-zero count", off, on)
 	}
+}
+
+// kashadowRunEvents are the shadow events that compare a run's verdict, which is
+// what these tests are about: a run is also folded into its lane's record, and a
+// fold that cannot be made (a test project has no branch to be a lane) leaves an
+// unjudged lane-fold event of its own beside them.
+func kashadowRunEvents(root string) []Event {
+	var out []Event
+	for _, e := range eventsOfKind(root, "shadow") {
+		if e.Detail["rule"] == "run-verdict" {
+			out = append(out, e)
+		}
+	}
+	return out
 }
