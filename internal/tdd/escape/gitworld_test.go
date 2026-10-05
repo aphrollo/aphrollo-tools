@@ -93,3 +93,17 @@ func TestNoteGitWorldEscape_ADifferentChangedPartIsAnotherRecord(t *testing.T) {
 		t.Errorf("recorded %d escapes, want 2: one per changed part", got)
 	}
 }
+
+// Evidence that names no changed part falls back to what it says, so two
+// different unlabelled sightings stay two classes.
+func TestGitworldChangedParts_FallsBackWhenNoPartIsNamed(t *testing.T) {
+	if got := gitworldChangedParts("something odd happened", "fallback line"); got != "fallback line" {
+		t.Errorf("parts = %q, want the fallback", got)
+	}
+	if got := gitworldChangedParts(" changed\n+refs/heads/x", "fallback line"); got != "fallback line" {
+		t.Errorf("a line with no label before it counted: %q", got)
+	}
+	if got := gitworldChangedParts("the branches changed:\n+a\nthe tip of main changed:\n-b", "fallback"); got != "the branches,the tip of main" {
+		t.Errorf("parts = %q, want both labels sorted", got)
+	}
+}
