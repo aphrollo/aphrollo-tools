@@ -51,7 +51,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	fs.Uint64Var(&cfg.Seed, "seed", 1, "seed of the synthetic tree")
 	fs.IntVar(&cfg.Lines, "lines", 200000, "line budget of the synthetic tree, a stand-in for a consumer of fanvue's scale")
 	fs.IntVar(&cfg.Files, "files", 24, "files of each tree the gate judges as edits")
-	fs.BoolVar(&cfg.Keep, "keep", false, "leave the scratch directory in place (default: removed at the end, a given -work included)")
+	fs.BoolVar(&cfg.Keep, "keep", false, "leave the scratch directory in place (default: what the replay made is removed when it passes; a failed replay always keeps it and prints its path)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -79,17 +79,25 @@ func run(args []string, stdout, stderr io.Writer) int {
 
 func replay(cfg config, stdout io.Writer) (failed bool, err error) {
 	work := cfg.Work
+	made := work != ""
 	if work == "" {
 		if work, err = os.MkdirTemp("", "replay-"); err != nil {
 			return false, err
 		}
+		made = true
 	}
 	if work, err = filepath.Abs(work); err != nil {
 		return false, err
 	}
-	if !cfg.Keep {
-		defer removeWork(work)
+	if cfg.Work != "" {
+		_, statErr := os.Stat(work)
+		made = os.IsNotExist(statErr)
 	}
+	claim, err := claimWork(work, made)
+	if err != nil {
+		return false, err
+	}
+	defer func() { claim.settle(err == nil && !failed, cfg.Keep, stdout) }()
 	if cfg.Repo, err = filepath.Abs(cfg.Repo); err != nil {
 		return false, err
 	}
@@ -158,12 +166,42 @@ func replay(cfg config, stdout io.Writer) (failed bool, err error) {
 // is gigabytes, and a CI step that named its own -work left them on the runner.
 var replayWorkDirs = []string{"area", "bin", "previous-src", "self", "synthetic", "self-store", "synthetic-store"}
 
-// removeWork removes what the replay made under work, and work itself when that
-// leaves it empty. A directory the caller named may hold other things, which
-// stay.
-func removeWork(work string) {
-	for _, d := range replayWorkDirs {
-		_ = os.RemoveAll(filepath.Join(work, d))
+// workClaim is the paths a replay will create under its work directory, written
+// down before it creates any. A path the directory already held is refused, so
+// every path the claim names is the replay's own and nothing else is ever
+// removed: not a fixed name that was there before, not anything else in a
+// directory the caller named.
+type workClaim struct {
+	dir   string
+	made  bool // the replay made the directory itself
+	paths []string
+}
+
+func claimWork(dir string, made bool) (*workClaim, error) {
+	c := &workClaim{dir: dir, made: made}
+	for _, name := range replayWorkDirs {
+		p := filepath.Join(dir, name)
+		if _, err := os.Lstat(p); err == nil {
+			return nil, fmt.Errorf("work directory %s already holds %s: give an empty -work, or none", dir, name)
+		}
+		c.paths = append(c.paths, p)
 	}
-	_ = os.Remove(work)
+	return c, nil
+}
+
+// settle ends the run's use of the work directory. A replay that passed removes
+// the claimed paths, and the directory when it made it and nothing else is in
+// it. One that failed, or was asked to -keep, leaves everything where it is and
+// says where, because what failed is in there.
+func (c *workClaim) settle(passed, keep bool, stdout io.Writer) {
+	if !passed || keep {
+		fmt.Fprintf(stdout, "replay: work directory kept: %s\n", c.dir)
+		return
+	}
+	for _, p := range c.paths {
+		_ = os.RemoveAll(p)
+	}
+	if c.made {
+		_ = os.Remove(c.dir)
+	}
 }

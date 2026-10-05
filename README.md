@@ -199,6 +199,10 @@ One ref name is let through: in a cloud session (`CLAUDE_CODE_REMOTE=true`) the 
 | `[aphrollo.typecheck]` (`aphrollo.toml` only) | `"<root>" = ["svelte-check", "--tsconfig", "./tsconfig.json"]`: one argv whose first word is an npm bin, run as `node <its entry>` from that npm root's node_modules at commit, merge and `aphrollo check`. Undeclared, a root's typecheck is its package.json `typecheck` script, else its `check` script (each `&&` step run without a shell; a script that needs one is NOT RUN), else svelte-check (after `svelte-kit sync` in a SvelteKit app) when it depends on it, else tsc, those two only with a tsconfig.json. tsc, vue-tsc, svelte-check and eslint are judged by the diagnostics they add over HEAD, any other tool by the output lines it adds over HEAD's run |
 | `[aphrollo.lint]` (`aphrollo.toml` only) | `"<root>" = ["eslint", "src"]`: the npm root's lint, run the same way, in place of eslint over the staged files |
 
+## Release replay
+
+`go run ./tools/replay -repo .` runs the newest release's binary and this checkout's read-only over trees that did not change, and fails on a hit only the candidate reports. It works in a scratch directory (`-work`, default a temporary one) holding two clones and the builds made from them, several gigabytes. A replay that passes removes what it made there, and the directory when it made it; a `-work` that already holds one of the names it creates (`area`, `bin`, `previous-src`, `self`, `synthetic`, `self-store`, `synthetic-store`) is refused rather than overwritten, and nothing else in it is touched. A replay that fails keeps the directory and prints its path, because what failed is in it. `-keep` keeps it after a pass too, for inspection. A replay killed before it could clean up leaves a `replay-<digits>` directory in the temp dir, which the next `aphrollo gate gc` removes once no process holds it.
+
 ## Known limitations
 
 - LSP columns are UTF-16 code units; `--symbol` resolves regardless.
