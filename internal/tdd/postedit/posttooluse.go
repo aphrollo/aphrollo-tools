@@ -154,6 +154,11 @@ func postEditFileAs(session, target string, run SuiteRunner, editID string, touc
 	if line := buildOnlyTerminal(snap.runner, root, res); line != "" {
 		return line, false
 	}
+	// A pytest run whose interpreter lacks a third-party module never reached
+	// a test: the environment is what is missing, so it is not a red either.
+	if line := missingModuleTerminal(snap.runner, root, pytestRemedyRoot, res); line != "" {
+		return line, false
+	}
 	// A nested tests/<dir>/ file no `mod` declaration reaches also ends here:
 	// the run that just passed never built it at all, so it is not evidence
 	// about this edit either, whatever else in the package it exercised.

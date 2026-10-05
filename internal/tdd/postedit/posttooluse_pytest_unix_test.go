@@ -5,6 +5,7 @@ package postedit
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -70,9 +71,6 @@ func TestPostEdit_SkipsAPytestRootWithNoInterpreterAndSaysWhy(t *testing.T) {
 	if !strings.Contains(got, "SKIPPED") || !strings.Contains(got, "no python interpreter") || !strings.Contains(got, "NOT tested") {
 		t.Fatalf("edit hook line = %q, want an inconclusive SKIPPED line naming the missing interpreter", got)
 	}
-	if strings.Contains(got, "red") {
-		t.Fatalf("edit hook line = %q, must never read red", got)
-	}
 }
 
 // A virtualenv whose interpreter cannot import pytest is a missing tool too:
@@ -91,3 +89,36 @@ func TestPostEdit_SkipsAPytestRootWhoseVenvLacksPytestAndSaysWhy(t *testing.T) {
 		t.Fatalf("edit hook line = %q, want a SKIPPED line naming %s", got, venv)
 	}
 }
+
+// A pytest run that never got past collection because its interpreter lacks a
+// third-party module (issue #1223) is not a red: the line says NOT TESTED,
+// names the module and the fix, and the gate log records the verdict.
+func TestPostEdit_AMissingThirdPartyModuleIsNotTestedNeverRed(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := pytestEditRoot(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	venvPython(t, root, "0")
+	out := "ERROR collecting tests/test_widget.py\nE   ModuleNotFoundError: No module named 'pyseto'\n" +
+		"!!!!!!!! Interrupted: 1 error during collection !!!!!!!!\n1 error in 0.10s\n"
+
+	got := PostEdit(postPayload("Edit", filepath.Join(root, "tests", "test_widget.py")), fakeRunResult(SuiteResult{Passed: false, Output: out, Err: "exit status 2"}))
+
+	for _, want := range []string{"NOT TESTED", "`pyseto`", "NOT tested"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("line %q lacks %q", got, want)
+		}
+	}
+	// Never a red: no red verdict word on the line, whatever the temp path says
+	// (a path's own "Red" sits inside a longer word, never between boundaries).
+	if redWord.MatchString(got) {
+		t.Errorf("a missing environment read as a red: %q", got)
+	}
+	logged := gateLogText(t, cfg)
+	if !strings.Contains(logged, "env-missing") || redWord.MatchString(logged) {
+		t.Errorf("gate.log wants the env-missing verdict and no red one:\n%s", logged)
+	}
+}
+
+// redWord matches a red verdict as a word: red, red-bogus, red-missing-impl.
+var redWord = regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_])red(-[a-z-]+)?($|[^A-Za-z0-9_-])`)

@@ -26,6 +26,8 @@ func pytestExecRunner(p0 string, p1 Runner) (Runner, string) {
 	return failfirst.PytestExecRunner(p0, p1)
 }
 
+func pytestRemedyRoot(p0 string) string { return failfirst.PytestRemedyRoot(p0) }
+
 func resolvedDevTarget(p0 string) string { return failfirst.ResolvedDevTarget(p0) }
 
 func splitKinds(p0 []string) ([]string, []string) { return failfirst.SplitKinds(p0) }

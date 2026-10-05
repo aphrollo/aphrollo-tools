@@ -345,6 +345,7 @@ escape_verify_test.go                              escape
 eventlog.go                                       core
 events.go                                          core
 events_cmd_own_test.go                              core
+events_envmissing_own_test.go                      core
 events_gateline_own_test.go                         core
 events_hardening_own_test.go                       core
 events_own_test.go                                 core
@@ -360,6 +361,8 @@ failfirst_node.go                                  failfirst
 failfirst_node_test.go                             failfirst
 failfirst_outcome.go                               failfirst
 failfirst_pytest.go                                failfirst
+failfirst_pytest_cache.go                          failfirst
+failfirst_pytest_cache_test.go                     failfirst
 failfirst_pytest_siblings.go                       failfirst
 failfirst_pytest_siblings_test.go                  failfirst
 failfirst_pytest_test.go                           failfirst
@@ -602,6 +605,8 @@ mergesuitescope_test.go                            precommit
 mergetip.go                                        gitx
 mergetip_test.go                                   gitx
 misc_own_test.go                                   core
+missing_module.go                                   suite
+missing_module_test.go                              suite
 mutants.go                                         tddtest
 mutants_accept_column_test.go                      mutation
 mutants_accept_kind.go                             mutation

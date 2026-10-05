@@ -66,7 +66,7 @@ var statsStages = []string{"mutants", "postedit", "precommit", "premergecommit"}
 // statsOutcomes is the outcome vocabulary, in the order a reader cares about.
 var statsOutcomes = []string{
 	"green", "red", "blocked", "timeout", "timeout-rejected", "vacuous-rejected",
-	"queued-skipped", "queued-rejected", "deferred", lockWaitVerdict,
+	"queued-skipped", "queued-rejected", "deferred", "env-missing", "env-missing-rejected", lockWaitVerdict,
 }
 
 // lockWaitVerdict is the entry a stage writes when it spent long enough

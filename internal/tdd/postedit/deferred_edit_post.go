@@ -61,6 +61,11 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	if line := buildOnlyTerminal(snap.runner, root, res); line != "" {
 		return line, false
 	}
+	// A pytest run whose interpreter lacks a third-party module never reached
+	// a test: the environment is what is missing, so it is not a red either.
+	if line := missingModuleTerminal(snap.runner, root, pytestRemedyRoot, res); line != "" {
+		return line, false
+	}
 	// A narrowed run that selected nothing climbs the widening ladder in
 	// what is left of this same budget; a rung still running when it runs
 	// out is left detached and reported by the next hook.

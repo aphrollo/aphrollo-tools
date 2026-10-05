@@ -301,7 +301,7 @@ func runWorkspaceMerge(args []string, stdout, stderr io.Writer) int {
 		wait   = fs.Bool("wait", false, "wait for every check on the PR's current head, then merge (or, behind a merge queue, wait until the queue has merged it); with PR numbers, merge them in order, enqueuing them all at once behind a merge queue")
 		tmo    = fs.Duration("timeout", workspace.DefaultWaitOpts().Timeout, "with --wait: how long to wait for checks before giving up")
 		resume = fs.Bool("resume", false, "with --wait: merge the PRs a stopped merge queue in this repo left pending")
-		ciMode = fs.String("ci", "", "CI that judges the merge: auto | local | github (default: ci in aphrollo.toml, else auto)")
+		ciMode = fs.String("ci", "", "CI that judges the merge: auto | local | github (default: ci in aphrollo.toml, else auto); a head whose GitHub checks all skipped has no CI verdict, so the local suite is the proof")
 	)
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {

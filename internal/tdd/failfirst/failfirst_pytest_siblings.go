@@ -36,15 +36,18 @@ func parseWorktrees(porcelain string) []worktreeEntry {
 	return out
 }
 
-// otherWorktreeRoots is the search for root: root itself, then the same
-// repo-relative path in the primary checkout, then in the worktree whose HEAD
-// is the merge being judged. A root outside any worktree searches only itself.
+// otherWorktreeRoots is the search for root: root itself and its worktree's
+// top, then the same repo-relative path and top in the worktree whose HEAD is
+// the merge being judged (the lane, whose venv matches the code being merged),
+// then in the primary checkout, whose venv may be stale. A root outside any
+// worktree searches only itself.
 func otherWorktreeRoots(root string) pytestSearch {
 	search := pytestSearch{root: root}
 	top := gitx.RepoRoot(root)
 	if top == "" {
 		return search
 	}
+	search.ownTop = igit.Canonical(top)
 	rel, err := filepath.Rel(top, igit.Canonical(root))
 	if err != nil {
 		return search
@@ -55,6 +58,7 @@ func otherWorktreeRoots(root string) pytestSearch {
 	}
 	mergeHead, _ := git(root, "rev-parse", "-q", "--verify", "MERGE_HEAD")
 	mergeHead = strings.TrimSpace(mergeHead)
+	var primaryDir, primaryTop string
 	for i, w := range parseWorktrees(list) {
 		path := igit.Canonical(w.path)
 		dir := filepath.Join(path, rel)
@@ -64,7 +68,16 @@ func otherWorktreeRoots(root string) pytestSearch {
 		if samePath(path, top) || (i > 0 && w.head != mergeHead) {
 			continue
 		}
+		if i == 0 {
+			primaryDir, primaryTop = dir, path
+			continue
+		}
 		search.elsewhere = append(search.elsewhere, dir)
+		search.elsewhereTops = append(search.elsewhereTops, path)
+	}
+	if primaryDir != "" {
+		search.elsewhere = append(search.elsewhere, primaryDir)
+		search.elsewhereTops = append(search.elsewhereTops, primaryTop)
 	}
 	return search
 }

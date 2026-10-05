@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -15,8 +16,8 @@ import (
 // A pytest root's fail-first proof runs in a worktree at HEAD, where the
 // gitignored virtualenv of the root is absent, and `pytest` on PATH may be a
 // different Python's. So the proof runs `python -m pytest` under an
-// interpreter that is known to import pytest: the root's own .venv or venv,
-// then the same root's venv in the repo's other worktrees (the primary checkout, then the lane a merge is judging), else the box's python3 or python. When none can, the proof says which
+// interpreter that is known to import pytest: the root's own .venv, venv or env,
+// then the one at the top of its worktree, then the same two in the repo's other worktrees (the primary checkout, then the lane a merge is judging), else the box's python3 or python. When none can, the proof says which
 // piece is missing — no interpreter, or no pytest in the ones found — and
 // runs nothing: an unrunnable proof is named NOT RUN, never a silent skip.
 
@@ -33,7 +34,7 @@ func pytestImportable(python string) error {
 func venvPythons(root string) []string {
 	rel := []string{filepath.Join("bin", "python"), filepath.Join("Scripts", "python.exe")}
 	var out []string
-	for _, venv := range []string{".venv", "venv"} {
+	for _, venv := range []string{".venv", "venv", "env"} {
 		for _, r := range rel {
 			out = append(out, filepath.Join(root, venv, r))
 		}
@@ -43,21 +44,66 @@ func venvPythons(root string) []string {
 
 // pytestSearch is where a pytest root looks for its interpreter: the root's
 // own virtualenvs first, then those of the same root in other worktrees of its
-// repo (elsewhere, in order), then the box's python. remedy is the root whose
+// repo (elsewhere, in order, the merged lane before the primary checkout),
+// then the box's python. remedy is the root whose
 // .venv the reason tells the user to create; "" means root itself.
 type pytestSearch struct {
 	root      string
 	elsewhere []string
 	remedy    string
+	// ownTop and elsewhereTops are the worktree tops a project in a
+	// subdirectory may keep its venv at: root's own worktree, and, parallel to
+	// elsewhere, the worktree each of its entries is in.
+	ownTop        string
+	elsewhereTops []string
+}
+
+// venvRoots are the directories whose virtualenvs the search looks in, nearest
+// first: the project root, its worktree's top, then each other worktree's
+// project root and top in elsewhere's order. A directory comes once.
+func (s pytestSearch) venvRoots() []string {
+	dirs := []string{s.root, s.ownTop}
+	for i, dir := range s.elsewhere {
+		dirs = append(dirs, dir)
+		if i < len(s.elsewhereTops) {
+			dirs = append(dirs, s.elsewhereTops[i])
+		}
+	}
+	var out []string
+	for _, dir := range dirs {
+		if dir != "" && !slices.Contains(out, dir) {
+			out = append(out, dir)
+		}
+	}
+	return out
 }
 
 // venvDirs are the virtualenv directories the search looks in, in order.
 func (s pytestSearch) venvDirs() []string {
 	var out []string
-	for _, r := range append([]string{s.root}, s.elsewhere...) {
-		out = append(out, filepath.Join(r, ".venv"), filepath.Join(r, "venv"))
+	for _, r := range s.venvRoots() {
+		out = append(out, filepath.Join(r, ".venv"), filepath.Join(r, "venv"), filepath.Join(r, "env"))
 	}
 	return out
+}
+
+// pytestCandidates are the interpreters the search can try, in order: each
+// virtualenv's that exists, then python3 and python from PATH.
+func pytestCandidates(search pytestSearch, look func(string) (string, error)) []string {
+	var found []string
+	for _, root := range search.venvRoots() {
+		for _, p := range venvPythons(root) {
+			if _, err := os.Stat(p); err == nil {
+				found = append(found, p)
+			}
+		}
+	}
+	for _, name := range []string{"python3", "python"} {
+		if p, err := look(name); err == nil {
+			found = append(found, p)
+		}
+	}
+	return found
 }
 
 // pytestProofRunner is r, when it is a pytest runner (any other runner comes
@@ -71,19 +117,7 @@ func pytestProofRunner(search pytestSearch, r Runner, look func(string) (string,
 	if r.Cmd != "pytest" {
 		return r, ""
 	}
-	var found []string
-	for _, root := range append([]string{search.root}, search.elsewhere...) {
-		for _, p := range venvPythons(root) {
-			if _, err := os.Stat(p); err == nil {
-				found = append(found, p)
-			}
-		}
-	}
-	for _, name := range []string{"python3", "python"} {
-		if p, err := look(name); err == nil {
-			found = append(found, p)
-		}
-	}
+	found := pytestCandidates(search, look)
 	remedy := cmp.Or(search.remedy, search.root)
 	create := fmt.Sprintf("create %s with the requirements of %s installed", filepath.Join(remedy, ".venv"), search.root)
 	searched := strings.Join(search.venvDirs(), ", ")
@@ -104,5 +138,13 @@ func pytestExecRunner(root string, r Runner) (Runner, string) {
 	if r.Cmd != "pytest" {
 		return r, ""
 	}
-	return pytestProofRunner(otherWorktreeRoots(root), r, exec.LookPath, pytestImportable)
+	return pytestCachedRunner(StateDir(), otherWorktreeRoots(root), r, exec.LookPath, pytestImportable)
+}
+
+// pytestRemedyRoot is where the user builds the venv a pytest root lacks: the
+// same root in the primary checkout, which every lane may borrow from, or the
+// root itself outside any worktree. A gate that judged a throwaway merge
+// worktree names this, never that worktree.
+func pytestRemedyRoot(root string) string {
+	return cmp.Or(otherWorktreeRoots(root).remedy, root)
 }

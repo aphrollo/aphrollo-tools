@@ -71,7 +71,7 @@ func TestMerge_NamesAnAllSkippedHeadAsNoCheckRanNotAsPassed(t *testing.T) {
 	if err := m.Apply(&out, &errb); err != nil {
 		t.Fatalf("Apply: %v\n%s", err, errb.String())
 	}
-	if strings.Contains(out.String(), "every check") || !strings.Contains(out.String(), "no check ran on 6666666 (all 3 skipped)") {
+	if strings.Contains(out.String(), "every check") || !strings.Contains(out.String(), "no check ran on 6666666 (all 3 skipped) — the local suite is the proof") {
 		t.Errorf("output:\n%s\nwant the no-check-ran line, not a pass", out.String())
 	}
 }

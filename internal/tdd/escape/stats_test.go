@@ -417,3 +417,29 @@ func TestGateStats_QueueBookkeepingIsNeitherADeferredRunNorATimingSample(t *test
 		t.Errorf("median = %v, want 10: the bookkeeping lines carry no timing", s.Median)
 	}
 }
+
+// A pytest run an interpreter without the repo's requirements could not
+// collect is counted as its own outcome, at the edit and at the merge, so
+// `gate stats` shows how often the environment, not the code, stopped a suite.
+func TestGateStats_CountsAnEnvironmentThatCouldNotRunTheSuiteAsItsOwnOutcome(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
+	log := strings.Join([]string{
+		stamp(now.Add(-3*time.Minute), "postedit", "/repo/backend", "python -m pytest -q", "env-missing", 4),
+		stamp(now.Add(-2*time.Minute), "premergecommit", "/repo/backend", "python -m pytest -q", "env-missing-rejected", 19),
+		stamp(now.Add(-1*time.Minute), "premergecommit", "/repo/backend", "python -m pytest -q", "env-missing-rejected", 18),
+	}, "")
+
+	got := GateStats(strings.NewReader(log), time.Time{})
+
+	if n := got.Count("postedit", "env-missing"); n != 1 {
+		t.Errorf("postedit env-missing = %d, want 1", n)
+	}
+	if n := got.Count("premergecommit", "env-missing-rejected"); n != 2 {
+		t.Errorf("premergecommit env-missing-rejected = %d, want 2", n)
+	}
+	table := RenderGateStats(got)
+	if !strings.Contains(table, "env-missing-rejected") {
+		t.Errorf("the table has no env-missing-rejected column:\n%s", table)
+	}
+}
