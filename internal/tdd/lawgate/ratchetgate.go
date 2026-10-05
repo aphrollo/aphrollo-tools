@@ -202,8 +202,10 @@ func judgeRatchet(gateName, repoRoot string, graph func() (ratchet.GraphTree, er
 		return GateResult{}
 	}
 	started := time.Now()
-	// The commit stage of the one planner: the whole tree, from the base, over the
-	// index. It fails closed -- a plan that cannot be made is a refusal below.
+	// The commit stage's options come from the one planner (the whole tree, from
+	// the base, over the index); the laws themselves are loaded by the check below.
+	// A check that cannot run is a refusal (ratchetCheckErrorResult): the commit
+	// gate fails closed there, not in the plan.
 	opts := ratchet.Plan{
 		Root:    repoRoot,
 		Stage:   ratchet.StageCommit,
