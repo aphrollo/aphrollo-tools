@@ -38,6 +38,7 @@ func squashPruneRepo(t *testing.T) (mainRepo, laneWT string) {
 	write(t, mainRepo, "other.go", "package main\n\n// unrelated\n")
 	gitDo(t, mainRepo, "add", "-A")
 	gitDo(t, mainRepo, "commit", "-qm", "unrelated trunk work")
+	pruneAgeLaneGit(t, laneWT)
 	return mainRepo, laneWT
 }
 
@@ -215,6 +216,7 @@ func TestPruneMergedLanes_RemovesTheLanesInstalledDependenciesWithIt(t *testing.
 	pruneLanePush(t, mainRepo, "lane/squashed")
 	gitDo(t, mainRepo, "merge", "-q", "--squash", "lane/squashed")
 	gitDo(t, mainRepo, "commit", "-qm", "ignore installs (#8)")
+	pruneAgeLaneGit(t, laneWT)
 	write(t, laneWT, "node_modules/pkg/index.js", "x")
 	write(t, laneWT, ".venv/lib/site.py", "x")
 
@@ -266,5 +268,107 @@ func TestPruneMergedLanes_KeepsALaneWhoseOnlyCommitsAreACommitAndItsRevertNeverP
 	}
 	if gitOutT(t, mainRepo, "branch", "--list", "lane/reverted") == "" {
 		t.Error("the lane's branch was deleted")
+	}
+}
+
+// pruneAgeLaneGit sets the times of the lane's git state back an hour, as a
+// lane nobody has touched for that long looks. A lane made a moment ago is,
+// rightly, held by the activity check.
+func pruneAgeLaneGit(t *testing.T, wt string) {
+	t.Helper()
+	gitdir := gitValue(t, wt, "rev-parse", "--absolute-git-dir")
+	old := time.Now().Add(-time.Hour)
+	for _, rel := range []string{"index", "HEAD", filepath.Join("logs", "HEAD")} {
+		if err := os.Chtimes(filepath.Join(gitdir, rel), old, old); err != nil && !os.IsNotExist(err) {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestPruneMergedLanes_KeepsALaneWhoseGitStateChangedLately(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	pruneLanePush(t, mainRepo, "lane/squashed")
+	gitdir := gitValue(t, laneWT, "rev-parse", "--absolute-git-dir")
+	recent := time.Now().Add(-3 * time.Minute)
+	if err := os.Chtimes(filepath.Join(gitdir, "logs", "HEAD"), recent, recent); err != nil {
+		t.Fatal(err)
+	}
+
+	pruned, _, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 || !strings.Contains(errs, "git state") {
+		t.Fatalf("pruned %+v, stderr %q: a Bash-only agent that committed 3 minutes ago leaves no session stamp and must still hold its lane", pruned, errs)
+	}
+	if _, err := os.Stat(laneWT); err != nil {
+		t.Errorf("worktree removed: %v", err)
+	}
+}
+
+func TestPruneMergedLanes_KeepsALaneWithADeferredJobStartedLately(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	pruneLanePush(t, mainRepo, "lane/squashed")
+	pruneDeferredJobIn(t, laneWT, time.Now().Add(-5*time.Minute))
+
+	pruned, _, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 || !strings.Contains(errs, "deferred") {
+		t.Fatalf("pruned %+v, stderr %q: a builder whose first run is still deferred holds its lane", pruned, errs)
+	}
+}
+
+func TestPruneMergedLanes_KeepsALaneWithAnIgnoredEnvFileNewerThanItsLastCommit(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	write(t, laneWT, ".gitignore", ".env*\n")
+	gitDo(t, laneWT, "add", ".gitignore")
+	gitDo(t, laneWT, "commit", "-qm", "ignore env files")
+	gitDo(t, mainRepo, "merge", "-q", "--squash", "lane/squashed")
+	gitDo(t, mainRepo, "commit", "-qm", "ignore env (#9)")
+	pruneLanePush(t, mainRepo, "lane/squashed")
+	write(t, laneWT, ".env.local", "SECRET=1\n")
+	pruneAgeLaneGit(t, laneWT)
+
+	pruned, _, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 0 || !strings.Contains(errs, ".env.local") {
+		t.Fatalf("pruned %+v, stderr %q: an ignored .env.local written after the last commit exists nowhere else", pruned, errs)
+	}
+}
+
+func TestPruneMergedLanes_AnOldIgnoredEnvFileGoesWithTheLaneAndTheLineSaysSo(t *testing.T) {
+	mainRepo, laneWT := squashPruneRepo(t)
+	write(t, laneWT, ".gitignore", ".env*\n")
+	gitDo(t, laneWT, "add", ".gitignore")
+	gitDo(t, laneWT, "commit", "-qm", "ignore env files")
+	gitDo(t, mainRepo, "merge", "-q", "--squash", "lane/squashed")
+	gitDo(t, mainRepo, "commit", "-qm", "ignore env (#9)")
+	pruneLanePush(t, mainRepo, "lane/squashed")
+	write(t, laneWT, ".env.local", "SECRET=1\n")
+	old := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(filepath.Join(laneWT, ".env.local"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	pruneAgeLaneGit(t, laneWT)
+
+	pruned, out, errs := prunedLanes(t, mainRepo)
+
+	if len(pruned) != 1 {
+		t.Fatalf("pruned = %+v, stderr %q", pruned, errs)
+	}
+	if !strings.Contains(out, "gitignored files") {
+		t.Errorf("stdout %q does not say the lane's gitignored files were removed with it", out)
+	}
+}
+
+// pruneDeferredJobIn writes the record a hook leaves when it detaches a run for
+// root: a job started at the given time, with no result yet.
+func pruneDeferredJobIn(t *testing.T, root string, started time.Time) {
+	t.Helper()
+	dir := filepath.Join(core.StateDir(), "deferred")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body := fmt.Sprintf(`{"schema":%d,"project":%q,"phase":"run","started":%q,"session":"s"}`, core.StateSchema, filepath.ToSlash(root), started.UTC().Format(time.RFC3339))
+	if err := os.WriteFile(filepath.Join(dir, "job.json"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -23,6 +23,8 @@ func TestPruneMergedLanesAfterMerge_DeletesTheBranchOfAMergeWithAPRStyleSubject(
 	gitDo(t, wt, "commit", "-qm", "lane work")
 	gitDo(t, mainRepo, "merge", "-q", "--no-ff", "-m", "Fix the debounce race (#12)", "claude/session-abc")
 
+	pruneAgeLaneGit(t, wt)
+
 	var out, errb bytes.Buffer
 	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)
 

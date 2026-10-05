@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/core"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/postedit"
 )
 
 // Why `--merged` listed no lane after a squash merge. A lane the merge queue
@@ -145,7 +147,13 @@ func (h laneHolds) reason(wt string) string {
 	if at, ok := core.LastSessionActivityIn(wt); ok && h.now.Sub(at) < laneQuietFor {
 		return fmt.Sprintf("a session worked in it %d min ago", int(h.now.Sub(at).Minutes()))
 	}
-	return ""
+	if at, ok := postedit.DeferredJobStartedWithin(wt, laneQuietFor, h.now); ok {
+		return fmt.Sprintf("a deferred job was started in it %d min ago", int(h.now.Sub(at).Minutes()))
+	}
+	if at, ok := gitStateChanged(wt, h.now); ok {
+		return fmt.Sprintf("its git state changed %d min ago", int(h.now.Sub(at).Minutes()))
+	}
+	return newerIgnoredEnvFile(wt)
 }
 
 // lockedWorktrees reads the `locked` lines of `git worktree list --porcelain`.
@@ -182,4 +190,57 @@ func devClaimedWorktrees(mainRepo string) map[string]bool {
 		}
 	}
 	return out
+}
+
+// gitStateChanged is when the lane's git state last moved, when that is within
+// laneQuietFor of now: the newest of its index, HEAD and HEAD's reflog, in the
+// worktree's own git directory. A builder that only runs Bash (a subagent, or
+// a first run still deferred) stamps no session state, but every `git add`,
+// commit, checkout and status that refreshes the index leaves this trace. One
+// git call and three stats per worktree.
+func gitStateChanged(wt string, now time.Time) (time.Time, bool) {
+	gitdir := gitOut(wt, "rev-parse", "--absolute-git-dir")
+	if gitdir == "" {
+		return time.Time{}, false
+	}
+	var newest time.Time
+	for _, rel := range []string{"index", "HEAD", filepath.Join("logs", "HEAD")} {
+		if info, err := os.Stat(filepath.Join(gitdir, rel)); err == nil && info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+	}
+	return newest, !newest.IsZero() && now.Sub(newest) < laneQuietFor
+}
+
+// newerIgnoredEnvFile names the reason to keep a lane that holds a gitignored
+// .env* file written after the lane's last commit: such a file (a secret, a
+// local setting) exists nowhere else, and removing the worktree deletes it. An
+// older one is taken to be the lane's own long-settled copy and goes with it,
+// as every gitignored file does.
+func newerIgnoredEnvFile(wt string) string {
+	entries, err := os.ReadDir(wt)
+	if err != nil {
+		return ""
+	}
+	var last time.Time
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasPrefix(e.Name(), ".env") {
+			continue
+		}
+		if last.IsZero() {
+			sec, err := strconv.ParseInt(gitOut(wt, "log", "-1", "--format=%ct", "HEAD"), 10, 64)
+			if err != nil {
+				return "last commit time unreadable, so its .env files cannot be judged"
+			}
+			last = time.Unix(sec, 0)
+		}
+		info, err := e.Info()
+		if err != nil || !info.ModTime().After(last) {
+			continue
+		}
+		if _, err := git(wt, "check-ignore", "-q", "--", e.Name()); err == nil {
+			return "gitignored " + e.Name() + " is newer than its last commit"
+		}
+	}
+	return ""
 }

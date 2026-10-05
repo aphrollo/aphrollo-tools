@@ -123,7 +123,7 @@ func PruneMergedLanesAfterMerge(mainRepo, exclude string, stdout, stderr io.Writ
 			fmt.Fprintf(stderr, "prune-lanes: could not prune %s (%s): %v\n", wt.path, wt.branch, err)
 			continue
 		}
-		fmt.Fprintf(stdout, "prune-lanes: pruned %s (%s, %s)\n", wt.path, wt.branch, how)
+		fmt.Fprintf(stdout, "prune-lanes: pruned %s (%s, %s); gitignored files in it (installs, .env*) were removed with it\n", wt.path, wt.branch, how)
 		pruned = append(pruned, PrunedLane{Worktree: wt.path, Branch: wt.branch})
 	}
 	if len(pruned) == 0 {

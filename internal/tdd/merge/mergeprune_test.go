@@ -34,6 +34,7 @@ func pruneRepo(t *testing.T) (mainRepo, mergedWT, freshWT string) {
 	freshWT = filepath.Join(t.TempDir(), "fresh")
 	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/fresh", freshWT)
 
+	pruneAgeLaneGit(t, mergedWT)
 	return mainRepo, mergedWT, freshWT
 }
 
@@ -59,6 +60,7 @@ func pruneRepoOnBranch(t *testing.T, trunk string) (mainRepo, mergedWT, freshWT 
 	freshWT = filepath.Join(t.TempDir(), "fresh")
 	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/fresh", freshWT)
 
+	pruneAgeLaneGit(t, mergedWT)
 	return mainRepo, mergedWT, freshWT
 }
 
@@ -331,6 +333,7 @@ func pruneRepoOffMainlineBase(t *testing.T) (mainRepo, landedWT, freshWT string)
 	freshWT = filepath.Join(t.TempDir(), "off-mainline")
 	gitDo(t, mainRepo, "worktree", "add", "-q", "-b", "lane/off-mainline", freshWT, offBase)
 
+	pruneAgeLaneGit(t, landedWT)
 	return mainRepo, landedWT, freshWT
 }
 
@@ -433,6 +436,7 @@ func TestPruneMergedLanesAfterMerge_ProposesALaneMergedIntoLocalMainEvenWhenOrig
 	if TrunkBranch(mainRepo) != "origin/main" {
 		t.Fatalf("fixture broken: trunkBranch(mainRepo) = %q, want origin/main (the resolution the sweep must NOT use)", TrunkBranch(mainRepo))
 	}
+	pruneAgeLaneGit(t, mergedWT)
 
 	var out, errb bytes.Buffer
 	pruned := PruneMergedLanesAfterMerge(mainRepo, "", &out, &errb)

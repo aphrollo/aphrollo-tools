@@ -225,6 +225,8 @@ deferred_edit_failfirst.go                         failfirst # created by P2
 deferred_edit_post.go                              postedit
 deferred_edit_suite.go                             suite     # created by P2
 deferred_edit_test.go                              tdd       # prefix says postedit; its test body reaches tdd
+deferred_held.go                                   postedit
+deferred_held_test.go                              postedit
 deferred_output_test.go                            postedit
 deferred_own_test.go                               core
 deferred_prompt.go                                 postedit
