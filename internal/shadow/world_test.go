@@ -382,11 +382,16 @@ func TestWorld_DoesNotFollowTrunkLanesOrThePrimaryCheckout(t *testing.T) {
 			t.Errorf("lane %s: the record was saved (version %d)", lane, v)
 		}
 	}
-	// A feature branch in the primary checkout (.git a directory) is not followed either.
-	primary := tree(t, ".git/HEAD", "go.mod", "internal/lane/lane.go")
+	// The primary checkout of a repo with a linked worktree is the trunk, whatever its
+	// branch is called; a plain clone on a feature branch is followed.
+	primary := tree(t, ".git/HEAD", ".git/worktrees/wt/HEAD", "go.mod", "internal/lane/lane.go")
+	plain := tree(t, ".git/HEAD", "go.mod", "internal/lane/lane.go")
 	b.lane = "lane/feature"
 	if recs := b.world.RedGreen(b.ctx(), Payload{}, []string{filepath.Join(primary, "internal", "lane", "lane.go")}); len(recs) != 0 {
 		t.Errorf("the primary checkout: red-green made records %+v", recs)
+	}
+	if recs := b.world.RedGreen(b.ctx(), Payload{}, []string{filepath.Join(plain, "internal", "lane", "lane.go")}); len(recs) != 1 {
+		t.Errorf("a plain clone on a feature branch: %d records, want 1: it is followed", len(recs))
 	}
 }
 

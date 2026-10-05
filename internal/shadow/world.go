@@ -74,11 +74,12 @@ func (w World) unitOf() func(string) (Unit, bool) {
 	}
 }
 
-// skipLane reports whether a lane is one the shadow does not follow: trunk
-// (main, master, @trunk) and the primary checkout, whose .git is a directory
-// where a linked worktree's is a file. A trunk lane's outcomes cannot be joined to
-// a change, and the primary checkout is where no lane's work should be done; a
-// call there is no ask, no fold and no record.
+// skipLane reports whether a lane is one the shadow does not follow: a trunk
+// branch (main, master, @trunk), and the primary checkout of a repo that has linked
+// worktrees (its .git is a directory with entries under worktrees/), whose branch is
+// the trunk the lanes are merged into whatever it is called. A trunk lane's outcomes
+// cannot be joined to a change; a call there is no ask, no fold and no record. A
+// plain clone with no linked worktree, on a feature branch, is followed.
 func skipLane(root, lane string) bool {
 	switch lane {
 	case "main", "master", kernel.TrunkLane:
@@ -88,8 +89,8 @@ func skipLane(root, lane string) bool {
 	if repo == "" {
 		return false
 	}
-	fi, err := os.Stat(filepath.Join(repo, ".git"))
-	return err == nil && fi.IsDir()
+	entries, err := os.ReadDir(filepath.Join(repo, ".git", "worktrees"))
+	return err == nil && len(entries) > 0
 }
 
 func (w World) engine(root string) (*engine.Engine, *store.Store, error) {
