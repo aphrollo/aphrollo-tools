@@ -274,3 +274,6 @@ func quote(s string) string {
 	s = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\t", `\t`, "\r", `\r`).Replace(s)
 	return `"` + s + `"`
 }
+
+// AllowedIn reports whether a file of the layer may declare the key.
+func (k Key) AllowedIn(l Layer) bool { return k.Layers.has(l) }

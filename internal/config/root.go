@@ -3,6 +3,9 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
 
 // ConfigRoot is the directory the user's config.toml lives in, found the way
@@ -28,4 +31,39 @@ func ConfigRoot() string {
 		return ""
 	}
 	return filepath.Join(home, ".config", "trellis")
+}
+
+// RepoID is the id a repo goes by in the user's [repo."<id>"] sections: the
+// name of its state directory, a hash of the repo's shared git directory, so
+// every worktree of one repo has the one id. "" when root holds no repo. It
+// reads the filesystem and spawns nothing: a hook asks it on every call.
+func RepoID(root string) string {
+	if root == "" {
+		return ""
+	}
+	gitPath := filepath.Join(root, ".git")
+	fi, err := os.Lstat(gitPath)
+	if err != nil {
+		return ""
+	}
+	if fi.IsDir() {
+		return core.RepoStateKey(gitPath)
+	}
+	data, err := os.ReadFile(gitPath)
+	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
+	if err != nil || !ok {
+		return ""
+	}
+	gitdir = strings.TrimSpace(gitdir)
+	if !filepath.IsAbs(gitdir) {
+		gitdir = filepath.Join(root, gitdir)
+	}
+	common := gitdir
+	if rel, err := os.ReadFile(filepath.Join(gitdir, "commondir")); err == nil {
+		common = strings.TrimSpace(string(rel))
+		if !filepath.IsAbs(common) {
+			common = filepath.Join(gitdir, common)
+		}
+	}
+	return core.RepoStateKey(filepath.Clean(common))
 }
