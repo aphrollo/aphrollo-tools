@@ -208,3 +208,20 @@ func TestSnapshotGitWorld_AGitworldRebaseWithoutRecordedRewritesIsAChange(t *tes
 
 	requireChange(t, before.changesTo(snapshotGitWorld(lane)), checkedOutLabel)
 }
+
+// A reset to an old commit that is on origin rewinds the checkout, which no
+// pull or fast-forward does: published commits excuse a move forward, never a
+// move back.
+func TestSnapshotGitWorld_AGitworldBackwardResetOntoAPublishedCommitIsAChange(t *testing.T) {
+	lane := recordedLane(t)
+	repo := filepath.Dir(strings.TrimSpace(gitOutT(t, lane, "rev-parse", "--path-format=absolute", "--git-common-dir")))
+	gitDo(t, repo, "commit", "-q", "--allow-empty", "-m", "trunk one")
+	gitDo(t, repo, "commit", "-q", "--allow-empty", "-m", "trunk two")
+	gitDo(t, repo, "update-ref", "refs/remotes/origin/main", "main")
+	gitDo(t, lane, "merge", "-q", "--ff-only", "main")
+	before := snapshotGitWorld(lane)
+
+	gitDo(t, lane, "reset", "-q", "--hard", "main~1")
+
+	requireChange(t, before.changesTo(snapshotGitWorld(lane)), checkedOutLabel)
+}

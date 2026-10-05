@@ -151,9 +151,10 @@ func ownerCommitted(was, now gitWorldPart) bool {
 		return false
 	}
 	published := localTrunk(now.Repo)
-	if onOrigin(now.Repo, now.Text, published) {
-		// A move onto a commit somebody pushed (a pull, a reset or a rebase onto
-		// origin's trunk) is the owner's: a test process cannot have made it.
+	if onOrigin(now.Repo, now.Text, published) && isAncestor(now.Repo, was.Text, now.Text) {
+		// A move forward onto a commit somebody pushed (a pull or a fast-forward) is
+		// the owner's: a test process cannot have made it. A move back or sideways
+		// onto one is a reset and goes through the walk below.
 		return true
 	}
 	// A move to a descendant walks up from was; a rebase or an amend moves to a
@@ -559,4 +560,10 @@ func gitWorldRefusal(runner, root string, changes []string) string {
 // never assumed: "" when it cannot be told.
 func localTrunk(lane string) string {
 	return strings.TrimPrefix(TrunkBranch(lane), "origin/")
+}
+
+// isAncestor reports whether a is b or an ancestor of b.
+func isAncestor(repo, a, b string) bool {
+	_, err := gitx.Git(repo, "merge-base", "--is-ancestor", a, b)
+	return err == nil
 }
