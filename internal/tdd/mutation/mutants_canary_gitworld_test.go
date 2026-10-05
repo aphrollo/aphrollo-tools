@@ -175,3 +175,36 @@ func TestIsGateWorktree_TheHeadBaselineCheckoutByNameAndByDir(t *testing.T) {
 		t.Error("an unrelated checkout under head-wt is taken for the gate's")
 	}
 }
+
+// A rebase of the lane onto trunk rewrites the lane's commits; post-rewrite
+// records the new ones, and trunk's own commits are on origin.
+func TestSnapshotGitWorld_AGitworldRebaseWithRecordedRewritesIsNotAChange(t *testing.T) {
+	lane := recordedLane(t)
+	repo := filepath.Dir(strings.TrimSpace(gitOutT(t, lane, "rev-parse", "--path-format=absolute", "--git-common-dir")))
+	ownerCommit(t, lane, "lane work one")
+	ownerCommit(t, lane, "lane work two")
+	gitDo(t, repo, "commit", "-q", "--allow-empty", "-m", "trunk moved")
+	gitDo(t, repo, "update-ref", "refs/remotes/origin/main", "main")
+	before := snapshotGitWorld(lane)
+
+	gitDo(t, lane, "rebase", "-q", "main")
+	rewritten := strings.Fields(gitOutT(t, lane, "rev-list", "main..HEAD"))
+	commitrecord.RecordSHAs(lane, rewritten)
+
+	requireNoHeadChange(t, before.changesTo(snapshotGitWorld(lane)))
+}
+
+// The same rebase with no post-rewrite record is indistinguishable from a
+// leaked rewrite, and is a change.
+func TestSnapshotGitWorld_AGitworldRebaseWithoutRecordedRewritesIsAChange(t *testing.T) {
+	lane := recordedLane(t)
+	repo := filepath.Dir(strings.TrimSpace(gitOutT(t, lane, "rev-parse", "--path-format=absolute", "--git-common-dir")))
+	ownerCommit(t, lane, "lane work one")
+	gitDo(t, repo, "commit", "-q", "--allow-empty", "-m", "trunk moved")
+	gitDo(t, repo, "update-ref", "refs/remotes/origin/main", "main")
+	before := snapshotGitWorld(lane)
+
+	gitDo(t, lane, "rebase", "-q", "main")
+
+	requireChange(t, before.changesTo(snapshotGitWorld(lane)), checkedOutLabel)
+}

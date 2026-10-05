@@ -137,7 +137,7 @@ const (
 )
 
 // ownerCommitted reports whether the checked-out commit moved from was to now
-// only by commits made through the real commit path: now descends from was,
+// only by commits made through the real commit path: now is, or rewrites, a descendant of was,
 // and every commit on now's first-parent line above was has a record written by
 // the post-commit hook (commitrecord). A commit a test process leaked never ran
 // that hook, so it has none, whatever identity it committed under; a reset, a
@@ -156,10 +156,14 @@ func ownerCommitted(was, now gitWorldPart) bool {
 		// origin's trunk) is the owner's: a test process cannot have made it.
 		return true
 	}
-	if _, err := gitx.Git(now.Repo, "merge-base", "--is-ancestor", was.Text, now.Text); err != nil {
+	// A move to a descendant walks up from was; a rebase or an amend moves to a
+	// commit that is no descendant, and walks up from where the two histories
+	// part, so the commits it wrote must carry a record (post-rewrite) as well.
+	base := strings.TrimSpace(gitOut(now.Repo, "merge-base", was.Text, now.Text))
+	if base == "" {
 		return false
 	}
-	between := strings.Fields(gitOut(now.Repo, "rev-list", "--first-parent", was.Text+".."+now.Text))
+	between := strings.Fields(gitOut(now.Repo, "rev-list", "--first-parent", base+".."+now.Text))
 	if len(between) == 0 {
 		return false
 	}
