@@ -367,20 +367,16 @@ func (m *Merge) refuseGitHubCI(ci CIStatus, stderr io.Writer) error {
 	return fmt.Errorf("refusing to merge %s: required checks are not green (%s)", m.Target.Branch, detail)
 }
 
-// mergeDetail is the detail of a merge event: the PR, the method and the head
-// commit the merge landed. The head is the commit GitHub took, so it was pushed,
-// and the prune sweep matches a lane's tip against it. A merge that never judged
-// a head (a wait that resumed in another run) names the lane's own HEAD, which
-// the verb required to be the PR head before it merged; unreadable, it is left
-// off and the lane is judged without it.
+// mergeDetail is the detail of a merge event: the PR, the method and, when this
+// run judged one, the head commit the merge landed. That head is the commit
+// GitHub took, so it was pushed, and the prune sweep matches a lane's tip
+// against it. A merge this run never judged a head for (a wait that resumed in
+// another run) records none, and the lane is judged without it: the lane's own
+// HEAD is no stand-in, since a commit made after the push is not on any remote.
 func (m *Merge) mergeDetail(number int, via string) map[string]string {
 	d := map[string]string{"pr": strconv.Itoa(number), "method": via}
-	head := m.judgedHead
-	if head == "" {
-		head, _ = wtHeadSHA(m.Target.Worktree)
-	}
-	if head != "" {
-		d["head"] = head
+	if m.judgedHead != "" {
+		d["head"] = m.judgedHead
 	}
 	return d
 }
