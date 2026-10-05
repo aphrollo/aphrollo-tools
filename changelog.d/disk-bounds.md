@@ -10,6 +10,7 @@ level: minor
 - `gate doctor` warns under 30 GB free on the drives holding the Go build cache, the lane worktrees, the temp directory and the target directory, and names the three sizes, biggest first. A mutation measurement refused for lack of space now says "not enough disk".
 
 - The gate's go and golangci-lint runs now build with `-trimpath` (`go-trimpath = "false"` in `[aphrollo]` opts out), so a repo's lane worktrees share one set of Go build-cache entries: building two packages from a second checkout added 198 cache files without it and 66 with it. A test that finds its repository through `runtime.Caller` sees a module path under it and should use its working directory instead.
+- `gate gc` removes the output vite and vitest leave in the temp directory: a 21-character directory holding only `client/` and `ssr/` folders of hash-named files, idle for a day and held by no live process.
 
 ### What migrates by itself
 

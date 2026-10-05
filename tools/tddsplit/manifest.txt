@@ -454,6 +454,8 @@ gc_stalelock.go                                    gc
 gc_straytarget.go                                  gc
 gc_straytarget_mutation.go                         mutation  # created by P2
 gc_straytarget_test.go                             gc
+gc_vitetemp.go                                    gc
+gc_vitetemp_test.go                               gc
 gc_templitter_test.go                              gc
 gc_test.go                                         gc
 gcafterrun.go                                      tdd

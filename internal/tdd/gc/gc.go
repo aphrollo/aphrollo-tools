@@ -112,6 +112,7 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 	if scope.TempScratch {
 		for _, dir := range lockLitterDirs() {
 			out = append(out, gcTempScratch(dir, time.Now())...)
+			out = append(out, gcViteTemp(dir, time.Now())...)
 		}
 		if root := GoTmpRootDir(repo); root != "" {
 			out = append(out, gcTempScratch(root, time.Now())...)
