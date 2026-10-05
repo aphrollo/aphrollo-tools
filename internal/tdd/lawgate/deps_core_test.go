@@ -8,6 +8,10 @@ import (
 
 const Allow = core.Allow
 
+type Event = core.Event
+
 type gateEntry = core.GateEntry
+
+func ReadEvents(p0 string) []Event { return core.ReadEvents(p0) }
 
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }

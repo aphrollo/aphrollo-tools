@@ -6,7 +6,11 @@ import (
 	lawgate "github.com/aphrollo/aphrollo-tools/internal/tdd/lawgate"
 )
 
-func editLawRefusals(p0 string, p1 []string) []string { return lawgate.EditLawRefusals(p0, p1) }
+type LawFinding = lawgate.LawFinding
+
+func editLawRefusalHits(p0 string, p1 []string) ([]string, []LawFinding) {
+	return lawgate.EditLawRefusalHits(p0, p1)
+}
 
 func existingAncestorDir(p0 string) string { return lawgate.ExistingAncestorDir(p0) }
 

@@ -33,7 +33,7 @@ func editRegressions(root, rel, before, after string, res ratchet.Result) []ratc
 	if len(res.Findings) == 0 {
 		return nil
 	}
-	laws, err := ratchet.LoadLaws(root)
+	steps, err := ratchet.Plan{Root: root, Stage: ratchet.StageEdit, Base: "HEAD", Files: []string{rel}, Overlay: map[string]string{rel: after}}.Steps()
 	if err != nil {
 		return res.Findings // a rule this binary cannot read is not one to soften
 	}
@@ -42,10 +42,8 @@ func editRegressions(root, rel, before, after string, res ratchet.Result) []ratc
 		added         []ratchet.Hit
 	}
 	byLaw := map[string]counted{}
-	for _, law := range laws {
-		if !law.Scope.Matches(rel) {
-			continue
-		}
+	for _, step := range steps {
+		law := step.Law
 		b := law.HitsIn(rel, before)
 		a := law.HitsIn(rel, after)
 		byLaw[law.Name] = counted{before: totalWeight(b), after: totalWeight(a), added: addedHits(b, a)}

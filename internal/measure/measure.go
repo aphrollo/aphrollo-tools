@@ -25,14 +25,15 @@ type Options struct {
 
 // Report is every measure the v1 events can answer today.
 type Report struct {
-	Events  int     `json:"events"`
-	Speed   Dist    `json:"speed_secs"`
-	CI      CI      `json:"ci_first_run"`
-	Gate    Gate    `json:"gate_wall"`
-	Runs    Runs    `json:"runs"`
-	Edits   Edits   `json:"edits_per_message"`
-	Denies  Denies  `json:"denies"`
-	Escapes Escapes `json:"escapes"`
+	Events    int       `json:"events"`
+	Speed     Dist      `json:"speed_secs"`
+	CI        CI        `json:"ci_first_run"`
+	Gate      Gate      `json:"gate_wall"`
+	Runs      Runs      `json:"runs"`
+	Edits     Edits     `json:"edits_per_message"`
+	Denies    Denies    `json:"denies"`
+	Escapes   Escapes   `json:"escapes"`
+	LawMisses LawMisses `json:"law_misses"`
 }
 
 // Dist is a count and the nearest-rank percentiles of a sample.
@@ -68,7 +69,7 @@ func (s scope) in(at time.Time) bool { return s.since.IsZero() || !at.Before(s.s
 func Compute(events []tdd.Event, now time.Time, o Options) Report {
 	s := newScope(events, now, o)
 	r := Report{Speed: foldSpeed(s), CI: foldCI(s), Gate: foldGate(s), Runs: foldRuns(s),
-		Edits: foldEdits(s), Denies: foldDenies(s), Escapes: foldEscapes(s)}
+		Edits: foldEdits(s), Denies: foldDenies(s), Escapes: foldEscapes(s), LawMisses: foldLawMisses(s, o.Window)}
 	for _, e := range s.evs {
 		if s.in(e.at) {
 			r.Events++

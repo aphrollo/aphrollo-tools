@@ -195,7 +195,7 @@ func TestPruneMergedLanes_KeepsALaneClaimedOnTheDevTier(t *testing.T) {
 	claims := t.TempDir()
 	t.Setenv("APHROLLO_DEVCLAIM_DIR", claims)
 	if err := os.Symlink(laneWT, filepath.Join(claims, "web")); err != nil {
-		t.Skipf("no symlinks here: %v", err)
+		t.Skipf("no symlinks here: %v", err) // skip-ok: a box without symlink rights cannot make the claim link
 	}
 
 	pruned, _, errs := prunedLanes(t, mainRepo)

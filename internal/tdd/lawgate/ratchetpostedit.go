@@ -52,36 +52,6 @@ import (
 // The dependency-graph laws are left to the pre-edit and commit gates: they
 // read the module graph, not a file, and cost hundreds of milliseconds each.
 
-// editLawGroup is how one law is judged after an edit.
-type editLawGroup int
-
-const (
-	editLawSkip editLawGroup = iota
-	editLawPerFile
-	editLawRegistry
-	editLawWholeTree
-	editLawRemoved
-	editLawChanged
-)
-
-// editLawGroupOf places a matcher kind in its group.
-func editLawGroupOf(kind ratchet.MatcherKind) editLawGroup {
-	switch kind {
-	case ratchet.KindDepGraphForbids, ratchet.KindDepGraphCeiling, ratchet.KindGoDepGraphForbids:
-		return editLawSkip
-	case ratchet.KindRegistryBothWays:
-		return editLawRegistry
-	case ratchet.KindIdentResolves, ratchet.KindFileSetContainment, ratchet.KindJSONNumberCeiling,
-		ratchet.KindGoBenchCeiling:
-		return editLawWholeTree
-	case ratchet.KindSymbolRemoved:
-		return editLawRemoved
-	case ratchet.KindCoChange, ratchet.KindHunkRegex:
-		return editLawChanged
-	}
-	return editLawPerFile
-}
-
 // editJudge is one post-edit judging: the edited files, their content on
 // disk, and — each read once, only when a law asks — the edited files at
 // HEAD and every file a commit made now could stage, at HEAD. A law that
@@ -123,27 +93,37 @@ func (j *editJudge) headOf() headFiles {
 // law that cannot be judged here (unreadable, a git failure) says nothing:
 // the commit gate judges it again.
 func editLawRefusals(root string, rels []string) []string {
+	lines, _ := editLawRefusalHits(root, rels)
+	return lines
+}
+
+// editLawRefusalHits is editLawRefusals that also names each refused law and
+// file, one per finding, for the event that records what the edit stage said.
+func editLawRefusalHits(root string, rels []string) ([]string, []LawFinding) {
 	if root == "" || len(rels) == 0 || !ratchet.HasLaws(root) {
-		return nil
+		return nil, nil
 	}
-	laws, err := ratchet.LoadLaws(root)
+	// The edit stage fails open: a plan that cannot be made says nothing here and
+	// the commit, which fails closed on the same error, judges.
+	steps, err := ratchet.Plan{Root: root, Stage: ratchet.StageEdit, Base: "HEAD", Files: rels}.Steps()
 	if err != nil {
-		return nil
+		return nil, nil // absence-ok: the edit stage fails open; the commit gate fails closed on the same error
 	}
 	j := newEditJudge(root, rels)
 	// The per-file laws share one narrowed scan; every other law runs alone.
 	batch := ratchet.Options{Root: root, Files: rels}
 	runs := []ratchet.Options{}
 	onlyEdited := map[string]bool{}
-	for _, law := range laws {
-		if law.Severity != ratchet.Deny || !scopesAny(law, rels) {
+	for _, step := range steps {
+		law := step.Law
+		if law.Severity != ratchet.Deny {
 			continue
 		}
 		opts, run := j.plan(law)
 		if !run {
 			continue
 		}
-		onlyEdited[law.Name] = editLawGroupOf(law.Matcher.Kind) == editLawChanged
+		onlyEdited[law.Name] = ratchet.GroupOf(law.Matcher.Kind) == ratchet.GroupChanged
 		if len(opts.Laws) != 0 {
 			batch.Laws = append(batch.Laws, opts.Laws...)
 			continue
@@ -165,7 +145,11 @@ func editLawRefusals(root string, rels []string) []string {
 			}
 		}
 	}
-	return ratchet.Result{Findings: findings}.Lines()
+	var hits []LawFinding
+	for _, f := range findings {
+		hits = append(hits, LawFinding{Law: f.Law, Deny: true, File: f.File})
+	}
+	return ratchet.Result{Findings: findings}.Lines(), hits
 }
 
 // plan is the Check a law gets for this edit, and false when this edit
@@ -175,21 +159,21 @@ func editLawRefusals(root string, rels []string) []string {
 func (j *editJudge) plan(law ratchet.Law) (ratchet.Options, bool) {
 	narrowed := ratchet.Options{Root: j.root, Files: j.rels, Laws: []string{law.Name}}
 	opts := ratchet.Options{Root: j.root, Only: law.Name}
-	switch editLawGroupOf(law.Matcher.Kind) {
-	case editLawSkip:
+	switch ratchet.GroupOf(law.Matcher.Kind) {
+	case ratchet.GroupGraph:
 		return opts, false
-	case editLawPerFile:
+	case ratchet.GroupPerFile:
 		return narrowed, true
-	case editLawRegistry:
+	case ratchet.GroupRegistry:
 		if !j.registryTouched(law) {
 			return narrowed, true
 		}
-	case editLawRemoved:
+	case ratchet.GroupRemoved:
 		if !j.anyCaptureDropped(law) {
 			return opts, false
 		}
 		opts.Base, opts.BaseTree = "HEAD", j.headOf()
-	case editLawChanged:
+	case ratchet.GroupChanged:
 		changed, head := j.changedSet()
 		opts.Files, opts.StagedFiles, opts.Base, opts.BaseTree = changed, changed, "HEAD", head
 	}
@@ -268,16 +252,6 @@ func captures(re *regexp.Regexp, text string) map[string]bool {
 		out[name] = true
 	}
 	return out
-}
-
-// scopesAny reports whether law's scope covers any of rels.
-func scopesAny(law ratchet.Law, rels []string) bool {
-	for _, rel := range rels {
-		if law.Scope.Matches(rel) {
-			return true
-		}
-	}
-	return false
 }
 
 // changedFromHead is every path a commit made now could stage: the tracked

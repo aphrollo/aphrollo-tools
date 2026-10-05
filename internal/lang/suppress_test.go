@@ -82,3 +82,27 @@ func TestSuppressed_AReasonAdmitsOnlyWhereItsRowSaysSo(t *testing.T) {
 		}
 	}
 }
+
+func TestSuppressedLines_NamesTheLineOfEveryUnreasonedDirective(t *testing.T) {
+	rows := []Language{
+		mustRow(t, "name = \"a\"\n[suppress.off]\nkind = \"lint\"\npattern = 'OFF'\nreason = 'because'\n"),
+	}
+	src := "x\nOFF\ny\nOFF because\nOFF\n\nOFF\n"
+	got := SuppressedLines(rows, KindLint, src)
+	want := []int{2, 5, 7}
+	if len(got) != len(want) {
+		t.Fatalf("SuppressedLines = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("SuppressedLines = %v, want %v", got, want)
+		}
+	}
+	if lines := SuppressedLines(rows, KindType, src); len(lines) != 0 {
+		t.Fatalf("a kind the rows have no directive for gave lines %v", lines)
+	}
+	// One answer, two spellings: Suppressed is the first line's existence.
+	if !Suppressed(rows, KindLint, src) || Suppressed(rows, KindLint, "OFF because\n") {
+		t.Fatal("Suppressed disagrees with SuppressedLines")
+	}
+}

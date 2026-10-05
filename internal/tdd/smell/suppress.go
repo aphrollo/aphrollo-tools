@@ -1,9 +1,8 @@
 package smell
 
 import (
-	"sync"
-
 	langtable "github.com/aphrollo/aphrollo-tools/internal/lang"
+	"github.com/aphrollo/aphrollo-tools/internal/oracle"
 )
 
 // Suppression detectors catch an edit silencing a quality gate — the linter, the
@@ -35,25 +34,11 @@ const (
 // language's comment and a language with no row of its own is still checked;
 // adding a language adds its directives with no change here.
 
-// embeddedRows is the embedded table's rows; an embedded table that does not
-// load has none, and every test of the table reports that failure.
-var embeddedRows = sync.OnceValue(func() []langtable.Language {
-	tbl, err := langtable.Defaults()
-	if err != nil {
-		return nil
-	}
-	return tbl.Rows()
-})
-
 // suppressed reports whether the view's directives carry a suppression of the
 // kind, that is not justified in place, in any row's vocabulary: the rows of
 // the table the view's file was read by, else the embedded ones.
 func suppressed(kind string, v view) bool {
-	rows := v.rows
-	if rows == nil {
-		rows = embeddedRows()
-	}
-	return langtable.Suppressed(rows, kind, v.directives)
+	return oracle.Has(kind+"-suppress", oracle.Input{Directives: v.directives, Rows: v.rows})
 }
 
 var (

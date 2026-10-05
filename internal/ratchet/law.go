@@ -242,12 +242,16 @@ type Matcher struct {
 	Paired    bool
 	HunkMode  HunkRegexMode
 	NameGroup bool
+	// Detector (KindOracleSmell only) names the internal/oracle detector.
+	Detector string
 }
 
 // SchemaVersion is the law schema this binary understands. A law may declare
 // `schema = N`; absent means 1, the schema every law was written against
-// before the key existed.
-const SchemaVersion = 1
+// before the key existed. 2 added `escape_reason`: a law using it declares
+// schema = 2, so a binary that predates it reads the law with the key skipped and
+// says so, never refuses it.
+const SchemaVersion = 2
 
 // Law is one declared rule, loaded from `.ratchet/laws/<name>.toml`.
 type Law struct {
@@ -275,6 +279,7 @@ type Law struct {
 	Scope       Scope
 	Escape      string
 	EscapeLines int
+	EscapeBare  bool // escape_reason = false: the bare token, with no reason after it, admits
 	Baseline    string
 	CodeOnly    bool
 	// MaskStrings blanks the CONTENTS of string literals before the matcher
@@ -355,9 +360,9 @@ type Law struct {
 // LawsDir is where a consuming repo keeps its laws, relative to the repo root.
 const LawsDir = ".ratchet/laws"
 
-// LoadLaws reads every law under <root>/.ratchet/laws, sorted by name. A repo
+// loadLawsUncached reads every law under <root>/.ratchet/laws, sorted by name. A repo
 // with no laws dir loads zero laws and no error — the engine is opt-in.
-func LoadLaws(root string) ([]Law, error) {
+func loadLawsUncached(root string) ([]Law, error) {
 	dir := filepath.Join(root, filepath.FromSlash(LawsDir))
 	entries, err := os.ReadDir(dir)
 	if os.IsNotExist(err) {
@@ -416,7 +421,7 @@ var rootKeys = map[string]bool{
 	"name":   true, "description": true, "severity": true, "escape": true,
 	"escape_lines": true, "baseline": true, "code_only": true, "mask_strings": true,
 	"comment_prefix": true, "contiguous": true, "trigger_exclude": true,
-	"extends": true,
+	"extends": true, "escape_reason": true,
 }
 
 // ParseLaw parses one law file. wantName is the file's stem: the two must
@@ -438,7 +443,7 @@ func ParseLaw(text, wantName string) (Law, error) {
 		}
 		for _, k := range doc.keys("") {
 			if !rootKeys[k] {
-				return Law{}, fmt.Errorf("unknown key %q — a law's root keys are schema, name, description, severity, escape, escape_lines, baseline, code_only, mask_strings, comment_prefix, contiguous, trigger_exclude, extends", k)
+				return Law{}, fmt.Errorf("unknown key %q — a law's root keys are schema, name, description, severity, escape, escape_lines, baseline, code_only, mask_strings, comment_prefix, contiguous, trigger_exclude, extends, escape_reason", k)
 			}
 		}
 	}
@@ -470,6 +475,9 @@ func ParseLaw(text, wantName string) (Law, error) {
 			return Law{}, fmt.Errorf("escape is a string, got %s", v.kind)
 		}
 		law.Escape = v.s
+	}
+	if law.EscapeBare, err = parseEscapeReason(doc); err != nil {
+		return Law{}, err
 	}
 	if v, ok := doc.value("", "escape_lines"); ok {
 		if v.kind != tomlInt || v.i < 0 {

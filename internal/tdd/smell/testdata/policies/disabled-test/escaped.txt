@@ -1,0 +1,6 @@
+t.Skip("a") // skip-ok: no display
+// skip-ok:
+t.Skip("b")
+t.Skip("c")
+x := 1
+it.skip("d", () => {})

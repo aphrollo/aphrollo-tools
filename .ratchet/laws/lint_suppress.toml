@@ -1,0 +1,13 @@
+name        = "lint_suppress"
+extends     = "preset:smells/lint_suppress"
+description = "A change introduces a linter suppression (//nolint, eslint-disable, # noqa, # pylint: disable, # rubocop: disable). Silencing the linter hides the finding instead of fixing it. Remove the suppression and address the warning, or justify it in review; a directive that carries its reason in the row's own syntax is admitted. A warning: a suppression is vouched for in review, not refused on sight."
+severity    = "warn"
+baseline    = ".ratchet/baselines/lint_suppress.txt"
+
+[scope]
+include = ["**/*.go", "**/*.rs", "**/*.py", "**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.rb", "**/*.java", "**/*.kt", "**/*.cs", "**/*.php"]
+exclude = ["**/vendor/**", "**/node_modules/**", "**/target/**", "**/testdata/**"]
+
+[matcher]
+kind     = "oracle-smell"
+detector = "lint-suppress"

@@ -1,0 +1,7 @@
+require.Error(t, e1) // any-error-ok: a boundary
+// any-error-ok:
+require.Error(t, e2)
+x
+x
+x
+require.Error(t, e3)

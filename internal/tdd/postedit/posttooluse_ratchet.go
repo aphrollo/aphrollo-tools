@@ -34,10 +34,11 @@ func lawRefusalNote(targets []string) string {
 		rels = append(rels, slash)
 	}
 	started := time.Now()
-	lines := editLawRefusals(root, rels)
+	lines, hits := editLawRefusalHits(root, rels)
 	if len(lines) == 0 {
 		return ""
 	}
+	logLawGuides(root, "postedit", hits)
 	AppendGateLog("postedit", root, LogToken(rels[0]), fmt.Sprintf("ratchet-would-refuse:%d", len(lines)), time.Since(started))
 	return "ratchet would refuse the commit: " + strings.Join(lines, "; ")
 }

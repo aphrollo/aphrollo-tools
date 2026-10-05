@@ -1,0 +1,8 @@
+internal/tdd/gc/gc_scratch_test.go | time.Sleep(20 * time.Millisecond)
+internal/tdd/lock/memcap_run_unix_own_test.go | time.Sleep(20 * time.Second)
+internal/tdd/mutation/mutants_memcap_test.go | time.Sleep(20 * time.Second)
+internal/tdd/suite/runsuite_cap_test.go | time.Sleep(20 * time.Second)
+internal/tdd/postedit/nowindow_windows_test.go | time.Sleep(50 * time.Millisecond)
+internal/cli/cargo_shim_test.go | time.Sleep(80 * time.Millisecond)
+internal/tdd/suite/buildlock_own_test.go | time.Sleep(holdFor)
+internal/tdd/suite/buildlock_test.go | time.Sleep(holdFor)

@@ -1,0 +1,5 @@
+internal/tdd/smell/policy.go | //     directives (//nolint, // @ts-ignore, # type: ignore) live in comments, so
+internal/tdd/precommit/precommit_test.go | // //nolint; in the full file the " sits inside the comment and the //nolint
+internal/tdd/smell/suppress.go | // directives live in comments (//nolint, // @ts-ignore, # type: ignore). A
+internal/tdd/precommit/precommit_test.go | // on the first added line and blanks everything after it — including a //nolint
+internal/tdd/precommit/precommit_test.go | // still compiles), then add a //nolint line AFTER the comment closes. In the

@@ -3,6 +3,7 @@ package measure
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // textGateLanes is how many lanes the text report lists, the slowest first.
@@ -38,7 +39,20 @@ func (r Report) Text() string {
 	p("overrides              %d  %s", r.Denies.Overrides, tally(r.Denies.ByOverride))
 	p("wrong blocks           %d (override within %.0f min of a deny)", r.Denies.WrongBlocks, WrongBlockWindow.Minutes())
 	p("escapes by class       %s  (false positives %d)", tally(r.Escapes.ByClass), r.Escapes.FalsePositives)
+	p("commit refusals the edit check missed   %d of %d (law, file) pairs over %d refusals, %s", r.LawMisses.Missed, r.LawMisses.Pairs, r.LawMisses.Refusals, lawMissesWindow(r.LawMisses.WindowSecs))
+	if r.LawMisses.Unattributed > 0 {
+		p("  unattributed         %d refusals recorded no law or file", r.LawMisses.Unattributed)
+	}
+	p("  note                 %s", MissesNote)
 	return b.String()
+}
+
+// lawMissesWindow names the window the refusals were counted in.
+func lawMissesWindow(s float64) string {
+	if s <= 0 {
+		return "whole log"
+	}
+	return "last " + windowText(time.Duration(s*float64(time.Second)))
 }
 
 func secs(s float64) string {

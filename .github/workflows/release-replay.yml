@@ -36,6 +36,7 @@ on:
       - "internal/ratchet/**"
       - "internal/lang/**"
       - "internal/mask/**"
+      - "internal/oracle/**"
       - "internal/docs/**"
       - "internal/diff/**"
       - "internal/gitenv/**"

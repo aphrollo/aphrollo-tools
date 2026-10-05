@@ -18,6 +18,7 @@ var lineKeyedKinds = map[MatcherKind]bool{
 	KindMarkerInPackage:   true,
 	KindDocPathResolves:   true,
 	KindHunkRegex:         true,
+	KindOracleSmell:       true,
 }
 
 // baselineForm is the shape a law's baseline file is read in: counted per

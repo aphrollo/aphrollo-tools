@@ -120,7 +120,7 @@ func TestLogEditDecision_RecordsThePathOnAnIgnoreRankedFile(t *testing.T) {
 	}
 	LogEditDecision(raw, d)
 	text := gateLogText(t, cfg)
-	want := filepath.Join("docs", "notes.md")
+	want := "docs/notes.md" // events spell a path with forward slashes on every host
 	if !strings.Contains(text, want) {
 		t.Fatalf("a denial on a .md file must carry its path (%q), got:\n%s", want, text)
 	}

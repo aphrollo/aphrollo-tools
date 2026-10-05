@@ -1,0 +1,12 @@
+name        = "tautology"
+extends     = "preset:smells/tautology"
+description = "A test contains a tautological assertion: both operands are the same expression, so the oracle can never fail no matter what the implementation does. Assert the real value or state against an independent expected value."
+severity    = "deny"
+
+[scope]
+include = ["**/*_test.go", "**/test_*.py", "**/*_test.py", "**/conftest.py", "**/*_test.rs", "**/test_*.rs", "**/tests/**/*.rs", "**/*_test.zig", "**/tests/**/*.zig", "**/*.test.ts", "**/*.test.tsx", "**/*.test.js", "**/*.test.jsx", "**/*.spec.ts", "**/*.spec.tsx", "**/*.spec.js", "**/*.spec.jsx"]
+exclude = ["**/vendor/**", "**/node_modules/**", "**/target/**", "**/testdata/**"]
+
+[matcher]
+kind     = "oracle-smell"
+detector = "tautology"
