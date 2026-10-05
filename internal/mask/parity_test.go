@@ -5,7 +5,6 @@ import (
 	"math/rand/v2"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
@@ -94,14 +93,14 @@ func TestParity_GeneratedStreamOfLexicalCharacters(t *testing.T) {
 	}
 }
 
+// parityPkgDir is this package's directory, read before any test can chdir; not
+// runtime.Caller, which names a module path under -trimpath.
+var parityPkgDir = func() string { d, _ := os.Getwd(); return d }()
+
 // treeRoot is the root of the tree these tests live in.
 func treeRoot(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0) // tree-read-ok: the corpus is this repository's own tree
-	if !ok {
-		t.Fatal("cannot locate the tree")
-	}
-	return filepath.Dir(filepath.Dir(filepath.Dir(file)))
+	return filepath.Dir(filepath.Dir(parityPkgDir)) // tree-read-ok: the corpus is this repository's own tree
 }
 
 // treeCorpus reads every regular file of the tree but .git, dependency and

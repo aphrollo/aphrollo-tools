@@ -95,16 +95,17 @@ func pathIsUnder(p, root string) bool {
 // TestConfigDirIsSetThroughOneHelper keeps the isolation single-sourced: a
 // test that sets CLAUDE_CONFIG_DIR by hand can point it anywhere, and the
 // next reader has to check each site rather than one.
+// isolationPkgDir is the package directory, read before any test can chdir. It is
+// not taken from runtime.Caller: the gate builds with -trimpath, which makes the
+// caller's file a module path, not a place on disk.
+var isolationPkgDir = func() string { d, _ := os.Getwd(); return d }()
+
 func TestConfigDirIsSetThroughOneHelper(t *testing.T) {
 	const marker = `t.Setenv("CLAUDE_CONFIG_DIR"`
 	owners := map[string]bool{"isolation_test.go": true}
 	// The package dir from THIS file's own path, not the process cwd: a test
 	// that ran before this one may have t.Chdir'd somewhere else.
-	_, self, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("cannot locate this test file")
-	}
-	pkgDir := filepath.Dir(self)
+	pkgDir := isolationPkgDir
 	entries, err := os.ReadDir(pkgDir)
 	if err != nil {
 		t.Fatal(err)

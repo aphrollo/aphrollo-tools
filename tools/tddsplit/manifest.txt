@@ -487,6 +487,7 @@ go_race_scope_test.go                              suite
 go_reverse_scope.go                                suite
 go_reverse_scope_test.go                           suite
 go_test_reach.go                                   suite
+go_trimpath.go                                     suite
 goos_seam.go                                       tddtest
 gotmpdir.go                                        lock
 gotmpdir_outside_test.go                           suite     # prefix says lock; its test body reaches suite
@@ -1140,6 +1141,7 @@ style_test.go                                      install
 suitechild.go                                      suite
 suitechild_test.go                                 suite
 suiteenv_seal_test.go                              suite
+suiteenv_trimpath_test.go                          suite
 suiteoutput.go                                     suite
 suiteoutput_dir_test.go                            postedit  # prefix says suite; its test body reaches postedit
 suiteoutput_own_test.go                            suite
