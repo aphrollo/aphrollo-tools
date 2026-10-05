@@ -159,7 +159,7 @@ Law schema, matcher kinds and baselines: [.ratchet/README.md](.ratchet/README.md
 
 `[aphrollo]` in `aphrollo.toml`, or `[workspace.metadata.aphrollo]` in a cargo
 workspace's `Cargo.toml`. `aphrollo config` prints the opt-in keys (the first
-rows) with this repo's values; a repo's first `aphrollo install` prints them once.
+rows) with this repo's values; a repo's first `aphrollo install` prints them once. `aphrollo config show` prints every setting of the schema (`internal/config`) with the layer it came from (built-in, the user's `config.toml`, the repo's `trellis.toml`, or the `aphrollo.toml` key it is an alias of), and names a key or value a file got wrong; `aphrollo config set <key> <value> [--user or --repo]|--repo] [--dry]` writes one.
 
 With `undercover = true` a tool identity is refused at commit, pre-push and `workspace merge` and flagged at session start and by `gate doctor`; the Bash/PowerShell hook, the git shim, pre-push and `workspace create`/`claim`/`pr`/`ship`/`submit` refuse a tell ref name; `pr`/`ship`/`submit`, `issue`, `feedback` and the Bash/PowerShell hook (for a `gh pr`, `gh issue` or `gh api` call) check text before `gh`. The Bash/PowerShell hook judges `gh pr`/`gh issue` create, edit, comment, review and merge text, and a `gh api` request's title, body and head fields, `--input` JSON file and GraphQL mutation. Every check runs on this box before the text reaches GitHub; nothing in CI repeats it.
 

@@ -1,0 +1,185 @@
+# aphrollo's own gate configuration. A Cargo workspace declares this in
+# [workspace.metadata.aphrollo]; a repo with no Cargo.toml declares it here.
+
+[aphrollo]
+# Commit messages say what changed and nothing about how they were written.
+# This repo's history is the argument for the key: 104 commits carrying a
+# Co-Authored-By trailer reached the public remote while the commit-msg hook
+# was installed and running, because the flag it reads lived only in
+# [workspace.metadata.aphrollo] and this repo has no Cargo.toml to put it in.
+undercover = true
+
+# Which Go package's tests read files by path under a prefix, as
+# "<path prefix> -> <package dir>". The merge gate's go test list follows each
+# staged file to its own package and to the packages that import it; neither
+# reaches a package whose tests read another package's files from disk. A
+# staged path under a prefix below also selects the named package's suite.
+#
+# tools/tddsplit's drift test re-runs the split generator over every file
+# under internal/tdd and compares the generated export.go and deps_*.go with
+# the committed ones, so adding, removing or editing a file there can fail it
+# (a merge that combined two lanes' manifest.txt rows did). The suite
+# package's tests pin this key in this file. internal/tdd's own tests read
+# README.md and compare CLAUDE.md's managed block with the block this build
+# renders. internal/release's tests read CHANGELOG.md and check it is the frozen
+# record that points at changelog.d.
+go-test-reads = [
+  "internal/tdd/ -> tools/tddsplit",
+  "aphrollo.toml -> internal/tdd/suite",
+  "README.md -> internal/tdd",
+  "CLAUDE.md -> internal/tdd",
+  "CHANGELOG.md -> internal/release",
+]
+
+# The post-merge retro `aphrollo workspace merge` runs once the PR has landed.
+# It reads the PR's journey (one bounded gh batch), the lane's gate.log
+# entries and the lane branch's reflog, and records a retro for the session
+# that ran the merge only when one of these classes fired. A clean merge
+# prints and records nothing. retro-slow-merge-minutes adds the slow-merge
+# class (0 turns it off). Each retro-sinks row is
+# "<class> -> <question> -> <sink>": the one question the class asks and the
+# one place its answer is recorded.
+retro-on = [
+  "ci-red-after-local-green",
+  "ci-red",
+  "mutant-survivor",
+  "mutant-timeout",
+  "flaky-rerun",
+  "extra-push",
+  "merge-conflict",
+  "gate-refusal",
+]
+retro-slow-merge-minutes = 120
+retro-sinks = [
+  "ci-red-after-local-green -> which local stage or law would have caught this? -> aphrollo gate escape record \"<reason>\"",
+  "ci-red -> why did this reach CI with no local green before it? -> aphrollo gate escape record \"<reason>\"",
+  "mutant-survivor -> which test kills each survivor, and why did the local measurement not refuse it first? -> aphrollo gate escape record \"<reason>\"",
+  "mutant-timeout -> which test or budget let mutants time out unmeasured? -> aphrollo issue \"<title>\" --label <theme>",
+  "flaky-rerun -> which test flaked, and what makes it deterministic? -> aphrollo issue \"<title>\" --label <theme>",
+  "extra-push -> what rule avoids the extra push? -> a memory/feedback note or an issue",
+  "merge-conflict -> which overlap with another lane caused it, and what lane boundary avoids it? -> a memory/feedback note or an issue",
+  "gate-refusal -> which refusal could the change have avoided, and what rule says how? -> a memory/feedback note or an issue",
+  "slow-merge -> what held the PR open? -> aphrollo issue \"<title>\" --label <theme>",
+]
+
+# Mutation is opted into, and reports: a survivor never refuses a commit or a
+# merge here. The merge is measured in CI, and the commit gate measures the lines
+# a commit adds (mutants-at-commit, below). The PR pipeline's mutants-verdict
+# check, whose shards run in parallel on GitHub-hosted runners, measures the
+# merged tree and reports an unaccepted survivor, a timeout, or a
+# NOT COVERED or inconclusive mutant on a line the diff adds or changes, each
+# named "<file>:<line>:<col> <MUTATOR>". gremlins re-runs only the mutated
+# package's suite per mutant, with coverage gathered across the whole module
+# (--coverpkg ./...). A position Go coverage can never count is exempt, or
+# settled by running that one mutant (docs/mutation-runner.md).
+#
+# "ci" is the value of both keys: the local merge gate neither waits for the
+# check nor refuses on it (mutants-at-merge-level is not "block"), and
+# `workspace pr`/`ship`/`submit` skip the stage, because measurements stacked on
+# the shared host ran it out of memory (#1005). Pin
+# mutants-at-merge-level = "block" to make a survivor fail the check and hold the
+# merge. `aphrollo gate mutants run` still measures a lane by hand.
+# Mutation runs once, at the commit (mutants-at-commit, below), before CI, so a
+# survivor is seen and fixed locally instead of in a CI round trip. CI does not
+# measure it again: with mutants-at-merge off, the PR pipeline's mutants-plan
+# owes no measurement and runs no shards.
+mutants-at-merge = false
+mutants-before-pr = "ci"
+
+# The commit gate mutates the lines a commit adds or changes and runs each
+# mutant against the tests selected for its enclosing function, under the same
+# memory cap and box-wide lock, on bounded workers and inside a wall-clock
+# budget (mutants-commit-budget, seconds, default 90). A survivor is reported and
+# never refuses the commit (mutants-at-commit = "block" pins the refusal); a box
+# with no headroom, a lock held past the budget, or a budget spent before every
+# mutant was judged leaves those mutants NOT MEASURED, and CI reports them. The per-function test maps it selects with
+# are built in the background after a merge (`gate mutants testmap`).
+#
+# On in this repo. Every test process the runner and the map build start runs
+# in the sealed environment (no GIT_* variables, temp dirs walled off from every
+# repository, a neutral global git config) in a disposable copy of the lane,
+# and a canary refuses the run's result when the repository's config, branches,
+# tip of main, non-lane worktree registrations or the global git config differ
+# when it ends. The budget is the default 60 s: a commit never waits longer, and
+# the mutants it does not reach (internal/cli's tests alone take about a minute)
+# are NOT MEASURED and left to CI's mutants-verdict.
+mutants-at-commit = true
+
+# How many runners the CI measurement divides across: the width of the
+# mutants-shard matrix. Shards split the lane's changed source files by added
+# lines.
+mutants-shards = 4
+
+# The own-package rule: a mutant on a line the diff adds that its own
+# package's tests miss is refused at once. These packages are the exception,
+# settled against the tests of the packages that import them, nearest first,
+# and left UNRESOLVED past a total time cap. Each is here because its code is
+# exercised from above:
+#   internal/cli      the process boundary where argv, streams and exit codes
+#                     meet every other package
+#   cmd/aphrollo      no test of its own; its one-line main is exercised only
+#                     by what runs the binary (nothing imports it, so a mutant
+#                     there settles against no other package)
+#   internal/tdd/internal/tddtest
+#                     test-support helpers, asserted by the tests of every
+#                     package that calls them, which is where their mutants die
+mutants-integration-packages = [
+  "internal/cli",
+  "cmd/aphrollo",
+  "internal/tdd/internal/tddtest",
+]
+
+# The Windows stand-down, and why it is not a hole. gremlins cannot measure
+# this module on Windows: `gremlins unleash --dry-run` there reports
+# `Runnable: 0, Not covered: 4890, Mutator coverage: 0.00%` -- Go's coverage
+# profile comes back empty and every mutant is filed NOT COVERED. A dogfood
+# lane measured 50 mutants / 0 caught / 50 survivors on Windows against
+# 50 / 44 caught for the same tree on Linux. Reporting that would be wrong in
+# the direction that blocks merges, so on a Go repo on Windows the stage
+# stands down with `mutants-unmeasured:gremlins-windows` and passes, saying
+# that this merge carries no mutation evidence rather than printing a line
+# that reads like the routine skips beside it (issue #697), and the
+# measurement happens on Linux instead -- nightly CI runs
+# `aphrollo gate mutants run --base <checkpoint>` against main
+# (.github/workflows/nightly-mutants.yml) and records an escape on a non-zero
+# exit. On a box whose gremlins reports a non-zero mutator coverage the stage
+# measures here with no further configuration.
+
+# Survivors somebody signed off on: "<file>:<line> <MUTATOR> # why". The
+# reason is not decoration — an entry without one is not an accepted survivor,
+# and the CI check goes red for it. Empty is the state to keep it in.
+#
+# The reason may open with a machine-readable "kind=<kind>: " directive
+# (issue #268), naming which of three claims it makes; a reason with no
+# directive is legacy shorthand for "kind=equivalent". A misspelled kind is
+# refused loudly rather than read as equivalent.
+#
+#   kind=equivalent: <why the two forms compute the same thing>
+#   kind=unobservable-runner test=<TestName>: <why only that test covers it>
+#   kind=unobservable-capability issue=<ref>: <why no test can exist yet>
+mutation-accept = [
+  "internal/shfake/shfake.go:32 CONDITIONALS_NEGATION # kind=unobservable-runner test=TestInstall_RunsTheScriptWithArgumentsStreamsAndExitStatusIntact: Windows-only code (the sh trampoline and the lookup of Git for Windows sh) that the Linux mutation runner never executes; it runs, and kills this mutant, in the Windows test run",
+  "internal/shfake/shfake.go:36 CONDITIONALS_NEGATION # kind=unobservable-runner test=TestInstall_RunsTheScriptWithArgumentsStreamsAndExitStatusIntact: Windows-only code (the sh trampoline and the lookup of Git for Windows sh) that the Linux mutation runner never executes; it runs, and kills this mutant, in the Windows test run",
+  "internal/shfake/shfake.go:40 CONDITIONALS_NEGATION # kind=unobservable-runner test=TestInstall_RunsTheScriptWithArgumentsStreamsAndExitStatusIntact: Windows-only code (the sh trampoline and the lookup of Git for Windows sh) that the Linux mutation runner never executes; it runs, and kills this mutant, in the Windows test run",
+  "internal/shfake/shfake.go:60 CONDITIONALS_NEGATION # kind=unobservable-runner test=TestInstall_RunsTheScriptWithArgumentsStreamsAndExitStatusIntact: Windows-only code (the sh trampoline and the lookup of Git for Windows sh) that the Linux mutation runner never executes; it runs, and kills this mutant, in the Windows test run",
+  "internal/shfake/shfake.go:65 CONDITIONALS_NEGATION # kind=unobservable-runner test=TestInstall_RunsTheScriptWithArgumentsStreamsAndExitStatusIntact: Windows-only code (the sh trampoline and the lookup of Git for Windows sh) that the Linux mutation runner never executes; it runs, and kills this mutant, in the Windows test run",
+  "internal/shfake/shfake.go:108 CONDITIONALS_NEGATION # kind=unobservable-runner test=TestInstall_RunsTheScriptWithArgumentsStreamsAndExitStatusIntact: Windows-only code (the sh trampoline and the lookup of Git for Windows sh) that the Linux mutation runner never executes; it runs, and kills this mutant, in the Windows test run",
+  "internal/shfake/shfake.go:111 CONDITIONALS_NEGATION # kind=unobservable-runner test=TestInstall_RunsTheScriptWithArgumentsStreamsAndExitStatusIntact: Windows-only code (the sh trampoline and the lookup of Git for Windows sh) that the Linux mutation runner never executes; it runs, and kills this mutant, in the Windows test run",
+  "internal/shfake/shfake.go:114 CONDITIONALS_NEGATION # kind=unobservable-runner test=TestInstall_RunsTheScriptWithArgumentsStreamsAndExitStatusIntact: Windows-only code (the sh trampoline and the lookup of Git for Windows sh) that the Linux mutation runner never executes; it runs, and kills this mutant, in the Windows test run",
+  "internal/shfake/shfake.go:120 CONDITIONALS_NEGATION # kind=unobservable-runner test=TestInstall_RunsTheScriptWithArgumentsStreamsAndExitStatusIntact: Windows-only code (the sh trampoline and the lookup of Git for Windows sh) that the Linux mutation runner never executes; it runs, and kills this mutant, in the Windows test run",
+  "internal/tdd/lock/memcap_run_windows.go:89 CONDITIONALS_BOUNDARY # kind=equivalent: `peak*100 >= limit*95` versus `>` differ only when the job's peak commit is exactly 95% of the limit to the byte, which a runaway growing in 16 MB steps never lands on and no test can arrange against the OS's own accounting; every other peak reads the same under either operator",
+  "internal/cli/mergerecover.go:143 CONDITIONALS_BOUNDARY # `time.Since(info.ModTime()) > staleMarkerAge` versus `>=` differ only when the elapsed wall-clock duration equals staleMarkerAge to the nanosecond. A test cannot produce that equality: it does not control the clock at that resolution, and freshRejectionMarker reads a real file mtime. It is also semantically equivalent AT the boundary — a marker exactly staleMarkerAge old is litter either way, and the function's contract (reclaim a marker no newer than this invocation) is satisfied by reclaiming it or by falling through to the ModTime comparison that then rejects it. Proven by hand-mutating > to >= and running the full internal/cli suite: `ok github.com/aphrollo/aphrollo-tools/internal/cli 113.764s`, no test distinguishes them; the file was restored byte-identically",
+  "internal/ratchet/preset.go:66 CONDITIONALS_BOUNDARY # ties never occur among distinct groups, so < vs <= never diverges on the real embedded data — proven by TestListPresets_ReturnsEntriesSortedByGroupThenName, which stays green under this boundary mutant",
+  "internal/ratchet/preset.go:68 CONDITIONALS_BOUNDARY # ties never occur between distinct preset names within one group, so < vs <= never diverges on the real embedded data — proven by TestListPresets_ReturnsEntriesSortedByGroupThenName, which stays green under this boundary mutant",
+  "internal/ratchet/preset.go:121 ARITHMETIC_BASE # capacity hint only, never observable in the appended slice's length or contents",
+  "internal/ratchet/check.go:132 CONDITIONALS_BOUNDARY # loop body is a no-op on an empty sets map regardless of which side of the boundary lets it run",
+  "internal/tdd/escape/escape.go:368 CONDITIONALS_BOUNDARY # start indexes the opening bracket and end indexes the closing one in the same string; distinct byte values can never share one position, so end == start is unreachable whenever both are found, and when either is -1 the first disjunct already decides — proven equivalent by hand-mutating end < start to end <= start and rerunning TestSyncEscapes*/TestClosedIssueNumbers* locally: same green, no test distinguishes them",
+  "internal/tdd/mutation/mutants_go.go:65 CONDITIONALS_BOUNDARY # clamping workers up to a floor of 1 (`workers < 1`) versus `workers <= 1` differ only when workers == 1: the branch fires either way and reassigns workers = 1, a no-op at that value, so gremlinsArgv's output is identical for every integer input — proven equivalent by hand-mutating < to <= and rerunning the full internal/tdd and internal/cli suites locally: same green, no test distinguishes them",
+  "internal/diff/unified.go:110 ARITHMETIC_BASE # len(ops)+1 is only a capacity hint for the split slice; the split branch is reachable only with len(ops) >= 1 (the len(ops) == 0 case already returned earlier), so len(ops)-1 never goes negative and make() never panics — the resulting slice's length and contents are identical either way since append grows past a too-small capacity automatically, proven equivalent by hand-mutating +1 to -1 and rerunning the internal/diff suite locally: same green, no test distinguishes them",
+  "internal/workspace/push.go:54 ARITHMETIC_BASE # the mutated operator sits between the \"origin/\" string literal and the branch string in resolveAhead's fallback ref; every arithmetic substitute for + (- * / %) is undefined on Go strings and fails to compile (verified by hand: 'invalid operation: operator - not defined on \"origin/\" (constant of type string)') — not a behavioural gap, a build failure gremlins counted as a survivor",
+  "internal/tdd/suite/mechcache.go:272 CONDITIONALS_BOUNDARY # splitNulPaths only reaches `n := len(fields)` after an early return on s == \"\", and strings.Split of a non-empty string always yields len(fields) >= 1, so n is never 0 at this line: `n > 0` and `n >= 0` hold for every reachable n and the trim condition's truth value is identical either way — proven equivalent by hand-mutating > to >= and rerunning the full internal/tdd suite locally: same green, no test distinguishes them",
+  "internal/tdd/gc/gc_render.go:45 CONDITIONALS_BOUNDARY # `if len(c.Path) > width { width = len(c.Path) }` is a running-max scan: switching to `>=` only additionally fires when len(c.Path) == width, and the assignment then sets width to the value it already holds, a no-op. The final width — and therefore every padded column RenderGC prints — is identical for every candidate slice under either operator — proven equivalent by hand-mutating > to >= and rerunning the full internal/tdd suite locally: same green, no test distinguishes them",
+  "internal/tdd/failfirst/precommit_failfirst.go:229 CONDITIONALS_NEGATION # pre-existing line, moved into this file unchanged by the split of precommit.go and re-mutated only because the Go runner does not track moved lines (issue #208); `git show main:internal/tdd/precommit.go` carries the identical `if runner.Cmd == \"cargo\"` guard. Untested before the move and untested after it: real debt, owned by the fail-first stage, not introduced here -- shifted from :220 by the cargoPackagesInArgs rewrite adding 9 lines above it, same file, same unchanged guard",
+  "internal/tdd/failfirst/precommit_failfirst.go:231 CONDITIONALS_NEGATION # the `if profileWs == \"\"` fallback on the same moved block, same argument as :142 -- unchanged by the split, re-mutated only because moved lines are not tracked (issue #208) -- shifted from :222 by the cargoPackagesInArgs rewrite adding 9 lines above it, same file, same unchanged guard",
+  "internal/cli/cargo_shim_testrun.go:61 ARITHMETIC_BASE # kind=equivalent: len(cargoSide)+1 is only a capacity hint for the compile argv. The line is reachable only with len(cargoSide) >= 1: cargoSide is every token before the first bare \"--\", and cargoVerb stops at that same \"--\", so the verb that reached the test/bench/nextest case is itself in cargoSide. len(cargoSide)-1 therefore never goes negative and make() never panics, and append grows past a too-small capacity, so the returned slice's length and contents are identical either way (same shape as the accepted internal/diff/unified.go:110 entry) — proven equivalent by hand-mutating +1 to -1 and rerunning the full internal/cli suite locally: `ok github.com/aphrollo/aphrollo-tools/internal/cli 12.795s`, no test distinguishes them; the file was restored byte-identically"
+]

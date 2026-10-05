@@ -1122,6 +1122,7 @@ stopcheck.go                                       postedit
 stopcheck_store_test.go                            postedit
 stopcheck_task_test.go                             postedit
 stopcheck_test.go                                  postedit
+stopmode_test.go                                   postedit
 style.go                                           install
 style.md                                           install
 style_test.go                                      install
