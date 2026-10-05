@@ -25,22 +25,22 @@ func runStopCheck(verb string, raw []byte, stdout, stderr io.Writer) int {
 	out, errOut, code := tdd.RenderStopVerdict(event, verdict)
 	stdout.Write(out)
 	stderr.Write(errOut)
-	// After the answer is written: the shadow record never changes it. Only a Stop
-	// or SubagentStop that blocked on an unseen red is a fact the kernel's stop-red
-	// rule is asked about; an allow has no red for it to read.
-	if verdict.Red && event != tdd.StopHookTaskCompleted {
-		recordStopShadow(verb, raw)
+	// After the answer is written: the shadow record never changes it. Every Stop and
+	// SubagentStop is asked of the kernel's stop-red rule, with aphrollo's own
+	// unseen-red fact, whether the live check blocked or not.
+	if event != tdd.StopHookTaskCompleted {
+		recordStopShadow(verb, raw, shadow.StopFacts{Unseen: verdict.Red, Trees: verdict.RedTrees, Blocked: verdict.Block})
 	}
 	return code
 }
 
 // recordStopShadow records what the kernel's stop-red rule would have decided
-// beside the block the live check just made, inside the shadow budget.
-func recordStopShadow(verb string, raw []byte) {
+// beside what the live check just did, inside the shadow budget.
+func recordStopShadow(verb string, raw []byte, facts shadow.StopFacts) {
 	src, ok := hookSource(raw)
 	pl, pok := shadow.ParsePayload(raw)
 	if !ok || !pok {
 		return
 	}
-	shadow.RecordStop(tdd.ShadowWorld(), verb, src, pl, shadow.StopFacts{Unseen: true, Blocked: true})
+	shadow.RecordStop(tdd.ShadowWorld(), verb, src, pl, facts)
 }

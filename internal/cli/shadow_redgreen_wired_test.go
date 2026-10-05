@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,13 +38,15 @@ func shadowOfRule(root, rule string) []tdd.Event {
 	return out
 }
 
+// goRepo is a lane's worktree of a repo (its primary checkout on main), holding a Go
+// module with one package: the shadow follows lanes, not the primary checkout.
 func goRepo(t *testing.T) string {
 	t.Helper()
-	return gitInit(t, map[string]string{
-		"aphrollo.toml": "[aphrollo]\n",
-		"go.mod":        "module example.com/m\n\ngo 1.22\n",
-		"pkg/p.go":      "package pkg\n\nvar a = 1\n",
-	})
+	_, linked := primaryWorktreeRepo(t)
+	writeFile(t, filepath.Join(linked, "aphrollo.toml"), "[aphrollo]\n")
+	writeFile(t, filepath.Join(linked, "go.mod"), "module example.com/m\n\ngo 1.22\n")
+	writeFile(t, filepath.Join(linked, "pkg", "p.go"), "package pkg\n\nvar a = 1\n")
+	return linked
 }
 
 // A code edit is a red-green fact: aphrollo allows it (the proof is held at the
@@ -134,8 +135,7 @@ func TestRun_PreToolUse_AnswersTheSameBytesForACodeEditWithShadowOnAndOff(t *tes
 // A call a deny law stopped is not asked: the edit it was about does not happen.
 func TestRun_PreToolUse_ShadowsNoRedGreenForACallTheGateBlocked(t *testing.T) {
 	gateConfigDir(t)
-	dir := denyLawRepo(t)
-	writeFile(t, filepath.Join(dir, "go.mod"), "module example.com/m\n\ngo 1.22\n")
+	dir := goRepo(t)
 	// The repo's one law, widened over Go files, blocks the write below.
 	writeFile(t, filepath.Join(dir, ".ratchet", "laws", "no-forbidden.toml"), `
 name = "no-forbidden"
@@ -151,6 +151,7 @@ include = ["**/*.go"]
 kind = "regex-absent"
 pattern = "FORBIDDEN"
 `)
+	writeFile(t, filepath.Join(dir, ".ratchet", "baselines", "no-forbidden.txt"), "")
 	b, err := json.Marshal(map[string]any{
 		"tool_name": "Write", "session_id": "cli-law", "cwd": dir,
 		"tool_input": map[string]any{"file_path": filepath.Join(dir, "notes.go"), "content": "package m\n// FORBIDDEN\n"},
@@ -167,34 +168,88 @@ pattern = "FORBIDDEN"
 	}
 }
 
-// A Stop that blocks on an unseen red is recorded beside the kernel's stop-red
-// answer; with no open red in the lane's record the kernel would not block, and the
-// two sides read differently. The answer is the same bytes with recording off.
-func TestRun_Stop_ShadowsABlockOnAnUnseenRedAsStopRed(t *testing.T) {
-	gateConfigDir(t)
-	dir := goRepo(t)
-	target := filepath.Join(dir, "pkg", "p.go")
-	if err := os.WriteFile(target, []byte("package pkg\n\nvar a = 2\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	tdd.RecordFinishedRedDeferredJobForTest(dir, target, stopCLISession, "TestA")
-	payload, err := json.Marshal(map[string]any{"session_id": stopCLISession, "cwd": dir, "hook_event_name": "Stop", "stop_hook_active": false})
+// ratchet: test_removed TestRun_Stop_ShadowsABlockOnAnUnseenRedAsStopRed: replaced by TestRun_Stop_ShadowsEveryStopWithTheLiveUnseenRedFact, as every stop is recorded now
+func stopPayloadIn(t *testing.T, dir string) string { return stopPayloadAs(t, stopCLISession, dir) }
+
+func stopPayloadAs(t *testing.T, session, dir string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{"session_id": session, "cwd": dir, "hook_event_name": "Stop", "stop_hook_active": false})
 	if err != nil {
 		t.Fatal(err)
 	}
+	return string(b)
+}
+
+// Every Stop is asked of the kernel, with aphrollo's own unseen-red fact: a stop with
+// no red is an agreeing allow, and a stop that blocks on a red no run of the lane
+// record was folded for is unjudged, never softer.
+func TestRun_Stop_ShadowsEveryStopWithTheLiveUnseenRedFact(t *testing.T) {
+	gateConfigDir(t)
+	dir := goRepo(t)
 
 	var out, errb bytes.Buffer
-	if code := Run([]string{"gate", "stop"}, bytes.NewReader(payload), &out, &errb); code != 0 {
-		t.Fatalf("exit code = %d, want 0 with a block decision on stdout", code)
+	if code := Run([]string{"gate", "stop"}, strings.NewReader(stopPayloadIn(t, dir)), &out, &errb); code != 0 {
+		t.Fatalf("exit code = %d", code)
 	}
+	got := shadowOfRule(dir, "stop-red")
+	if len(got) != 1 || got[0].Detail["relation"] != "agree" || got[0].Detail["trellis"] != "allow" || got[0].Detail["aphrollo"] != "allow" || got[0].Detail["hook"] != "stop" {
+		t.Fatalf("a stop with no red: %+v, want one agreeing allow", got)
+	}
+
+	target := filepath.Join(dir, "pkg", "p.go")
+	tdd.RecordFinishedRedDeferredJobForTest(dir, target, stopCLISession, "TestA")
+	out.Reset()
+	Run([]string{"gate", "stop"}, strings.NewReader(stopPayloadIn(t, dir)), &out, &errb)
 	if !strings.Contains(out.String(), `"decision":"block"`) {
 		t.Fatalf("stop did not block on the unseen red: %q", out.String())
 	}
-	got := shadowOfRule(dir, "stop-red")
-	if len(got) != 1 {
-		t.Fatalf("%d stop-red events, want 1: %+v", len(got), shadowEvents(dir))
+	got = shadowOfRule(dir, "stop-red")
+	if len(got) != 2 || got[1].Detail["relation"] != "unjudged" || got[1].Detail["cause"] != "unfolded" {
+		t.Errorf("a block on an unfolded red: %+v, want an unjudged record naming unfolded", got)
 	}
-	if d := got[0].Detail; d["hook"] != "stop" || d["aphrollo"] != "block" || d["trellis"] != "allow" || d["relation"] != "trellis-softer" {
-		t.Errorf("stop-red detail = %v, want aphrollo's block beside a kernel that holds no open red (softer)", d)
+}
+
+// The record never reaches the answer of a Stop either.
+func TestRun_Stop_AnswersTheSameBytesWithShadowOnAndOff(t *testing.T) {
+	gateConfigDir(t)
+	dir := goRepo(t)
+	target := filepath.Join(dir, "pkg", "p.go")
+	answer := func(on bool) (int, string, string) {
+		old := shadow.Enabled
+		shadow.Enabled = on
+		t.Cleanup(func() { shadow.Enabled = old })
+		// One session each: the second answer of a session reads the first's state.
+		session := map[bool]string{true: "stop-on", false: "stop-off"}[on]
+		tdd.RecordFinishedRedDeferredJobForTest(dir, target, session, "TestA")
+		var out, errb bytes.Buffer
+		code := Run([]string{"gate", "stop"}, strings.NewReader(stopPayloadAs(t, session, dir)), &out, &errb)
+		return code, out.String(), errb.String()
+	}
+	codeOn, outOn, errOn := answer(true)
+	codeOff, outOff, errOff := answer(false)
+	if codeOn != codeOff || outOn != outOff || errOn != errOff {
+		t.Errorf("shadow on (%d %q %q) and off (%d %q %q) answered differently", codeOn, outOn, errOn, codeOff, outOff, errOff)
+	}
+	if !strings.Contains(outOn, `"decision":"block"`) {
+		t.Errorf("the probe stop was not a block: %q", outOn)
+	}
+	if got := len(shadowOfRule(dir, "stop-red")); got != 1 {
+		t.Errorf("%d stop-red records over an on run and an off run, want 1 (the on run's)", got)
+	}
+}
+
+// Trunk is not followed: an edit and a stop on a repo's main branch record nothing.
+func TestRun_FollowsNoTrunkLane(t *testing.T) {
+	gateConfigDir(t)
+	dir := gitInit(t, map[string]string{
+		"aphrollo.toml": "[aphrollo]\n",
+		"go.mod":        "module example.com/m\n\ngo 1.22\n",
+		"pkg/p.go":      "package pkg\n\nvar a = 1\n",
+	})
+	var out, errb bytes.Buffer
+	Run([]string{"gate", "pretooluse"}, strings.NewReader(goEditPayload(t, dir, "pkg/p.go")), &out, &errb)
+	Run([]string{"gate", "stop"}, strings.NewReader(stopPayloadIn(t, dir)), &out, &errb)
+	if got := append(shadowOfRule(dir, "red-green"), shadowOfRule(dir, "stop-red")...); len(got) != 0 {
+		t.Errorf("trunk records: %+v, want none", got)
 	}
 }
