@@ -421,6 +421,22 @@ func (w *window) commit(i int, evs []core.Event) bool {
 	return true
 }
 
+// write records one fact's event unless the hook has closed the window: a fact
+// still being built when the budget ran out is dropped, never written into
+// whatever store is current when its goroutine gets there. The write itself is
+// outside the lock: a writer that is slow is what the budget is for, and the
+// hook closing the window must never wait on it.
+func (w *window) write(e core.Event) bool {
+	w.mu.Lock()
+	closed := w.closed
+	w.mu.Unlock()
+	if closed {
+		return false
+	}
+	appendEvent(e)
+	return true
+}
+
 // close ends the window and returns how many steps committed.
 func (w *window) close() int {
 	w.mu.Lock()
