@@ -101,7 +101,10 @@ func doctorDiskSpace(in DoctorInput) DoctorCheck {
 	// and the temp dir share a volume — every Linux box, and most Windows
 	// ones — reporting per directory says the same number twice.
 	byDrive := map[string]int{}
-	for _, dir := range []string{ResolveCargoTargetDir(repo), os.TempDir(), doctorGoCacheDirFn(), laneWorktreesDir(repo)} {
+	// Asked once for the whole run: the free-space reading and the size line below
+	// both use it, and `go env` is a process start.
+	cache := doctorGoCacheDirFn()
+	for _, dir := range []string{ResolveCargoTargetDir(repo), os.TempDir(), cache, laneWorktreesDir(repo)} {
 		if dir == "" {
 			continue
 		}
@@ -124,7 +127,7 @@ func doctorDiskSpace(in DoctorInput) DoctorCheck {
 	detail := strings.Join(lines, ", ")
 	if warn {
 		return DoctorCheck{Name: "disk space", Warn: true,
-			Detail: detail + fmt.Sprintf(" — under %d GB, heavy runs die mid-way; it holds: %s; `aphrollo gate gc` trims the cache and scratch", doctorDiskWarnGB, footprintLine(repo))}
+			Detail: detail + fmt.Sprintf(" — under %d GB, heavy runs die mid-way; it holds: %s; `aphrollo gate gc` trims the cache and scratch", doctorDiskWarnGB, footprintLine(repo, cache))}
 	}
 	return DoctorCheck{Name: "disk space", OK: true, Detail: detail}
 }

@@ -83,3 +83,20 @@ func TestDoctorFootprintDirs_ALaneChecksOutItsSiblingsDirectory(t *testing.T) {
 		t.Errorf("laneWorktreesDir(primary) = %q", got)
 	}
 }
+
+func TestDoctorDiskSpace_AsksGoEnvForTheCacheOnceAndUsesItForTheSizeLineToo(t *testing.T) {
+	withFreeSpace(t, 12)
+	repo := doctordiskFixture(t, 3<<20, 7<<20, 1<<20)
+	cache := doctorGoCacheDirFn()
+	asked := 0
+	doctorGoCacheDirFn = func() string { asked++; return cache }
+
+	c := doctorDiskSpace(DoctorInput{Repo: repo})
+
+	if asked != 1 {
+		t.Errorf("go env GOCACHE was asked %d times in one doctor run, want 1", asked)
+	}
+	if !strings.Contains(c.Detail, "go build cache 3.0 MB") {
+		t.Errorf("detail = %q, want the size of the cache the one answer named", c.Detail)
+	}
+}

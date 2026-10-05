@@ -24,11 +24,14 @@ import (
 // directory the walk did not finish is reported as "at least" its size so far.
 const footprintWalkBudget = 3 * time.Second
 
+// goEnvTimeout bounds the `go env GOCACHE` the doctor runs.
+const goEnvTimeout = 5 * time.Second
+
 // doctorGoCacheDirFn answers `go env GOCACHE`; a seam so a test names a fake one.
 var doctorGoCacheDirFn = goEnvCacheDir
 
 func goEnvCacheDir() string {
-	out, err := run.LightOutput(run.Spec{Name: "go", Args: []string{"env", "GOCACHE"}, Timeout: 30 * time.Second})
+	out, err := run.LightOutput(run.Spec{Name: "go", Args: []string{"env", "GOCACHE"}, Timeout: goEnvTimeout})
 	if err != nil {
 		return ""
 	}
@@ -79,10 +82,10 @@ type footprint struct {
 
 // footprintLine names the Go build cache, the lane worktrees and the temp dir
 // with their sizes, biggest first.
-func footprintLine(repo string) string {
+func footprintLine(repo, cache string) string {
 	var rows []footprint
 	for _, d := range []struct{ name, dir string }{
-		{"go build cache", doctorGoCacheDirFn()},
+		{"go build cache", cache},
 		{"lane worktrees", laneWorktreesDir(repo)},
 		{"temp", os.TempDir()},
 	} {
