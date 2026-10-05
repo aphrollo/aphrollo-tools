@@ -44,8 +44,17 @@ const escapeDedupeWindow = 7 * 24 * time.Hour
 // constant: every mechanical rejection begins "TDD mechanical: tests failing
 // — fix before committing.", so fingerprinting the first line alone makes one
 // record stand for every unrelated failure in the window.
+//
+// The repo is the repository, not the checkout the miss was seen from: every
+// lane of one repository shares a git directory, and a miss seen from two lanes
+// is one miss. A gitworld escape's diagnostic is the parts that changed, never
+// the refs and paths inside them, which differ for every lane.
 func escapeFingerprint(stage string, o EscapeOptions) string {
-	sum := sha256.Sum256([]byte(normalizeRepoSpelling(o.Repo) + "\n" + stage + "\n" + escapeDiagnostic(o)))
+	diagnostic := escapeDiagnostic(o)
+	if strings.HasPrefix(stage, "gitworld:") {
+		diagnostic = gitworldChangedParts(o.Evidence, diagnostic)
+	}
+	sum := sha256.Sum256([]byte(gitworldRepoKey(o.Repo) + "\n" + stage + "\n" + diagnostic))
 	return hex.EncodeToString(sum[:8])
 }
 

@@ -2,6 +2,7 @@ package escape
 
 import (
 	"io"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -48,5 +49,47 @@ func TestNoteGitWorldEscape_ARepeatOfTheSameChangeIsOneRecord(t *testing.T) {
 
 	if got := len(loadEscapes()); got != 2 {
 		t.Errorf("recorded %d escapes, want 2: one per runner", got)
+	}
+}
+
+// gitworldAddLane makes a linked worktree of root on a new branch, the way a
+// lane is made, and answers its path.
+func gitworldAddLane(t *testing.T, root, branch string) string {
+	t.Helper()
+	lane := filepath.Join(t.TempDir(), "lane")
+	if out, err := git(root, "worktree", "add", "-b", branch, lane); err != nil {
+		t.Fatalf("worktree add: %v\n%s", err, out)
+	}
+	return lane
+}
+
+// A sibling lane's new branch is named by a different ref in every sighting and
+// every lane of the repository reports it from its own root: one class, one
+// record, however many lanes and branch names it comes through.
+func TestNoteGitWorldEscape_OneClassFromTwoLanesWithDifferentBranchesIsOneRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+	laneA := gitworldAddLane(t, root, "lane/a")
+	laneB := gitworldAddLane(t, root, "lane/b")
+
+	NoteGitWorldEscape(laneA, "test-map build", "the branches changed:\n+refs/heads/feat/one", io.Discard)
+	NoteGitWorldEscape(laneB, "test-map build", "the branches changed:\n+refs/heads/feat/two", io.Discard)
+
+	if got := len(loadEscapes()); got != 1 {
+		t.Errorf("recorded %d escapes, want 1: the same stage and the same changed part", got)
+	}
+}
+
+// What changed is part of the class: a changed worktree registration is a
+// different miss from a new branch.
+func TestNoteGitWorldEscape_ADifferentChangedPartIsAnotherRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := makeGoRepo(t)
+
+	NoteGitWorldEscape(root, "test-map build", "the branches changed:\n+refs/heads/feat/one", io.Discard)
+	NoteGitWorldEscape(root, "test-map build", "the worktree registrations changed:\n+/x/y", io.Discard)
+
+	if got := len(loadEscapes()); got != 2 {
+		t.Errorf("recorded %d escapes, want 2: one per changed part", got)
 	}
 }
