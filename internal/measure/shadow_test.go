@@ -307,6 +307,7 @@ func TestShadow_TextPrintsTheWindowsAndEveryCount(t *testing.T) {
 		"  note                " + shadowNotes[1],
 		"  note                " + shadowNotes[2],
 		"  note                " + shadowNotes[3],
+		"  note                " + shadowNotes[4],
 		"  wrong block         an override of the same rule within 10 min of the fire on its lane",
 		"  catch / pass        a later commit gate refusal, red CI or escape / the lane's merge, within " + strconv.Itoa(ShadowHorizonDays) + " days",
 		"deny-law-edit          2 fires  agree 1  would-be block 1  softer 0 (0 held out)  mismatch 0  not comparable 0  unjudged 0  held out 1",
@@ -382,10 +383,11 @@ func TestShadow_SaysItIsOneSidedAndOnDefaultConfig(t *testing.T) {
 	for _, want := range []string{
 		"observed only where a hook acted",
 		"agreement is overstated",
-		"trellis acting alone is seen only for a waived primary-checkout write",
-		"default config",
-		"not the value of a would-be block",
+		"trellis acting alone is seen at a waived primary-checkout write and, for red-green, at each code edit",
+		"default config, except red-green and stop-red",
+		"red-green is observed",
 		"escape comment is not logged as an override",
+		"never as agreement",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text does not say %q:\n%s", want, text)
