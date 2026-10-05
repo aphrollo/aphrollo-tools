@@ -181,21 +181,16 @@ func TestIssueSummaryLineGivesUpOnASlowFetch(t *testing.T) {
 	t.Setenv("TRELLIS_DATA", t.TempDir())
 	repo := makeGitHubRepo(t)
 	stubGhScript(t, map[string]string{"issue list": `[{"labels":[]}]`})
-	t.Setenv("GH_STUB_SLEEP_MS", "3000")
+	t.Setenv("GH_STUB_SLEEP_MS", "20000") // far past any delay a loaded box adds to a 200 ms deadline: the deadline always wins
 	defer func(d time.Duration) { issuesFetchTimeout = d }(issuesFetchTimeout)
 	issuesFetchTimeout = 200 * time.Millisecond
 
-	started := time.Now()
+	// No stopwatch: the stub answers with an issue only if it is waited out, so
+	// an empty line is the deadline firing first, however loaded the box is.
 	line := issueSummaryLine(repo, time.Now())
-	elapsed := time.Since(started)
 
 	if line != "" {
 		t.Fatalf("a fetch past the deadline is a failed fetch, got %q", line)
-	}
-	// Generous headroom over the 200 ms deadline: the assertion is that the
-	// call did not wait out the stub's full three seconds.
-	if elapsed > 2*time.Second {
-		t.Fatalf("the fetch waited %s — the deadline did not fire", elapsed)
 	}
 	if data := tddtest.GateLogContent(t, ""); !strings.Contains(data, issuesFetchFailedVerdict) {
 		t.Errorf("a timed-out fetch must be logged like any other failure:\n%s", data)

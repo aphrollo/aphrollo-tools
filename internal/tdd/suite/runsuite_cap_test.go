@@ -1,55 +1,69 @@
 package suite
 
 import (
-	"os"
-	"strconv"
+	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
-// suiteCapHelperEnv marks the re-executed test binary as the allocating child.
-const suiteCapHelperEnv = "SUITETEST_CAP_HELPER_MB"
-
-// TestSuiteCapHelper_Allocate is not a test: it is the runaway RunSuite
-// starts under a cap. It touches suiteCapHelperEnv megabytes and then waits
-// (bounded) to be ended.
-func TestSuiteCapHelper_Allocate(t *testing.T) {
-	raw := os.Getenv(suiteCapHelperEnv)
-	if raw == "" {
-		t.Skip("child process of TestRunSuite_MemoryCap")
-	}
-	mb, _ := strconv.Atoi(raw)
-	b := make([]byte, mb<<20)
-	for i := 0; i < len(b); i += 4096 {
-		b[i] = 1
-	}
-	time.Sleep(20 * time.Second)
-	_ = b[0]
-}
+// ratchet: test_removed TestSuiteCapHelper_Allocate: it was the 600 MB child of the cap test, which now reads a fake child's kill
 
 // TestRunSuite_MemoryCapEndsARunawayAsInconclusive is issue #1005 at the
-// suite boundary: a run that crosses its cap is ended, and what reaches the
-// gates is neither red (Passed) nor a timeout's wording — it is inconclusive,
-// reported as OOM-KILLED at the cap, while still carrying TimedOut so every
-// consumer that refuses to read a timeout as a failure reads it the same way.
+// suite boundary: a run the cap ended is neither red (Passed) nor a timeout's
+// wording — it is inconclusive, reported as OOM-KILLED at the cap, while still
+// carrying TimedOut so every consumer that refuses to read a timeout as a
+// failure reads it the same way.
+//
+// The child is a fake that reports the cap's kill. What ends a real process at
+// a cap is the enforcers' own subject (the lock package's monitor tests and
+// run's job-object tests); a real 600 MB allocation here only added the box's
+// memory headroom, its load and the speed of a kill to a test of how the
+// result is read, and failed whenever the box was busy.
 func TestRunSuite_MemoryCapEndsARunawayAsInconclusive(t *testing.T) {
+	prevWait, prevChild := waitForHeadroomFn, suiteChildFn
+	t.Cleanup(func() { waitForHeadroomFn, suiteChildFn = prevWait, prevChild })
+	waitForHeadroomFn = func(string, time.Duration) string { return "" }
 	defer SetMemCapForTest(MemCap{MB: 150, Why: "test"})()
-	runner := Runner{
-		Cmd:  os.Args[0],
-		Args: []string{"-test.run=^TestSuiteCapHelper_Allocate$"},
-		Env:  []string{suiteCapHelperEnv + "=600"},
+	var given MemCap
+	suiteChildFn = func(_ run.Spec, c MemCap) suiteChildEnd {
+		given = c
+		return suiteChildEnd{
+			err:    errors.New("exit status 1"),
+			capped: CapResult{Killed: true, Kills: 1, Cap: c, Mode: "watchdog"},
+		}
 	}
-	start := time.Now()
-	res := RunSuite(30*time.Second)(runner, t.TempDir())
+
+	res := RunSuite(30*time.Second)(Runner{Cmd: "go", Args: []string{"test", "./..."}}, t.TempDir())
+
+	if given.MB != 150 {
+		t.Fatalf("the child was held to %d MB, want the configured 150", given.MB)
+	}
+
 	if res.Inconclusive != "OOM-KILLED at 0.1 GB" {
 		t.Fatalf("Inconclusive = %q (Passed=%v TimedOut=%v Err=%q), want %q", res.Inconclusive, res.Passed, res.TimedOut, res.Err, "OOM-KILLED at 0.1 GB")
 	}
 	if res.Passed || !res.TimedOut {
 		t.Fatalf("Passed=%v TimedOut=%v, want a run that is neither red nor a pass but inconclusive", res.Passed, res.TimedOut)
 	}
-	if took := time.Since(start); took > 20*time.Second {
-		t.Fatalf("took %s to end a 600MB child under a 150MB cap", took)
+}
+
+// A run the cap did not end keeps its own verdict: the same fake child, with
+// no kill reported, must not read as inconclusive.
+func TestRunSuite_ARunTheCapDidNotEndIsNotInconclusive(t *testing.T) {
+	prevWait, prevChild := waitForHeadroomFn, suiteChildFn
+	t.Cleanup(func() { waitForHeadroomFn, suiteChildFn = prevWait, prevChild })
+	waitForHeadroomFn = func(string, time.Duration) string { return "" }
+	suiteChildFn = func(run.Spec, MemCap) suiteChildEnd {
+		return suiteChildEnd{capped: CapResult{Cap: MemCap{MB: 150, Why: "test"}, Mode: "watchdog"}}
+	}
+
+	res := RunSuite(30*time.Second)(Runner{Cmd: "go", Args: []string{"test", "./..."}}, t.TempDir())
+
+	if res.Inconclusive != "" || !res.Passed {
+		t.Fatalf("res = %+v, want a plain pass", res)
 	}
 }
 

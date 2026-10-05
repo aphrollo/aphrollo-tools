@@ -110,31 +110,6 @@ func TestLightRunCtx_CancelEndsTheChildAndItsGrandchild(t *testing.T) {
 	}
 }
 
-// A light child that times out takes its whole tree with it, MSYS
-// grandchildren included: on Windows walking the tree from the pid missed them
-// under load and left them running after the timeout.
-func TestLightRun_TimeoutEndsTheWholeTree(t *testing.T) {
-	for _, ch := range chains() {
-		t.Run(ch.name, func(t *testing.T) {
-			pidFile := filepath.Join(t.TempDir(), "pids")
-			spec := ch.spec(t, pidFile, false)
-			spec.Timeout = 10 * time.Second
-
-			err := LightRun(spec)
-
-			if !errors.Is(err, ErrTimeout) {
-				t.Fatalf("err = %v, want ErrTimeout", err)
-			}
-			pids := readPids(pidFile)
-			watch(t, pids)
-			if len(pids) < ch.pids {
-				t.Fatalf("the tree recorded %d pids before the timeout, want %d: it never came up", len(pids), ch.pids)
-			}
-			assertTreeGone(t, pids)
-		})
-	}
-}
-
 // A guard a box refuses says nothing about the child, and a light child is too
 // many and too short to announce it: it runs, with its timeout, and says
 // nothing.
@@ -175,25 +150,18 @@ func TestStartLight_AGuardThatCannotBeSetUpStillEndsTheChildAtItsTimeoutAndRepor
 	waitFor(t, "the child to be gone", func() bool { return !alive(pid) })
 }
 
-func TestHeavyRun_TimeoutEndsTheWholeTreeAndSaysTheChildGaveNoAnswer(t *testing.T) {
-	for _, ch := range chains() {
-		t.Run(ch.name, func(t *testing.T) {
-			pidFile := filepath.Join(t.TempDir(), "pids")
-			spec := ch.spec(t, pidFile, false)
-			spec.Timeout = 8 * time.Second
+// A heavy child that outruns its timeout is ended and the error says it gave
+// no answer, naming the timeout. The tree of grandchildren is ended by the same
+// path, which the cancel and Heavy_Timeout tests prove; the proc-tier test
+// repeats it over the long timeouts.
+func TestHeavyRun_TimeoutSaysTheChildGaveNoAnswer(t *testing.T) {
+	spec := helperSpec(t, "sleep")
+	spec.Timeout = 300 * time.Millisecond
 
-			err := HeavyRun(spec)
+	err := HeavyRun(spec)
 
-			pids := readPids(pidFile)
-			watch(t, pids)
-			if err == nil || !strings.Contains(err.Error(), "no answer within 8s") {
-				t.Fatalf("err = %v, want it to say the child gave no answer within 8s and was killed", err)
-			}
-			if len(pids) < ch.pids {
-				t.Fatalf("the tree recorded %d pids, want %d: it never came up", len(pids), ch.pids)
-			}
-			assertTreeGone(t, pids)
-		})
+	if err == nil || !strings.Contains(err.Error(), "no answer within 300ms") {
+		t.Fatalf("err = %v, want it to say the child gave no answer within 300ms and was killed", err)
 	}
 }
 

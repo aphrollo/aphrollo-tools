@@ -239,16 +239,16 @@ func TestRunCargoLocked_GoRaceRunsGoSideBySideOnABigBox(t *testing.T) {
 	}
 	defer release()
 
-	res, waited, acquired := runCargoLocked(
+	// The first holder is never released, so the second run is admitted only
+	// by the second key being free: a wait behind the first ends at the lock
+	// deadline with acquired false, whatever the box's load does to the clock.
+	res, _, acquired := runCargoLocked(
 		func(r Runner, root string) SuiteResult { return SuiteResult{Passed: true} },
 		Runner{Cmd: "go", Args: []string{"test", "-race", "-count=1", "-shuffle=on", "./..."}},
-		t.TempDir(), time.Second, 500*time.Millisecond, 0,
+		t.TempDir(), 10*time.Second, 500*time.Millisecond, 0,
 	)
 	if !acquired || !res.Passed {
 		t.Fatalf("the second race run was not admitted on a box with room for two: acquired=%v res=%+v", acquired, res)
-	}
-	if waited > 40*time.Millisecond {
-		t.Fatalf("the second race run waited %s behind the first on a box with room for two", waited)
 	}
 }
 

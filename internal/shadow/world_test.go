@@ -549,3 +549,47 @@ func TestFoldEdit_CarriesTheUnitsCoverAsItStoodBeforeTheEdit(t *testing.T) {
 		t.Error("a code edit of an uncovered unit was folded as covered")
 	}
 }
+
+// A fact the hook has stopped waiting for is dropped, never written later: the
+// goroutine that builds it outlives the hook, and what it wrote then would land
+// in whichever store is current when it finishes (a later test's, or a later
+// session's).
+func TestWindow_RefusesAFactWrittenAfterTheHookClosedIt(t *testing.T) {
+	got := capture(t)
+	w := &window{}
+	if !w.write(core.Event{Kind: core.KindShadow}) {
+		t.Fatal("an open window refused a fact")
+	}
+	w.close()
+	if w.write(core.Event{Kind: core.KindShadow}) || len(*got) != 1 {
+		t.Errorf("a closed window took a late fact: %d events", len(*got))
+	}
+}
+
+// The same through the hook's own entry: the facts are built after the budget is
+// spent, and nothing of them is written. Writing is a refusal the test cannot
+// time, so it waits a bounded while for a write that must not come; a failure
+// is never a false alarm, only a late catch.
+func TestRecordFacts_AFactBuiltAfterTheBudgetIsNotWritten(t *testing.T) {
+	oldBudget := Budget
+	t.Cleanup(func() { Budget = oldBudget })
+	Budget = 20 * time.Millisecond
+	wrote := make(chan struct{}, 1)
+	oldAppend := appendEvent
+	appendEvent = func(core.Event) { wrote <- struct{}{} }
+	t.Cleanup(func() { appendEvent = oldAppend })
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+
+	RecordFacts(Source{Root: t.TempDir()}, func() []Fact {
+		<-release
+		return []Fact{Discard(Block)}
+	})
+	release <- struct{}{}
+
+	select {
+	case <-wrote:
+		t.Fatal("a fact built after the hook moved on was written")
+	case <-time.After(300 * time.Millisecond):
+	}
+}

@@ -378,7 +378,9 @@ func RecordFactsAnd(s Source, facts func() []Fact, steps []Step) {
 				fs.Root = f.Root
 			}
 			lane := core.LaneOf(fs.Root)
-			appendEvent(Judge(f, lane).event(fs, lane))
+			if !w.write(Judge(f, lane).event(fs, lane)) {
+				return
+			}
 		}
 		runSteps(ctx, w, steps)
 	})

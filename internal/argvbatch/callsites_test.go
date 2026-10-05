@@ -55,6 +55,7 @@ var spreadCallSites = map[string]string{
 	"internal/cli/probe_discard.go:probeGit":                         "bounded: fixed diff arguments and one path",
 	"internal/cli/probe_discard_backup.go:probeWriteBackup":          "batched: Run splits the tracked-path list (#960)",
 	"internal/dev/dev.go:runArgv":                                    "bounded: a fixed unit list from the dev tier declaration",
+	"internal/gitiso/template.go:BuildRepo":                          "bounded: fixed git arguments that build a test template repository",
 	"internal/gitiso/verify.go:Probe":                                "bounded: fixed git arguments of the isolation probe",
 	"internal/gitiso/verify.go:makeVictim":                           "bounded: fixed git arguments that build the probe's repository",
 	"internal/proc/killtree_windows.go:KillTree":                     "bounded: one pid",

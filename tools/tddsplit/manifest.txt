@@ -807,6 +807,7 @@ mutationhold_test.go                               mutation
 nightlyflakehunt_workflow_pin_test.go              tdd
 nightlyfuzz_workflow_pin_test.go                   tdd
 nightlymutants_base_pin_test.go                    tdd
+nightlyproc_workflow_pin_test.go                   tdd
 nowindow_windows_test.go                           postedit
 npmbin.go                                          suite
 npmbin_test.go                                     suite

@@ -78,6 +78,7 @@ func ledgerRows(t *testing.T, root string) []ledgerRow {
 
 func TestBashEdit_GetsWhatAnEditGets(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	noInlineLint(t)
 	files := []struct{ rel, content string }{{"widget.go", parityWidget}, {"widget_test.go", parityWidgetTest}}
 
@@ -194,6 +195,7 @@ pattern = "func  Size"
 // still has its files recorded.
 func TestPostBash_RecordsEveryChangedFileInTheLedger(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	noInlineLint(t)
 	root := lawRepo(t)
 	cmd := "./regen.sh"
@@ -249,6 +251,7 @@ func TestPostBash_RecordsTheFilesOfARootItDidNotRun(t *testing.T) {
 // A file the command deleted is no edit of any ledger and nothing to format.
 func TestPostBash_ADeletedFileIsNoEdit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	noInlineLint(t)
 	root := lawRepo(t)
 	cmd := "rm widget.go"
@@ -299,6 +302,7 @@ func TestPostBash_SmellsAreJudgedOverTheLinesTheCommandAdded(t *testing.T) {
 // it, as a run per Edit would have.
 func TestPostBash_RunsEveryPackageTheCommandChanged(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
 	noInlineLint(t)
 	root := lawRepo(t)
 	cmd := "./regen.sh"

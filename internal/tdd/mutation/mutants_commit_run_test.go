@@ -301,20 +301,25 @@ func TestRunCommitMutants_AFailureWithoutTheMutantIsNotAKill(t *testing.T) {
 }
 
 // A run still going when the wall-clock ends is cut and NOT MEASURED, never a
-// survivor.
+// survivor. The wall-clock's end is the caller's context ending while the
+// run is in flight, which the fake run does itself: the budget is an hour, so
+// no load on the box can spend it before the run starts.
 func TestRunCommitMutants_ARunPastTheBudgetIsNotMeasured(t *testing.T) {
 	root := commitRoot(t)
+	ctx, endOfClock := context.WithCancel(context.Background())
+	defer endOfClock()
 	prev := resolveExecFn
 	resolveExecFn = func(ctx context.Context, _ string, _ []string, _ []string, _ io.Writer) (int, error) {
-		select {
-		case <-ctx.Done():
-			return -1, ctx.Err()
-		case <-time.After(30 * time.Second):
-			return 0, nil
-		}
+		endOfClock()
+		<-ctx.Done()
+		return -1, ctx.Err()
 	}
 	t.Cleanup(func() { resolveExecFn = prev })
-	got := runCommitOnce(t, root, planFor(nil), kindMutant, 2*time.Second) // the box may spend a fair part of it before the run starts
+	runs := runCommitMutants(ctx, root, MutantsConfig{}, planFor(nil), []commitMutant{kindMutant}, 1, time.Hour, io.Discard)
+	if len(runs) != 1 {
+		t.Fatalf("runs = %d, want 1", len(runs))
+	}
+	got := runs[0]
 	if got.NotMeasured == "" || got.Outcome.Status == "missed" {
 		t.Fatalf("outcome = %q, not measured %q, want NOT MEASURED", got.Outcome.Status, got.NotMeasured)
 	}
