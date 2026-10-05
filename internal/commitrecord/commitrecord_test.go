@@ -66,3 +66,26 @@ func TestRecord_OutsideARepositoryOrWithoutStateFailsOpen(t *testing.T) {
 		t.Fatalf("recorded = %v, want none outside a repository", got)
 	}
 }
+
+func TestRecordSHAs_KeepsExactlyTheShasGivenAcrossCalls(t *testing.T) {
+	dir := repoWithState(t)
+	run(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
+	head := run(t, dir, "rev-parse", "HEAD")
+	other := strings.Repeat("c", 40)
+
+	RecordSHAs(dir, nil)
+	if got := Recorded(dir); len(got) != 0 {
+		t.Fatalf("recorded %v for no shas, want nothing", got)
+	}
+	RecordSHAs(dir, []string{head})
+	RecordSHAs(dir, []string{other, strings.Repeat("d", 40)})
+
+	got := Recorded(dir)
+	if len(got) != 3 || !got[head] || !got[other] {
+		t.Errorf("recorded = %v, want the three shas given in two calls", got)
+	}
+	RecordSHAs(t.TempDir(), []string{"eee"})
+	if Recorded(dir)["eee"] {
+		t.Error("a sha given for a directory outside any repository reached this repository's record")
+	}
+}
