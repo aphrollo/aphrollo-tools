@@ -1,10 +1,13 @@
 package escape
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"io"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // A runner whose tests changed the real git state records an escape naming the
@@ -107,5 +110,29 @@ func TestGitworldChangedParts_FallsBackWhenNoPartIsNamed(t *testing.T) {
 	}
 	if got := gitworldChangedParts("the branches changed:\n+a\nthe tip of main changed:\n-b", "fallback"); got != "the branches,the tip of main" {
 		t.Errorf("parts = %q, want both labels sorted", got)
+	}
+}
+
+// A class opened under the key the escape was filed by before the repository
+// key still stands for itself: the first sighting after an upgrade is not a
+// second issue.
+func TestNoteGitWorldEscape_AClassOpenedUnderTheLegacyKeyIsNotOpenedAgain(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	root := makeGoRepo(t)
+	evidence := "the branches changed:\n+refs/heads/feat/old"
+	sum := sha256.Sum256([]byte(normalizeRepoSpelling(root) + "\ngitworld:test-map build\nthe branches changed:"))
+	legacy := EscapeRecord{
+		ID: "old", Kind: EscapeKind, At: time.Now().UTC(), Issue: "https://example.test/1", Number: 1,
+		Fingerprint: hex.EncodeToString(sum[:8]),
+	}
+	if err := appendEscape(legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	NoteGitWorldEscape(root, "test-map build", evidence, io.Discard)
+
+	if got := len(loadEscapes()); got != 1 {
+		t.Errorf("recorded %d escapes, want the one already open", got)
 	}
 }
