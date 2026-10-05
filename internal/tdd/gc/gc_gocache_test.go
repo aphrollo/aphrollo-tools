@@ -187,3 +187,22 @@ func TestTrimGoCacheOf_ReadsTheCachePathFromGoEnvOnce(t *testing.T) {
 		t.Error("file survived")
 	}
 }
+
+func TestGoEnvGoCache_NamesTheDirectoryGoEnvReports(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("GOCACHE", dir)
+
+	got := goEnvGoCache()
+
+	if filepath.Clean(got) != filepath.Clean(dir) {
+		t.Errorf("goEnvGoCache() = %q, want %q", got, dir)
+	}
+}
+
+func TestGoEnvGoCache_ADisabledCacheIsNoDirectory(t *testing.T) {
+	t.Setenv("GOCACHE", "off")
+
+	if got := goEnvGoCache(); got != "" {
+		t.Errorf("goEnvGoCache() = %q with the cache off, want none", got)
+	}
+}
