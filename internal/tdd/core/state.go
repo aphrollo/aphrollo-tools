@@ -111,6 +111,15 @@ func claudeConfigDir() string {
 	return filepath.Join(home, ".claude")
 }
 
+// The checkouts of HEAD the gate registers under StateDir while it baselines a
+// dependency install: the directory they live in and the prefix of each name.
+// The one spelling, read by the creator and by the canary that must not take
+// them for a leak.
+const (
+	HeadWorktreeDir    = "head-wt"
+	HeadWorktreePrefix = ".aphrollo-head-"
+)
+
 // StateDir is where the gate keeps its per-session state, gate.log and its
 // caches. It honours CLAUDE_CONFIG_DIR (the same location the Node hooks used)
 // and falls back to ~/.claude. Exported so a sibling package (the ratchet

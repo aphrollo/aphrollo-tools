@@ -487,6 +487,7 @@ gitspawn_test.go                                    gitx
 gitstaged_batch_unix_test.go                       gitx
 gitqueue_test.go                                   gitx
 gitworld.go                                        escape
+gitworld_key_test.go                               escape
 gitworld_test.go                                   escape
 go_race_scope.go                                   suite
 go_race_scope_test.go                              suite
@@ -634,6 +635,7 @@ mutants_budget_test.go                             mutation
 mutants_buildjobs.go                               mutation
 mutants_buildjobs_test.go                          mutation
 mutants_canary.go                                  mutation
+mutants_canary_gitworld_test.go                    mutation
 mutants_canary_head_test.go                        mutation
 mutants_canary_main_test.go                        mutation
 mutants_canary_origin_test.go                      mutation

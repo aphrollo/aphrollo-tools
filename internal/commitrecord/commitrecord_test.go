@@ -66,3 +66,66 @@ func TestRecord_OutsideARepositoryOrWithoutStateFailsOpen(t *testing.T) {
 		t.Fatalf("recorded = %v, want none outside a repository", got)
 	}
 }
+
+func TestRecordSHAs_KeepsExactlyTheShasGivenAcrossCalls(t *testing.T) {
+	dir := repoWithState(t)
+	run(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
+	head := run(t, dir, "rev-parse", "HEAD")
+	other := strings.Repeat("c", 40)
+
+	RecordSHAs(dir, nil)
+	if got := Recorded(dir); len(got) != 0 {
+		t.Fatalf("recorded %v for no shas, want nothing", got)
+	}
+	RecordSHAs(dir, []string{head})
+	RecordSHAs(dir, []string{other, strings.Repeat("d", 40)})
+
+	got := Recorded(dir)
+	if len(got) != 3 || !got[head] || !got[other] {
+		t.Errorf("recorded = %v, want the three shas given in two calls", got)
+	}
+	RecordSHAs(t.TempDir(), []string{"eee"})
+	if Recorded(dir)["eee"] {
+		t.Error("a sha given for a directory outside any repository reached this repository's record")
+	}
+}
+
+func TestRecordedSince_IsWhatWasRecordedAfterTheMark(t *testing.T) {
+	dir := repoWithState(t)
+	run(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
+	a, b, c := strings.Repeat("1", 40), strings.Repeat("2", 40), strings.Repeat("3", 40)
+	if got := Mark(dir); got != 0 {
+		t.Fatalf("mark of an empty record = %d, want 0", got)
+	}
+	RecordSHAs(dir, []string{a, b})
+	mark := Mark(dir)
+	RecordSHAs(dir, []string{c})
+
+	if mark != 2 {
+		t.Errorf("mark = %d, want 2", mark)
+	}
+	got := RecordedSince(dir, mark)
+	if len(got) != 1 || !got[c] {
+		t.Errorf("recorded since the mark = %v, want only the third", got)
+	}
+	if all := RecordedSince(dir, 0); len(all) != 3 {
+		t.Errorf("recorded since 0 = %v, want all three", all)
+	}
+}
+
+func TestRecordedSince_TheEdgesOfTheMark(t *testing.T) {
+	dir := repoWithState(t)
+	run(t, dir, "commit", "-q", "--allow-empty", "-m", "one")
+	a, b := strings.Repeat("1", 40), strings.Repeat("2", 40)
+	RecordSHAs(dir, []string{a, b})
+
+	if got := RecordedSince(dir, 2); len(got) != 0 {
+		t.Errorf("since the mark at the end = %v, want nothing", got)
+	}
+	if got := RecordedSince(dir, 1); len(got) != 1 || !got[b] {
+		t.Errorf("since 1 = %v, want only the second", got)
+	}
+	if got := RecordedSince(dir, -5); len(got) != 2 {
+		t.Errorf("since a negative mark = %v, want everything", got)
+	}
+}

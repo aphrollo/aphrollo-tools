@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -44,8 +45,29 @@ const escapeDedupeWindow = 7 * 24 * time.Hour
 // constant: every mechanical rejection begins "TDD mechanical: tests failing
 // — fix before committing.", so fingerprinting the first line alone makes one
 // record stand for every unrelated failure in the window.
+//
+// The repo is the repository, not the checkout the miss was seen from: every
+// lane of one repository shares a git directory, and a miss seen from two lanes
+// is one miss. A gitworld escape's diagnostic is the parts that changed, never
+// the refs and paths inside them, which differ for every lane.
 func escapeFingerprint(stage string, o EscapeOptions) string {
-	sum := sha256.Sum256([]byte(normalizeRepoSpelling(o.Repo) + "\n" + stage + "\n" + escapeDiagnostic(o)))
+	diagnostic := escapeDiagnostic(o)
+	if strings.HasPrefix(stage, "gitworld:") {
+		diagnostic = gitworldChangedParts(o.Evidence, diagnostic)
+	}
+	return fingerprintOf(gitworldRepoKey(o.Repo), stage, diagnostic)
+}
+
+// legacyEscapeFingerprint is the key an escape was filed under before the repo
+// was the shared git directory and a gitworld diagnostic the changed parts: the
+// checkout it was seen from and the evidence's own line. A record still open
+// under it stands for its class.
+func legacyEscapeFingerprint(stage string, o EscapeOptions) string {
+	return fingerprintOf(normalizeRepoSpelling(o.Repo), stage, escapeDiagnostic(o))
+}
+
+func fingerprintOf(repo, stage, diagnostic string) string {
+	sum := sha256.Sum256([]byte(repo + "\n" + stage + "\n" + diagnostic))
 	return hex.EncodeToString(sum[:8])
 }
 
@@ -107,7 +129,7 @@ func failingListLine(evidence string) string {
 // from one that is broken.
 func recordEscapeOnce(stage string, o EscapeOptions, w io.Writer) (EscapeRecord, bool) {
 	o.Fingerprint = escapeFingerprint(stage, o)
-	if seen, ok := recentEscape(o.Fingerprint); ok {
+	if seen, ok := recentEscape(o.Fingerprint, legacyEscapeFingerprint(stage, o)); ok {
 		if seen.Issue != "" {
 			fmt.Fprintf(w, "gate escape: %s already open for this class (%s), recorded %s — not opening a second\n",
 				seen.Issue, o.Fingerprint, seen.At.Format(time.RFC3339))
@@ -132,13 +154,10 @@ func recordEscapeOnce(stage string, o EscapeOptions, w io.Writer) (EscapeRecord,
 }
 
 // recentEscape finds an open record of the same class inside the window.
-func recentEscape(fingerprint string) (EscapeRecord, bool) {
-	if fingerprint == "" {
-		return EscapeRecord{}, false
-	}
+func recentEscape(fingerprints ...string) (EscapeRecord, bool) {
 	cutoff := time.Now().UTC().Add(-escapeDedupeWindow)
 	for _, r := range loadEscapes() {
-		if r.Closed || r.Fingerprint != fingerprint {
+		if r.Closed || r.Fingerprint == "" || !slices.Contains(fingerprints, r.Fingerprint) {
 			continue
 		}
 		if r.At.After(cutoff) {

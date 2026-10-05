@@ -42,6 +42,9 @@ Subcommands:
                     did not make; in a repo declaring prune-lanes-on-merge =
                     true, sweeps the lanes it landed (guarded, never the
                     worktree the hook fired in). Otherwise inert. Never blocks
+  postrewrite       Git post-rewrite hook: records the new commits a rebase or an
+                    amend wrote (stdin: "<old> <new>" lines) in the canary's
+                    record of commits made through the real path. Never blocks
   mutants           run measures THIS checkout's lane against its base in the
                     FOREGROUND and is the check — exit 1 on an unaccepted
                     survivor, a mutant that stayed unmeasured, or a run that
@@ -287,6 +290,15 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return 0
 		}
 		return runPostCommit(stdout, stderr)
+	}
+	if args[0] == "postrewrite" {
+		// The post-rewrite git hook: records the new commits a rebase or an
+		// amend wrote. Reads one "<old> <new> [extra]" line per commit.
+		if gateHelpRequested(args[1:]) {
+			fmt.Fprint(stdout, gateUsage)
+			return 0
+		}
+		return runPostRewrite(stdin)
 	}
 	if args[0] == "postmerge" {
 		// The post-merge git hook: the opt-in lane sweep, in the repo the

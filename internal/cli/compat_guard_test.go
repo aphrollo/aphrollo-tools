@@ -142,7 +142,7 @@ func TestCompatGuard_EveryGitHookAndEveryClaudeHookStandsDownInATooOldRepo(t *te
 	repo := requiringRepo(t, ">=99.0")
 	t.Chdir(repo)
 	payload := `{"tool_name":"Bash","cwd":` + jsonString(t, repo) + `,"tool_input":{"command":"ls"}}`
-	for _, sub := range []string{"sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend", "precommit", "premerge", "premergecommit", "prepush", "postcommit", "postmerge"} {
+	for _, sub := range []string{"sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend", "precommit", "premerge", "premergecommit", "prepush", "postcommit", "postmerge", "postrewrite"} {
 		for _, name := range []string{"gate", "tdd"} {
 			code, _, _ := runCLI([]string{name, sub}, payload)
 			if code != 0 {
@@ -333,6 +333,7 @@ func TestCompatClassOf_SortsEveryVerbIntoOpenHookOrRefuse(t *testing.T) {
 		{[]string{"gate", "commitmsg", "msg"}, hook},
 		{[]string{"gate", "postcommit"}, hook},
 		{[]string{"gate", "postmerge"}, hook},
+		{[]string{"gate", "postrewrite"}, hook},
 		{[]string{"tdd", "precommit"}, hook},
 
 		{[]string{"ratchet"}, refuse},

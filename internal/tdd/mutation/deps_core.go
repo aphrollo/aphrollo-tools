@@ -8,6 +8,8 @@ import (
 	time "time"
 )
 
+const HeadWorktreePrefix = core.HeadWorktreePrefix
+
 type GateResult = core.GateResult
 
 type Runner = core.Runner

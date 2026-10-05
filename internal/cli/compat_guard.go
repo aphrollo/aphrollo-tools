@@ -53,7 +53,7 @@ var (
 		"cargo": true, "git": true, "lint": true, "gc": true,
 		"issue": true, "feedback": true,
 	}
-	compatGitHooks    = []string{"precommit", "premerge", "premergecommit", "prepush", "commitmsg", "postcommit", "postmerge"}
+	compatGitHooks    = []string{"precommit", "premerge", "premergecommit", "prepush", "commitmsg", "postcommit", "postmerge", "postrewrite"}
 	compatClaudeHooks = []string{"sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend"}
 )
 

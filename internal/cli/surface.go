@@ -59,6 +59,7 @@ var gateVerbTable = []Verb{
 	{Name: "commitmsg"},
 	{Name: "postcommit"},
 	{Name: "postmerge"},
+	{Name: "postrewrite"},
 	{Name: "doctor"},
 	{Name: "statusline"},
 	{Name: "stats"},

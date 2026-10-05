@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/commitrecord"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -61,6 +62,11 @@ func runPostCommit(stdout, stderr io.Writer) int {
 // fires in every repo on the box and after every `git pull`, and the sweep
 // removes worktrees and deletes branches.
 func runPostMerge(stdout, stderr io.Writer) int {
+	// A merge commit fires this hook and never post-commit: the canary's record
+	// of commits made through the real path needs it. Fails open.
+	if root := tdd.RepoRoot("."); root != "" {
+		commitrecord.Record(root)
+	}
 	workspace.PostMergeRecord(".", stderr)
 	tdd.PostMergeSweep(".", stdout, stderr)
 	return 0
@@ -402,3 +408,31 @@ Exit codes for prove:
      which OTHER packages' tests can reach the mutated one could not be
      established: inconclusive, and never a survivor
 `
+
+// runPostRewrite is the `gate postrewrite` git hook. A rebase or an amend
+// writes new commits and fires post-rewrite, not post-commit: each "<old> <new>
+// [extra]" line on stdin names one, and its new sha is recorded as a commit made
+// through the real path. Fails open: a line it cannot read is skipped.
+func runPostRewrite(stdin io.Reader) int {
+	root := tdd.RepoRoot(".")
+	if root == "" {
+		return 0
+	}
+	data, _ := io.ReadAll(stdin)
+	var shas []string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if f := strings.Fields(line); len(f) >= 2 && isSHA(f[1]) {
+			shas = append(shas, f[1])
+		}
+	}
+	commitrecord.RecordSHAs(root, shas)
+	return 0
+}
+
+// isSHA reports whether s is a full hex object name, 40 or 64 digits.
+func isSHA(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	return strings.Trim(s, "0123456789abcdef") == ""
+}

@@ -78,3 +78,64 @@ func Recorded(dir string) map[string]bool {
 	}
 	return set
 }
+
+// RecordSHAs appends each of shas, as given, to dir's repository's record: the
+// new commits a rebase or an amend wrote, which fire post-rewrite and neither
+// post-commit nor post-merge. Best-effort, like Record.
+func RecordSHAs(dir string, shas []string) {
+	path, _ := fileFor(dir)
+	if path == "" || len(shas) == 0 {
+		return
+	}
+	if os.MkdirAll(filepath.Dir(path), 0o755) != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	_, _ = f.WriteString(strings.Join(shas, "\n") + "\n")
+	_ = f.Close()
+}
+
+// Mark is how many commits dir's repository has recorded so far: a point in the
+// record that RecordedSince can be asked about later.
+func Mark(dir string) int {
+	return len(recordedLines(dir))
+}
+
+// RecordedSince is the commits recorded after mark, in the order written: what
+// a caller that took a Mark earlier can tell was made since.
+func RecordedSince(dir string, mark int) map[string]bool {
+	set := map[string]bool{}
+	lines := recordedLines(dir)
+	if mark < 0 {
+		mark = 0
+	}
+	if mark >= len(lines) {
+		return set
+	}
+	for _, sha := range lines[mark:] {
+		set[sha] = true
+	}
+	return set
+}
+
+// recordedLines is the record's entries in the order written.
+func recordedLines(dir string) []string {
+	path, _ := fileFor(dir)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var lines []string
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			lines = append(lines, line)
+		}
+	}
+	return lines
+}

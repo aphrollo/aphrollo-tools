@@ -789,14 +789,35 @@ subjects behind it, the checked-out commit, the operator's global git config,
 the registered worktrees that are neither a lane nor a gate checkout, and what
 each worktree present at both ends has checked out. A difference refuses the
 run's result with the change named and records an escape. Ordinary work on a
-busy box is not a difference: a lane made or pruned (a direct child of
-`<parent of the primary>/.worktrees/<repo>`, with its `lane/<name>` branch), the
-gate's own `gate-trunkpreview-*`, `gate-prmerge-*`, `gate-failfirst-*` and
-`failfirst-wt/` checkouts, and a merge landing on `main` (the new reflog entries
-on top are all `merge …` or `pull…`) come and go through a run. A registration
-anywhere else, the run's temp areas under `.worktrees/<repo>/gotmp` and
-`.mutants` included, a branch that is not `lane/*`, and a commit or a bare move
-of `main` are leaks.
+busy box is not a difference:
+
+- A lane made or pruned: a direct child of
+  `<parent of the primary>/.worktrees/<repo>`, with its branch. A branch is a
+  lane's, whatever its name (`feat/x`, `fix/y`, `lane/x`), when a non-gate
+  worktree has it checked out at either reading; a branch checked out nowhere
+  is a leak.
+- The gate's own checkouts: `gate-trunkpreview-*`, `gate-prmerge-*`,
+  `gate-failfirst-*`, `failfirst-wt/` and the `.aphrollo-head-*` checkouts
+  under the gate state's `head-wt` directory (one constant, read by the commit
+  gate that creates them and by the canary).
+- A merge landing on `main` (the new reflog entries on top are all `merge …`
+  or `pull…`).
+- The checked-out commit moving by the owner: forward onto commits on
+  `origin/<trunk>` (a pull or a fast-forward); over commits recorded by the
+  post-commit hook or, for a merge, the post-merge hook; or by a rebase or an
+  amend, whose new commits the post-rewrite hook (`gate postrewrite`, in the
+  global and per-repo git gate) recorded after the first reading. The record
+  is per repository, so for a move that is no descendant only commits recorded
+  after the first reading count: a reset or checkout onto a sibling lane's tip
+  is a leak, and so is a move back onto a published commit.
+
+A registration anywhere else, the run's temp areas under
+`.worktrees/<repo>/gotmp` and `.mutants` included, a branch no worktree has
+checked out, and a commit or a bare move of `main` are leaks.
+
+An escape recorded for a leak is one issue per class: its fingerprint is the
+repository (its shared git directory), the stage and the set of changed part
+labels, never the refs or paths inside them.
 
 **The verdict.** A survivor no `mutation-accept` entry admits refuses the
 commit, named as the pre-merge report names it, with the counts and the

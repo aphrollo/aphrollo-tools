@@ -36,6 +36,12 @@ type gitWorldPart struct {
 	// Repo is, for the checked-out commit, the checkout it was read in, so the
 	// commits a move passed over can be looked up; "" for every other part.
 	Repo string
+	// Mark is, for the checked-out commit, how many commits the record held when
+	// it was read: a rewrite is vouched for only by records written after it.
+	Mark int
+	// Excused is, for the branches, the ones a worktree had checked out when they
+	// were read, one per line: a lane's branch whatever its name. "" otherwise.
+	Excused string
 }
 
 // gitWorld is everything the canary watches, in a fixed order.
@@ -48,7 +54,7 @@ type gitWorld []gitWorldPart
 // registrations that are neither a lane nor a gate path (a lane is made and
 // pruned, and the gate registers checkouts of its own, all through the run),
 // the checked-out commit of the checkout at root, the tip of main with the
-// reflog subjects behind it, the set of branch names other than lane/* (not
+// reflog subjects behind it, the set of branch names other than lane/* and those a worktree has checked out (not
 // their tips: a sibling lane's commit moves its own branch), and the
 // operator's global git config. Outside a repository only the global config is
 // read.
@@ -67,8 +73,9 @@ func snapshotGitWorld(root string) gitWorld {
 		heads = keepWorktrees(heads, func(path string) bool { return !isGateWorktree(path) })
 		w = append(w, gitWorldPart{Label: "the worktree registrations", Present: true, Text: registrations})
 		w = append(w, gitWorldPart{Label: worktreeHeadsLabel, Present: true, Text: heads})
-		w = append(w, gitWorldPart{Label: "the branches", Present: true, Text: withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads"))})
-		w = append(w, gitWorldPart{Label: checkedOutLabel, Present: true, Text: checkedOutSHA(lane), Repo: lane})
+		w = append(w, gitWorldPart{Label: branchesLabel, Present: true, Text: withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads")), Excused: worktreeBranches(heads)})
+		mark := commitrecord.Mark(lane)
+		w = append(w, gitWorldPart{Label: checkedOutLabel, Present: true, Text: checkedOutSHA(lane), Repo: lane, Mark: mark})
 		trunk := localTrunk(lane)
 		tip, log := "", ""
 		if trunk != "" {
@@ -130,10 +137,11 @@ const (
 	worktreeHeadsLabel = "the worktree HEADs"
 	tipOfMainLabel     = "the tip of main"
 	checkedOutLabel    = "the checked-out commit"
+	branchesLabel      = "the branches"
 )
 
 // ownerCommitted reports whether the checked-out commit moved from was to now
-// only by commits made through the real commit path: now descends from was,
+// only by commits made through the real commit path: now is, or rewrites, a descendant of was,
 // and every commit on now's first-parent line above was has a record written by
 // the post-commit hook (commitrecord). A commit a test process leaked never ran
 // that hook, so it has none, whatever identity it committed under; a reset, a
@@ -146,15 +154,45 @@ func ownerCommitted(was, now gitWorldPart) bool {
 	if was.Repo == "" || was.Text == "" || now.Text == "" || was.Text == now.Text {
 		return false
 	}
-	if _, err := gitx.Git(now.Repo, "merge-base", "--is-ancestor", was.Text, now.Text); err != nil {
+	published := localTrunk(now.Repo)
+	if onOrigin(now.Repo, now.Text, published) && isAncestor(now.Repo, was.Text, now.Text) {
+		// A move forward onto a commit somebody pushed (a pull or a fast-forward) is
+		// the owner's: a test process cannot have made it. A move back or sideways
+		// onto one is a reset and goes through the walk below.
+		return true
+	}
+	// A move to a descendant walks up from was; a rebase or an amend moves to a
+	// commit that is no descendant, and walks up from where the two histories
+	// part, so the commits it wrote must carry a record (post-rewrite) as well.
+	base := strings.TrimSpace(gitOut(now.Repo, "merge-base", was.Text, now.Text))
+	if base == "" {
 		return false
 	}
-	between := strings.Fields(gitOut(now.Repo, "rev-list", "--first-parent", was.Text+".."+now.Text))
+	between := strings.Fields(gitOut(now.Repo, "rev-list", "--first-parent", base+".."+now.Text))
 	if len(between) == 0 {
 		return false
 	}
+	// The record is per repository, so a sibling lane's commits are on it: a move
+	// that is no descendant (a rebase or an amend) is vouched for only by what was
+	// recorded after was was read, which is where post-rewrite writes.
 	recorded := commitrecord.Recorded(now.Repo)
-	return !slices.ContainsFunc(between, func(sha string) bool { return !recorded[sha] })
+	if !isAncestor(now.Repo, was.Text, now.Text) {
+		recorded = commitrecord.RecordedSince(now.Repo, was.Mark)
+	}
+	return !slices.ContainsFunc(between, func(sha string) bool {
+		return !recorded[sha] && !onOrigin(now.Repo, sha, published)
+	})
+}
+
+// onOrigin reports whether sha is on origin's copy of trunk: a commit somebody
+// pushed, which a pull or a fast-forward brings in without a hook of this box
+// recording it, and which no test process of a run can have made.
+func onOrigin(repo, sha, trunk string) bool {
+	if trunk == "" {
+		return false
+	}
+	_, err := gitx.Git(repo, "merge-base", "--is-ancestor", sha, "refs/remotes/origin/"+trunk)
+	return err == nil
 }
 
 // withoutLaneBranches is a list of branch refs, one per line, without the
@@ -164,6 +202,36 @@ func withoutLaneBranches(refs string) string {
 	for ref := range strings.SplitSeq(refs, "\n") {
 		if !strings.HasPrefix(ref, "refs/heads/lane/") {
 			kept = append(kept, ref)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+// worktreeBranches is the branch refs the lines of a worktree-HEADs text have
+// checked out, one per line: a branch some worktree stands on is a lane's.
+func worktreeBranches(heads string) string {
+	var refs []string
+	for line := range strings.SplitSeq(heads, "\n") {
+		if _, ref, ok := strings.Cut(line, " -> "); ok && strings.HasPrefix(ref, "refs/heads/") {
+			refs = append(refs, ref)
+		}
+	}
+	return strings.Join(refs, "\n")
+}
+
+// withoutExcused is text without the lines either excused list names: a branch
+// a worktree stood on at either reading is a lane's, made or pruned with it.
+func withoutExcused(text string, excused ...string) string {
+	skip := map[string]bool{}
+	for _, list := range excused {
+		for ref := range lineSet(list) {
+			skip[ref] = true
+		}
+	}
+	var kept []string
+	for line := range strings.SplitSeq(text, "\n") {
+		if !skip[line] {
+			kept = append(kept, line)
 		}
 	}
 	return strings.Join(kept, "\n")
@@ -293,7 +361,7 @@ func worktreeLaneDir(lane string) string {
 // checkout.
 func isGateWorktree(path string) bool {
 	name := filepath.Base(path)
-	for _, prefix := range []string{"gate-trunkpreview-", "gate-prmerge-", "gate-failfirst-"} {
+	for _, prefix := range []string{"gate-trunkpreview-", "gate-prmerge-", "gate-failfirst-", HeadWorktreePrefix} {
 		if strings.HasPrefix(name, prefix) {
 			return true
 		}
@@ -378,6 +446,9 @@ func (w gitWorld) changesTo(after gitWorld) []string {
 		now := after[i]
 		if was.Label == worktreeHeadsLabel {
 			was.Text, now.Text = sharedWorktreeHeads(was.Text, now.Text)
+		}
+		if was.Label == branchesLabel {
+			was.Text, now.Text = withoutExcused(was.Text, was.Excused, now.Excused), withoutExcused(now.Text, was.Excused, now.Excused)
 		}
 		if was.Label == tipOfMainLabel && !mainMoveCounts(was, now) {
 			continue
@@ -499,4 +570,10 @@ func gitWorldRefusal(runner, root string, changes []string) string {
 // never assumed: "" when it cannot be told.
 func localTrunk(lane string) string {
 	return strings.TrimPrefix(TrunkBranch(lane), "origin/")
+}
+
+// isAncestor reports whether a is b or an ancestor of b.
+func isAncestor(repo, a, b string) bool {
+	_, err := gitx.Git(repo, "merge-base", "--is-ancestor", a, b)
+	return err == nil
 }
