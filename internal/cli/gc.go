@@ -48,6 +48,9 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo gate gc: %v\n", err)
 		return 2
 	}
+	if cacheSettings.Warning != "" {
+		fmt.Fprintf(stderr, "aphrollo gate gc: warning: %s\n", cacheSettings.Warning)
+	}
 
 	repos := []string{*repo}
 	if *known {

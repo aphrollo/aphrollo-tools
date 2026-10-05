@@ -331,21 +331,28 @@ func TestGoCacheTrim_NeverUsesAFileFromTheLastTwoHoursWhateverAgeIsAsked(t *test
 	}
 }
 
-func TestReadGoCacheSettings_AnAgeUnderTwoHoursIsRefusedNamingTheKey(t *testing.T) {
+func TestReadGoCacheSettings_AnAgeUnderTwoHoursIsClampedWithAWarningNamingTheKey(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "aphrollo.toml"), []byte("[aphrollo]\ngocache-age = \"90m\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	for _, bad := range []string{"90m", "soon"} {
+		if err := os.WriteFile(filepath.Join(root, "aphrollo.toml"), []byte("[aphrollo]\ngocache-age = \""+bad+"\"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 
-	_, err := ReadGoCacheSettings(root)
+		got, err := ReadGoCacheSettings(root)
 
-	if err == nil || !strings.Contains(err.Error(), "gocache-age") || !strings.Contains(err.Error(), "2h") {
-		t.Errorf("err = %v, want the key and the 2h minimum named", err)
+		if err != nil || got.Age != 2*time.Hour {
+			t.Errorf("%s: got %+v, %v; want the age clamped to 2h and no error, so the rest of gc still runs", bad, got, err)
+		}
+		if !strings.Contains(got.Warning, "gocache-age") || !strings.Contains(got.Warning, "2h") {
+			t.Errorf("%s: warning = %q, want the key and the 2h named", bad, got.Warning)
+		}
 	}
 	if err := os.WriteFile(filepath.Join(root, "aphrollo.toml"), []byte("[aphrollo]\ngocache-age = \"2h\"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := ReadGoCacheSettings(root); err != nil || got.Age != 2*time.Hour {
-		t.Errorf("2h itself is the minimum and must be allowed, got %+v, %v", got, err)
+	if got, err := ReadGoCacheSettings(root); err != nil || got.Age != 2*time.Hour || got.Warning != "" {
+		t.Errorf("2h itself is the minimum and must read clean, got %+v, %v", got, err)
 	}
 }
+
+// ratchet: test_removed TestReadGoCacheSettings_AnAgeUnderTwoHoursIsRefusedNamingTheKey: an age under the minimum no longer aborts the sweep; TestReadGoCacheSettings_AnAgeUnderTwoHoursIsClampedWithAWarningNamingTheKey holds it.

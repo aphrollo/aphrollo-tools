@@ -377,3 +377,21 @@ func TestRunTDDGC_AQuietDryRunDoesNotEvenAskForTheCache(t *testing.T) {
 		t.Errorf("a dry quiet run asked for the cache %d times and printed %q: it prints nothing, so it must not walk a cache for it", asked, stdout.String())
 	}
 }
+
+func TestRunTDDGC_AGoCacheAgeUnderTheMinimumWarnsAndTheSweepStillRuns(t *testing.T) {
+	gateConfigDir(t)
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "aphrollo.toml"), []byte("[aphrollo]\ngocache-age = \"10m\"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+
+	code := runGateGC([]string{"--repo", repo, "--dry"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("exit %d, want 0: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "warning") || !strings.Contains(stderr.String(), "gocache-age") {
+		t.Errorf("stderr does not warn naming the key: %s", stderr.String())
+	}
+}

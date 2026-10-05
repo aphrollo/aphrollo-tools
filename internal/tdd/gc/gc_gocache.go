@@ -58,6 +58,9 @@ const (
 type GoCacheSettings struct {
 	Cap int64
 	Age time.Duration
+	// Warning says that gocache-age was unusable and what the trim uses instead,
+	// "" when it was read as written.
+	Warning string
 }
 
 // GoCacheTrim is what one trim did, or in a dry run would do.
@@ -103,13 +106,16 @@ func ReadGoCacheSettings(root string) (GoCacheSettings, error) {
 	}
 	if v, set := aphrolloTomlString(root, goCacheAgeKey); set {
 		d, err := ParseGCAge(v)
-		if err != nil {
-			return s, fmt.Errorf("%s = %q: %v", goCacheAgeKey, v, err)
+		switch {
+		case err != nil:
+			s.Age = GoCacheMinAge
+			s.Warning = fmt.Sprintf("%s = %q: %v; the trim uses the %s minimum", goCacheAgeKey, v, err, GoCacheMinAge)
+		case d < GoCacheMinAge:
+			s.Age = GoCacheMinAge
+			s.Warning = fmt.Sprintf("%s = %q is under the %s minimum (go refreshes a cache file's time only hourly, so a younger file may be in use); the trim uses %s", goCacheAgeKey, v, GoCacheMinAge, GoCacheMinAge)
+		default:
+			s.Age = d
 		}
-		if d < GoCacheMinAge {
-			return s, fmt.Errorf("%s = %q is under the %s minimum: go refreshes a cache file's time only hourly, so a younger file may be in use", goCacheAgeKey, v, GoCacheMinAge)
-		}
-		s.Age = d
 	}
 	return s, nil
 }
