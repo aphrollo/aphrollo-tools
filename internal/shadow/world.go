@@ -317,9 +317,12 @@ func (w World) FoldEdit(ctx context.Context, f EditFold) string {
 type Fold struct {
 	Root, Actor, Tree, Job string
 	EditIDs                []string
-	Argv                   []string // the run's command; nil when unknown, which covers every unit
-	Verdict                kernel.Verdict
-	Cause                  string
+	// Own is a run the agent started itself from a shell: it names no edits, for it
+	// judges every edit the ledger holds, and a run with none to judge folds nothing.
+	Own     bool
+	Argv    []string // the run's command; nil when unknown, which covers every unit
+	Verdict kernel.Verdict
+	Cause   string
 }
 
 // FoldRun folds a finished run's result into the lane record, in one transaction.
@@ -344,6 +347,13 @@ func (w World) FoldRun(ctx context.Context, f Fold) string {
 	}
 	unitOf := w.unitOf()
 	ledger := w.Edits(f.Root)
+	ids := f.EditIDs
+	if f.Own {
+		ids = make([]string, 0, len(ledger))
+		for _, e := range ledger {
+			ids = append(ids, e.ID)
+		}
+	}
 	newest := map[string]string{} // unit id to the id of its newest ledger edit
 	for _, e := range ledger {
 		if u, ok := unitOf(e.File); ok && FileClassOf(e.File) != kernel.ClassOther {
@@ -353,7 +363,7 @@ func (w World) FoldRun(ctx context.Context, f Fold) string {
 	var order []string
 	units := map[string]Unit{}
 	for _, e := range ledger {
-		if !slices.Contains(f.EditIDs, e.ID) || FileClassOf(e.File) == kernel.ClassOther {
+		if !slices.Contains(ids, e.ID) || FileClassOf(e.File) == kernel.ClassOther {
 			continue
 		}
 		if u, ok := unitOf(e.File); ok && !slices.Contains(order, u.ID) {
@@ -362,11 +372,14 @@ func (w World) FoldRun(ctx context.Context, f Fold) string {
 		}
 	}
 	if len(order) == 0 {
+		if f.Own {
+			return ""
+		}
 		return CauseNoEdit
 	}
 	runUnit := ""
 	if f.Argv != nil {
-		runUnit = relOrDot(findUp(f.Root, ".git"), f.Root) + "|" + strings.Join(f.Argv, " ")
+		runUnit = RunUnitName(f.Root, f.Argv)
 	}
 	var evs []kernel.Event
 	for _, id := range order {
@@ -374,7 +387,7 @@ func (w World) FoldRun(ctx context.Context, f Fold) string {
 		if runUnit != "" && !runCovers(runUnit, u) {
 			continue
 		}
-		if !slices.Contains(f.EditIDs, newest[id]) {
+		if !slices.Contains(ids, newest[id]) {
 			continue
 		}
 		evs = append(evs, TreeEvent(f.Actor, lane, id, f.Tree), RunEvent(f.Actor, lane, id, f.Tree, f.Job, f.Verdict, f.Cause))

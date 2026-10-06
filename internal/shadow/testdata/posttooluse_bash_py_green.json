@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/w/repo/backend","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"python -m pytest -q tests/test_service.py"},"tool_response":{"stdout":"1 passed in 0.02s\n","stderr":"","interrupted":false,"isImage":false},"tool_use_id":"toolu_py_green","duration_ms":900}

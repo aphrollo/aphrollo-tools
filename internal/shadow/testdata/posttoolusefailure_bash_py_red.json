@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/w/repo","hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"cd backend && pytest -q"},"tool_use_id":"toolu_py_red","error":"Exit code 1\nFAILED tests/test_service.py::test_a - assert 1 == 2\n1 failed in 0.02s","is_interrupt":false,"duration_ms":1100}

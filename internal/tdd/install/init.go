@@ -60,6 +60,11 @@ var managedEvents = []managedEvent{
 	{"PreToolUse", "PowerShell", "pretooluse", 10},
 	{"PostToolUse", "Edit|Write|MultiEdit", "posttooluse", postToolUseHarnessTimeoutSecs},
 	{"PostToolUse", "Bash", "posttooluse", postToolUseHarnessTimeoutSecs},
+	// A suite the agent runs by hand is counted as a run from the call's own result: the
+	// harness sends it to PostToolUse when it exited 0 (the PowerShell tool has no edit hook
+	// behind it, so its group only counts the run) and to PostToolUseFailure when it did not.
+	{"PostToolUse", "PowerShell", "posttooluse", postToolUseHarnessTimeoutSecs},
+	{"PostToolUseFailure", "Bash|PowerShell", "posttoolusefailure", 10},
 	{"UserPromptSubmit", "", "userpromptsubmit", 10},
 	// The turn-end checks: each reads the session's state and finishes at
 	// once, and the short timeout lets the harness cut one off so the turn,

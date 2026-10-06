@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/w/repo","hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"go test ./..."},"tool_use_id":"toolu_int","error":"Command interrupted","is_interrupt":true,"duration_ms":50000}

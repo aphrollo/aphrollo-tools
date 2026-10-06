@@ -58,6 +58,8 @@ func DiscardBashDecision(p0 []byte) Decision { return postedit.DiscardBashDecisi
 
 func EnableDeferredPhases(p0 bool) { postedit.EnableDeferredPhases(p0) }
 
+func FoldBashRun(p0 []byte) { postedit.FoldBashRun(p0) }
+
 func IsBashHook(p0 []byte) bool { return postedit.IsBashHook(p0) }
 
 func JudgePrimary(p0 []byte) PrimaryJudgement { return postedit.JudgePrimary(p0) }

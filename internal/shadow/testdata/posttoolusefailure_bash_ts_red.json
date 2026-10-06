@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/w/repo/frontend","hook_event_name":"PostToolUseFailure","tool_name":"Bash","tool_input":{"command":"npm test"},"tool_use_id":"toolu_ts_red","error":"Exit code 1\n FAIL  src/api.test.ts > a\nAssertionError: expected 1 to be 2\n Test Files  1 failed (1)","is_interrupt":false,"duration_ms":3000}
