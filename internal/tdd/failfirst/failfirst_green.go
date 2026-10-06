@@ -85,7 +85,7 @@ func greenRefusal(root, cmd string, g greenProof) (stageOutcome, bool) {
 	if g.res.Passed {
 		verdict = "green-proven"
 	}
-	fmt.Fprintf(rootseam.Stderr(root), "[fail-first] gate precommit: %s in %s → %s (%.1fs)\n", cmd, root, verdict, g.res.Duration.Seconds())
+	fmt.Fprintf(rootseam.Stderr(root), "[fail-first] gate precommit: %s in %s → %s (%.1fs)\n", listedRunCmd(cmd), root, verdict, g.res.Duration.Seconds())
 	logSuiteVerdict("precommit", root, cmd, verdict, g.res)
 	if verdict == "green-proven" {
 		return stageOutcome{}, false
@@ -95,4 +95,29 @@ func greenRefusal(root, cmd string, g greenProof) (stageOutcome, bool) {
 		Err:     fmt.Errorf("fail-first %s: the proven tests did not pass with the staged change", verdict),
 		Message: stillRedMessage(root, cmd, g),
 	}, true
+}
+
+// listedTestsMax is the most tests a fail-first line names in its -run
+// expression; a longer one is a count and one name.
+const listedTestsMax = 3
+
+// listedRunCmd is cmd as a fail-first line shows it: a `-run ^(A|B|C|D)$`
+// expression naming more than listedTestsMax tests becomes `-run <4 tests, e.g.
+// A>`. The run's retained output and the gate log's event keep the whole
+// command, so `aphrollo gate output` still prints every name.
+func listedRunCmd(cmd string) string {
+	const open = "-run ^("
+	start := strings.Index(cmd, open)
+	if start < 0 {
+		return cmd
+	}
+	end := strings.Index(cmd[start:], ")$")
+	if end < 0 {
+		return cmd
+	}
+	names := strings.Split(cmd[start+len(open):start+end], "|")
+	if len(names) <= listedTestsMax {
+		return cmd
+	}
+	return cmd[:start] + fmt.Sprintf("-run <%d tests, e.g. %s>", len(names), names[0]) + cmd[start+end+2:]
 }

@@ -427,10 +427,11 @@ func redSummary(r Runner, root string, outcome Outcome, output string) string {
 	if hint := staleArtifactHint(runnerDir(r, root), output); hint != "" {
 		fmt.Fprintf(&b, "\n%s", hint)
 	}
+	// The whole run stays readable, not repeated: `aphrollo gate output` serves
+	// it, and the red log file keeps the same bytes.
+	b.WriteString("\nfull output: `aphrollo gate output`")
 	if path := postEditRedLogPath(); path != "" {
-		if writePostEditRedLog(path, output) {
-			fmt.Fprintf(&b, "\nfull output: %s", path)
-		}
+		writePostEditRedLog(path, output)
 	}
 	// A real test FAILURE (ExtractFailingTests found a name) puts its detail
 	// at the END of the output — nextest's FAIL summary line and cargo
@@ -441,11 +442,17 @@ func redSummary(r Runner, root string, outcome Outcome, output string) string {
 	// truncates before naming the test". Anything else (a compile error,
 	// red-missing-impl, red-bogus) puts its actionable line at the START,
 	// so the head snippet is still correct there.
-	body := snippet(output)
-	if len(ExtractFailingTests(output)) > 0 {
-		body = tailSnippet(output)
+	//
+	// What is left of the line's 400-token cap goes to those words, so the
+	// line stays under it whatever the run printed.
+	fence := "\n```\n\n```"
+	if left := redLineBudget - b.Len() - len(fence); left > 0 {
+		body := headWithin(output, left)
+		if len(ExtractFailingTests(output)) > 0 {
+			body = tailWithin(output, left)
+		}
+		fmt.Fprintf(&b, "\n```\n%s\n```", body)
 	}
-	fmt.Fprintf(&b, "\n```\n%s\n```", body)
 	return b.String()
 }
 
@@ -498,15 +505,6 @@ func guidance(o Outcome) string {
 const DefaultPostEditTimeout = 110 * time.Second
 
 const maxSnippet = 2000
-
-// snippet bounds runner output so a huge failure dump doesn't flood context.
-func snippet(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= maxSnippet {
-		return s
-	}
-	return s[:maxSnippet] + "\n…[truncated]"
-}
 
 // firstFailingName returns the first failing test name in runner output, so a
 // RED summary can name the failure inline without the model scrolling output.

@@ -84,8 +84,8 @@ func TestPostEdit_Red_LongNextestFailure_TailSnippetNamesFailureAndLogsFullOutpu
 	}
 
 	logPath := filepath.Join(cfg, "gate-state", "postedit-red.log")
-	if !strings.Contains(got, logPath) {
-		t.Fatalf("expected the advisory to name the full-output log path %s, got:\n%s", logPath, got)
+	if !strings.Contains(got, "full output: `aphrollo gate output`") {
+		t.Fatalf("expected the advisory to point at `aphrollo gate output` for the whole run, got:\n%s", got)
 	}
 	data, err := os.ReadFile(logPath)
 	if err != nil {

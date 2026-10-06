@@ -448,7 +448,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		case out.Conclusive && !out.violated:
 			verdict = "red-proven"
 		}
-		line := fmt.Sprintf("[fail-first] gate precommit: %s in %s → %s (%.1fs)", ffCmd, root, verdict, out.dur.Seconds())
+		line := fmt.Sprintf("[fail-first] gate precommit: %s in %s → %s (%.1fs)", listedRunCmd(ffCmd), root, verdict, out.dur.Seconds())
 		fmt.Fprintln(rootseam.Stderr(root), line)
 		// The gate.log line and the run's own bytes together, so
 		// `aphrollo gate output` can show what the proof actually printed.

@@ -358,6 +358,7 @@ events_envmissing_own_test.go                      core
 events_gateline_own_test.go                         core
 events_hardening_own_test.go                       core
 events_own_test.go                                 core
+failfirst_display_test.go                          failfirst
 failfirst_env.go                                   failfirst
 failfirst_env_test.go                              failfirst
 failfirst_green.go                                 failfirst
@@ -823,6 +824,7 @@ nightlyflakehunt_workflow_pin_test.go              tdd
 nightlyfuzz_workflow_pin_test.go                   tdd
 nightlymutants_base_pin_test.go                    tdd
 nightlyproc_workflow_pin_test.go                   tdd
+notrun_collapse_test.go                            suite
 nowindow_windows_test.go                           postedit
 npmbin.go                                          suite
 npmbin_test.go                                     suite
@@ -1011,6 +1013,7 @@ readshared.go                                      core
 readshared_other.go                                core
 readshared_own_test.go                             core
 readshared_windows.go                              core
+redcap_test.go                                     postedit
 redgreenlive.go                                    postedit
 redgreenlive_test.go                               postedit
 redsnippet_test.go                                 postedit
