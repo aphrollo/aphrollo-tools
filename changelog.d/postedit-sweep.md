@@ -10,3 +10,4 @@ The post-edit hooks stop producing noise and the text they inject into a session
 - An edit a newer run superseded (a replaced queue entry, an edit that moved the tree under its own running job) now gets the verdict of the run that replaced it in the edit ledger.
 - Another lane rebasing while a proof ran no longer reads as the proof changing git state.
 - The `commit_gate` event of a `check-error-rejected` refusal carries the error text in its `detail` field.
+- Every event a session hook appends is attributed to `session/agent` when the hook serves a subagent's call (and to the session otherwise), so the report can tell which builder worked in which lane.

@@ -422,6 +422,8 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: reading hook input: %v\n", err)
 		return 1
 	}
+	// Who the hook serves, for every event it appends: set once, undone last.
+	defer bindHookActor(raw)()
 	defer recordHookTiming(args[0], raw, time.Now())
 	// Runs before the timing above: the records the hook queued are written after
 	// its answer, and the wait is left out of its time.

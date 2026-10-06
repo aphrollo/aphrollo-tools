@@ -81,3 +81,17 @@ func runWhenOff(mode whenOff, raw []byte, stdout io.Writer) int {
 	}
 	return 0
 }
+
+// bindHookActor names the session, and for a subagent's call the agent, that
+// the hook process serves, once, where every session hook starts: the events it
+// appends are then attributed to "session/agent" or to the session, whichever
+// call site appended them.
+func bindHookActor(raw []byte) (unbind func()) {
+	var in struct {
+		SessionID string `json:"session_id"`
+		AgentID   string `json:"agent_id"`
+	}
+	_ = json.Unmarshal(raw, &in)
+	tdd.SetHookActor(in.SessionID, in.AgentID)
+	return func() { tdd.SetHookActor("", "") }
+}
