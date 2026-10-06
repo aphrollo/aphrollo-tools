@@ -132,6 +132,8 @@ var schema = []Key{
 	// questions and the session-start open-issues line. Off until a repo or user opts in.
 	{Name: "retro-prompt", Kind: tomlsubset.Bool, Default: flag(false), Layers: inAll, Field: "retro-prompt"},
 	{Name: "issue-prompt", Kind: tomlsubset.Bool, Default: flag(false), Layers: inAll, Field: "issue-prompt"},
+	// The weekly report the daily gc sweep files as one issue; on unless a repo or user turns it off.
+	{Name: "report", Kind: tomlsubset.Bool, Default: flag(true), Layers: inAll, Field: "report"},
 }
 
 // The open families: a rule id and a runner name are the keys of their tables.

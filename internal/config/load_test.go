@@ -299,3 +299,19 @@ func TestLoad_AphrolloTomlOptsInToTheInjectedPrompts(t *testing.T) {
 		}
 	}
 }
+
+func TestReport_IsOnByDefaultAndARepoTurnsItOffInAphrolloToml(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !ForDir(repo).Get("report").Value.B {
+		t.Fatal("report is off by default, want on")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "aphrollo.toml"), []byte("[aphrollo]\nreport = false\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ForDir(repo).Get("report").Value.B {
+		t.Error("report = false in aphrollo.toml did not turn it off")
+	}
+}
