@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -68,4 +69,48 @@ func parseCompareAt(root, v string) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("%q is not a date (2026-10-01), a time (RFC 3339) or a commit of this repo", v)
+}
+
+// openBrowserFn opens a file in the default browser; a test replaces it. It is
+// the platform seam of openbrowser_windows.go and openbrowser_other.go.
+var openBrowserFn = openInBrowser
+
+// reportPagePath is where `report web` writes unless --out says: the git
+// common dir's aphrollo-report directory, one page per ISO week.
+func reportPagePath(root, title string) string {
+	dir := config.CommonDir(root)
+	if dir == "" {
+		dir = root
+	}
+	return filepath.Join(dir, "aphrollo-report", "report-"+strings.TrimPrefix(title, "Report ")+".html")
+}
+
+// writeReportPage renders the report as HTML, overwrites the week's page, prints
+// its path and opens it. A browser that will not open is not a failure: the
+// path is already printed. No server, no listener, nothing left running.
+func writeReportPage(root string, rep report.Report, out string, open bool, stdout, stderr io.Writer) int {
+	page, err := report.RenderHTML(rep)
+	if err != nil {
+		fmt.Fprintf(stderr, "aphrollo report web: %v\n", err)
+		return 1
+	}
+	path := out
+	if path == "" {
+		path = reportPagePath(root, rep.Title)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		fmt.Fprintf(stderr, "aphrollo report web: %v\n", err)
+		return 1
+	}
+	if err := os.WriteFile(path, page, 0o644); err != nil {
+		fmt.Fprintf(stderr, "aphrollo report web: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, path)
+	if open {
+		if err := openBrowserFn(path); err != nil {
+			fmt.Fprintf(stderr, "aphrollo report web: could not open the page (%v): open the path above\n", err)
+		}
+	}
+	return 0
 }

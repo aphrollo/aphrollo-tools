@@ -19,6 +19,7 @@ import (
 )
 
 const reportUsage = `usage: aphrollo report [--repo <path>] [--since <dur>] [--compare-at <date|sha>] [--json] [--issue [--dry]]
+       aphrollo report web [--out <path>] [--no-open] [--repo <path>] [--since <dur>] [--compare-at <date|sha>]
 
 The weekly continuous-improvement report, folded from the repo's event log (the
 current repo by default; --since 7d unless given). Seven sections, each number
@@ -45,6 +46,10 @@ with the event seqs behind it (replay one with 'aphrollo why <seq>'):
 
 Plain 'report' is read-only and prints the text; --json prints the model.
 
+  web        write the same report as one self-contained HTML page (inline CSS and
+             SVG, no script, nothing fetched) to <git common dir>/aphrollo-report/
+             report-<ISO week>.html, print the path and open it in the browser:
+             'aphrollo report web [--out <path>] [--no-open]'; no server is started
   --compare-at  split the window at a date (2026-10-01) or a commit (its commit
                 date) and compare session usage before and after
 
@@ -95,6 +100,8 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 		asJSON    = fs.Bool("json", false, "print the report model as JSON")
 		issue     = fs.Bool("issue", false, "open the week's report issue")
 		compareAt = fs.String("compare-at", "", "compare session usage before and after a date or commit")
+		out       = fs.String("out", "", "report web: where to write the page")
+		noOpen    = fs.Bool("no-open", false, "report web: write the page and do not open it")
 		mutFlag   = addMutFlags(fs)
 	)
 	pos, err := mutFlag.parse(fs, "report", args, stderr)
@@ -105,7 +112,19 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 		}
 		return 2
 	}
+	web := len(pos) > 0 && pos[0] == "web"
+	if web {
+		pos = pos[1:]
+	}
 	if refuseArgs("report", pos, stderr) {
+		return 2
+	}
+	if !web && (*out != "" || *noOpen) {
+		fmt.Fprintln(stderr, "aphrollo report: --out and --no-open belong to 'report web'")
+		return 2
+	}
+	if web && *issue {
+		fmt.Fprintln(stderr, "aphrollo report web: --issue files the text report; run it without web")
 		return 2
 	}
 	if _, err := os.Stat(*repo); err != nil {
@@ -135,6 +154,9 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	rep := buildReport(root, window, now, cmpAt)
+	if web {
+		return writeReportPage(root, rep, *out, !*noOpen, stdout, stderr)
+	}
 	if *issue {
 		return deliverReport(root, rep, !mutFlag.execute(), stdout, stderr)
 	}
