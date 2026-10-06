@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 )
 
 // This file holds the session-lifecycle hooks the edit/commit gates depend on:
@@ -346,10 +348,15 @@ func HandleSessionStart(raw []byte) string {
 	}
 	// The open points live on GitHub, where a session never looks. One line,
 	// cached per repo for an hour so it costs no network call per prompt.
-	if issues := issueSummaryLine(RepoRoot(in.Cwd), time.Now()); issues != "" {
-		parts = append(parts, issues)
+	// Off unless the repo or the user opts in with issue-prompt: the line is
+	// unasked text, and a repo that never asked for it pays no gh call either.
+	issuePrompt := config.ForDir(in.Cwd).Get("issue-prompt").Value.B
+	if issuePrompt {
+		if issues := issueSummaryLine(RepoRoot(in.Cwd), time.Now()); issues != "" {
+			parts = append(parts, issues)
+		}
 	}
-	if digest := maybeWeeklyDigest(time.Now()); digest != "" {
+	if digest := maybeWeeklyDigest(time.Now(), issuePrompt); digest != "" {
 		parts = append(parts, digest)
 	}
 	if behind := BinaryBehindLine(time.Now()); behind != "" {

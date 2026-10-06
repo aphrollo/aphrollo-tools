@@ -51,7 +51,7 @@ func TestWeeklyDigestReportsRatesDeniesAndOpenEscapes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	line := weeklyDigest(now)
+	line := weeklyDigest(now, true)
 	// green 2 of the 4 runs inside the window, queued-skipped 1 of 4; the
 	// 20-day-old red is outside it. denies and overrides are counted apart:
 	// a refusal and a waiver are different facts.
@@ -71,14 +71,14 @@ func TestSessionStartPrintsTheDigestOncePerWeek(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	writeGateLog(t, time.Now().UTC().Format(time.RFC3339)+" postedit /r go test ./... green 1.0s\n")
 
-	first := maybeWeeklyDigest(time.Now())
+	first := maybeWeeklyDigest(time.Now(), true)
 	if !strings.Contains(first, "last 7d") {
 		t.Fatalf("the first session start of the week prints the digest, got %q", first)
 	}
-	if second := maybeWeeklyDigest(time.Now()); second != "" {
+	if second := maybeWeeklyDigest(time.Now(), true); second != "" {
 		t.Fatalf("the next session start stays quiet, got %q", second)
 	}
-	if later := maybeWeeklyDigest(time.Now().Add(8 * 24 * time.Hour)); !strings.Contains(later, "last 7d") {
+	if later := maybeWeeklyDigest(time.Now().Add(8*24*time.Hour), true); !strings.Contains(later, "last 7d") {
 		t.Fatalf("a week later it prints again, got %q", later)
 	}
 }
@@ -115,9 +115,25 @@ func TestWeeklyDigest_DoesNotCountQueueBookkeepingAsRuns(t *testing.T) {
 		"",
 	}, "\n"))
 
-	line := weeklyDigest(now)
+	line := weeklyDigest(now, true)
 
 	if !strings.Contains(line, "green 50%") || !strings.Contains(line, "queued-skipped 50%") {
 		t.Fatalf("digest %q: want one green of two runs (the waiting and started entries are no runs; the dropped one is a not-tested run)", line)
+	}
+}
+
+func TestWeeklyDigest_LeavesTheOpenEscapeClauseOutUnlessAsked(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now().UTC()
+	writeGateLog(t, now.Add(-time.Hour).Format(time.RFC3339)+" postedit /r go test ./... green 1.0s\n")
+	if err := appendEscape(EscapeRecord{ID: "a", Kind: EscapeKind, Reason: "x", At: now.Add(-3 * 24 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	line := weeklyDigest(now, false)
+	if !strings.Contains(line, "green 100%") {
+		t.Errorf("digest %q lost its health numbers", line)
+	}
+	if strings.Contains(line, "escape") {
+		t.Errorf("digest %q still names the open escapes", line)
 	}
 }

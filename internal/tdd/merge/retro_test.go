@@ -64,6 +64,11 @@ func isolateRetro(t *testing.T, session string) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("CLAUDE_SESSION_ID", session)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	// The retro is opt-in: every test below but the off-by-default one runs
+	// under a user config that asks for it.
+	cfg := t.TempDir()
+	t.Setenv("TRELLIS_CONFIG", cfg)
+	write(t, cfg, "config.toml", "retro-prompt = true\n")
 }
 
 // logGate records stage lines for root as events, one per "<RFC3339> <stage> <verdict>".
@@ -503,5 +508,30 @@ func TestRetroSlug_BoundsALongPathAndKeepsDistinctPathsApart(t *testing.T) {
 	}
 	if again := retroSlug(long); again != got {
 		t.Errorf("the same path gave %q, then %q", got, again)
+	}
+}
+
+func TestPostMergeRetro_IsOffUnlessRetroPromptIsOptedInAndAsksGhNothing(t *testing.T) {
+	isolateRetro(t, "sess-retro-off")
+	t.Setenv("TRELLIS_CONFIG", t.TempDir())
+	calls := replayGh(t, "839", nil)
+	lane := t.TempDir()
+	logGate(t, lane, "2026-09-24T08:20:00Z precommit blocked")
+
+	runRetro(t, lane, "lane/probe-discard", 839)
+	if len(*calls) != 0 {
+		t.Errorf("a repo that never opted in still paid for gh: %v", *calls)
+	}
+	if got := TakeSessionRetros("sess-retro-off"); got != "" {
+		t.Errorf("a retro was recorded with retro-prompt off:\n%s", got)
+	}
+
+	if err := os.Mkdir(filepath.Join(lane, ".git"), 0o755); err != nil { // the repo layer is read for a directory that holds a repo
+		t.Fatal(err)
+	}
+	write(t, lane, "aphrollo.toml", "[aphrollo]\nretro-prompt = true\n")
+	runRetro(t, lane, "lane/probe-discard", 839)
+	if got := TakeSessionRetros("sess-retro-off"); !strings.Contains(got, "a retro answered only in prose is not answered") {
+		t.Errorf("retro-prompt = true in aphrollo.toml must bring the retro back, got:\n%s", got)
 	}
 }

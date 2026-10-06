@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 )
 
 // A first `aphrollo install` printed what it wrote and nothing about what it
@@ -115,6 +117,18 @@ var features = []Feature{
 		Enable: "go-trimpath = \"false\"",
 	},
 	{
+		Key: "retro-prompt", Default: "off",
+		Effect: "the post-merge retro: after a landed merge with friction, the session's next hook prints the facts and one question per class",
+		Cost:   "text in the session's context after a merge, and the gh calls that collect it",
+		Enable: "retro-prompt = true, in aphrollo.toml, trellis.toml or the user's config.toml",
+	},
+	{
+		Key: "issue-prompt", Default: "off",
+		Effect: "the session-start line with the open issue and escape counts, and the open-escape count in the weekly digest",
+		Cost:   "text in every session's context and one cached gh call per hour; the records and `gate stats` work without it",
+		Enable: "issue-prompt = true, in aphrollo.toml, trellis.toml or the user's config.toml",
+	},
+	{
 		Key: "undercover", Default: "off",
 		Effect: "the commit-msg gate refuses AI attribution trailers",
 		Cost:   "none",
@@ -176,6 +190,9 @@ func featureValues(repoRoot string) map[string]string {
 		values["mutants-shards"] = strconv.Itoa(cfg.Shards)
 	}
 	values["undercover"] = onOff(blockFlagsFor(repoRoot).Undercover)
+	prompts := config.ForDir(repoRoot)
+	values["retro-prompt"] = onOff(prompts.Get("retro-prompt").Value.B)
+	values["issue-prompt"] = onOff(prompts.Get("issue-prompt").Value.B)
 	return values
 }
 

@@ -31,7 +31,7 @@ func GreenSuiteStampFile(p0 string) string { return greenSuiteStampFile(p0) }
 
 func IsUnacceptedSurvivorRejection(p0 string) bool { return isUnacceptedSurvivorRejection(p0) }
 
-func MaybeWeeklyDigest(p0 time.Time) string { return maybeWeeklyDigest(p0) }
+func MaybeWeeklyDigest(p0 time.Time, p1 bool) string { return maybeWeeklyDigest(p0, p1) }
 
 func MutantsOutcome(p0 string) (string, string, bool) { return mutantsOutcome(p0) }
 

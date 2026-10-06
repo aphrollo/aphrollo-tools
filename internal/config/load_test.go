@@ -267,3 +267,35 @@ func TestForDir_FindsTheRepoByWalkingUpAndReadsOutsideOneWithoutIt(t *testing.T)
 		t.Fatalf("tdd for no directory = %+v, want built-in, not the working directory's repo", got)
 	}
 }
+
+func TestLoad_InjectedPromptsAreOffUntilARepoOrUserOptsIn(t *testing.T) {
+	cfg := Load(newFixture(t, "", "").opts)
+	for _, key := range []string{"retro-prompt", "issue-prompt"} {
+		if got := cfg.Get(key); got.Value.B || got.Layer != BuiltIn {
+			t.Errorf("%s = %+v, want false at built-in", key, got)
+		}
+	}
+	on := Load(newFixture(t, "retro-prompt = true\n", "issue-prompt = true\n").opts)
+	if got := on.Get("retro-prompt"); !got.Value.B || got.Layer != Repo {
+		t.Errorf("retro-prompt = %+v, want true from the repo", got)
+	}
+	if got := on.Get("issue-prompt"); !got.Value.B || got.Layer != User {
+		t.Errorf("issue-prompt = %+v, want true from the user layer", got)
+	}
+}
+
+func TestLoad_AphrolloTomlOptsInToTheInjectedPrompts(t *testing.T) {
+	f := newFixture(t, "", "")
+	writeFile(t, filepath.Join(f.repo, "aphrollo.toml"), "[aphrollo]\nretro-prompt = true\nissue-prompt = true\n")
+	cfg := Load(f.opts)
+	for _, key := range []string{"retro-prompt", "issue-prompt"} {
+		if got := cfg.Get(key); !got.Value.B || got.Layer != Repo {
+			t.Errorf("%s = %+v, want true from aphrollo.toml", key, got)
+		}
+	}
+	for _, l := range cfg.Legacy() {
+		if l.Name == "retro-prompt" || l.Name == "issue-prompt" {
+			t.Errorf("%s listed as a legacy key, want read as the schema key", l.Name)
+		}
+	}
+}
