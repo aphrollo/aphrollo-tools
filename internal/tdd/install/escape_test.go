@@ -327,17 +327,4 @@ func TestListEscapes_OpenByDefaultAllWithTheFlag(t *testing.T) {
 	}
 }
 
-// The managed CLAUDE.md block is where a session reads the rule, so the rule
-// has to be in it.
-func TestClaudeMDBlockStatesTheEscapeLoop(t *testing.T) {
-	block := ClaudeMDBlock(BlockFlags{})
-	for _, want := range []string{
-		"**Escapes close the loop.**",
-		"aphrollo gate escape record",
-		"The count only goes down",
-	} {
-		if !strings.Contains(block, want) {
-			t.Errorf("the managed block does not state %q", want)
-		}
-	}
-}
+// ratchet: test_removed TestClaudeMDBlockStatesTheEscapeLoop: the managed block is held to its token cap and no longer restates the escape loop; `aphrollo gate escape --help` and the opt-in retro-prompt and issue-prompt text carry it

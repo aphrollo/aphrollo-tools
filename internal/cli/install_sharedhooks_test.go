@@ -167,7 +167,7 @@ func TestInstall_ManagedBlockOnlyRendersTheBlockAndNothingElse(t *testing.T) {
 	}
 
 	got := readFile(t, claude)
-	if strings.Contains(got, "old, superseded") || !strings.Contains(got, "## Working with the aphrollo gate") {
+	if strings.Contains(got, "old, superseded") || !strings.Contains(got, "## aphrollo gate") {
 		t.Errorf("the block was not re-rendered:\n%s", got)
 	}
 	if !strings.Contains(got, "# repo\n") {

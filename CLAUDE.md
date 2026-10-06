@@ -251,47 +251,13 @@ retired the root build task). aphrollo-infra no longer force-installs it.
   in a new lane. A red PR gets its fix pushed to the same branch.
 
 <!-- aphrollo:begin -->
-## Working with the aphrollo gate
-
-- **Where `aphrollo install` put the queue shims on the agent's PATH, `git` resolves to them** (`aphrollo gate doctor` says whether it did):
-  a run through a shim QUEUES visibly behind another build instead of hanging on a silent lock, and a session never exports PATH by hand.
-- **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints
-  exactly ONE `gate:` line for the edit, then one `gate: deferred` line per earlier job of the session, in any tree,
-  that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with `go vet ./...`, which runs nothing.
-- **A Bash script is fine for multi-file edits.** Each source file it changed gets what an Edit gets (gofmt, deny laws, smell checks, edit ledger, the suite once per root) on the same `gate:` line;
-  the one difference is that a deny law cannot refuse a Bash write before it happens: the hit is named right after the write, with file and law, and refused at commit.
-- **Before writing or changing code, read the `tdd` skill** at `~/.claude/skills/tdd/SKILL.md` (under `$CLAUDE_CONFIG_DIR` when set; `aphrollo install` writes it).
-- **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·
-  `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`
-  (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)` (the build outran the
-  budget and continues; its result arrives at the next hook, or wait in the foreground with `aphrollo gate status --wait <tree>`, the tree the line names). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted run of the failing test after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.
-- **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →
-  suppression check → per root, a Go root runs vet→lint→fail-first. It proves the staged test RED at HEAD, then GREEN with the change, and STOPS — the
-  mechanical suite runs at the MERGE; a commit prints a `NOT RUN` line naming each touched package it did not test, so an untested package is never a silent absence.
-- **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with baselines in
-  the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet check` judges the tree
-  and tightens; `aphrollo ratchet test` proves each law against its fixtures. A new hit is
-  admitted by the law's escape comment, NEVER by editing a baseline — a raised one is rejected.
-- **An open point is an ISSUE, never a markdown follow-up:** `aphrollo issue "<title>"
-  --label <theme>` opens one against this repo's remote, labelled from the list it declares
-  (`issue-labels`), and prints the URL as its only output — never park one in a document.
-- **Escapes close the loop.** A red after a local green (CI, merge gate, survivor mutant, a
-  playtest defect a check could have caught) is recorded with `aphrollo gate escape record
-  <reason>`, and closed only by a stage or law named in the fix, never by a sentence in this
-  file. The count only goes down; `gate stats` prints it weekly at session start.
-- **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding
-  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL; the git queue shim,
-  where it is on the agent's PATH, is the WALL (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit).
-  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).
-  A lane refreshes this committed block with `aphrollo install --managed-block-only --repo <lane>`, never a full install: that writes git hooks into the git dir every worktree shares.
-- **A merge is checked, not measured:** this repo declares no `mutants-at-merge`, so the merge gate runs the mechanical suite and NO mutation measurement; `aphrollo gate mutants run` measures THIS checkout by hand.
-- **A commit is measured, and reported:** this repo declares `mutants-at-commit = true`, so the commit gate mutates the lines the commit adds, runs each mutant against the tests of its own function and names each survivor without refusing the commit; a box with no memory headroom, or a run past its wall-clock budget, prints `NOT MEASURED` for what it did not reach; `aphrollo gate mutants commit` runs it by hand.
-- **Mutation findings are guidance** in this repo: a survivor is reported, never refused, so no `gate mutants prove` line is owed. A survivor on a line you add is still a test worth writing.
-- **Orchestrating:** follow-ups on a lane (fix round, base merge, re-measure, red CI) resume its builder with only the delta; a fresh builder is for a new issue. A reviewer did not build the lane and re-reviews its own findings; the coordinator never edits; a brief carries only what the agent lacks.
-- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (reclaims stale build dirs; `--dry` lists them).
-- **Commit messages** say what the change does and nothing about how it was
-  written: no attribution trailers, tool names, or model names. The `commit-msg`
-  hook rejects one and quotes the offending line.
-
-_This block is written by `aphrollo install`: edit the template in aphrollo, never the block, which the next install overwrites._
+## aphrollo gate
+- **Hooks run the tests, not you.** Read each `gate:` and `gate: deferred` line after an edit; never re-run a suite they ran. Iterate with `go vet ./...`. Usage: `aphrollo <verb> --help`.
+- **Verdicts:** `green (N passed)` · `red-missing-impl` (clean RED) · `red` · `red-bogus` · `TIMEOUT`/`SKIPPED`/`QUEUED-SKIPPED` = **not tested** · `BUILDING (deferred)`: `aphrollo gate status --wait <tree>`, never end the turn waiting. Run text: `aphrollo gate output`.
+- **Read the `tdd` skill** (`~/.claude/skills/tdd/SKILL.md`) before changing code.
+- **Commit gate:** laws, docs, Go vet→lint, fail-first; the merge runs the suite (`NOT RUN` = untested).
+- **The primary checkout is merge-only:** work in a lane; `aphrollo gate allow primary` overrides. Refresh this block with `aphrollo install --managed-block-only --repo <lane>`.
+- **Two modes, set by the request, never by habit.** *Ad hoc* (default: questions, checks, analysis, fixes, small features): you do it, with no subagents, reviewer or plan. An answer needs no lane; an edit goes in a lane (`aphrollo workspace create . lane/<name>`) you merge yourself (`aphrollo workspace merge --wait`). *Planned*: only on `/sdd` or an asked-for plan: spec, lanes, one builder each, a cold reviewer. State the mode when work starts; go from ad hoc to planned only if the user agrees.
+- **Commit messages:** no attribution trailers or tool/model names (`commit-msg` rejects them).
+_Managed by `aphrollo install`; do not edit._
 <!-- aphrollo:end -->

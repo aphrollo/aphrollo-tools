@@ -22,11 +22,11 @@ func TestClaudeMDBlock_VetLintClaimMatchesGoOnlyGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(src), `if runner.Cmd == "go" {`) {
-		t.Fatal(`precommit_gateroot.go no longer guards goQualityStage with runner.Cmd == "go" — update the "a Go root runs vet→lint" claim in ClaudeMDBlock's stage-list bullet to match`)
+		t.Fatal(`precommit_gateroot.go no longer guards goQualityStage with runner.Cmd == "go" — update the "Go vet→lint" claim in ClaudeMDBlock's stage-list bullet to match`)
 	}
 	block := ClaudeMDBlock(BlockFlags{Go: true})
-	if !strings.Contains(block, "a Go root runs vet→lint") {
-		t.Fatal(`ClaudeMDBlock no longer scopes its vet/lint claim to "a Go root" — check it still matches precommit_gateroot.go's runner.Cmd == "go" guard before broadening it`)
+	if !strings.Contains(block, "Go vet→lint") {
+		t.Fatal(`ClaudeMDBlock no longer scopes its vet/lint claim to Go — check it still matches precommit_gateroot.go's runner.Cmd == "go" guard before broadening it`)
 	}
 }
 

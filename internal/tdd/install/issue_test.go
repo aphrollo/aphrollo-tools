@@ -116,22 +116,6 @@ func TestIssueLabelsReadsAphrolloTomlForANonCargoRepo(t *testing.T) {
 	}
 }
 
-// The managed CLAUDE.md block is the only place a session learns the loop
-// exists. If it does not name both verbs, every open point goes back to
-// being a markdown follow-up.
-func TestClaudeMDBlockNamesTheIssueAndEscapeVerbs(t *testing.T) {
-	block := ClaudeMDBlock(BlockFlags{})
-	for _, want := range []string{
-		"aphrollo issue",
-		"aphrollo gate escape record",
-		"never a markdown follow-up",
-	} {
-		if !strings.Contains(block, want) {
-			t.Errorf("the managed block must state %q:\n%s", want, block)
-		}
-	}
-}
-
 // writeIssueLabels declares repo's themes in its cargo manifest.
 func writeIssueLabels(t *testing.T, repo string, labels ...string) {
 	t.Helper()
@@ -169,3 +153,5 @@ func TestAFailedLabelCreateIsRetriedNotCached(t *testing.T) {
 		t.Fatalf("a failed label create must be retried: ran %d times, want 2:\n%s", n, ghArgv(t, log))
 	}
 }
+
+// ratchet: test_removed TestClaudeMDBlockNamesTheIssueAndEscapeVerbs: the managed block is held to its token cap and no longer names the issue and escape verbs; `aphrollo issue --help` and the opt-in issue-prompt line carry them
