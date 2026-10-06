@@ -56,11 +56,11 @@ func kpjfoldHarvest(t *testing.T, linked, projectRel, fileRel string, runner []s
 	if err != nil {
 		t.Fatal(err)
 	}
-	return rec.Units[unitID(t, linked, fileRel)]
+	return rec.Units[kpjfoldUnitID(t, linked, fileRel)]
 }
 
-// unitID is the id of the unit the shadow names for a file of the lane.
-func unitID(t *testing.T, linked, fileRel string) string {
+// kpjfoldUnitID is the id of the unit the shadow names for a file of the lane.
+func kpjfoldUnitID(t *testing.T, linked, fileRel string) string {
 	t.Helper()
 	u, ok := shadow.UnitOf(filepath.Join(linked, filepath.FromSlash(fileRel)), FindProjectRoot)
 	if !ok {
