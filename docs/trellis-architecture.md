@@ -631,7 +631,7 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 | Deny then `EnterWorktree name=` (6 headless runs) | 5 of 6 entered the worktree; 1 wrote through Bash straight away; every follower retried Write once first | Above the 80% bar. The deny text must say the write is refused until the worktree is entered; Bash write targets must be gated; lane names must be unique per task, since EnterWorktree reuses an existing name |
 | TaskCompleted | Not recordable: TaskCreate and TaskUpdate do not exist in this harness version, interactive or `-p` | The task check stays on Stop and SubagentStop; TaskCompleted is dropped until the tools ship |
 | CwdChanged, DirectoryAdded, Setup | Did not fire, including EnterWorktree and ExitWorktree in an interactive session | Repo start runs at SessionStart and on the first hook in a new cwd, not on these events |
-| Payload fields | The gate never reads `agent_id`; `tool_response.success` never occurs; failures arrive as PostToolUseFailure, which the gate does not handle | Adapters key subagents by `agent_id` and handle PostToolUseFailure |
+| Payload fields | The gate never reads `agent_id`; `tool_response.success` never occurs; failures arrive as PostToolUseFailure, which the gate handles for a failed shell test run (`gate posttoolusefailure`) | Adapters key subagents by `agent_id` and handle PostToolUseFailure |
 
 Still open: the exec (`args`) hook form, `asyncRewake`, and the same recordings on Linux.
 

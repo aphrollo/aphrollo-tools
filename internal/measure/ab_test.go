@@ -2,6 +2,7 @@ package measure
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -188,6 +189,61 @@ func TestAB_TextNamesEachArmItsCountsAndWhetherItReachedThirtyLanes(t *testing.T
 	for _, want := range []string{"enforce", "warn", "1 of 30 lanes", "denies", "warnings", "overrides", "escapes", "time to green"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+// The kernel's holdout turns an enforce lane's deny into a guide, recorded as a warning
+// with held_out: it is no warning of the warn arm's kind, and no friction of the enforce
+// arm's. It is counted apart, in the arm, and shown.
+func TestComputeAB_AHeldOutDecisionIsCountedApartFromTheArmsDeniesWarningsAndFriction(t *testing.T) {
+	events := abCat(
+		abLane(0, "lane/e1", "enforce", "go", "block"),
+		[]tdd.Event{
+			ev(0, "lane/e2", "lane-arm", detail("arm", "enforce", "why", "assigned", "mode", "enforce")),
+			shadowAt(1, "lane/e2", "red-green", "trellis-stricter", "aphrollo", "warn", "held_out", "true",
+				"arm", "enforce", "arm_why", "assigned", "tdd", "enforce", "lang", "go"),
+			ev(60, "lane/e2", "stage.timing", func(e *tdd.Event) { e.Stage, e.Verdict = "postedit", "green (1 passed)" }),
+		},
+	)
+	ab := computeAB(events, Options{})
+	e := abRow(t, ab, "enforce")
+	if e.Lanes != 2 || e.Denies != 1 || e.Warnings != 0 || e.HeldOut != 1 || e.TimeToGreen.N != 0 {
+		t.Errorf("enforce = %+v, want 2 lanes, 1 deny, no warning, 1 held out and no time to green from the held-out decision", e)
+	}
+	if !strings.Contains(ab.Text(), "held out 1") {
+		t.Errorf("text lacks the held-out count:\n%s", ab.Text())
+	}
+	for _, l := range ab.Languages {
+		if l.Arm == "enforce" && l.Lang == "go" && (l.Warnings != 0 || l.Lanes != 1) {
+			t.Errorf("enforce/go = %+v, want the held-out decision left out", l)
+		}
+	}
+}
+
+// The rows come in one order whatever the order of the log: arm, then language by name.
+// Text() of the same log is the same bytes every run.
+func TestComputeAB_LanguagesAreOrderedByArmThenNameAndTheTextIsStable(t *testing.T) {
+	var events []tdd.Event
+	for i, lang := range []string{"ts", "go", "python"} {
+		events = append(events,
+			abLane(0, fmt.Sprintf("lane/w%d", i), "warn", lang, "warn")...)
+		events = append(events,
+			abLane(0, fmt.Sprintf("lane/e%d", i), "enforce", lang, "block")...)
+	}
+	want := []string{"enforce/go", "enforce/python", "enforce/ts", "warn/go", "warn/python", "warn/ts"}
+	first := computeAB(events, Options{})
+	var got []string
+	for _, l := range first.Languages {
+		got = append(got, l.Arm+"/"+l.Lang)
+	}
+	if strings.Join(got, " ") != strings.Join(want, " ") {
+		t.Errorf("languages = %v, want %v", got, want)
+	}
+	slices.Reverse(events)
+	for range 20 {
+		if again := computeAB(events, Options{}); again.Text() != first.Text() {
+			t.Fatalf("Text() changed between runs:\n%s\nvs\n%s", first.Text(), again.Text())
 		}
 	}
 }

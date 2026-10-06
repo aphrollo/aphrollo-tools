@@ -47,6 +47,9 @@ func (l Live) Action() Action {
 type LiveResult struct {
 	Asked   []Live
 	Overran bool
+	// Waived is set by the caller when the session had waived the deny the answer holds:
+	// the hook allowed the write, and the record says so rather than a block.
+	Waived bool
 }
 
 // RedGreenLive asks the kernel, under cfg, the red→green question of each code file a
@@ -110,7 +113,7 @@ func RedGreenStepsLive(wd World, s Source, p Payload, files []string, live LiveR
 	}
 	actual := map[string]Action{}
 	for _, l := range live.Asked {
-		if a := l.Action(); a != Allow {
+		if a := l.Action(); a != Allow && (!live.Waived || a != Block) {
 			actual[l.File] = a
 		}
 	}
@@ -130,6 +133,7 @@ func RedGreenStepsLive(wd World, s Source, p Payload, files []string, live LiveR
 				if r.Root != "" {
 					rs.Root = r.Root
 				}
+				r.Waived = live.Waived && r.Trellis == "block"
 				evs = append(evs, r.event(rs, wd.Lane(rs.Root)))
 			}
 			return evs

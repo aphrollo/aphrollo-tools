@@ -21,10 +21,10 @@ func TestParseBashRun_NamesTheRunnerAndTheDirectoryOfASuiteTheAgentStarted(t *te
 		{"cd backend && pytest -q", []string{"pytest", "-q"}, in("backend")},
 		{"uv run pytest", []string{"pytest"}, cwd},
 		{"npx vitest run", []string{"npx", "vitest", "run"}, cwd},
-		{"cd frontend; npm test", []string{"npm", "test"}, in("frontend")},
+		{"cd frontend && npm test", []string{"npm", "test"}, in("frontend")},
 		{"pnpm test", []string{"pnpm", "test"}, cwd},
 		{"time go test ./...", []string{"go", "test", "./..."}, cwd},
-		{"git status && go test ./... && echo done", []string{"go", "test", "./..."}, cwd},
+		{"git status && go test ./...", []string{"go", "test", "./..."}, cwd},
 	}
 	for _, c := range cases {
 		got, ok := ParseBashRun(c.cmd, cwd)
@@ -48,6 +48,12 @@ func TestParseBashRun_ACommandWhoseExitIsNotASuitesIsNoRun(t *testing.T) {
 		"echo go test",                // an argument, not a command
 		"cd $DIR && go test ./...",    // a directory no one can name
 		"pushd sub && go test ./... ", // a directory the parse does not follow
+		"go test ./... || true",       // the line exits 0 when the suite fails
+		"go test ./...; echo done",    // the line exits echo's
+		"go test ./... &",             // backgrounded: no exit to read
+		"go test ./... ; true",        // the line exits true's
+		"go test ./... && echo done",  // anything after the suite owns the exit
+		"false || go test ./...",      // the suite may never run
 		"",                            // nothing
 	} {
 		if got, ok := ParseBashRun(cmd, cwd); ok {

@@ -134,7 +134,7 @@ var ruleTable = []Rule{
 		Override: "trellis allow bypass-verb --once", Reads: runs(CmdOutward)},
 	{ID: "red-green", Section: "§3 TDD machine, §5 earned (tdd = enforce)", Class: RuleEarned, Do: OutcomeDeny,
 		Cause: "a code edit that is not tested code, with no open red", Next: "write the failing test first, then edit the code",
-		Override: "trellis allow red-green --once, or tdd = warn", Level: tddLevel, Reads: guidedBy(GuideUntestedCode)},
+		Override: "aphrollo gate allow red-green (this session), or aphrollo config set tdd warn", Level: tddLevel, Reads: guidedBy(GuideUntestedCode)},
 	{ID: "stop-red", Section: "§4 Stop and SubagentStop, §5 earned (tdd = enforce)", Class: RuleEarned, Do: OutcomeDeny,
 		Cause: "a red this actor has not seen is outstanding", Next: "read the red and fix it, then stop again",
 		Override: "stop again: it blocks once (stop_hook_active)", Level: stopLevel,

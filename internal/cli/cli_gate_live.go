@@ -11,11 +11,6 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tddarm"
 )
 
-// redGreenOverride is what a deny of the red→green rule offers: the verb that waives
-// it for the session, and the key that leaves the experiment for good. The rule
-// table's own text names the trellis verbs, and this hook has its own.
-const redGreenOverride = "aphrollo gate allow red-green (this session), or aphrollo config set tdd warn"
-
 // redGreenLive is the red→green rule live at PreToolUse (docs/trellis-architecture.md §4
 // and §5, lane A1). For a call that is about to write a code file of a lane, it asks
 // the kernel, under the mode the lane runs in (tddarm: a pin, else the lane's arm), what
@@ -44,11 +39,11 @@ func (p *preShadow) redGreenLive(final tdd.Decision) tdd.Decision {
 		return final
 	}
 	m := tdd.EffectiveTDD(src.Root)
+	tdd.RecordLaneArm(src.Root, src.Actor, m) // a lane pinned off is counted as pinned, too
 	if m.TDD == string(kernel.ModeOff) || m.Why == tddarm.WhyNoLane {
 		return final
 	}
 	p.mode = m
-	tdd.RecordLaneArm(src.Root, src.Actor, m)
 	res := tdd.ShadowWorld().RedGreenLive(pl, files, kernel.Config{TDD: kernel.TDDMode(m.TDD)})
 	p.live, p.liveAsked = res, true
 	if res.Overran {
@@ -66,9 +61,10 @@ func (p *preShadow) redGreenLive(final tdd.Decision) tdd.Decision {
 	first := fired[0]
 	deny := first.Decision.Outcome == kernel.OutcomeDeny
 	if deny && tdd.RedGreenWaived(pl.SessionID) {
+		p.live.Waived = true
 		return final // the session waived it; the override was counted when it was made
 	}
-	line := render.Untested(first.Decision, unitList(fired), redGreenOverride)
+	line := render.Untested(first.Decision, unitList(fired), first.Decision.Override)
 	if !deny {
 		d := tdd.Decision{Action: tdd.Warn, Reason: line.Text, Policy: "red-green"}
 		if final.Action == tdd.Warn && final.Reason != "" {
@@ -77,7 +73,7 @@ func (p *preShadow) redGreenLive(final tdd.Decision) tdd.Decision {
 		}
 		return d
 	}
-	d := tdd.Decision{Action: tdd.Block, Reason: line.Text, Policy: "red-green", Override: redGreenOverride}
+	d := tdd.Decision{Action: tdd.Block, Reason: line.Text, Policy: "red-green", Override: first.Decision.Override}
 	tdd.LogEditDecision(p.raw, d)
 	p.liveBlocked = true
 	return d

@@ -52,3 +52,33 @@ func TestPatchSettings_WiresTheResultOfAHandRunSuiteForBashAndPowerShell(t *test
 		t.Errorf("the PostToolUseFailure hook survived a strip:\n%s", stripped)
 	}
 }
+
+// An install made before the PostToolUseFailure hook existed gets it on the next
+// install, once; a second install changes nothing.
+func TestPatchSettings_AnInstallWithoutThePostToolUseFailureHookGetsItOnceAndIsStableAfter(t *testing.T) {
+	const bin = "/usr/local/bin/aphrollo"
+	full, _, err := PatchSettings(nil, bin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(full, &doc); err != nil {
+		t.Fatal(err)
+	}
+	delete(doc["hooks"].(map[string]any), "PostToolUseFailure")
+	old, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	once, changed, err := PatchSettings(old, bin)
+	if err != nil || !changed {
+		t.Fatalf("patching the old install: changed = %v, err = %v", changed, err)
+	}
+	if n := strings.Count(string(once), "posttoolusefailure"); n != 1 {
+		t.Fatalf("the patched install runs posttoolusefailure %d times, want once:\n%s", n, once)
+	}
+	twice, changed, err := PatchSettings(once, bin)
+	if err != nil || changed || string(twice) != string(once) {
+		t.Errorf("a second patch: changed = %v, err = %v, bytes equal = %v, want unchanged", changed, err, string(twice) == string(once))
+	}
+}

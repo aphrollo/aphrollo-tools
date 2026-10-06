@@ -125,3 +125,32 @@ func normalizeRemote(url string) string {
 	u = strings.TrimSuffix(u, ".git")
 	return strings.ToLower(u)
 }
+
+// Trunk is the branch origin/HEAD of the repo names ("develop"), read from the file
+// refs/remotes/origin/HEAD of the common git directory; "" when that is not a symbolic
+// ref there (never set, or not a repo), and the usual names of Resolve then stand. It
+// spawns no git.
+func Trunk(root string) string {
+	common := config.CommonDir(root)
+	if common == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(common, "refs", "remotes", "origin", "HEAD"))
+	if err != nil {
+		return ""
+	}
+	target, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "ref: refs/remotes/origin/")
+	if !ok {
+		return ""
+	}
+	return target
+}
+
+// ResolveIn is Resolve for the lane of the checkout at root: its repo key from the
+// remote, and its trunk, whatever it is called, in no arm.
+func ResolveIn(set config.Setting, root, lane string) Mode {
+	if lane != "" && lane == Trunk(root) {
+		lane = ""
+	}
+	return Resolve(set, RepoKey(root), lane)
+}

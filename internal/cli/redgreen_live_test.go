@@ -189,8 +189,9 @@ func TestPreToolUse_OffAnswersAnEditAsItAlwaysHasAndRecordsNoArm(t *testing.T) {
 	if len(got) != 1 || got[0].Detail["aphrollo"] != "allow" || got[0].Detail["arm"] != "" || got[0].Detail["tdd"] != "" {
 		t.Errorf("records = %+v, want the shadow's own allow, in no arm", got)
 	}
-	if arms := laneArmEvents(dir); len(arms) != 0 {
-		t.Errorf("lane-arm events = %+v, want none while tdd is off", arms)
+	// The lane is outside the experiment, and counted as such.
+	if arms := laneArmEvents(dir); len(arms) != 1 || arms[0].Detail["why"] != "pinned" || arms[0].Detail["mode"] != "off" || arms[0].Detail["arm"] != "" {
+		t.Errorf("lane-arm events = %+v, want one pinned off with no arm", arms)
 	}
 }
 
@@ -274,6 +275,11 @@ func TestPreToolUse_TheNamedOverrideLiftsTheDenyForTheSession(t *testing.T) {
 	a := rglRun(rglEdit(t, "rgl-allow", dir, "pkg/p.go"))
 	if a.code != 0 {
 		t.Errorf("answer after the override = %+v, want the edit allowed", a)
+	}
+	// The deny the override lifted is no deny of the arm: the record says the hook allowed it, and why.
+	got := shadowOfRule(dir, "red-green")
+	if len(got) != 2 || got[0].Detail["aphrollo"] != "block" || got[1].Detail["aphrollo"] != "allow" || got[1].Detail["waived"] != "true" {
+		t.Errorf("records = %+v, want the deny, then an allow marked waived", got)
 	}
 }
 
@@ -362,5 +368,21 @@ func TestPreToolUse_TheLiveRedGreenAnswerSpawnsNoGit(t *testing.T) {
 	off := calls()
 	if len(live) != len(off) {
 		t.Errorf("the live hook spawned git %d times, the hook with tdd off %d: %v vs %v", len(live), len(off), live, off)
+	}
+}
+
+// The deny names one override: the rule table's, which is the verb the hook honours.
+func TestPreToolUse_TheDenyOffersTheOverrideTheRuleTableNames(t *testing.T) {
+	r, ok := kernel.LookupRule("red-green")
+	if !ok || r.Override == "" {
+		t.Fatalf("rule red-green = %+v, %v, want one with an override", r, ok)
+	}
+	dir := rglRepo(t, tddarm.ArmEnforce, false)
+	a := rglRun(rglEdit(t, "rgl-one", dir, "pkg/p.go"))
+	if a.code != 2 || !strings.Contains(a.errOut+a.out, r.Override) {
+		t.Errorf("answer = %+v, want a deny naming the table's override %q", a, r.Override)
+	}
+	if !strings.Contains(r.Override, "aphrollo gate allow red-green") {
+		t.Errorf("the table's override %q names a verb this binary lacks", r.Override)
 	}
 }

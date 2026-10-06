@@ -27,6 +27,7 @@ type ABArm struct {
 	EscapeRecords   int    `json:"escape_records"`
 	CIRedAfterGreen int    `json:"ci_red_after_green"`
 	Dropped         int    `json:"dropped"`
+	HeldOut         int    `json:"held_out"`
 	TimeToGreen     Dist   `json:"time_to_green_secs"`
 	Reached         bool   `json:"reached_min_lanes"`
 }
@@ -54,6 +55,7 @@ type abLaneFacts struct {
 	pinned             bool
 	denies, warnings   int
 	overrides, dropped int
+	heldOut            int
 	records, ciRed     int
 	firstAt            time.Time
 	greenAfter         time.Time
@@ -137,6 +139,10 @@ func foldABDecision(f *abLaneFacts, e stamped) {
 		}
 		return
 	}
+	if e.Detail["held_out"] == "true" {
+		f.heldOut++ // the kernel's holdout guided where enforce denies: no deny, warning or friction
+		return
+	}
 	var col int
 	switch e.Detail["aphrollo"] {
 	case "block":
@@ -180,6 +186,7 @@ func summariseAB(lanes map[string]*abLaneFacts) AB {
 		a.Warnings += f.warnings
 		a.Overrides += f.overrides
 		a.Dropped += f.dropped
+		a.HeldOut += f.heldOut
 		a.EscapeRecords += f.records
 		a.CIRedAfterGreen += f.ciRed
 		a.Escapes += f.records + f.ciRed
@@ -225,7 +232,7 @@ func (ab AB) Text() string {
 	p := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
 	for _, a := range ab.Arms {
 		p("%-8s %d of %d lanes (%s)", a.Arm, a.Lanes, MinABLanes, reachedText(a.Reached))
-		p("  denies %d  warnings %d  overrides %d  dropped for the budget %d", a.Denies, a.Warnings, a.Overrides, a.Dropped)
+		p("  denies %d  warnings %d  overrides %d  dropped for the budget %d  held out %d", a.Denies, a.Warnings, a.Overrides, a.Dropped, a.HeldOut)
 		p("  escapes %d (escape records %d, CI red after a local green %d)", a.Escapes, a.EscapeRecords, a.CIRedAfterGreen)
 		p("  friction: denies %d + overrides %d; time to green n %d  p50 %s  p90 %s",
 			a.Denies, a.Overrides, a.TimeToGreen.N, secs(a.TimeToGreen.P50), secs(a.TimeToGreen.P90))

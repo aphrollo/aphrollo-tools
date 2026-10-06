@@ -105,6 +105,7 @@ type Record struct {
 	Trellis  string // block, warn, guide or allow
 	Actual   string // block, warn, allow; for a run, aphrollo's verdict word
 	Relation Relation
+	Waived   bool // the hook allowed what the rule denied, the session having waived it
 	HeldOut  bool // the kernel put this fire in the holdout arm
 	Primary  bool // the fact is about the primary checkout, which has no lane of its own to join outcomes by
 	Guide    string
@@ -331,6 +332,9 @@ func (r Record) event(s Source, lane string) core.Event {
 	}
 	if r.HeldOut {
 		d["held_out"] = "true"
+	}
+	if r.Waived {
+		d["waived"] = "true"
 	}
 	return core.Event{Kind: core.KindShadow, Root: s.Root, Actor: s.Actor, Lane: lane, Detail: d}
 }

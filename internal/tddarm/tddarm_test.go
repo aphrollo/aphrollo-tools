@@ -141,3 +141,43 @@ func TestRepoKey_ALinkedWorktreeHasItsMainCheckoutsKeyAndARepoWithNoRemoteItsDir
 		t.Errorf("RepoKey(no repo) = %q, want empty", got)
 	}
 }
+
+func writeOriginHead(t *testing.T, dir, branch string) {
+	t.Helper()
+	p := filepath.Join(dir, ".git", "refs", "remotes", "origin", "HEAD")
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, []byte("ref: refs/remotes/origin/"+branch+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A repo whose trunk is develop has no lane on develop either: origin/HEAD names it, read
+// from a file. With no origin/HEAD (never set, or packed away) the usual names stand.
+func TestResolveIn_TheTrunkIsWhatOriginHeadNamesElseTheUsualNames(t *testing.T) {
+	set := setting(config.BuiltIn, "warn")
+	dev := t.TempDir()
+	writeRepo(t, dev, "git@github.com:acme/app.git")
+	writeOriginHead(t, dev, "develop")
+	if m := ResolveIn(set, dev, "develop"); m.Why != WhyNoLane || m.Arm != "" {
+		t.Errorf("develop in a repo whose origin/HEAD is develop: %+v, want no lane", m)
+	}
+	if m := ResolveIn(set, dev, "lane/x"); m.Why != WhyAssigned {
+		t.Errorf("a lane of that repo: %+v, want an assigned arm", m)
+	}
+	plain := t.TempDir()
+	writeRepo(t, plain, "git@github.com:acme/app.git")
+	if m := ResolveIn(set, plain, "main"); m.Why != WhyNoLane {
+		t.Errorf("main with no origin/HEAD: %+v, want no lane", m)
+	}
+	if m := ResolveIn(set, plain, "develop"); m.Why != WhyAssigned {
+		t.Errorf("develop with no origin/HEAD: %+v, want the fallback list only: an arm", m)
+	}
+	if got := Trunk(dev); got != "develop" {
+		t.Errorf("Trunk = %q, want develop", got)
+	}
+	if got := Trunk(plain); got != "" {
+		t.Errorf("Trunk with no origin/HEAD = %q, want empty", got)
+	}
+}

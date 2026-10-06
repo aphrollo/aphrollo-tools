@@ -54,6 +54,8 @@ var errNoSession = core.ErrNoSession
 
 func AppendEvent(p0 Event) { core.AppendEvent(p0) }
 
+func AppendEventOnce(p0 Event, p1 string) bool { return core.AppendEventOnce(p0, p1) }
+
 func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration) {
 	core.AppendGateLog(p0, p1, p2, p3, p4)
 }
@@ -69,6 +71,8 @@ func EventLogDir(p0 string) string { return core.EventLogDir(p0) }
 func LaneOf(p0 string) string { return core.LaneOf(p0) }
 
 func LogToken(p0 string) string { return core.LogToken(p0) }
+
+func ReadEvents(p0 string) []Event { return core.ReadEvents(p0) }
 
 func SessionID() string { return core.SessionID() }
 

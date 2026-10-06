@@ -17,7 +17,7 @@ import (
 // may ask it on every call.
 func EffectiveTDD(dir string) tddarm.Mode {
 	repo := compat.RepoRoot(dir)
-	return tddarm.Resolve(config.ForDir(dir).Get("tdd"), tddarm.RepoKey(repo), LaneOf(repo))
+	return tddarm.ResolveIn(config.ForDir(dir).Get("tdd"), repo, LaneOf(repo))
 }
 
 // RecordLaneArm writes the event that says which arm a lane is in, the first time the
@@ -39,17 +39,34 @@ func RecordLaneArm(root, session string, m tddarm.Mode) {
 	if os.MkdirAll(filepath.Dir(marker), 0o700) != nil {
 		return
 	}
-	f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return // already recorded, or a state directory that cannot be written
+	if _, err := os.Stat(marker); err == nil {
+		return // already recorded
 	}
-	_ = f.Close()
-	detail := map[string]string{"mode": m.TDD, "why": m.Why}
+	detail := map[string]string{"mode": m.TDD, "why": m.Why, "key": filepath.Base(marker)}
 	if m.Arm != "" {
 		detail["arm"] = m.Arm
 	}
 	if m.Layer != "" {
 		detail["layer"] = m.Layer
 	}
-	AppendEvent(Event{Kind: "lane-arm", Root: root, Actor: session, Detail: detail})
+	// The event first, the marker once the log holds it: a write that failed is tried again at
+	// the next call, and never leaves a lane out of the counts for good. Once-by-key keeps two
+	// hooks that race from writing it twice.
+	AppendEventOnce(Event{Kind: "lane-arm", Root: root, Actor: session, Detail: detail}, "key")
+	if !laneArmLogged(root, detail["key"]) {
+		return
+	}
+	if f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600); err == nil {
+		_ = f.Close()
+	}
+}
+
+// laneArmLogged reports whether the repo's event log holds the lane-arm event of key.
+func laneArmLogged(root, key string) bool {
+	for _, e := range ReadEvents(root) {
+		if e.Kind == "lane-arm" && e.Detail["key"] == key {
+			return true
+		}
+	}
+	return false
 }

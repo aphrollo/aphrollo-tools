@@ -25,14 +25,15 @@ type BashRun struct {
 // the parse cannot name (a `cd` into a variable, `pushd`).
 func ParseBashRun(cmd, cwd string) (BashRun, bool) {
 	cmd = shell.StripHeredocBodies(cmd)
-	if strings.TrimSpace(cmd) == "" || hasPipe(cmd) {
+	if strings.TrimSpace(cmd) == "" || hasPipe(cmd) || !onlyAndJoins(cmd) {
 		return BashRun{}, false
 	}
 	cur := cwd
 	var run BashRun
-	n := 0
+	n, last, seen := 0, -1, 0
 	for _, seg := range shell.ShellSegments(cmd) {
 		words := dropEnvWords(seg)
+		seen++
 		if len(words) == 0 {
 			continue
 		}
@@ -50,11 +51,12 @@ func ParseBashRun(cmd, cwd string) (BashRun, bool) {
 			continue
 		}
 		if argv, ok := testArgv(words); ok {
-			n++
+			n, last = n+1, seen
 			run = BashRun{Argv: argv, Dir: cur}
 		}
 	}
-	return run, n == 1 && run.Dir != ""
+	// The line exits with its last segment: the suite has to be it.
+	return run, n == 1 && last == seen && run.Dir != ""
 }
 
 // dropEnvWords is words without the leading NAME=value words of a command.
@@ -102,6 +104,36 @@ func hasPipe(cmd string) bool {
 		}
 	}
 	return false
+}
+
+// onlyAndJoins reports whether every join of the line's commands, outside quotes, is
+// `&&`: a `;`, a `||`, a newline between commands or a `&` that backgrounds one leaves a
+// line whose exit status is not the suite's. A `&` of a redirect (2>&1, &>f) is no join.
+func onlyAndJoins(cmd string) bool {
+	rs := []rune(strings.TrimSpace(cmd))
+	for i := 0; i < len(rs); i++ {
+		switch c := rs[i]; c {
+		case '\\':
+			i++
+		case '\'', '"':
+			for i++; i < len(rs) && rs[i] != c; i++ {
+				if c == '"' && rs[i] == '\\' {
+					i++
+				}
+			}
+		case ';', '\n', '|':
+			return false
+		case '&':
+			switch {
+			case i+1 < len(rs) && rs[i+1] == '&':
+				i++
+			case i > 0 && (rs[i-1] == '>' || rs[i-1] == '<'), i+1 < len(rs) && rs[i+1] == '>':
+			default:
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // testArgv is the runner's words when words are a command that runs tests, with a
