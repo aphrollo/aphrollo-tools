@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	pathpkg "path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -21,7 +22,7 @@ func (g *GitHub) ChecksAt(sha string) ([]host.Check, error) {
 	if err != nil {
 		return nil, err
 	}
-	runs = g.markNotStarted(newestPerName(runs))
+	runs = g.markNotStarted(g.withoutSupersededCancelled(newestPerName(runs)))
 	statuses, err := g.jsonLines("api", "repos/{owner}/{repo}/commits/"+sha+"/status",
 		"--jq", `.sha as $s | .statuses[] | {name: .context, head_sha: $s, `+
 			`status: (if .state == "pending" then "in_progress" else "completed" end), `+
@@ -220,4 +221,56 @@ func (g *GitHub) RerunFailedJobs(run int64) error {
 		return fmt.Errorf("gh api actions/runs/%d/rerun-failed-jobs: %v: %s", run, err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// withoutSupersededCancelled drops each cancelled Actions job of a run that a
+// later run of the same workflow replaced on this commit. A concurrency group
+// cancels the earlier run when a later one starts, and a job the later run never
+// made has no newer check of its name to hide the cancelled one: it would read
+// as a failure of a commit that was tested whole by the run that replaced it.
+// A run whose workflow cannot be read replaces nothing, so an unreadable answer
+// never softens a check.
+func (g *GitHub) withoutSupersededCancelled(runs []host.Check) []host.Check {
+	cancelled := map[int64]bool{}
+	var all []int64
+	for _, c := range runs {
+		id := host.RunID(c)
+		if c.App != "github-actions" || id == 0 {
+			continue
+		}
+		if !slices.Contains(all, id) {
+			all = append(all, id)
+		}
+		if strings.EqualFold(c.Status, "completed") && strings.EqualFold(c.Conclusion, "cancelled") {
+			cancelled[id] = true
+		}
+	}
+	if len(cancelled) == 0 || len(all) < 2 {
+		return runs
+	}
+	workflow := map[int64]string{}
+	for _, id := range all {
+		if info, err := g.RunInfo(id); err == nil {
+			workflow[id] = info.Workflow
+		}
+	}
+	superseded := map[int64]bool{}
+	for id := range cancelled {
+		for _, later := range all {
+			if later > id && workflow[id] != "" && workflow[later] == workflow[id] {
+				superseded[id] = true
+			}
+		}
+	}
+	if len(superseded) == 0 {
+		return runs
+	}
+	out := runs[:0:0]
+	for _, c := range runs {
+		if superseded[host.RunID(c)] && strings.EqualFold(c.Status, "completed") && strings.EqualFold(c.Conclusion, "cancelled") {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }

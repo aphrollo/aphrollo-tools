@@ -5,6 +5,7 @@ level: minor
 ### What you will notice
 
 - A job GitHub cancelled with no step run and the note "not acquired by Runner of type hosted" is asked for again, twice at most, with one line saying so, before the wait calls CI unavailable. A billing lock or any other cause is never asked again.
+- A cancelled job of a CI run that a later run of the same workflow on the same commit replaced no longer counts as a failed check, so `merge --wait` stops refusing over the run its own concurrency group cancelled.
 - A status read that fails on the network is retried with a backoff inside the wait's timeout. After five failures in a row the wait says the PR's state is unknown and names `gh pr view`, instead of saying the PR did not merge.
 - `workspace pr` without `--title` titles a multi-commit PR from its first commit, not its branch name. `workspace merge` refuses to enqueue a PR into a merge queue when its title would fail the commit-msg subject rules (a branch name, under four words, a list of files), and prints the `gh pr edit` that fixes it. A direct merge is not judged on its title.
 - `aphrollo version` of a `go install ...@tag` build prints the release it is, such as `aphrollo 1.20.0 (module v1.20.0)`, where it printed `0.0.0-dev (unstamped)`.
