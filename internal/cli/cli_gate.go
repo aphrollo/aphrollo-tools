@@ -29,8 +29,8 @@ Subcommands:
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
   premerge          Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
   premergecommit    (alias of premerge; retiring next release)
-  allow             allow [primary]: waive a wall for this session (bare: list waivers)
-  revoke            revoke [primary]: restore a wall waived by allow (bare: list waivers)
+  allow             allow [primary|discard|red-green]: waive a wall for this session (bare: list waivers)
+  revoke            revoke [primary|discard|red-green]: restore a wall waived by allow (bare: list waivers)
   primary-edits     on|off (alias of allow/revoke primary; retiring next release)
   postcommit        Git post-commit hook: write the refs/notes/gate note on the
                     commit just made — what lets CI tell a red on a gated tip
@@ -483,6 +483,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	tdd.LogEditDecision(raw, guard)
 	obs := newPreShadow(raw)
 	final := mergeGuardrail(guard, gatePreToolUse(raw, stderr, obs))
+	final = obs.redGreenLive(final)
 	obs.settle(final)
 	payload, code := tdd.RenderPreToolUse(final)
 	if len(payload) > 0 {

@@ -1,7 +1,11 @@
 // Package shadow records what the trellis kernel would have decided beside what
 // a live aphrollo hook did (docs/trellis-architecture.md §12, F28 to F29). It is
-// record-only: nothing here returns a decision to a hook, a record that cannot be
-// written inside the budget is dropped, and no record carries a command's text.
+// record-only: nothing in a record returns a decision to a hook, a record that cannot be
+// written inside the budget is dropped, and no record carries a command's text. The one
+// exception is the red→green question a PreToolUse hook puts live (RedGreenLive, live.go):
+// it is the same question, asked under the lane's own mode and inside LiveBudget, and its
+// answer is the rule table's, which the hook renders; the record that follows compares the
+// kernel at enforce with what the hook then did.
 //
 // The stateless rules are the ones the kernel decides from facts the hook already
 // holds. Each is asked of kernel.Decide with an empty lane State and no units, so a
@@ -290,6 +294,9 @@ func verdictClass(v kernel.Verdict) kernel.Verdict {
 type Source struct {
 	Root, Actor, Key string
 	Lang             string // the language of the run a record is about (LangOfCommand), "" when none
+	// What the red→green records of a call carry of the lane's mode: its A/B arm
+	// (empty for a pinned lane), why it runs under the mode it does, and the mode.
+	Arm, ArmWhy, Mode string
 }
 
 // event is the record as the event log carries it: kind shadow, metadata only.
@@ -314,6 +321,11 @@ func (r Record) event(s Source, lane string) core.Event {
 	set("aphrollo_verdict", r.ActualVerdict)
 	set("cause", r.Cause)
 	set("aphrollo_cause", r.ActualCause)
+	if r.Rule == RuleRedGreen {
+		set("arm", s.Arm)
+		set("arm_why", s.ArmWhy)
+		set("tdd", s.Mode)
+	}
 	if r.Primary {
 		d["primary"] = "true"
 	}
@@ -408,32 +420,6 @@ func RecordFactsAnd(s Source, facts func() []Fact, steps []Step) {
 		}
 		settle(w, steps, extra...)
 	}
-}
-
-// RedGreenSteps is the step of a PreToolUse call that shadows red→green over the
-// files it is about to write. It makes none for a call that writes no code or
-// test file.
-func RedGreenSteps(wd World, s Source, p Payload, files []string) []Step {
-	if !hasWrites(files) {
-		return nil
-	}
-	return []Step{{
-		run: func(ctx context.Context) []core.Event {
-			recs := wd.RedGreen(ctx, p, files)
-			evs := make([]core.Event, 0, len(recs))
-			for _, r := range recs {
-				rs := s
-				if r.Root != "" {
-					rs.Root = r.Root
-				}
-				evs = append(evs, r.event(rs, wd.Lane(rs.Root)))
-			}
-			return evs
-		},
-		skip: func(cause string) core.Event {
-			return unjudged(HookPre, RuleRedGreen, "", cause).event(s, wd.Lane(s.Root))
-		},
-	}}
 }
 
 // RecordStop writes the stop-red shadow record of a Stop or SubagentStop, whatever

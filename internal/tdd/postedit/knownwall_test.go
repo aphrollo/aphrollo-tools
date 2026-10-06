@@ -18,7 +18,7 @@ func TestKnownWall_ExactNamesOnly(t *testing.T) {
 }
 
 func TestWallNames_ListsEveryWallInUsageOrder(t *testing.T) {
-	if got, want := WallNames(), "primary|discard"; got != want {
+	if got, want := WallNames(), "primary|discard|red-green"; got != want {
 		t.Fatalf("WallNames() = %q, want %q", got, want)
 	}
 }

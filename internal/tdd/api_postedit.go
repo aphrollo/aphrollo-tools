@@ -103,6 +103,10 @@ func RecordFinishedRedDeferredJobForTest(p0 string, p1 string, p2 string, p3 str
 	postedit.RecordFinishedRedDeferredJobForTest(p0, p1, p2, p3)
 }
 
+func RecordLaneArm(p0 string, p1 string, p2 tddarm.Mode) { postedit.RecordLaneArm(p0, p1, p2) }
+
+func RedGreenWaived(p0 string) bool { return postedit.RedGreenWaived(p0) }
+
 func RenderPostToolUse(p0 string) ([]byte, int) { return postedit.RenderPostToolUse(p0) }
 
 func RenderPreToolUse(p0 Decision) ([]byte, int) { return postedit.RenderPreToolUse(p0) }

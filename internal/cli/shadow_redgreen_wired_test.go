@@ -40,8 +40,24 @@ func shadowOfRule(root, rule string) []tdd.Event {
 
 // goRepo is a lane's worktree of a repo (its primary checkout on main), holding a Go
 // module with one package: the shadow follows lanes, not the primary checkout.
+// The tests that use it are about the shadow record of what aphrollo allowed, so they run
+// with tdd pinned off: under a pin or an arm the hook itself answers red-green.
 func goRepo(t *testing.T) string {
 	t.Helper()
+	return goRepoWith(t, tddOffPin)
+}
+
+// The user configs the shadow tests pin the tdd key with.
+const (
+	tddOffPin     = "tdd = \"off\"\n"
+	tddEnforcePin = "tdd = \"enforce\"\n"
+)
+
+// goRepoWith is goRepo with the box's user config set to text: a stop is checked only
+// under enforce, so the tests of the stop record pin it.
+func goRepoWith(t *testing.T, text string) string {
+	t.Helper()
+	rglPin(t, text)
 	_, linked := primaryWorktreeRepo(t)
 	writeFile(t, filepath.Join(linked, "aphrollo.toml"), "[aphrollo]\n")
 	writeFile(t, filepath.Join(linked, "go.mod"), "module example.com/m\n\ngo 1.22\n")
@@ -185,7 +201,7 @@ func stopPayloadAs(t *testing.T, session, dir string) string {
 // record was folded for is unjudged, never softer.
 func TestRun_Stop_ShadowsEveryStopWithTheLiveUnseenRedFact(t *testing.T) {
 	gateConfigDir(t)
-	dir := goRepo(t)
+	dir := goRepoWith(t, tddEnforcePin)
 
 	var out, errb bytes.Buffer
 	if code := Run([]string{"gate", "stop"}, strings.NewReader(stopPayloadIn(t, dir)), &out, &errb); code != 0 {
@@ -212,7 +228,7 @@ func TestRun_Stop_ShadowsEveryStopWithTheLiveUnseenRedFact(t *testing.T) {
 // The record never reaches the answer of a Stop either.
 func TestRun_Stop_AnswersTheSameBytesWithShadowOnAndOff(t *testing.T) {
 	gateConfigDir(t)
-	dir := goRepo(t)
+	dir := goRepoWith(t, tddEnforcePin)
 	target := filepath.Join(dir, "pkg", "p.go")
 	answer := func(on bool) (int, string, string) {
 		old := shadow.Enabled

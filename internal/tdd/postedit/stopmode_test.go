@@ -223,3 +223,22 @@ func TestStopMode_TrellisOffSilencesTheStopAndTheEditHookLikeTddOff(t *testing.T
 		t.Fatal("the edit hook must stay silent under TRELLIS_OFF, as it does under /tdd off")
 	}
 }
+
+// A lane that pins nothing is checked at Stop under its arm, the same mode its code
+// edits are: the experiment is of the tdd key, not of one rule.
+func TestStopMode_AnUnpinnedLaneIsCheckedUnderItsArm(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	t.Setenv("TRELLIS_CONFIG", t.TempDir())
+	_, linked := primaryRepo(t)
+	mustWrite(t, filepath.Join(linked, "Cargo.toml"), "[package]\nname = \"c\"\nversion = \"0.1.0\"\n")
+	redJobAt(t, linked)
+	arm := EffectiveTDD(linked).Arm
+	if arm == "" {
+		t.Fatalf("setup: the lane has no arm: %+v", EffectiveTDD(linked))
+	}
+	got := DecideStop(StopHookStop, stopPayload(t, "stop.json", stopFields(linked)))
+	if got.Block != (arm == "enforce") {
+		t.Errorf("verdict = %+v in the %s arm, want a block exactly in the enforce arm", got, arm)
+	}
+}

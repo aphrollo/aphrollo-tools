@@ -1008,6 +1008,8 @@ readshared.go                                      core
 readshared_other.go                                core
 readshared_own_test.go                             core
 readshared_windows.go                              core
+redgreenlive.go                                    postedit
+redgreenlive_test.go                               postedit
 redsnippet_test.go                                 postedit
 renameretry.go                                     core
 renameretry_other.go                               core
