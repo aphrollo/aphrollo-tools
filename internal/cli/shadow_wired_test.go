@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,15 +14,35 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-// shadowEvents are the shadow records the repo's event log holds.
+// shadowEvents are the shadow records the event log holds for root. A
+// directory inside a repository has that repository's own log. A directory
+// outside any repository shares one log with every other such directory of the
+// state root, and a deferred job of an earlier test can append to it after that
+// test ended, so there a record counts only when it names root itself.
 func shadowEvents(root string) []tdd.Event {
+	shared := !insideARepository(root)
 	var out []tdd.Event
 	for _, e := range tdd.ReadEvents(root) {
-		if e.Kind == "shadow" {
-			out = append(out, e)
+		if e.Kind != "shadow" || shared && filepath.Clean(e.Repo) != filepath.Clean(root) {
+			continue
 		}
+		out = append(out, e)
 	}
 	return out
+}
+
+// insideARepository reports whether dir or a parent holds a .git entry.
+func insideARepository(dir string) bool {
+	for {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 func bashPayloadIn(t *testing.T, cwd, cmd string) string {
