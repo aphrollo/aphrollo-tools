@@ -79,6 +79,10 @@ func LogLawGuides(p0 []byte, p1 Decision, p2 []LawFinding) { postedit.LogLawGuid
 
 func LogOverride(p0 string, p1 string, p2 string) { postedit.LogOverride(p0, p1, p2) }
 
+func LogOverrideDetail(p0 string, p1 string, p2 string, p3 map[string]string) {
+	postedit.LogOverrideDetail(p0, p1, p2, p3)
+}
+
 func PostBash(p0 []byte, p1 SuiteRunner) string { return postedit.PostBash(p0, p1) }
 
 func PostEdit(p0 []byte, p1 SuiteRunner) string { return postedit.PostEdit(p0, p1) }

@@ -34,6 +34,9 @@ func healthyInstall(t *testing.T) DoctorInput {
 	if _, err := WriteSDDSkill(cfg); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := WriteAphrolloSkill(cfg); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := WriteAgents(cfg); err != nil {
 		t.Fatal(err)
 	}

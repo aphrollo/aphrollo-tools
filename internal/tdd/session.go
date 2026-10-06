@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -61,6 +60,10 @@ func HandlePrompt(raw []byte) PromptResult {
 			arg = strings.ToLower(f[2])
 		}
 		r = PromptResult{Block: true, Message: tddCommand(sub, arg, in.SessionID, in.Cwd)}
+	} else if SessionOff(in.SessionID) {
+		// An off session's prompt carries nothing of ours: no harvest, no red
+		// reminder, no retro, no style block. Only the switch above answers.
+		return PromptResult{}
 	} else if harvested := promptHarvest(in.SessionID); harvested != "" {
 		r = PromptResult{Message: harvested}
 	} else {
@@ -75,10 +78,15 @@ func HandlePrompt(raw []byte) PromptResult {
 	return r
 }
 
-// isGateCommand recognises the control command under both its new name and the
-// one sessions have in their fingers.
+// gateCommandNames are the slash commands that reach the session switch, each
+// the same command: the session's `/aphrollo`, the `/gate` the hooks are named
+// for, and the `/tdd` sessions have in their fingers. A `/trellis` alias is one
+// more entry here.
+var gateCommandNames = []string{"/aphrollo", "/" + CmdName, "/" + LegacyCmdName}
+
+// isGateCommand recognises the control command under any of its names.
 func isGateCommand(p string) bool {
-	for _, name := range []string{"/" + CmdName, "/" + LegacyCmdName} {
+	for _, name := range gateCommandNames {
 		if p == name || strings.HasPrefix(p, name+" ") {
 			return true
 		}
@@ -98,15 +106,15 @@ func tddCommand(sub, arg, session, cwd string) string {
 		if err := setOff(session, true); err != nil {
 			return "gate: could not persist the override (" + err.Error() + ")"
 		}
-		LogOverride("override-off", session, cwd)
-		return "TDD enforcement OFF for this session — edits are no longer gated. Run `/gate on` to re-enable."
+		LogOverrideDetail("override-off", session, cwd, map[string]string{"switch": "session-off"})
+		return "aphrollo OFF for this session — its hooks are silent and decide nothing; the git-side gates and the secrets wall stay on. Run `/aphrollo on` to turn it back on."
 	case "on", "reset":
 		// reset clears any override, which is identical to turning enforcement on.
 		if err := setOff(session, false); err != nil {
 			return "gate: could not persist the override (" + err.Error() + ")"
 		}
-		LogOverride("override-on", session, cwd)
-		return "TDD enforcement ON for this session."
+		LogOverrideDetail("override-on", session, cwd, map[string]string{"switch": "session-on"})
+		return "aphrollo ON for this session."
 	case "primary-edits":
 		// Pre-rename spelling, retiring next release: same wall, same
 		// storage as /tdd allow|revoke primary below.
@@ -157,33 +165,19 @@ func tddCommand(sub, arg, session, cwd string) string {
 	}
 }
 
-// tddStatus renders the current enforcement flag and the per-project outcomes,
-// sorted by root for a stable display.
+// tddStatus is the one line `/aphrollo status` prints: whether the session's
+// hooks are on, the reply style, and what stays on whatever the switch says.
 func tddStatus(session string) string {
 	s, _ := loadSession(session)
 	if s == nil {
-		return "TDD: no session id, enforcement state unavailable."
+		return "aphrollo: no session id, so no per-session switch to read; TRELLIS_OFF=1 is the whole-process one."
 	}
 	state := "ON"
 	if s.GateOff() {
 		state = "OFF"
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "TDD enforcement: %s", state)
-	fmt.Fprintf(&b, "\n  reply style: %s", effectiveReplyStyle(s))
-	if len(s.ByProject) == 0 {
-		b.WriteString("\n  no test outcomes observed yet this session")
-		return b.String()
-	}
-	roots := make([]string, 0, len(s.ByProject))
-	for r := range s.ByProject {
-		roots = append(roots, r)
-	}
-	sort.Strings(roots)
-	for _, r := range roots {
-		fmt.Fprintf(&b, "\n  %s: outcome=%s", r, s.ByProject[r].Outcome)
-	}
-	return b.String()
+	return fmt.Sprintf("aphrollo: enforcement %s for this session (reply style %s); stays on always: the secrets wall and the git-side gates (commit, merge, push). Switch: /aphrollo off|on.",
+		state, effectiveReplyStyle(s))
 }
 
 // reinforce returns a one-line reminder when the current project's last recorded

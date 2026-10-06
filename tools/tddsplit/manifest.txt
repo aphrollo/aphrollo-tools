@@ -57,6 +57,9 @@ agent_researcher.md                                install
 agent_reviewer.md                                  install
 agents.go                                          install
 agents_test.go                                     install
+aphrolloskill.go                                   install
+aphrolloskill.md                                   install
+aphrolloskill_test.go                              install
 armmode.go                                         postedit
 armmode_test.go                                    postedit
 autoescape.go                                      escape
@@ -1084,6 +1087,7 @@ session_core.go                                    core      # created by P2
 session_identity.go                                tdd
 session_identity_test.go                           tdd
 session_styleonce_test.go                          tdd
+session_switch_test.go                             tdd
 session_test.go                                    tdd
 sessionactive.go                                   core
 sessionactive_own_test.go                          core

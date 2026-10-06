@@ -64,6 +64,8 @@ func PruneRetiredHooks(p0 string) ([]string, error) { return install.PruneRetire
 
 func RemoveAgents(p0 string) ([]string, error) { return install.RemoveAgents(p0) }
 
+func RemoveAphrolloSkill(p0 string) (bool, error) { return install.RemoveAphrolloSkill(p0) }
+
 func RemoveCmdShims(p0 string) ([]string, error) { return install.RemoveCmdShims(p0) }
 
 func RemoveSDDSkill(p0 string) (bool, error) { return install.RemoveSDDSkill(p0) }
@@ -81,6 +83,8 @@ func StyleBlock() string { return install.StyleBlock() }
 func TDDSkill() string { return install.TDDSkill() }
 
 func WriteAgents(p0 string) ([]string, error) { return install.WriteAgents(p0) }
+
+func WriteAphrolloSkill(p0 string) (bool, error) { return install.WriteAphrolloSkill(p0) }
 
 func WriteClaudeMD(p0 string, p1 bool) (bool, error) { return install.WriteClaudeMD(p0, p1) }
 

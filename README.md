@@ -88,6 +88,13 @@ no edit to a released changelog section or a merged fragment.
   as the reason (never twice in a row; a red already shown may end the turn);
   `TaskCompleted` exits 2 with the failing tests while the task's tests are
   red. `/gate off` switches all three off.
+- **Session switch:** the `/aphrollo` command with `off`, `on` or `status` (`/tdd` is the same switch)
+  silences every session hook for the session: edit-time guidance and denies,
+  test runs, gate lines, turn-end checks, injected context and the reply style,
+  and the statusline shows `off`. The git-side gates (commit, merge, push) and
+  the secrets wall stay on. Each flip is an event (`override-off` / `override-on`
+  with `switch=session-off|session-on`), counted as a wrong-block signal.
+  `aphrollo install` writes the `aphrollo` skill the command needs.
 - **Commit:** staged-baseline guard → ratchet laws → docs → vet/lint →
   fail-first (the staged test must be RED without the change). Suites are
   `NOT RUN` here and run at the merge.
@@ -162,7 +169,7 @@ Law schema, matcher kinds and baselines: [.ratchet/README.md](.ratchet/README.md
 workspace's `Cargo.toml`. `aphrollo config` prints the opt-in keys (the first
 rows) with this repo's values; a repo's first `aphrollo install` prints them once. `aphrollo config show` prints every setting of the schema (`internal/config`) with the layer it came from (built-in, the user's `config.toml`, the repo's `trellis.toml`, or the `aphrollo.toml` key it is an alias of), and names a key or value a file got wrong; `aphrollo config set <key> <value> [--user or --repo]|--repo] [--dry]` writes one.
 
-The box's own settings (`budgets.edit_s`, `lock_wait_s`, `cargo_wait_s`, `git_wait_s`, `lint_wait_s`, `deferred_max_s`, `mech_total_s`, `box.build_slots`, `box.mech_parallel`, `reply_style`) live in the user's `config.toml` (`aphrollo config show` lists them). They were environment variables; the old `APHROLLO_*` names still work for one more release and print a notice naming the key. `TRELLIS_OFF=1` switches the gate's session checks off for a process, as `/tdd off` does for a session; `TRELLIS_CONFIG` and `TRELLIS_DATA` move the config and data roots. Every other `APHROLLO_*` variable is a test seam or a marker the gate sets for its own children, registered in `.ratchet/dev_instrument_registry.txt`.
+The box's own settings (`budgets.edit_s`, `lock_wait_s`, `cargo_wait_s`, `git_wait_s`, `lint_wait_s`, `deferred_max_s`, `mech_total_s`, `box.build_slots`, `box.mech_parallel`, `reply_style`) live in the user's `config.toml` (`aphrollo config show` lists them). They were environment variables; the old `APHROLLO_*` names still work for one more release and print a notice naming the key. `TRELLIS_OFF=1` switches the gate's session checks off for a process, as `/aphrollo off` does for a session; `TRELLIS_CONFIG` and `TRELLIS_DATA` move the config and data roots. Every other `APHROLLO_*` variable is a test seam or a marker the gate sets for its own children, registered in `.ratchet/dev_instrument_registry.txt`.
 
 With `undercover = true` a tool identity is refused at commit, pre-push and `workspace merge` and flagged at session start and by `gate doctor`; the Bash/PowerShell hook, the git shim, pre-push and `workspace create`/`claim`/`pr`/`ship`/`submit` refuse a tell ref name; `pr`/`ship`/`submit`, `issue`, `feedback` and the Bash/PowerShell hook (for a `gh pr`, `gh issue` or `gh api` call) check text before `gh`. The Bash/PowerShell hook judges `gh pr`/`gh issue` create, edit, comment, review and merge text, and a `gh api` request's title, body and head fields, `--input` JSON file and GraphQL mutation. Every check runs on this box before the text reaches GitHub; nothing in CI repeats it.
 

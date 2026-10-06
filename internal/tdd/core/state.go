@@ -519,3 +519,11 @@ func everySessionID() []string {
 	}
 	return ids
 }
+
+// SessionOff is the one predicate every session hook asks at its entry: the
+// session said `/aphrollo off` (or `/tdd off`), or TRELLIS_OFF switches the
+// whole process. A hook with no session id is off only by the environment.
+func SessionOff(session string) bool {
+	s, _ := loadSession(session)
+	return s.GateOff()
+}

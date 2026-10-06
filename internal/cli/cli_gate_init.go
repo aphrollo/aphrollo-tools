@@ -100,6 +100,14 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		if removed {
 			fmt.Fprintf(stdout, "aphrollo gate: removed the tdd skill from %s\n", skill)
 		}
+		aremoved, err := tdd.RemoveAphrolloSkill(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if aremoved {
+			fmt.Fprintf(stdout, "aphrollo gate: removed the aphrollo skill from %s\n", filepath.Join(dir, "skills", "aphrollo", "SKILL.md"))
+		}
 		sremoved, err := tdd.RemoveSDDSkill(dir)
 		if err != nil {
 			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
@@ -116,6 +124,16 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		}
 		if schanged {
 			fmt.Fprintf(stdout, "aphrollo gate: wrote the tdd skill in %s\n", skill)
+		}
+		// `/aphrollo off|on|status` reaches the prompt hook only through a skill
+		// of that name.
+		achanged, err := tdd.WriteAphrolloSkill(dir)
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo: %v\n", err)
+			return 1
+		}
+		if achanged {
+			fmt.Fprintf(stdout, "aphrollo gate: wrote the aphrollo skill in %s\n", filepath.Join(dir, "skills", "aphrollo", "SKILL.md"))
 		}
 		// The feature-level procedure: how a spec becomes lanes, how a lane
 		// becomes a commit, and where the transient tree goes at the end.

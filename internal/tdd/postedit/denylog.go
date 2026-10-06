@@ -2,6 +2,7 @@ package postedit
 
 import (
 	"encoding/json"
+	"maps"
 	"path/filepath"
 	"strings"
 )
@@ -42,7 +43,11 @@ func LogEditDecision(raw []byte, d Decision) {
 // of its own — the discard wall's APHROLLO_DISCARD=1 and one-shot-arm
 // passes, neither of which runs inside a hook that already has a Decision to
 // log.
-func LogOverride(verdict, session, cwd string) {
+func LogOverride(verdict, session, cwd string) { LogOverrideDetail(verdict, session, cwd, nil) }
+
+// LogOverrideDetail is LogOverride for a flip that says more about itself: the
+// session switch names which way it went (switch=session-off|session-on).
+func LogOverrideDetail(verdict, session, cwd string, extra map[string]string) {
 	root := "-"
 	if cwd != "" {
 		if r := findRootFrom(cwd); r != "" {
@@ -51,7 +56,9 @@ func LogOverride(verdict, session, cwd string) {
 			root = cwd
 		}
 	}
-	AppendGateLogDetail("session", root, LogToken(session), verdict, 0, map[string]string{"file": LogToken(session)})
+	detail := map[string]string{"file": LogToken(session)}
+	maps.Copy(detail, extra)
+	AppendGateLogDetail("session", root, LogToken(session), verdict, 0, detail)
 }
 
 // policyName is the verdict's key. A decision that named no policy still gets
