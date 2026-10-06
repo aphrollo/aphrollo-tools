@@ -144,12 +144,15 @@ func TestIsTransientNetError_NamesTheNetworkFailuresAndNotTheAnswers(t *testing.
 		"Get \"https://api.github.com/x\": net/http: TLS handshake timeout":                                                                  true,
 		"dial tcp: lookup api.github.com: no such host":                                                                                      true,
 		"gh api pulls/5: i/o timeout": true,
-		"gh api pulls/5: timed out after 1m0s — check network connectivity/credentials and retry": true,
-		"gh api pulls/5: HTTP 502: Bad Gateway":                                                   true,
-		"gh api pulls/5: HTTP 404: Not Found":                                                     false,
-		"gh api pulls/5: HTTP 401: Bad credentials":                                               false,
-		"gh api pulls/5: HTTP 403: Resource not accessible":                                       false,
-		"no such pull request":                                                                    false,
+		"gh api pulls/5: timed out after 1m0s — check network connectivity/credentials and retry":                             true,
+		"gh api pulls/5: HTTP 502: Bad Gateway":                                                                               true,
+		"gh api pulls/5: HTTP 429: Too Many Requests":                                                                         true,
+		"gh api pulls/5: HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.": true,
+		"gh api pulls/5: HTTP 403: API rate limit exceeded for user ID 1.":                                                    true,
+		"gh api pulls/5: HTTP 404: Not Found":                                                                                 false,
+		"gh api pulls/5: HTTP 401: Bad credentials":                                                                           false,
+		"gh api pulls/5: HTTP 403: Resource not accessible":                                                                   false,
+		"no such pull request": false,
 	} {
 		if got := isTransientNetError(errors.New(msg)); got != want {
 			t.Errorf("isTransientNetError(%q) = %v, want %v", msg, got, want)
@@ -191,5 +194,27 @@ func TestMergeWait_CheckWaitRidesOutANetworkErrorOnTheChecksRead(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "GitHub could not be reached (2 of 5 tries)") {
 		t.Errorf("the second retry is not said:\n%s", out.String())
+	}
+}
+
+// A rate limit says how long to wait when it can. The wait honours that, bounded
+// so a hostile or mistaken header cannot park the verb, and counts it like any
+// other failed read.
+func TestNetRetry_HonoursARetryAfterWithinABound(t *testing.T) {
+	for _, tc := range []struct {
+		msg  string
+		want time.Duration
+	}{
+		{"gh api pulls/5: HTTP 429: Too Many Requests (Retry-After: 45)", 45 * time.Second},
+		{"gh api pulls/5: HTTP 403: secondary rate limit; retry after 90 seconds", 90 * time.Second},
+		{"gh api pulls/5: HTTP 429: Too Many Requests (Retry-After: 99999)", 2 * time.Minute},
+		{"gh api pulls/5: HTTP 429: Too Many Requests", 5 * time.Second},
+		{"gh api pulls/5: HTTP 429: Retry-After: 1", 5 * time.Second},
+	} {
+		var r netRetry
+		got, err := r.failed(errors.New(tc.msg), "PR #5", "5", 30*time.Second, io.Discard)
+		if err != nil || got != tc.want {
+			t.Errorf("%q: wait = %v, %v; want %v", tc.msg, got, err, tc.want)
+		}
 	}
 }
