@@ -492,7 +492,13 @@ var ghRerunFailed = func(dir string, run int64) error {
 type reRequests struct {
 	n     int
 	asked map[int64]bool
+	stale int // polls in a row that showed only jobs already asked for
 }
+
+// reRequestGrace is how many polls in a row a wait lets pass over jobs it has
+// already asked for, which the list can lag in showing replaced, before it
+// calls them an outage.
+const reRequestGrace = 3
 
 // reRequestUnacquired decides what a wait does about jobs that never started.
 // It returns true when the wait should keep polling: the jobs are ones no
@@ -515,8 +521,15 @@ func reRequestUnacquired(dir string, head *PRHead, idle []CheckRun, rr *reReques
 		}
 	}
 	if !fresh {
-		return true
+		rr.stale++
+		if rr.stale <= reRequestGrace {
+			return true
+		}
+		fmt.Fprintf(stdout, "  [wait] PR #%d %s: no runner took %s after %d re-request(s); calling CI unavailable\n",
+			head.Number, short(head.HeadSHA), jobNames(idle), rr.n)
+		return false
 	}
+	rr.stale = 0
 	if rr.n >= maxReRequests {
 		return false
 	}
@@ -533,4 +546,13 @@ func reRequestUnacquired(dir string, head *PRHead, idle []CheckRun, rr *reReques
 	fmt.Fprintf(stdout, "  [wait] PR #%d %s: hosted runners never took %d job(s); re-requesting them (ask %d of %d)\n",
 		head.Number, short(head.HeadSHA), len(idle), rr.n, maxReRequests)
 	return true
+}
+
+// jobNames lists the checks' names for a line a person reads.
+func jobNames(checks []CheckRun) string {
+	names := make([]string, len(checks))
+	for i, c := range checks {
+		names[i] = c.Name
+	}
+	return strings.Join(names, ", ")
 }

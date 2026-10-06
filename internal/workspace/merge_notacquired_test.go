@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -124,5 +125,35 @@ func TestMergeWait_AJobThatWasNotAnOutageOfRunnersIsNeverReRequested(t *testing.
 	}
 	if len(asked) != 0 {
 		t.Errorf("re-requested %v a job a billing lock stopped", asked)
+	}
+}
+
+// Once its asks are spent, a job no runner replaced is an outage, not something
+// to poll for until the wait times out: the wait fails as CI unavailable, so the
+// ci = auto fallback takes over, and names the job.
+func TestMergeWait_AJobNoRunnerEverReplacedEndsTheWaitAsCIUnavailableNamingIt(t *testing.T) {
+	pinCIMode(t, tdd.CIGithub)
+	var asked []int64
+	stubRerun(t, &asked)
+	pr := &fakePR{number: 25, branch: "lane/ne", steps: []ciStep{
+		{head: newSHA, checks: []CheckRun{notAcquiredRun("lint", newSHA, 11)}},
+	}}
+	f := &fakeCI{prs: []*fakePR{pr}, laneHead: map[string]string{"/w/ne": newSHA}}
+	install(t, f)
+
+	var out, errb bytes.Buffer
+	err := MergeWait(&Target{Worktree: "/w/ne", Branch: "lane/ne", MainRepo: "/r", RepoName: "r"}, "squash", true, testWait, &out, &errb)
+
+	if err == nil || !isCIUnavailable(err) {
+		t.Fatalf("err = %v, want ci unavailable, not a timeout", err)
+	}
+	if strings.Contains(err.Error(), "timed out") {
+		t.Errorf("the wait ran to its timeout:\n%v", err)
+	}
+	if f.slept > 5*time.Minute {
+		t.Errorf("waited %v on a job nothing replaced, want a few polls", f.slept)
+	}
+	if !strings.Contains(out.String(), "lint") || !strings.Contains(out.String(), "no runner took") {
+		t.Errorf("no line names the job nothing replaced:\n%s", out.String())
 	}
 }
