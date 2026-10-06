@@ -129,3 +129,12 @@ jobs:
 		t.Errorf("the finished run's scratch %s was not removed (stat err %v)", scratch, err)
 	}
 }
+
+// A sweep that scans where a run makes its scratch would, in a test binary on
+// Windows, scan the real root of the system drive. Under test the base is the
+// test's own temp dir, whatever the test did or did not override.
+func TestScratchBase_UnderATestIsTheTestsOwnTempDir(t *testing.T) {
+	if got, want := ScratchBase(), os.TempDir(); got != want {
+		t.Errorf("ScratchBase() = %q under test, want the test's temp dir %q", got, want)
+	}
+}

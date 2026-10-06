@@ -1,8 +1,10 @@
 package ghworkflow
 
 import (
+	"os"
 	"sort"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
@@ -43,7 +45,14 @@ func liveScratchDirs() []string {
 
 // scratchBase is where a run makes its scratch directory. A variable so a test
 // points it at a directory of its own.
-var scratchBase = shortScratchBase
+var scratchBase = func() string {
+	if testing.Testing() {
+		// A sweep or a run under test must never reach the real root of the
+		// system drive; the test binary's temp dir is walled off by gitiso.
+		return os.TempDir()
+	}
+	return shortScratchBase()
+}
 
 // ScratchBase is the directory every run's scratch is made directly under, for
 // a sweep that looks for the ones a killed run left.
