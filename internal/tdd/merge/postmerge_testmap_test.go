@@ -183,3 +183,31 @@ func TestLaunchDetached_ACommandThatCannotStartIsNotLaunched(t *testing.T) {
 		t.Error("the launch created the binary")
 	}
 }
+
+// A merge or pull into a lane, or onto a branch other than trunk, changes no
+// map anyone selects tests from: the maps follow trunk. Only trunk moving in
+// the primary checkout starts a build, so a busy box with many lanes does not
+// stack one full build per lane catch-up (#1248).
+func TestStartTestMapBuild_OnlyWhenTrunkMovesInThePrimaryCheckout(t *testing.T) {
+	roots := recordSpawns(t)
+	primary := declaredRepo(t, "[aphrollo]\nmutants-at-commit = true\n")
+	lane := filepath.Join(t.TempDir(), "lane")
+	gitDo(t, primary, "worktree", "add", "-q", "-b", "lane/x", lane)
+
+	startTestMapBuild(lane)
+	if len(*roots) != 0 {
+		t.Fatalf("a merge into a linked lane started a build: %v", *roots)
+	}
+
+	gitDo(t, primary, "checkout", "-q", "-b", "side")
+	startTestMapBuild(primary)
+	if len(*roots) != 0 {
+		t.Fatalf("a merge onto a non-trunk branch of the primary started a build: %v", *roots)
+	}
+
+	gitDo(t, primary, "checkout", "-q", "main")
+	startTestMapBuild(primary)
+	if len(*roots) != 1 || !sameRepoDir((*roots)[0], primary) {
+		t.Errorf("builds = %v, want exactly one, for trunk in %s", *roots, primary)
+	}
+}

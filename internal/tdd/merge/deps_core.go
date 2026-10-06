@@ -34,6 +34,8 @@ func primaryCheckoutRoot(p0 string) string { return core.PrimaryCheckoutRoot(p0)
 
 func readGateEntries(p0 string, p1 time.Time) []gateEntry { return core.ReadGateEntries(p0, p1) }
 
+func samePath(p0 string, p1 string) bool { return core.SamePath(p0, p1) }
+
 func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }
 
 func silentStdio(p0 *exec.Cmd) func() { return core.SilentStdio(p0) }
