@@ -6,4 +6,6 @@ import (
 	lock "github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
 )
 
+func CIScratchRoot(p0 string) string { return lock.CIScratchRoot(p0) }
+
 func cargoWorkspaceRoot(p0 string) string { return lock.CargoWorkspaceRoot(p0) }

@@ -162,6 +162,7 @@ cargo_uncompiled_test.go                           postedit  # prefix says suite
 cargo_workspace_root_test.go                       precommit
 cargoshim_install.go                               install
 cargoshim_install_test.go                          install
+ciscratch_test.go                                  lock
 civerdict.go                                       merge
 civerdict_test.go                                  merge
 classify.go                                        suite
@@ -544,6 +545,7 @@ localci_config.go                                   merge
 localci_config_test.go                              merge
 localci_pr.go                                       merge
 localci_pr_test.go                                  merge
+localci_scratchbase_test.go                         merge
 localci_signal_test.go                              merge
 localci_summary_test.go                             merge
 localci_test.go                                     merge

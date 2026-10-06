@@ -138,3 +138,5 @@ func TestScratchBase_UnderATestIsTheTestsOwnTempDir(t *testing.T) {
 		t.Errorf("ScratchBase() = %q under test, want the test's temp dir %q", got, want)
 	}
 }
+
+// ratchet: test_removed internal/ghworkflow/scratchbase_windows_test.go: the drive-root scratch base and its ACL checks are gone; the base is the .ci directory beside the lanes, pinned in the lock package's ciscratch_test.go

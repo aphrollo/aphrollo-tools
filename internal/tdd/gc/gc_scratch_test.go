@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/aphrollo/aphrollo-tools/internal/ghworkflow"
 )
 
 func withScratchHeld(t *testing.T, fn func(string) (bool, bool)) {
@@ -279,19 +277,27 @@ func TestScanGC_TempScratchScopeSweepsTheReposGoScratchDir(t *testing.T) {
 	}
 }
 
-// A local CI run makes its scratch under a short base of its own (the root of
-// the system drive on Windows), which is not a lock dir: a run killed there left
-// its scratch beyond the sweep's reach.
+// A local CI run makes its scratch under the .ci dir of the repo's worktree
+// layout, beside the lanes, under a short number. One a killed run left is
+// swept like any other scratch; one a live process holds is not.
 func TestScanGC_TempScratchScopeSweepsWhereALocalCIRunMakesItsScratch(t *testing.T) {
-	base := t.TempDir()
-	defer ghworkflow.SetScratchBaseForTest(base)()
 	defer SetLockDirForTest(t.TempDir())()
-	mkFile(t, filepath.Join(base, "aphrollo-ci-run-424242", "f"), "x", 4*time.Hour)
-	withScratchHeld(t, func(string) (bool, bool) { return false, true })
+	repo := makeCargoRepo(t)
+	base := CIScratchRoot(repo)
+	mkFile(t, filepath.Join(base, "7", "f"), "x", 4*time.Hour)
+	mkFile(t, filepath.Join(base, "8", "f"), "x", 4*time.Hour)
+	mkFile(t, filepath.Join(base, "notanumber", "f"), "x", 4*time.Hour)
+	withScratchHeld(t, func(p string) (bool, bool) { return filepath.Base(p) == "8", true })
 
-	got := ScanGC(t.TempDir(), 3*24*time.Hour, GCScope{TempScratch: true})
+	got := ScanGC(repo, 3*24*time.Hour, GCScope{TempScratch: true})
 
-	if _, found := candidateAt(got, filepath.Join(base, "aphrollo-ci-run-424242")); !found {
-		t.Fatalf("the sweep missed the killed run's scratch under its base: %+v", got)
+	if _, found := candidateAt(got, filepath.Join(base, "7")); !found {
+		t.Errorf("the sweep missed the killed run's scratch under its base: %+v", got)
+	}
+	if _, found := candidateAt(got, filepath.Join(base, "8")); found {
+		t.Errorf("the sweep proposed a run a live process holds: %+v", got)
+	}
+	if _, found := candidateAt(got, filepath.Join(base, "notanumber")); found {
+		t.Errorf("the sweep proposed a directory no run made: %+v", got)
 	}
 }

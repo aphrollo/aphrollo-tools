@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -178,7 +179,7 @@ func runWorkflows(ctx context.Context, lane, wt string, tips prGateTips, commit 
 		"repository": repoSlug(originURL(lane)),
 	}
 	addPullRequest(event, lane, log)
-	return ghworkflow.Run(ctx, flows, ghworkflow.Options{Dir: wt, Out: log, Event: event, Jobs: run.Jobs, StepTimeout: run.StepTimeout})
+	return ghworkflow.Run(ctx, flows, ghworkflow.Options{Dir: wt, ScratchBase: ciScratchBase(lane), Out: log, Event: event, Jobs: run.Jobs, StepTimeout: run.StepTimeout})
 }
 
 // repoSlug is owner/repo from a GitHub remote URL, "" for anything else.
@@ -235,4 +236,20 @@ func storedGreen(root, tree string) bool {
 		}
 	}
 	return false
+}
+
+// ciScratchBase is where a local CI run makes its scratch: the .ci directory of
+// the repo's worktree layout, beside its lanes, so the run's files land on the
+// project's own drive and never inside the worktree under test. A repo whose
+// primary checkout cannot be resolved falls back to a .aphrollo-ci directory
+// beside it, and "" (the OS temp dir) when that cannot be made either.
+func ciScratchBase(lane string) string {
+	dir := CIScratchRoot(lane)
+	if dir == "" {
+		dir = filepath.Join(filepath.Dir(filepath.Clean(lane)), ".aphrollo-ci")
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return ""
+	}
+	return dir
 }

@@ -8,6 +8,8 @@ import (
 
 type BuildLockOwner = lock.BuildLockOwner
 
+func CIScratchRoot(p0 string) string { return lock.CIScratchRoot(p0) }
+
 func GoTmpRootDir(p0 string) string { return lock.GoTmpRootDir(p0) }
 
 func ReadBuildSlotOwner(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildSlotOwner(p0) }

@@ -1,10 +1,14 @@
 package ghworkflow
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
@@ -45,14 +49,7 @@ func liveScratchDirs() []string {
 
 // scratchBase is where a run makes its scratch directory. A variable so a test
 // points it at a directory of its own.
-var scratchBase = func() string {
-	if testing.Testing() {
-		// A sweep or a run under test must never reach the real root of the
-		// system drive; the test binary's temp dir is walled off by gitiso.
-		return os.TempDir()
-	}
-	return shortScratchBase()
-}
+var scratchBase = os.TempDir
 
 // ScratchBase is the directory every run's scratch is made directly under, for
 // a sweep that looks for the ones a killed run left.
@@ -90,4 +87,32 @@ func RemoveLiveScratch(grace time.Duration) {
 // read-only by design, which RemoveTree handles.
 func removeScratch(dir string) error {
 	return depinstall.RemoveTree(dir)
+}
+
+// maxScratchNumber bounds the search for a free run number under a base.
+const maxScratchNumber = 100000
+
+// makeScratch makes the directory one run keeps its scratch in. Under a base the
+// caller names it is <base>/<n> for the lowest number n no other run, or no
+// killed run not yet swept, holds: the number is short so the test code a job
+// runs has room for its own temp dirs under the Windows path limit. With no base
+// it is a directory of the OS temp dir.
+func makeScratch(base string) (string, error) {
+	if base == "" {
+		return os.MkdirTemp(scratchBase(), "aphrollo-ci-run-")
+	}
+	if err := os.MkdirAll(base, 0o755); err != nil {
+		return "", err
+	}
+	for n := 1; n < maxScratchNumber; n++ {
+		dir := filepath.Join(base, strconv.Itoa(n))
+		err := os.Mkdir(dir, 0o755)
+		if err == nil {
+			return dir, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+	}
+	return "", fmt.Errorf("every run number under %s is taken", base)
 }

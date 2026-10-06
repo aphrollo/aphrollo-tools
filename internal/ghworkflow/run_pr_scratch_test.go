@@ -83,3 +83,22 @@ jobs:
 // slashed is a path spelled the one way a comparison can read: forward slashes,
 // lower case.
 func slashed(p string) string { return strings.ToLower(strings.ReplaceAll(p, `\`, "/")) }
+
+// A caller that names a base gets the run's scratch directly under it, under
+// the lowest free number, so a path stays short; a number a killed run holds is
+// skipped, never reused over its files.
+func TestRun_AScratchBaseTheCallerNamesHoldsTheRunUnderTheLowestFreeNumber(t *testing.T) {
+	base := filepath.Join(t.TempDir(), "layout", ".ci")
+	if err := os.MkdirAll(filepath.Join(base, "1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := makeScratch(base)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(base, "2"); got != want {
+		t.Errorf("scratch = %q, want %q", got, want)
+	}
+}

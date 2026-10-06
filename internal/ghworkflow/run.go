@@ -23,6 +23,7 @@ type Options struct {
 	StepTimeout time.Duration  // per step, 30 minutes when zero
 	Env         []string       // the base environment, os.Environ() when nil
 	Jobs        int            // jobs that may run at once, one at a time in needs order when zero
+	ScratchBase string         // where the run makes its scratch, under a short number; the OS temp dir when empty
 
 	iso *isolation // set by Run: what keeps the steps' installs inside the run's scratch
 }
@@ -96,7 +97,7 @@ func (s *Summary) Count(result string) int {
 // unevaluable expression is printed.
 func Run(ctx context.Context, flows []*Workflow, opt Options) (*Summary, error) {
 	opt = opt.withDefaults()
-	tmp, err := os.MkdirTemp(scratchBase(), "aphrollo-ci-run-")
+	tmp, err := makeScratch(opt.ScratchBase)
 	if err != nil {
 		return nil, fmt.Errorf("a scratch directory for the run could not be made: %w", err)
 	}

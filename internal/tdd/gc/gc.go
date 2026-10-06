@@ -6,13 +6,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
-	"github.com/aphrollo/aphrollo-tools/internal/ghworkflow"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/postedit"
 )
 
@@ -117,9 +115,9 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 	}
 	if scope.TempScratch {
 		dirs := lockLitterDirs()
-		if base := ghworkflow.ScratchBase(); base != "" && !slices.Contains(dirs, base) {
-			// where a local CI run makes its scratch: a short dir of its own on Windows
-			out = append(out, gcTempScratch(base, time.Now())...)
+		for _, base := range ciScratchBases(repo) {
+			// where a local CI run makes its scratch, beside the lanes
+			out = append(out, gcCIScratch(base, time.Now())...)
 		}
 		for _, dir := range dirs {
 			out = append(out, gcTempScratch(dir, time.Now())...)
