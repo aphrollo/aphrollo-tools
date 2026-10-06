@@ -77,7 +77,7 @@ func TestCovered_IsAGreenRunOfTheUnitOnATreeHoldingItsNewestEdit(t *testing.T) {
 }
 
 func TestCovered_AProjectRootUnitIsCoveredByAnyGreenRunOfItsProject(t *testing.T) {
-	crate := Unit{ID: "crates/engine", Project: "crates/engine", Kind: unitProjectRoot}
+	crate := Unit{ID: "rust:crates/engine", Project: "crates/engine", Kind: unitProjectRoot}
 	unitOf := func(string) (Unit, bool) { return crate, true }
 	runs := []store.RunVerdict{runOf(kernel.VerdictGreen, "crates/engine|cargo test -p engine", t0.Add(5*time.Second), 1000)}
 	if !Covered(crate, runs, []LedgerEdit{{File: "lib.rs", At: t0}}, unitOf) {

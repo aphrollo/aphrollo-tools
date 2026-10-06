@@ -2,41 +2,112 @@ package shadow
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/aphrollo/aphrollo-tools/internal/lang"
+	"github.com/aphrollo/aphrollo-tools/internal/mask"
 )
 
 // AddsSymbol is the kernel's Event.AddsSymbol for a write about to happen: whether it
 // adds an exported symbol or a new function, which makes the code it writes
 // "untested code" however well covered its unit is. It is read from the payload
-// itself, for Go files only (every other language answers false, which the shadow
-// notes say):
+// itself, for Go, Python and TypeScript or JavaScript files (every other language
+// answers false, which the shadow notes say):
 //
-//   - Edit and MultiEdit: the top-level func, type, var and const names the old text
-//     declares against those the new text declares. A fragment is enough; no file is
-//     parsed.
+//   - Edit and MultiEdit: the names the old text declares against those the new text
+//     declares. A fragment is enough; no file is parsed.
 //   - Write: the names of the content against those of the file on disk (one read; a
 //     file not there declares none).
 //
-// A new func of any name counts, a new type, var or const only when it is exported.
+// Go: a new func of any name counts, a new type, var or const only when it is
+// exported. Python: a new def of any name (a method too), a new class unless its
+// name starts with an underscore. TypeScript and JavaScript: a new function of any
+// name (a const bound to an arrow function too), a new exported declaration of any
+// kind. None of the three is parsed: the gate holds no symbol table for them, so a
+// declaration is a line the language's own syntax opens with.
 func AddsSymbol(p Payload, file string) bool {
-	if !strings.HasSuffix(strings.ToLower(file), ".go") {
+	namesOf, fresh := declaredNames, newSymbol
+	switch strings.ToLower(filepath.Ext(file)) {
+	case ".go":
+	case ".py":
+		namesOf, fresh = pyDeclaredNames, anyNewName
+	case ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs":
+		namesOf, fresh = nodeDeclaredNames, anyNewName
+	default:
 		return false
 	}
+	names := func(src string) map[string]bool { return namesOf(masked(file, src)) }
 	switch p.ToolName {
 	case "Edit":
-		return newSymbol(declaredNames(p.ToolInput.OldString), declaredNames(p.ToolInput.NewString))
+		return fresh(names(p.ToolInput.OldString), names(p.ToolInput.NewString))
 	case "MultiEdit":
 		var old, now strings.Builder
 		for _, e := range p.ToolInput.Edits {
 			old.WriteString(e.OldString + "\n")
 			now.WriteString(e.NewString + "\n")
 		}
-		return newSymbol(declaredNames(old.String()), declaredNames(now.String()))
+		return fresh(names(old.String()), names(now.String()))
 	case "Write":
 		disk, _ := os.ReadFile(file) // a file not there declares no name
-		return newSymbol(declaredNames(string(disk)), declaredNames(p.ToolInput.Content))
+		return fresh(names(string(disk)), names(p.ToolInput.Content))
+	}
+	return false
+}
+
+var (
+	pyDef   = regexp.MustCompile(`^\s*(?:async\s+)?def\s+(\w+)`)
+	pyClass = regexp.MustCompile(`^\s*class\s+([A-Za-z]\w*)`)
+
+	nodeFunc   = regexp.MustCompile(`^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s*\*?\s*(\w+)`)
+	nodeArrow  = regexp.MustCompile(`^\s*(?:export\s+)?(?:const|let|var)\s+(\w+)\s*(?::[^=]+)?=\s*(?:async\s*)?(?:\([^)]*\)|\w+)\s*(?::\s*[^=]+)?=>`)
+	nodeExport = regexp.MustCompile(`^export\s+(?:default\s+)?(?:declare\s+)?(?:abstract\s+)?(?:class|interface|type|enum|const|let|var)\s+(\w+)`)
+)
+
+// pyDeclaredNames are the names a Python text declares: "func:name" for a def at any
+// depth, "class:Name" for a class whose name is public.
+func pyDeclaredNames(src string) map[string]bool {
+	out := map[string]bool{}
+	for _, line := range strings.Split(src, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if m := pyDef.FindStringSubmatch(line); m != nil {
+			out["func:"+m[1]] = true
+		} else if m := pyClass.FindStringSubmatch(line); m != nil {
+			out["class:"+m[1]] = true
+		}
+	}
+	return out
+}
+
+// nodeDeclaredNames are the names a TypeScript or JavaScript text declares: "func:name"
+// for a function or a binding of an arrow function, "export:name" for a top-level
+// exported declaration.
+func nodeDeclaredNames(src string) map[string]bool {
+	out := map[string]bool{}
+	for _, line := range strings.Split(src, "\n") {
+		line = strings.TrimRight(line, "\r")
+		switch {
+		case nodeFunc.MatchString(line):
+			out["func:"+nodeFunc.FindStringSubmatch(line)[1]] = true
+		case nodeArrow.MatchString(line):
+			out["func:"+nodeArrow.FindStringSubmatch(line)[1]] = true
+		}
+		if m := nodeExport.FindStringSubmatch(line); m != nil {
+			out["export:"+m[1]] = true
+		}
+	}
+	return out
+}
+
+// anyNewName reports whether now declares a name before did not: the names of the
+// Python and node readers are only the ones that count.
+func anyNewName(before, now map[string]bool) bool {
+	for k := range now {
+		if !before[k] {
+			return true
+		}
 	}
 	return false
 }
@@ -98,4 +169,16 @@ func newSymbol(before, now map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// masked is src with the strings and comments of file's lexing row blanked (the
+// file's own row, or the default row for a language whose row declares no lexing,
+// as Go and TypeScript do), so a declaration quoted in a docstring, a template
+// string or a comment is not read as one.
+func masked(file, src string) string {
+	t, err := lang.Defaults()
+	if err != nil {
+		return src
+	}
+	return mask.NewLexer(t.LexRow(file, 0)).Lex(src, true, true)
 }

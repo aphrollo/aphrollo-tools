@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/engine"
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
@@ -21,6 +22,7 @@ const (
 	RuleRedGreen = "red-green"
 	RuleStopRed  = "stop-red"
 	RuleFold     = "lane-fold"
+	RuleFacts    = "facts" // the facts of a PreToolUse call that did not finish inside the budget: which they were is not known
 
 	HookStop         = "stop"
 	HookSubagentStop = "subagentstop"
@@ -121,7 +123,7 @@ func (w World) covered(ctx context.Context, st *store.Store, lane string, u Unit
 
 // unjudged is the record of a step that could not be made, and why.
 func unjudged(hook, rule, unit, cause string) Record {
-	return Record{Hook: hook, Rule: rule, Relation: Unjudged, Cause: cause, Unit: unit}
+	return Record{Hook: hook, Rule: rule, Relation: Unjudged, Cause: cause, Unit: unit, Lang: LangOfUnit(unit)}
 }
 
 // causeOf is the unjudged cause of an error of the engine or the store: the
@@ -189,7 +191,10 @@ func (w World) RedGreen(ctx context.Context, p Payload, files []string) []Record
 			continue
 		}
 		r := recordOf(HookPre, RuleRedGreen, "commit-proof", d, Allow)
-		r.Unit, r.UnitPkg = u.ID, u.Pkg
+		r.Unit, r.UnitPkg, r.Lang = u.ID, u.Pkg, LangOfUnit(u.ID)
+		if u.Kind == unitProjectRoot {
+			r.UnitRoot = filepath.ToSlash(pr)
+		}
 		out = append(out, withRoot(r, root))
 	}
 	return out
@@ -401,34 +406,61 @@ var Overruns atomic.Int64
 
 // window commits a hook's steps one by one under a lock, so that after the hook
 // moves on, the steps that did not commit are written as unjudged by exactly one
-// of the two writers: the step's goroutine, if it commits first, or the hook.
+// of the two writers: the step's goroutine, if it commits first, or the hook. It
+// also holds the budget's deadline on the clock: a write after it is refused,
+// whether or not the hook has yet got round to closing the window.
 type window struct {
-	mu     sync.Mutex
-	closed bool
-	done   int
+	mu       sync.Mutex
+	closed   bool
+	done     int
+	clk      Clock
+	deadline time.Time
 }
 
-func (w *window) commit(i int, evs []core.Event) bool {
+// setDeadline fixes when the window's budget ends on clk.
+func (w *window) setDeadline(clk Clock, at time.Time) {
+	w.mu.Lock()
+	w.clk, w.deadline = clk, at
+	w.mu.Unlock()
+}
+
+func (w *window) expiredLocked() bool {
+	return w.clk != nil && !w.clk.Now().Before(w.deadline)
+}
+
+// expired reports whether the budget is spent.
+func (w *window) expired() bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.closed {
+	return w.expiredLocked()
+}
+
+// commit claims step i and writes its events, unless the window is closed or its
+// budget spent. The claim is made under the lock and the write after it, so a
+// writer stuck in its append never holds the hook's close: the step is the
+// claimer's to write, and the hook never writes it as skipped.
+func (w *window) commit(i int, evs []core.Event) bool {
+	w.mu.Lock()
+	if w.closed || w.expiredLocked() {
+		w.mu.Unlock()
 		return false
 	}
+	w.done = i + 1
+	w.mu.Unlock()
 	for _, e := range evs {
 		appendEvent(e)
 	}
-	w.done = i + 1
 	return true
 }
 
-// write records one fact's event unless the hook has closed the window: a fact
-// still being built when the budget ran out is dropped, never written into
-// whatever store is current when its goroutine gets there. The write itself is
-// outside the lock: a writer that is slow is what the budget is for, and the
-// hook closing the window must never wait on it.
+// write records one fact's event unless the hook has closed the window or its
+// budget is spent: a fact still being built when the budget ran out is dropped,
+// never written into whatever store is current when its goroutine gets there. The
+// write itself is outside the lock: a writer that is slow is what the budget is
+// for, and the hook closing the window must never wait on it.
 func (w *window) write(e core.Event) bool {
 	w.mu.Lock()
-	closed := w.closed
+	closed := w.closed || w.expiredLocked()
 	w.mu.Unlock()
 	if closed {
 		return false
@@ -458,11 +490,13 @@ func runSteps(ctx context.Context, w *window, steps []Step) {
 }
 
 // settle writes the unjudged record of every step the window did not commit.
-func settle(w *window, steps []Step) {
+func settle(w *window, steps []Step, extra ...core.Event) {
+	evs := extra
 	for _, st := range w.skippedFrom(steps) {
 		Overruns.Add(1)
-		appendEvent(st.skip(CauseBudget))
+		evs = append(evs, st.skip(CauseBudget))
 	}
+	appendDropped(evs...)
 }
 
 func (w *window) skippedFrom(steps []Step) []Step {

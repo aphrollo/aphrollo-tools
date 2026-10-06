@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -57,12 +58,40 @@ func (r ShadowRule) Rate() string {
 	return fmt.Sprintf("%.0f%%", share(r.Agree, r.Fires)*100)
 }
 
+// ShadowLang is the fires that name a language, counted by relation: where the
+// kernel and aphrollo agree for Go, Python and TypeScript separately, and how many
+// were the holdout arm's, so the A/B reads per arm and per language.
+type ShadowLang struct {
+	Lang          string `json:"lang"`
+	Fires         int    `json:"fires"`
+	Agree         int    `json:"agree"`
+	Stricter      int    `json:"trellis_stricter"`
+	Softer        int    `json:"trellis_softer"`
+	Mismatch      int    `json:"verdict_mismatch"`
+	NotComparable int    `json:"not_comparable"`
+	Unjudged      int    `json:"unjudged"`
+	Dropped       int    `json:"budget_dropped"`
+	HeldOut       int    `json:"held_out"`
+}
+
+// Rate is the share of the language's fires where both sides agreed, "" under MinShadowFires.
+func (l ShadowLang) Rate() string {
+	if l.Fires < MinShadowFires {
+		return ""
+	}
+	return fmt.Sprintf("%.0f%%", share(l.Agree, l.Fires)*100)
+}
+
 // Shadow is the shadow fires of a window, by rule.
 type Shadow struct {
-	Window string       `json:"window"`
-	Fires  int          `json:"fires"`
-	Notes  []string     `json:"notes"`
-	Rules  []ShadowRule `json:"rules"`
+	Window string `json:"window"`
+	Fires  int    `json:"fires"`
+	// Dropped is the records the hook's budget dropped (unjudged, cause budget), of Fires.
+	Dropped int          `json:"budget_dropped"`
+	Notes   []string     `json:"notes"`
+	Rules   []ShadowRule `json:"rules"`
+	// Languages are the rows of the fires that name a language (red-green and run records do), by name.
+	Languages []ShadowLang `json:"languages"`
 }
 
 // shadowNotes say what the numbers are not: they are read from facts the hooks
@@ -70,7 +99,7 @@ type Shadow struct {
 var shadowNotes = []string{
 	"observed only where a hook acted: no fact exists where aphrollo did nothing, so agreement is overstated; trellis acting alone is seen at a waived primary-checkout write and, for red-green, at each code edit",
 	"the kernel ran on its default config, except red-green and stop-red, which it is asked under tdd = enforce (the level the document blocks them at): aphrollo declares no rule pins or isolation setting to read, so the other levels are the kernel's own",
-	"red-green is observed: asked at PreToolUse of each code edit against the lane's record, where aphrollo always allows (it holds the proof at the commit), so every kernel guide or block is a would-be block; an edit's unit is covered when a run of it was green on a tree holding its newest edit, and a unit with no run yet reads as uncovered; whether an edit adds a symbol is read for Go only (a new func, or a new exported type, var or const in the edit's text), and is false for every other language and for a Bash write; the fires of a non-Go unit stay open, for there is no package proof to join them to; edits and runs on trunk lanes and the primary checkout are not asked",
+	"red-green is observed: asked at PreToolUse of each code edit against the lane's record, where aphrollo always allows (it holds the proof at the commit), so every kernel guide or block is a would-be block; an edit's unit is covered when a run of it was green on a tree holding its newest edit, and a unit with no run yet reads as uncovered; whether an edit adds a symbol is read from the edit's text for Go (a new func, or a new exported type, var or const), Python (a new def, or a public class) and TypeScript or JavaScript (a new function, or a new exported declaration), and is false for every other language and for a Bash write; a Python or TypeScript unit is its whole project (the gate holds no per-test or per-symbol knowledge for them), so any green run of the project covers it, and its fires are joined to the commit proof run in the project root by a runner of the same language; edits and runs on trunk lanes and the primary checkout are not asked",
 	"stop-red is asked at every Stop and SubagentStop with aphrollo's own unseen-red fact, so a block and an allow are both recorded; a red the lane record never folded, including one known only from a job record, is unjudged, never softer",
 	"a red-green would-be block is a catch when the commit proof later refuses on the lane (a proof must name packages holding the edit's unit), a pass when such a proof passes or the lane merges, and wrong on /tdd off within the wrong-block window; a pass only says the commit gate later proved red→green, which aphrollo already enforces, so passes are near-tautological and catches are rare by structure; the other would-be blocks still come mostly from waived primary-checkout writes, and a law's escape comment is not logged as an override",
 	"a run both sides read alike is an agreeing shadow event; a run no verdict was made of, and a red-green, stop-red or lane-fold record that lacked a lane, unit, tree or store or outran the budget, is counted unjudged with its cause and never as agreement",
@@ -85,6 +114,7 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 		out.Window = "last " + windowText(o.Window)
 	}
 	rules := map[string]*ShadowRule{}
+	langs := map[string]*ShadowLang{}
 	for i, e := range s.evs {
 		if !s.in(e.at) {
 			continue
@@ -134,7 +164,36 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 		case "unjudged":
 			r.Unjudged++
 			if e.Detail["cause"] == "budget" {
+				out.Dropped++
 				r.Overruns++
+			}
+		}
+		if lang := e.Detail["lang"]; lang != "" {
+			l := langs[lang]
+			if l == nil {
+				l = &ShadowLang{Lang: lang}
+				langs[lang] = l
+			}
+			l.Fires++
+			if held {
+				l.HeldOut++
+			}
+			switch e.Detail["relation"] {
+			case "agree":
+				l.Agree++
+			case "trellis-stricter":
+				l.Stricter++
+			case "trellis-softer":
+				l.Softer++
+			case "verdict-mismatch":
+				l.Mismatch++
+			case "not-comparable":
+				l.NotComparable++
+			case "unjudged":
+				l.Unjudged++
+				if e.Detail["cause"] == "budget" {
+					l.Dropped++
+				}
 			}
 		}
 	}
@@ -142,6 +201,10 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 		out.Rules = append(out.Rules, *r)
 	}
 	sort.Slice(out.Rules, func(i, j int) bool { return out.Rules[i].Rule < out.Rules[j].Rule })
+	for _, l := range langs {
+		out.Languages = append(out.Languages, *l)
+	}
+	sort.Slice(out.Languages, func(i, j int) bool { return out.Languages[i].Lang < out.Languages[j].Lang })
 	return out
 }
 
@@ -224,6 +287,16 @@ func proofAbout(proof, fire stamped) bool {
 	if unit == "" {
 		return true
 	}
+	// A project-root unit (Python, TypeScript, any language but Go) is the whole
+	// project: the gate holds no per-test or per-symbol knowledge for it, so no
+	// package pattern can say what a proof covered. The fire names its project's
+	// root, and a proof is about the unit when it ran in that root.
+	if root := fire.Detail["unit_root"]; root != "" {
+		// Only a proof of the fire's language: a Go proof refused in a root shared with a
+		// Python project says nothing of it, and a stage label (postedit-ledger) names no runner.
+		want := shadow.LangOfUnit(unit)
+		return sameProjectRoot(proof.Root, root) && want != "" && shadow.LangOfCommand(firstWord(proof.Cmd)) == want
+	}
 	target, ok := fire.Detail["unit_pkg"]
 	if !ok {
 		target = unit
@@ -242,6 +315,14 @@ func proofAbout(proof, fire stamped) bool {
 		}
 	}
 	return false
+}
+
+// sameProjectRoot compares two project roots as the log spells them: either
+// separator, no trailing one, and case-blind (a Windows box's paths are).
+func sameProjectRoot(a, b string) bool {
+	norm := func(p string) string { return strings.TrimRight(strings.ReplaceAll(p, `\`, "/"), "/") }
+	a, b = norm(a), norm(b)
+	return a != "" && strings.EqualFold(a, b)
 }
 
 // isTrunkLane is a lane name that is a trunk's: the primary checkout's.
@@ -292,6 +373,13 @@ func (s Shadow) Text() string {
 	for _, n := range s.Notes {
 		p("%-22s%s", "  note", n)
 	}
+	if s.Dropped > 0 || s.Fires >= MinShadowFires {
+		line := fmt.Sprintf("%d of %d records", s.Dropped, s.Fires)
+		if s.Fires >= MinShadowFires { // a share of fewer is no rate, as for agreement
+			line += fmt.Sprintf(" (%.1f%%)", share(s.Dropped, s.Fires)*100)
+		}
+		p("%-22s%s", "budget drops", line)
+	}
 	p("%-22s%s", "  wrong block", fmt.Sprintf("an override of the same rule within %.0f min of the fire on its lane", WrongBlockWindow.Minutes()))
 	p("%-22s%s", "  catch / pass", fmt.Sprintf("a later commit gate refusal, red CI or escape / the lane's merge, within %d days", ShadowHorizonDays))
 	for _, r := range s.Rules {
@@ -309,5 +397,22 @@ func (s Shadow) Text() string {
 			p("%sunder %d fires: no rate", cont, MinShadowFires)
 		}
 	}
+	for _, l := range s.Languages {
+		tail := fmt.Sprintf("under %d fires: no rate", MinShadowFires)
+		if rate := l.Rate(); rate != "" {
+			tail = "agreement " + rate
+		}
+		p("%-21s%3d fires  agree %d  would-be block %d  softer %d  mismatch %d  not comparable %d  unjudged %d (%d budget)  held out %d  %s",
+			"language "+l.Lang, l.Fires, l.Agree, l.Stricter, l.Softer, l.Mismatch, l.NotComparable, l.Unjudged, l.Dropped, l.HeldOut, tail)
+	}
 	return b.String()
+}
+
+// firstWord is the command word of a proof's command line.
+func firstWord(cmd string) string {
+	f := strings.Fields(cmd)
+	if len(f) == 0 {
+		return ""
+	}
+	return f[0]
 }

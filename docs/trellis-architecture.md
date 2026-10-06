@@ -576,7 +576,7 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 | B1–B2 | 2 | Plugin: native launcher, fetch, sha256 check, keep 3, `.exe` layout, file-level swap, silent stub; the release workflow on hosted runners | Off-here p95 at most 50 ms; SessionStart at most 200 ms |
 | B3–B5 | 3 | `trellis init` (`--protect`, baseRef, managed block, excludes; it offers the merge-queue setup — ruleset, `merge_group` trigger, required checks covering every per-OS job — as an owner decision, since it changes repo settings; doctor in B3 fails a queue on while the workflow lacks `merge_group`, where PRs sit 60 min and drop, and required checks that do not cover every per-OS job, where a red OS merges); repo start with a repo-local hooksPath; CwdChanged, DirectoryAdded; briefs, skill, agents | A new box set up in one step; brief tokens |
 | B6–B8 | 3 | Deny then EnterWorktree; `lane.opened` with the dependency warm-up; actors; lifecycle prune; `why`, `feedback`, `allow`; `TRELLIS_OFF`, `eject`, `update --to` with `.bak` | Follow rate; primary-write overrides |
-| B9–B12 | 4 | Cut over one repo at a time, behind `trellis.toml` and a pin, replay first: this repo, go-telegram, fanvue, then borld through the borld session | Each repo's measures |
+| B9–B12 | 4 | **Owner pause before B9** (below). Then cut over one repo at a time, behind `trellis.toml` and a pin, replay first: this repo, go-telegram, fanvue, then borld through the borld session | Each repo's measures |
 | C1–C4 | 4 | `trellis ci` per tree and OS under the merge verb; local `--no-ff`; Linux mutation under `ci = local`; divergent trunk and `trellis sync` | A merge completes with GitHub off |
 | M1 | 1 | The last aphrollo release switches boxes over; an `aphrollo` alias for one release; the forwarder generator deleted | – |
 
@@ -589,6 +589,8 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 - every adapter, the host port's GitHub adapter included, tested on recorded payloads (hook payloads, recorded `gh` responses).
 
 **Consumers never break.** Until B9 they run aphrollo at a release tag. Each cutover is per repo, pinned, replayed first, and reversible with `trellis eject`.
+
+**Owner pause before B9.** B9 does not start by itself. No repo is cut over until the owner has seen, for that repo, the A/B results of phase A (at least 30 lanes per arm, read per arm and per language), the shadow agreement (`aphrollo stats --shadow`, per rule and per language, with the budget drops) and the replay result, and has said go for that repo. The go is per repo: one repo's go says nothing of the next.
 
 ## 12. Risks and open questions; effort
 

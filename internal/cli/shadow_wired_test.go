@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -412,5 +413,59 @@ func TestPreShadow_ACallWithNothingToRecordHasNoWork(t *testing.T) {
 	p.primary = tdd.JudgePrimary(raw)
 	if !p.hasWork() {
 		t.Error("a waived call has no work, want its landing resolved inside the record")
+	}
+}
+
+// Where a waived write lands asks git, which the wall never did for it: the probe
+// is begun when the wall judges the call, so the hook's own work overlaps it and
+// the record's budget only collects the answer. A call the waiver does not cover
+// asks nothing of the record.
+func TestPreShadow_AWaivedCallStartsItsLandingProbeWhenTheWallJudgesIt(t *testing.T) {
+	gateConfigDir(t)
+	primary, _ := primaryWorktreeRepo(t)
+	raw := []byte(primaryEditPayload(t, filepath.Join(primary, "main.go")))
+
+	t.Setenv("APHROLLO_PRIMARY_EDITS", "")
+	p := newPreShadow(raw)
+	p.judgePrimary(raw)
+	if p.landing != nil {
+		t.Error("a call no waiver covers started a landing probe")
+	}
+
+	t.Setenv("APHROLLO_PRIMARY_EDITS", "1")
+	p = newPreShadow(raw)
+	p.judgePrimary(raw)
+	if p.landing == nil {
+		t.Fatal("a waived call started no landing probe when the wall judged it")
+	}
+	root, ok := p.landing.Wait(context.Background())
+	if !ok || filepath.Clean(root) != filepath.Clean(primary) {
+		t.Errorf("landing = %q, %v, want the primary checkout %q", root, ok, primary)
+	}
+}
+
+// A call the record would not be written for starts no probe: recording off, or a
+// payload that names no source.
+func TestPreShadow_AWaivedCallStartsNoLandingProbeWhenNothingWillBeRecorded(t *testing.T) {
+	gateConfigDir(t)
+	primary, _ := primaryWorktreeRepo(t)
+	raw := []byte(primaryEditPayload(t, filepath.Join(primary, "main.go")))
+	t.Setenv("APHROLLO_PRIMARY_EDITS", "1")
+
+	old := shadow.Enabled
+	t.Cleanup(func() { shadow.Enabled = old })
+	shadow.Enabled = false
+	p := newPreShadow(raw)
+	p.judgePrimary(raw)
+	if p.landing != nil {
+		t.Error("a landing probe was started with recording off")
+	}
+	shadow.Enabled = true
+
+	noSource := []byte(`{"tool_name":"Edit","session_id":"s","tool_input":{"old_string":"a"}}`)
+	p = newPreShadow(noSource)
+	p.judgePrimary(noSource)
+	if p.landing != nil {
+		t.Error("a landing probe was started for a payload with no source to file the record under")
 	}
 }

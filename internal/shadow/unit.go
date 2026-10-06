@@ -56,18 +56,27 @@ func UnitOf(file string, projectRoot func(string) string) (Unit, bool) {
 	if root == "" {
 		return Unit{}, false
 	}
+	lang := languageOf(file)
+	if !hasOwnManifest(lang, root) {
+		return Unit{}, false
+	}
 	project := relOrDot(repo, root)
-	return Unit{ID: languageOf(file) + ":" + project, Project: project, Kind: unitProjectRoot}, true
+	return Unit{ID: lang + ":" + project, Project: project, Kind: unitProjectRoot}, true
 }
 
 // languageOf is the name of the language row that owns file, "other" for a file no
-// row owns.
+// row owns. A JavaScript file is named for the TypeScript row: the two are one
+// node project, whose tests (vitest, jest) read .ts and .js files alike, so a unit
+// per spelling would split one project's red from its code edits.
 func languageOf(file string) string {
 	t, err := lang.Defaults()
 	if err != nil {
 		return "other"
 	}
 	if l, ok := t.For(file); ok {
+		if l.Name == "javascript" {
+			return "typescript"
+		}
 		return l.Name
 	}
 	return "other"
@@ -112,4 +121,62 @@ func joinUnit(project, pkg string) string {
 		return "."
 	}
 	return j
+}
+
+// LangOfUnit is the language a unit id belongs to, as stats reads agreement per
+// language: a Go package's id has no language prefix, a project-root unit's leads
+// with its language row's name, and the node rows (typescript, javascript) are
+// "ts". "" for no unit.
+func LangOfUnit(id string) string {
+	if id == "" {
+		return ""
+	}
+	name, _, ok := strings.Cut(id, ":")
+	if !ok {
+		return "go"
+	}
+	if name == "typescript" || name == "javascript" {
+		return "ts"
+	}
+	return name
+}
+
+// LangOfCommand is the language of a test runner's command word, "" for one that
+// names none.
+func LangOfCommand(cmd string) string {
+	switch strings.ToLower(strings.TrimSuffix(filepath.Base(cmd), filepath.Ext(cmd))) {
+	case "go":
+		return "go"
+	case "python", "python3", "pytest", "py":
+		return "python"
+	case "npx", "npm", "node", "vitest", "jest", "pnpm", "yarn", "bun":
+		return "ts"
+	case "cargo":
+		return "rust"
+	}
+	return ""
+}
+
+// ownManifests are the files that make a directory a project of a language, by the
+// language row's name; a language not listed takes any root the edit hook found.
+var ownManifests = map[string][]string{
+	"python":     {"pyproject.toml", "setup.py", "setup.cfg", "pytest.ini", "tox.ini", "Pipfile", "conftest.py", "requirements*.txt"},
+	"typescript": {"package.json"},
+	"rust":       {"Cargo.toml"},
+}
+
+// hasOwnManifest reports whether root holds a manifest of lang. The edit hook's
+// walk stops at the nearest manifest of any language, so a Python file under a node
+// package resolves to the node root: that is no Python project, and has no unit.
+func hasOwnManifest(lang, root string) bool {
+	names, ok := ownManifests[lang]
+	if !ok {
+		return true
+	}
+	for _, n := range names {
+		if m, _ := filepath.Glob(filepath.Join(root, n)); len(m) > 0 {
+			return true
+		}
+	}
+	return false
 }

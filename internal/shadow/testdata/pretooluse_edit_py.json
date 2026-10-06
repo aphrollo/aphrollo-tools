@@ -1,0 +1,1 @@
+{"session_id":"s1","agent_id":"a1","cwd":"/w/repo","hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"/w/repo/backend/app/service.py","old_string":"return 1","new_string":"return 1\n\n\ndef added():\n    return 2"}}

@@ -217,7 +217,10 @@ func TestRecordFacts_OverrunReturnsInsideTheBudgetAndPanicIsDropped(t *testing.T
 	t.Cleanup(func() { Budget, appendEvent = oldBudget, oldAppend })
 	Budget = 20 * time.Millisecond
 	release, started, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	appendEvent = func(core.Event) {
+	appendEvent = func(e core.Event) {
+		if e.Detail["rule"] == RuleFacts { // the record of the drop is not the writer under test
+			return
+		}
 		close(started)
 		<-release
 		close(finished)
@@ -338,7 +341,14 @@ func TestTakeWaited_ReportsTheTimeSpentWaitingOnRecordsOnce(t *testing.T) {
 	Budget = 50 * time.Millisecond
 	release := make(chan struct{})
 	stuck := make(chan struct{})
-	appendEvent = func(core.Event) { defer close(stuck); <-release }
+	// The record of the drop is written too and is not the writer under test.
+	appendEvent = func(e core.Event) {
+		if e.Detail["rule"] == RuleFacts {
+			return
+		}
+		defer close(stuck)
+		<-release
+	}
 	RecordFacts(Source{Root: t.TempDir()}, factsOf([]Fact{Discard(Block)}))
 	close(release)
 	select {

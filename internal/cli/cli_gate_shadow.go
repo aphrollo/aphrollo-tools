@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"path/filepath"
 	"slices"
@@ -26,6 +27,11 @@ type preShadow struct {
 	// blocked or a waiver covers the call. Where a write lands is a question for the
 	// record, not for the hook.
 	primary tdd.PrimaryJudgement
+
+	// landing is where a waived write lands, asked for as soon as the wall has judged
+	// the call so that the hook's own work overlaps the probe; nil when no waiver
+	// covers the call.
+	landing *shadow.Prefetch[string]
 
 	// final is what the call came to once every judgement was folded: a waived
 	// call a later judgement blocked was blocked.
@@ -91,6 +97,27 @@ func actionOf(d tdd.Decision) shadow.Action {
 	return shadow.Allow
 }
 
+// judgePrimary is the primary-checkout wall's judgement of the call, kept for the
+// record. A call a waiver covers is one the wall never looked at, so where it lands
+// is resolved here (it asks git), begun now and collected in the record's window.
+func (p *preShadow) judgePrimary(raw []byte) {
+	p.primary = tdd.JudgePrimary(raw)
+	if _, ok := hookSource(raw); ok && shadow.Enabled && p.primary.Waived {
+		j := p.primary
+		p.landing = shadow.StartPrefetch(func() string { return j.Landing(raw) })
+	}
+}
+
+// landingRoot is where the call's write lands: the prefetched answer when one was
+// begun, else resolved now.
+func (p *preShadow) landingRoot() string {
+	if p.landing != nil {
+		root, _ := p.landing.Wait(context.Background())
+		return root
+	}
+	return p.primary.Landing(p.raw)
+}
+
 // primaryBlocked is whether the primary-checkout wall blocked the call.
 func (p *preShadow) primaryBlocked() bool { return p.primary.Decision.Action == tdd.Block }
 
@@ -115,7 +142,7 @@ func (p *preShadow) record() {
 	shadow.RecordFactsAnd(src, func() []shadow.Fact {
 		facts := slices.Clone(p.facts)
 		if blocked || p.primary.Waived {
-			if root := p.primary.Landing(p.raw); root != "" {
+			if root := p.landingRoot(); root != "" {
 				actual := shadow.Block
 				if !blocked {
 					actual = p.final
