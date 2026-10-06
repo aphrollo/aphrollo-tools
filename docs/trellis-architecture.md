@@ -363,7 +363,7 @@ trellis deny [primary-write] Write lands in the main checkout on trunk · do: En
 
 | Key | Values (default) | Layer |
 |---|---|---|
-| `tdd` | `enforce`, `warn`, `off` (`warn` until the A/B decides) | all |
+| `tdd` | `enforce`, `warn`, `off` (`warn` until the A/B decides; an unpinned lane runs the arm a hash of its repo and name gives it, `aphrollo config show` says which, `aphrollo stats --ab` reads both) | all |
 | `isolation` | bool (`true`) | all |
 | `ci` | `auto`, `local`, `github` (`auto`) | all |
 | `ci.os` | list (`["linux"]`; this repo `["linux", "windows"]`) | repo |

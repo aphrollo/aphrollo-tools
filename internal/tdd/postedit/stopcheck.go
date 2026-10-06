@@ -159,10 +159,9 @@ func decideStop(event StopEvent, in stopInput) StopVerdict {
 	return StopVerdict{}
 }
 
-// The tdd setting's values the stop checks tell apart. enforce is the live default and blocks as the
-// checks always have; the schema's built-in is in internal/config, and phase
-// A's A/B flips it to warn there, not here. warn lets every stop through with
-// guidance only; off says nothing.
+// The tdd setting's values the stop checks tell apart. enforce blocks as the checks always
+// have; the built-in is warn (internal/config), and a lane no layer pins runs its A/B arm. warn
+// lets every stop through with guidance only; off says nothing.
 const (
 	modeWarn = "warn"
 	modeOff  = "off"

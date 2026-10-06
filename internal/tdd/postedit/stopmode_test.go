@@ -41,14 +41,15 @@ var stopmodeHooks = []struct {
 	{StopHookSubagentStop, "subagentstop.json"},
 }
 
-func TestStopMode_WithNothingDeclaredTheStopStillBlocks(t *testing.T) {
+// ratchet: test_removed TestStopMode_WithNothingDeclaredTheStopStillBlocks: the built-in is now warn, so this is the same case under its new name and expectation
+func TestStopMode_WithNothingDeclaredOutsideALaneTheStopOnlyGuides(t *testing.T) {
 	for _, tc := range stopmodeHooks {
 		t.Run(string(tc.event), func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			crate := mkProject(t, "Cargo.toml")
 			redJobAt(t, crate)
-			if got := DecideStop(tc.event, stopPayload(t, tc.fixture, stopFields(crate))); !got.Block {
-				t.Fatalf("verdict = %+v, want a block: enforce is the live default until the A/B decides", got)
+			if got := DecideStop(tc.event, stopPayload(t, tc.fixture, stopFields(crate))); got.Block {
+				t.Fatalf("verdict = %+v, want no block: the built-in is warn, and a directory with no lane is in no arm", got)
 			}
 		})
 	}
@@ -157,8 +158,9 @@ func TestStopMode_ABadValueFallsBackToTheBuiltInNeverToOff(t *testing.T) {
 	crate := mkProject(t, "Cargo.toml")
 	stopmodeDeclare(t, crate, "tdd = \"loud\"\n")
 	redJobAt(t, crate)
-	if got := DecideStop(StopHookStop, stopPayload(t, "stop.json", stopFields(crate))); !got.Block {
-		t.Fatalf("verdict = %+v, want the built-in enforce for a misspelt value", got)
+	got := DecideStop(StopHookStop, stopPayload(t, "stop.json", stopFields(crate)))
+	if got.Block || got.Guidance == "" {
+		t.Fatalf("verdict = %+v, want the built-in warn for a misspelt value: guidance, no block, and never the silence of off", got)
 	}
 }
 

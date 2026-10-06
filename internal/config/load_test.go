@@ -36,10 +36,10 @@ func writeFile(t *testing.T, path, text string) {
 func TestLoad_BuiltInDefaultsWhenNothingDeclares(t *testing.T) {
 	cfg := Load(newFixture(t, "", "").opts)
 	got := cfg.Get("tdd")
-	// The live Stop block must keep blocking until the phase A A/B flips the
-	// default to warn: today's behaviour is enforce.
-	if got.Value.S != "enforce" || got.Layer != BuiltIn {
-		t.Fatalf("tdd = %q at %v, want enforce at built-in", got.Value.S, got.Layer)
+	// The built-in is warn, the architecture's default: a lane no layer pins is in
+	// an A/B arm, and trunk, which has no lane, runs the built-in.
+	if got.Value.S != "warn" || got.Layer != BuiltIn {
+		t.Fatalf("tdd = %q at %v, want warn at built-in", got.Value.S, got.Layer)
 	}
 	if !cfg.Get("isolation").Value.B {
 		t.Fatal("isolation defaults to true")
@@ -82,7 +82,7 @@ func TestLoad_ABadFlagIsNamedAndTheLayerBelowStands(t *testing.T) {
 	f := newFixture(t, "tdd = \"warn\"\n", "")
 	f.opts.Flags = map[string]string{"tdd": "loud"}
 	cfg := Load(f.opts)
-	if got := cfg.Get("tdd"); got.Value.S != "enforce" || got.Layer != BuiltIn {
+	if got := cfg.Get("tdd"); got.Value.S != "warn" || got.Layer != BuiltIn {
 		t.Fatalf("tdd = %+v, want the built-in default for a bad flag", got)
 	}
 	if d := cfg.Diagnostics(); len(d) != 1 || d[0].Layer != Flag || d[0].Key != "tdd" || !strings.Contains(d[0].Msg, "loud") {
@@ -105,8 +105,8 @@ func TestLoad_AUserRepoSectionAppliesToItsRepoOnly(t *testing.T) {
 func TestLoad_ABadValueIsNamedAndFallsBackToBuiltInNeverOff(t *testing.T) {
 	f := newFixture(t, "tdd = \"enforec\"\nisolation = \"yes\"\n", "tdd = \"off\"\n")
 	cfg := Load(f.opts)
-	if got := cfg.Get("tdd"); got.Value.S != "enforce" || got.Layer != BuiltIn {
-		t.Fatalf("tdd = %+v, want built-in enforce for a misspelt repo value", got)
+	if got := cfg.Get("tdd"); got.Value.S != "warn" || got.Layer != BuiltIn {
+		t.Fatalf("tdd = %+v, want built-in warn for a misspelt repo value", got)
 	}
 	if got := cfg.Get("isolation"); !got.Value.B || got.Layer != BuiltIn {
 		t.Fatalf("isolation = %+v, want built-in true for a string where a bool belongs", got)
