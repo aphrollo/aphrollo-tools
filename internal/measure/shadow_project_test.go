@@ -1,6 +1,7 @@
 package measure
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -35,5 +36,38 @@ func TestShadow_APythonOrTypeScriptWouldBeBlockIsJudgedByTheCommitProofRunInItsP
 	want := ShadowRule{Rule: "red-green", Fires: 5, Stricter: 5, Catches: 2, Passes: 1, Open: 2}
 	if got != want {
 		t.Errorf("red-green = %+v, want %+v", got, want)
+	}
+}
+
+// The share of records the hook's budget dropped is printed with its count, over
+// every rule: a dropped record is an unjudged one naming the budget.
+func TestShadow_TheBudgetDroppedShareIsCountedAndPrintedOverEveryRule(t *testing.T) {
+	events := []tdd.Event{
+		shadowAt(0, "a", "red-green", "trellis-stricter"),
+		shadowAt(1, "a", "red-green", "unjudged", "cause", "budget"),
+		shadowAt(2, "a", "facts", "unjudged", "cause", "budget"),
+		shadowAt(3, "a", "run-verdict", "agree"),
+		shadowAt(4, "a", "run-verdict", "unjudged", "cause", "no-tree"),
+	}
+	s := computeShadow(events, Options{})
+	if s.Fires != 5 || s.Dropped != 2 {
+		t.Errorf("fires %d dropped %d, want 5 and 2", s.Fires, s.Dropped)
+	}
+	if want := "budget drops          2 of 5 records\n"; !strings.Contains(s.Text(), want) {
+		t.Errorf("text lacks %q:\n%s", want, s.Text())
+	}
+}
+
+func TestShadow_TheBudgetDroppedSharePrintsItsPercentOnceThereAreTenRecords(t *testing.T) {
+	var events []tdd.Event
+	for i := range 10 {
+		if i == 0 {
+			events = append(events, shadowAt(float64(i), "a", "red-green", "unjudged", "cause", "budget"))
+			continue
+		}
+		events = append(events, shadowAt(float64(i), "a", "run-verdict", "agree"))
+	}
+	if want := "budget drops          1 of 10 records (10.0%)\n"; !strings.Contains(computeShadow(events, Options{}).Text(), want) {
+		t.Errorf("text lacks %q", want)
 	}
 }

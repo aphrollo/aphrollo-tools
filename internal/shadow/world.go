@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/engine"
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
@@ -21,6 +22,7 @@ const (
 	RuleRedGreen = "red-green"
 	RuleStopRed  = "stop-red"
 	RuleFold     = "lane-fold"
+	RuleFacts    = "facts" // the facts of a PreToolUse call that did not finish inside the budget: which they were is not known
 
 	HookStop         = "stop"
 	HookSubagentStop = "subagentstop"
@@ -404,17 +406,39 @@ var Overruns atomic.Int64
 
 // window commits a hook's steps one by one under a lock, so that after the hook
 // moves on, the steps that did not commit are written as unjudged by exactly one
-// of the two writers: the step's goroutine, if it commits first, or the hook.
+// of the two writers: the step's goroutine, if it commits first, or the hook. It
+// also holds the budget's deadline on the clock: a write after it is refused,
+// whether or not the hook has yet got round to closing the window.
 type window struct {
-	mu     sync.Mutex
-	closed bool
-	done   int
+	mu       sync.Mutex
+	closed   bool
+	done     int
+	clk      Clock
+	deadline time.Time
+}
+
+// setDeadline fixes when the window's budget ends on clk.
+func (w *window) setDeadline(clk Clock, at time.Time) {
+	w.mu.Lock()
+	w.clk, w.deadline = clk, at
+	w.mu.Unlock()
+}
+
+func (w *window) expiredLocked() bool {
+	return w.clk != nil && !w.clk.Now().Before(w.deadline)
+}
+
+// expired reports whether the budget is spent.
+func (w *window) expired() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.expiredLocked()
 }
 
 func (w *window) commit(i int, evs []core.Event) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.closed {
+	if w.closed || w.expiredLocked() {
 		return false
 	}
 	for _, e := range evs {
@@ -424,14 +448,14 @@ func (w *window) commit(i int, evs []core.Event) bool {
 	return true
 }
 
-// write records one fact's event unless the hook has closed the window: a fact
-// still being built when the budget ran out is dropped, never written into
-// whatever store is current when its goroutine gets there. The write itself is
-// outside the lock: a writer that is slow is what the budget is for, and the
-// hook closing the window must never wait on it.
+// write records one fact's event unless the hook has closed the window or its
+// budget is spent: a fact still being built when the budget ran out is dropped,
+// never written into whatever store is current when its goroutine gets there. The
+// write itself is outside the lock: a writer that is slow is what the budget is
+// for, and the hook closing the window must never wait on it.
 func (w *window) write(e core.Event) bool {
 	w.mu.Lock()
-	closed := w.closed
+	closed := w.closed || w.expiredLocked()
 	w.mu.Unlock()
 	if closed {
 		return false
@@ -464,7 +488,7 @@ func runSteps(ctx context.Context, w *window, steps []Step) {
 func settle(w *window, steps []Step) {
 	for _, st := range w.skippedFrom(steps) {
 		Overruns.Add(1)
-		appendEvent(st.skip(CauseBudget))
+		appendDropped(st.skip(CauseBudget))
 	}
 }
 

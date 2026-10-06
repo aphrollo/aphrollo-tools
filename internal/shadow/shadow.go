@@ -332,20 +332,26 @@ var waited atomic.Int64
 // wait up to Budget for its record after it has answered.
 func TakeWaited() time.Duration { return time.Duration(waited.Swap(0)) }
 
-// boundedUntil runs fn and waits for it no longer than Budget. fn runs on its own
-// goroutine, so a hook that outruns the budget moves on; a panic in it is
+// boundedUntil runs fn and waits for it no longer than Budget on the clock. fn runs
+// on its own goroutine, so a hook that outruns the budget moves on; a panic in it is
 // dropped, never raised into the hook. The wait is counted for TakeWaited. ctx is
 // cancelled when the budget is spent, which ends every wait fn makes on it (a
-// store lock, a load). It reports whether fn finished inside the budget. With
-// recording off it runs nothing and reports true.
-func boundedUntil(fn func(ctx context.Context)) bool {
+// store lock, a load). The window w is given the deadline, so what fn writes after
+// it is refused by the clock itself, not by when the hook got round to closing the
+// window. It reports whether fn finished inside the budget. With recording off it
+// runs nothing and reports true.
+func boundedUntil(w *window, fn func(ctx context.Context)) bool {
 	if !Enabled {
 		return true
 	}
-	start := time.Now()
-	defer func() { waited.Add(int64(time.Since(start))) }()
-	ctx, cancel := context.WithTimeout(context.Background(), Budget)
+	clk := clock
+	start := clk.Now()
+	w.setDeadline(clk, start.Add(Budget))
+	defer func() { waited.Add(int64(clk.Now().Sub(start))) }()
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	expired, release := clk.Timer(Budget)
+	defer release()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -354,26 +360,29 @@ func boundedUntil(fn func(ctx context.Context)) bool {
 	}()
 	select {
 	case <-done:
-		return true
-	case <-ctx.Done():
+		return !w.expired()
+	case <-expired:
 		return false
 	}
 }
 
 // RecordFacts writes one shadow event for each fact of a PreToolUse call. The
 // facts are asked for inside the budget with the writes, so a fact that needs a
-// look at the repository is not paid for outside it. A fact names its own root
-// when it is about another checkout than the call's. It never returns anything to
-// the hook.
+// look at the repository is not paid for outside it (one that must be is begun
+// earlier, StartPrefetch, and only collected here). A fact names its own root when
+// it is about another checkout than the call's. It never returns anything to the
+// hook.
 func RecordFacts(s Source, facts func() []Fact) { RecordFactsAnd(s, facts, nil) }
 
 // RecordFactsAnd is RecordFacts with the red→green steps of the same call in the
 // same budget: the call waits once, however many records it makes. A step that did
 // not finish inside the budget is written as unjudged, with its cause, and counted
-// in Overruns; it is never guessed.
+// in Overruns; so are facts that did not (one record, rule RuleFacts: which facts
+// they were is what was not made); it is never guessed.
 func RecordFactsAnd(s Source, facts func() []Fact, steps []Step) {
 	w := &window{}
-	finished := boundedUntil(func(ctx context.Context) {
+	var factsDone atomic.Bool
+	finished := boundedUntil(w, func(ctx context.Context) {
 		for _, f := range facts() {
 			fs := s
 			if f.Root != "" {
@@ -384,9 +393,15 @@ func RecordFactsAnd(s Source, facts func() []Fact, steps []Step) {
 				return
 			}
 		}
+		factsDone.Store(true)
 		runSteps(ctx, w, steps)
 	})
 	if !finished {
+		w.close()
+		if !factsDone.Load() {
+			Overruns.Add(1)
+			appendDropped(unjudged(HookPre, RuleFacts, "", CauseBudget).event(s, core.LaneOf(s.Root)))
+		}
 		settle(w, steps)
 	}
 }
@@ -497,7 +512,10 @@ func Flush() {
 	if len(runs) == 0 && len(edits) == 0 && len(folds) == 0 {
 		return
 	}
-	steps := make([]Step, 0, len(edits)+len(folds))
+	steps := make([]Step, 0, len(runs)+len(edits)+len(folds))
+	for _, q := range runs {
+		steps = append(steps, runStep(q))
+	}
 	for _, q := range edits {
 		steps = append(steps, editStep(q))
 	}
@@ -505,23 +523,34 @@ func Flush() {
 		steps = append(steps, foldStep(q))
 	}
 	w := &window{}
-	finished := boundedUntil(func(ctx context.Context) {
-		for _, q := range runs {
+	finished := boundedUntil(w, func(ctx context.Context) { runSteps(ctx, w, steps) })
+	if !finished {
+		settle(w, steps)
+	}
+}
+
+// runStep is the record of a queued run as a step of the flush's window, so a run the
+// window closed on is written as unjudged for the budget and not lost.
+func runStep(q queuedRun) Step {
+	lane := func() string { return core.LaneOf(q.src.Root) }
+	return Step{
+		run: func(context.Context) []core.Event {
 			f, ok := q.fact()
-			lane := core.LaneOf(q.src.Root)
 			r, judged := Record{}, false
 			if ok {
-				r, judged = JudgeRun(f, lane)
+				r, judged = JudgeRun(f, lane())
 			}
 			if !judged {
 				r = unjudgedRun(f.Word)
 			}
-			appendEvent(r.event(q.src, lane))
-		}
-		runSteps(ctx, w, steps)
-	})
-	if !finished {
-		settle(w, steps)
+			return []core.Event{r.event(q.src, lane())}
+		},
+		skip: func(cause string) core.Event {
+			f, _ := q.fact() // the run's facts are held already: reading them reads nothing
+			r := unjudgedRun(f.Word)
+			r.Cause = cause
+			return r.event(q.src, lane())
+		},
 	}
 }
 

@@ -59,10 +59,12 @@ func (r ShadowRule) Rate() string {
 
 // Shadow is the shadow fires of a window, by rule.
 type Shadow struct {
-	Window string       `json:"window"`
-	Fires  int          `json:"fires"`
-	Notes  []string     `json:"notes"`
-	Rules  []ShadowRule `json:"rules"`
+	Window string `json:"window"`
+	Fires  int    `json:"fires"`
+	// Dropped is the records the hook's budget dropped (unjudged, cause budget), of Fires.
+	Dropped int          `json:"budget_dropped"`
+	Notes   []string     `json:"notes"`
+	Rules   []ShadowRule `json:"rules"`
 }
 
 // shadowNotes say what the numbers are not: they are read from facts the hooks
@@ -134,6 +136,7 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 		case "unjudged":
 			r.Unjudged++
 			if e.Detail["cause"] == "budget" {
+				out.Dropped++
 				r.Overruns++
 			}
 		}
@@ -306,6 +309,13 @@ func (s Shadow) Text() string {
 	p("%-22s%d (%s)", "shadow fires", s.Fires, s.Window)
 	for _, n := range s.Notes {
 		p("%-22s%s", "  note", n)
+	}
+	if s.Dropped > 0 || s.Fires >= MinShadowFires {
+		line := fmt.Sprintf("%d of %d records", s.Dropped, s.Fires)
+		if s.Fires >= MinShadowFires { // a share of fewer is no rate, as for agreement
+			line += fmt.Sprintf(" (%.1f%%)", share(s.Dropped, s.Fires)*100)
+		}
+		p("%-22s%s", "budget drops", line)
 	}
 	p("%-22s%s", "  wrong block", fmt.Sprintf("an override of the same rule within %.0f min of the fire on its lane", WrongBlockWindow.Minutes()))
 	p("%-22s%s", "  catch / pass", fmt.Sprintf("a later commit gate refusal, red CI or escape / the lane's merge, within %d days", ShadowHorizonDays))

@@ -493,7 +493,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func gatePreToolUse(raw []byte, stderr io.Writer, obs *preShadow) tdd.Decision {
 	// The primary-checkout wall is judged first and answers what it resolved, so the
 	// shadow record asks nothing of the repository again.
-	obs.primary = tdd.JudgePrimary(raw)
+	obs.judgePrimary(raw)
 	if d := obs.primary.Decision; d.Action == tdd.Block {
 		tdd.LogEditDecision(raw, d)
 		return d

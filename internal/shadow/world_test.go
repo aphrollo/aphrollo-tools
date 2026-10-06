@@ -576,7 +576,12 @@ func TestRecordFacts_AFactBuiltAfterTheBudgetIsNotWritten(t *testing.T) {
 	Budget = 20 * time.Millisecond
 	wrote := make(chan struct{}, 1)
 	oldAppend := appendEvent
-	appendEvent = func(core.Event) { wrote <- struct{}{} }
+	// The drop itself is written (an unjudged record of the facts); the fact is not.
+	appendEvent = func(e core.Event) {
+		if e.Detail["rule"] != RuleFacts {
+			wrote <- struct{}{}
+		}
+	}
 	t.Cleanup(func() { appendEvent = oldAppend })
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
