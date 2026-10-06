@@ -252,9 +252,10 @@ func updateDeferredJob(session, root string, mutate func(j *DeferredJob)) {
 // the build is NOT killed (it is doing real work and cargo is incremental),
 // but its result will describe code that is no longer current, so the
 // harvest must rebuild.
-func markDeferredDirty(session, root, fileHash string) {
+func markDeferredDirty(session, root, fileHash, editID string) {
 	updateDeferredJob(session, root, func(j *DeferredJob) {
 		j.Dirty = true
+		j.EditID = joinEditIDs(j.EditID, editID)
 		if fileHash != "" {
 			j.FileHash = fileHash
 		}

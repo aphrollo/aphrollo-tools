@@ -108,6 +108,7 @@ func enqueueLocked(path, root string, req queuedRun) queueOutcome {
 	q.Project = root
 	out := queueOutcome{}
 	if i := slices.IndexFunc(q.Runs, func(r queuedRun) bool { return r.sameUnit(req.Runner, req.Dir) }); i >= 0 {
+		req.EditID = joinEditIDs(q.Runs[i].EditID, req.EditID)
 		q.Runs = slices.Delete(q.Runs, i, i+1)
 		out.replaced = true
 	}
@@ -122,20 +123,40 @@ func enqueueLocked(path, root string, req queuedRun) queueOutcome {
 }
 
 // dropQueuedRun forgets a waiting request for a run that is starting now: the
-// run reads the tree as it stands, so the waiting one has nothing to add.
-func dropQueuedRun(session, root string, argv []string, dir string) {
+// run reads the tree as it stands, so the waiting one has nothing to add. It
+// answers the dropped request's edit ids, which the starting run judges too.
+func dropQueuedRun(session, root string, argv []string, dir string) (editIDs string) {
 	path := queuePath(session, root)
 	if path == "" {
-		return
+		return ""
 	}
 	release := acquirePathLock(path)
 	defer release()
 	q := readQueue(path)
 	n := len(q.Runs)
+	for _, r := range q.Runs {
+		if r.sameUnit(argv, dir) {
+			editIDs = joinEditIDs(editIDs, r.EditID)
+		}
+	}
 	q.Runs = slices.DeleteFunc(q.Runs, func(r queuedRun) bool { return r.sameUnit(argv, dir) })
 	if len(q.Runs) != n {
 		writeQueue(path, q)
 	}
+	return editIDs
+}
+
+// joinEditIDs is the edit ids a run judges when it takes over another's: both,
+// in order, each once (the ledger splits them on a comma), so a superseded
+// edit gets the verdict of the run that replaced it (issue #1213).
+func joinEditIDs(a, b string) string {
+	var out []string
+	for _, id := range strings.Split(a+","+b, ",") {
+		if id != "" && !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return strings.Join(out, ",")
 }
 
 func readQueue(path string) runQueue {

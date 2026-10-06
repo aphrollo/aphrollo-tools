@@ -25,7 +25,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	// This edit's run starts now and reads the tree as it stands: a request for
 	// the same run still waiting has nothing to add. Whatever else waits starts
 	// when the slot frees, which the hook's session sweep sees to.
-	dropQueuedRun(session, root, runnerArgv(snap.runner), runnerDir(snap.runner, root))
+	snap.editID = joinEditIDs(dropQueuedRun(session, root, runnerArgv(snap.runner), runnerDir(snap.runner, root)), snap.editID)
 	// Every line below has to carry whatever the harvest already concluded —
 	// today only an abandonment, which is a verdict about work this session
 	// asked for and has to hear about even though a fresh run is starting
@@ -143,15 +143,24 @@ func activeRunLine(snap stateSnapshot, root, target, session, fileHash string) (
 		return "", false
 	}
 	moved := j.FileHash != fileHash
+	sameRun := slices.Equal(active, phaseArgv(snap.runner, "run")) && j.Dir == dir
 	if moved {
-		markDeferredDirty(session, root, fileHash)
+		// Only the edit's own run goes on to judge it: another run restarting on the
+		// newer tree says nothing about this edit (issue #1213).
+		if sameRun {
+			markDeferredDirty(session, root, fileHash, snap.editID)
+		} else {
+			markDeferredDirty(session, root, fileHash, "")
+		}
 		j.Dirty = true
 	}
-	if slices.Equal(active, phaseArgv(snap.runner, "run")) && j.Dir == dir {
+	if sameRun {
 		if moved {
 			AppendGateLog("postedit", root, cmdString(snap.runner), "deferred-restart", 0)
 			return queuedSameRunLine(snap.runner, root), true
 		}
+		// The run is for this very tree state, so its verdict is this edit's too.
+		updateDeferredJob(session, root, func(j *DeferredJob) { j.EditID = joinEditIDs(j.EditID, snap.editID) })
 		return runningRunLine(snap.runner, root, j), true
 	}
 	out := enqueueRun(session, root, queuedRun{Runner: argv, Dir: dir, File: target, EditID: snap.editID, Touched: snap.touched, At: time.Now()})

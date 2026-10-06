@@ -229,7 +229,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 		}
 		// Still working: never kill it, just record that the source moved on.
 		if j.FileHash != fileHash {
-			markDeferredDirty(session, root, fileHash)
+			markDeferredDirty(session, root, fileHash, "")
 			return buildingStaleLine(root, j.Phase, time.Since(j.Started)), false
 		}
 		if j.Dirty {
