@@ -41,6 +41,22 @@ func liveScratchDirs() []string {
 	return out
 }
 
+// scratchBase is where a run makes its scratch directory. A variable so a test
+// points it at a directory of its own.
+var scratchBase = shortScratchBase
+
+// ScratchBase is the directory every run's scratch is made directly under, for
+// a sweep that looks for the ones a killed run left.
+func ScratchBase() string { return scratchBase() }
+
+// SetScratchBaseForTest makes runs put their scratch under dir and returns the
+// function that puts it back.
+func SetScratchBaseForTest(dir string) (restore func()) {
+	prev := scratchBase
+	scratchBase = func() string { return dir }
+	return func() { scratchBase = prev }
+}
+
 // pollSleep is the wait between looks at the live runs. A variable so a test
 // ends one without a real wait.
 var pollSleep = time.Sleep

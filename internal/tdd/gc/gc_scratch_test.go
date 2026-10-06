@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/ghworkflow"
 )
 
 func withScratchHeld(t *testing.T, fn func(string) (bool, bool)) {
@@ -274,5 +276,22 @@ func TestScanGC_TempScratchScopeSweepsTheReposGoScratchDir(t *testing.T) {
 	got := ScanGC(repo, 3*24*time.Hour, GCScope{TempScratch: true})
 	if _, found := candidateAt(got, filepath.Join(root, "go-build888")); !found {
 		t.Fatalf("the repo's go-scratch dir was not swept: %+v", got)
+	}
+}
+
+// A local CI run makes its scratch under a short base of its own (the root of
+// the system drive on Windows), which is not a lock dir: a run killed there left
+// its scratch beyond the sweep's reach.
+func TestScanGC_TempScratchScopeSweepsWhereALocalCIRunMakesItsScratch(t *testing.T) {
+	base := t.TempDir()
+	defer ghworkflow.SetScratchBaseForTest(base)()
+	defer SetLockDirForTest(t.TempDir())()
+	mkFile(t, filepath.Join(base, "aphrollo-ci-run-424242", "f"), "x", 4*time.Hour)
+	withScratchHeld(t, func(string) (bool, bool) { return false, true })
+
+	got := ScanGC(t.TempDir(), 3*24*time.Hour, GCScope{TempScratch: true})
+
+	if _, found := candidateAt(got, filepath.Join(base, "aphrollo-ci-run-424242")); !found {
+		t.Fatalf("the sweep missed the killed run's scratch under its base: %+v", got)
 	}
 }

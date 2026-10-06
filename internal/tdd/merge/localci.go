@@ -177,6 +177,7 @@ func runWorkflows(ctx context.Context, lane, wt string, tips prGateTips, commit 
 		"base_ref":   strings.TrimPrefix(tips.trunkRef, "origin/"),
 		"repository": repoSlug(originURL(lane)),
 	}
+	addPullRequest(event, lane, log)
 	return ghworkflow.Run(ctx, flows, ghworkflow.Options{Dir: wt, Out: log, Event: event, Jobs: run.Jobs, StepTimeout: run.StepTimeout})
 }
 
