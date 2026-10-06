@@ -1,6 +1,9 @@
 package mutation
 
 import (
+	context "context"
+	"errors"
+	io "io"
 	"os"
 	"testing"
 
@@ -17,7 +20,12 @@ import (
 // measurement waits on, and stands it down for the run as the root does.
 func TestMain(m *testing.M) {
 	os.Exit(tddtest.Main(m, tddtest.Seams{
-		Run:              func() int { return m.Run() },
+		Run: func() int {
+			// No unit test here compiles or runs a package's tests for coverage: the
+			// commit stage asks the seam, and the seam answers that it cannot.
+			testMapExecFn = refuseCoverageExec
+			return m.Run()
+		},
 		GitBinary:        gitx.GitBinary,
 		GitQueuedEnv:     gitx.GitQueuedEnv,
 		BuildLockHeldEnv: lock.BuildLockHeldEnv,
@@ -28,3 +36,9 @@ func TestMain(m *testing.M) {
 }
 
 // ratchet: test_removed internal/tdd/mutation/mutants_testmap_once_test.go: the detached test-map build and its once-per-repository lock are gone
+
+// refuseCoverageExec is the coverage build's command seam in a unit test that
+// has not installed a fake toolchain: every command fails to start.
+func refuseCoverageExec(context.Context, string, []string, []string, io.Writer) (int, error) {
+	return 1, errors.New("no toolchain in a unit test")
+}

@@ -52,8 +52,10 @@ func TestMutantsAtCommitStage_TheRunIsGivenTheBudgetLessWhatTheStageSpent(t *tes
 
 	mu.Lock()
 	defer mu.Unlock()
-	if left <= 70*time.Second || left > 80*time.Second {
-		t.Errorf("the run's deadline was %s away, want within (70s, 80s] of a 90s budget with 10s spent", left)
+	// The coverage build reads the clock for its own timing, and the stage reads it
+	// again for the budget left, so both count as time the stage spent.
+	if left <= 50*time.Second || left > 60*time.Second {
+		t.Errorf("the run's deadline was %s away, want within (50s, 60s] of a 90s budget with 30s spent", left)
 	}
 }
 
@@ -65,7 +67,7 @@ func TestBuildTestMap_ReportsItsTimeRoundedToATenthOfASecond(t *testing.T) {
 	if _, _, err := buildTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, &log); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(log.String(), "1 tests, 1 functions, built in 1.2s") {
+	if !strings.Contains(log.String(), "1 tests, 1 blocks, measured in 1.2s") {
 		t.Errorf("log = %q, want the counts and the time rounded to a tenth", log.String())
 	}
 }

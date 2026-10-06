@@ -16,12 +16,14 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
-// Building a package's per-function test map: compile the package's test
-// binary once with coverage of the package itself, run each test alone under
-// -test.coverprofile, and keep which functions each one executed. The cost is
-// one compile and one short run per test, in parallel and under the memory
-// cap every gate-started process is held to; it is paid in the background
-// after a merge and never on the commit path.
+// Building a package's test map: compile the package's test binary once with
+// coverage of the package itself, run each test alone under
+// -test.coverprofile, and keep which blocks each one executed. The cost is one
+// compile and one short run per test, in parallel and under the memory cap
+// every gate-started process is held to. A solo run per test is what gives
+// line-to-tests: one run of the whole suite writes one profile that cannot say
+// which test ran a block, and the compile, the expensive part, is paid once.
+// It is paid in the foreground by the commit that needs the map, never ahead of it.
 
 // testMapExecFn runs one command of the build: the same spawn a measurement
 // uses, which holds it to the memory cap and kills its whole process tree
@@ -134,16 +136,15 @@ func buildTestMap(ctx context.Context, root string, cfg MutantsConfig, dir strin
 		return testMap{}, false, fmt.Errorf("listing the tests of %s exited %d (%v)", dir, code, err)
 	}
 	names := listedTests(out.String())
-	spans := packageFuncSpans(absDir)
 
-	perTest := make(map[string]map[string]bool, len(names))
+	perTest := make(map[string]map[coverBlock]bool, len(names))
 	var mu sync.Mutex
 	jobs := make(chan int)
 	var wg sync.WaitGroup
 	for range workers {
 		wg.Go(func() {
 			for i := range jobs {
-				covered := soloCoverage(ctx, absDir, env, binary, filepath.Join(work, strconv.Itoa(i)+".out"), names[i], spans)
+				covered := soloCoverage(ctx, absDir, env, binary, filepath.Join(work, strconv.Itoa(i)+".out"), names[i])
 				mu.Lock()
 				perTest[names[i]] = covered
 				mu.Unlock()
@@ -164,13 +165,14 @@ feed:
 		return testMap{}, false, err
 	}
 	m := assembleTestMap(dir, hash, perTest)
-	logf(log, "mutants: test map of %s: %d tests, %d functions, built in %s",
-		dir, len(m.Tests), len(m.Funcs), commitNowFn().Sub(start).Round(100*time.Millisecond))
+	logf(log, "mutants: coverage of %s: %d tests, %d blocks, measured in %s",
+		dir, len(m.Tests), len(m.Blocks), commitNowFn().Sub(start).Round(100*time.Millisecond))
 	return m, true, nil
 }
 
-// soloCoverage runs one test alone and answers the functions it executed.
-func soloCoverage(ctx context.Context, absDir string, env []string, binary, profile, name string, spans map[string][]funcSpan) map[string]bool {
+// soloCoverage runs one test alone and answers the blocks its profile names,
+// true for the ones it executed. A test that wrote no profile names none.
+func soloCoverage(ctx context.Context, absDir string, env []string, binary, profile, name string) map[coverBlock]bool {
 	runCtx, cancel := context.WithTimeout(ctx, perTestTimeout)
 	defer cancel()
 	_, _ = testMapExecFn(runCtx, absDir, env, []string{
@@ -179,9 +181,9 @@ func soloCoverage(ctx context.Context, absDir string, env []string, binary, prof
 	}, io.Discard)
 	data, err := os.ReadFile(profile)
 	if err != nil {
-		return map[string]bool{}
+		return map[coverBlock]bool{}
 	}
-	return coveredFuncs(string(data), spans)
+	return coveredBlocks(string(data))
 }
 
 // listedTests is the tests a `-test.list` output names: the lines the runner
@@ -194,31 +196,6 @@ func listedTests(output string) []string {
 		}
 	}
 	return names
-}
-
-// packageFuncSpans is the function spans of every non-test Go file in dir,
-// keyed by file name: the profile names a block's file, this says which
-// function each of its lines is in.
-func packageFuncSpans(dir string) map[string][]funcSpan {
-	spans := map[string][]funcSpan{}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return spans
-	}
-	for _, e := range entries {
-		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		src, err := os.ReadFile(filepath.Join(dir, name))
-		if err != nil {
-			continue
-		}
-		if _, _, s := parseFuncSpans(src); s != nil {
-			spans[name] = s
-		}
-	}
-	return spans
 }
 
 // tail is the last lines of a command's output, for an error that has to say

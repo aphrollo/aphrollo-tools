@@ -85,8 +85,8 @@ func loadTestMap(root, dir string) (*testMap, bool) {
 	if json.Unmarshal(data, &m) != nil || m.Schema != testMapSchema {
 		return nil, false
 	}
-	for _, idx := range m.Funcs {
-		for _, i := range idx {
+	for _, b := range m.Blocks {
+		for _, i := range b.Tests {
 			if i < 0 || i >= len(m.Tests) {
 				return nil, false
 			}

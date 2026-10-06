@@ -667,6 +667,7 @@ mutants_commit.go                                  mutation
 mutants_commit_cli.go                              mutation
 mutants_commit_cli_test.go                         mutation
 mutants_commit_clock_test.go                       mutation
+mutants_commit_coverage_test.go                    mutation
 mutants_commit_edges_test.go                       mutation
 mutants_commit_edit.go                             mutation
 mutants_commit_edit_test.go                        mutation

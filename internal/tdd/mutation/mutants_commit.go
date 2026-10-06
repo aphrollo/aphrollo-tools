@@ -77,7 +77,10 @@ func measureAddedLines(displayName, repoRoot, prefix string, cfg MutantsConfig, 
 	jobs, _ := mutantsJobsForThisBoxFn(mutantsGoJobGB)
 	plans := commitPlans(root, mutants, added)
 	canary := watchGitWorld(repoRoot, "commit-time run")
-	runs := runCommitMutants(context.Background(), root, cfg, plans, mutants, jobs, budget-commitNowFn().Sub(start), os.Stderr)
+	ctx, cancel := context.WithTimeout(context.Background(), budget-commitNowFn().Sub(start))
+	defer cancel()
+	measureTestMaps(ctx, root, cfg, plans, jobs, os.Stderr)
+	runs := runCommitMutants(ctx, root, cfg, plans, mutants, jobs, budget-commitNowFn().Sub(start), os.Stderr)
 	repoRelative(prefix, runs)
 	if changes := canary.verify(io.Discard); len(changes) > 0 {
 		// The tests the run started reached the real git state: refuse the

@@ -105,7 +105,8 @@ func buildFixture(t *testing.T, tc *fakeToolchain) (root string) {
 	mustWrite(t, filepath.Join(root, "internal", "p", "p_test.go"), "package p\n")
 	gitDo(t, root, "add", "-A")
 	gitDo(t, root, "commit", "-qm", "the package under test")
-	t.Cleanup(func() { testMapExecFn = runMutantsTool })
+	prevTestMapExec := testMapExecFn
+	t.Cleanup(func() { testMapExecFn = prevTestMapExec })
 	testMapExecFn = tc.exec
 	restoreList := setGoListForTest(func(context.Context, string, string) (string, error) {
 		return filepath.Join(root, "internal", "p") + "|p.go|p_test.go||\n", nil
@@ -132,11 +133,11 @@ func TestBuildTestMap_MapsEachFunctionToItsTests(t *testing.T) {
 	if want := []string{"Test_A", "Test_B"}; !slices.Equal(m.Tests, want) {
 		t.Errorf("Tests = %v, want %v (a benchmark is not a test)", m.Tests, want)
 	}
-	if got, want := m.testsFor("f"), []string{"Test_A", "Test_B"}; !slices.Equal(got, want) {
-		t.Errorf("testsFor(f) = %v, want %v", got, want)
+	if got, listed := m.testsAt("p.go", 4); !listed || !slices.Equal(got, []string{"Test_A", "Test_B"}) {
+		t.Errorf("testsAt(p.go, 4) = %v (listed %v), want both tests", got, listed)
 	}
-	if got, want := m.testsFor("g"), []string{"Test_B"}; !slices.Equal(got, want) {
-		t.Errorf("testsFor(g) = %v, want %v", got, want)
+	if got, listed := m.testsAt("p.go", 8); !listed || !slices.Equal(got, []string{"Test_B"}) {
+		t.Errorf("testsAt(p.go, 8) = %v (listed %v), want Test_B alone", got, listed)
 	}
 	if m.Package != "internal/p" || m.Hash == "" {
 		t.Errorf("map = package %q hash %q, want internal/p and a hash", m.Package, m.Hash)
@@ -200,8 +201,8 @@ func TestBuildTestMap_AFailingOrSilentTestDoesNotFailTheMap(t *testing.T) {
 	if err != nil || !built {
 		t.Fatalf("buildTestMap = built %v, err %v", built, err)
 	}
-	if got := m.testsFor("f"); !slices.Equal(got, []string{"Test_A"}) {
-		t.Errorf("testsFor(f) = %v, want [Test_A]", got)
+	if got, _ := m.testsAt("p.go", 4); !slices.Equal(got, []string{"Test_A"}) {
+		t.Errorf("testsAt(p.go, 4) = %v, want [Test_A]", got)
 	}
 	if !slices.Contains(m.Tests, "Test_Silent") {
 		t.Errorf("Tests = %v, want the silent test listed so it is known", m.Tests)

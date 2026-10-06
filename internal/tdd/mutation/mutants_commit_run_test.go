@@ -87,12 +87,27 @@ func commitRoot(t *testing.T) string {
 	return root
 }
 
+// mapFor is the map of commitGateSource in which the named tests execute the
+// function fn: Kind holds lines 4 to 7 of gate.go and Label lines 10 and 11,
+// and the other function has no block in the map at all.
 func mapFor(fn string, tests ...string) *testMap {
-	m := &testMap{Schema: testMapSchema, Package: "gate", Tests: []string{"TestKind_A", "TestKind_B", "TestOther"}, Funcs: map[string][]int{}}
+	m := &testMap{Schema: testMapSchema, Package: "gate", Tests: []string{"TestKind_A", "TestKind_B", "TestOther"}}
+	span := map[string]coverBlock{"Kind": {File: "gate.go", From: 4, To: 7}, "Label": {File: "gate.go", From: 10, To: 11}}[fn]
+	b := mapBlock{coverBlock: span}
 	for _, name := range tests {
-		m.Funcs[fn] = append(m.Funcs[fn], slices.Index(m.Tests, name))
+		b.Tests = append(b.Tests, slices.Index(m.Tests, name))
 	}
+	m.Blocks = []mapBlock{b}
 	return m
+}
+
+// touchedPlan is the plan of a package with no map whose commit touched the
+// named tests: their selection is a guess, not the tests that execute the
+// line, so a mutant they miss goes on to the rest of the package.
+func touchedPlan(touched ...string) map[string]*commitPlan {
+	plans := planFor(nil)
+	plans["gate"].Touched = touched
+	return plans
 }
 
 func planFor(m *testMap) map[string]*commitPlan {
@@ -200,8 +215,9 @@ func TestFailingTestNames_ReadsTopLevelFailures(t *testing.T) {
 	}
 }
 
-// The map is stale where it lists too few tests, so a mutant its selection
-// misses gets the whole package before it is called a survivor.
+// A selection that is a guess (the tests the commit touched) can miss a test
+// that reaches the line, so a mutant it misses gets the whole package before it
+// is called a survivor.
 func TestRunCommitMutants_ASelectionThatMissesFallsBackToTheWholePackage(t *testing.T) {
 	root := commitRoot(t)
 	scriptGo(t, func(c goCall) (int, string) {
@@ -210,7 +226,7 @@ func TestRunCommitMutants_ASelectionThatMissesFallsBackToTheWholePackage(t *test
 		}
 		return 0, "ok\tgate\n"
 	})
-	got := runCommitOnce(t, root, planFor(mapFor("Kind", "TestOther")), kindMutant, time.Minute)
+	got := runCommitOnce(t, root, touchedPlan("TestOther"), kindMutant, time.Minute)
 	if got.Outcome.Status != "caught" || !got.WholePackage {
 		t.Fatalf("outcome = %q whole %v (%s), want caught by the whole package", got.Outcome.Status, got.WholePackage, got.Outcome.Note)
 	}
@@ -219,7 +235,7 @@ func TestRunCommitMutants_ASelectionThatMissesFallsBackToTheWholePackage(t *test
 func TestRunCommitMutants_ASurvivorOfTheWholePackageIsMissed(t *testing.T) {
 	root := commitRoot(t)
 	s := scriptGo(t, func(goCall) (int, string) { return 0, "ok\tgate\n" })
-	got := runCommitOnce(t, root, planFor(mapFor("Kind", "TestKind_A")), kindMutant, time.Minute)
+	got := runCommitOnce(t, root, touchedPlan("TestKind_A"), kindMutant, time.Minute)
 	if got.Outcome.Status != "missed" || got.NotMeasured != "" {
 		t.Fatalf("outcome = %q, not measured %q, want missed", got.Outcome.Status, got.NotMeasured)
 	}
@@ -250,20 +266,23 @@ func TestRunCommitMutants_NoMapRunsTheWholePackageOnce(t *testing.T) {
 	}
 }
 
-// A test the commit touched is run even when the map lists other tests only.
-func TestRunCommitMutants_TouchedTestsJoinTheSelection(t *testing.T) {
+// On a line the map holds no block of, the tests the commit touched are the
+// selection, and not the tests the map lists for other lines.
+func TestRunCommitMutants_OnAnUnlistedLineTheTouchedTestsAreTheSelection(t *testing.T) {
 	root := commitRoot(t)
 	s := scriptGo(t, func(goCall) (int, string) { return 0, "ok\n" })
 	plans := planFor(mapFor("Kind", "TestKind_A"))
 	plans["gate"].Touched = []string{"TestKind_B"}
-	got := runCommitOnce(t, root, plans, kindMutant, time.Minute)
-	if want := []string{"TestKind_A", "TestKind_B"}; !slices.Equal(got.Selected, want) {
+	got := runCommitOnce(t, root, plans, labelMutant, time.Minute)
+	if want := []string{"TestKind_B"}; !slices.Equal(got.Selected, want) {
 		t.Errorf("selected %v, want %v", got.Selected, want)
 	}
-	if s.calls[0].Run != "^(TestKind_A|TestKind_B)$" {
-		t.Errorf("run = %q, want both tests", s.calls[0].Run)
+	if s.calls[0].Run != "^(TestKind_B)$" {
+		t.Errorf("run = %q, want the touched test", s.calls[0].Run)
 	}
 }
+
+// ratchet: test_removed TestRunCommitMutants_TouchedTestsJoinTheSelection: a map is exact for its content, so touched tests no longer join a line it lists; the unlisted-line case is the test above
 
 // A changed TestMain means the tests cannot be told apart: the whole package.
 func TestRunCommitMutants_ATestMainChangeRunsTheWholePackage(t *testing.T) {

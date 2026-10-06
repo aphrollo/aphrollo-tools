@@ -16,14 +16,15 @@ import (
 // The edges of the commit-time run: what each new condition does at the limit
 // it names and either side of it, and for nothing and for one thing.
 
-func TestCoveredFuncs_ALineNumberTooLargeToParseCoversNothing(t *testing.T) {
+func TestCoveredBlocks_ALineNumberTooLargeToParseNamesNoBlock(t *testing.T) {
 	t.Parallel()
-	spans := map[string][]funcSpan{"a.go": spansOf("f", 1, 9)}
 	profile := "mode: set\nx/a.go:99999999999999999999.1,99999999999999999999.9 1 1\n"
-	if got := coveredFuncs(profile, spans); len(got) != 0 {
-		t.Errorf("covered = %v, want none", sortedKeys(got))
+	if got := coveredBlocks(profile); len(got) != 0 {
+		t.Errorf("blocks = %v, want none", got)
 	}
 }
+
+// ratchet: test_removed TestCoveredFuncs_ALineNumberTooLargeToParseCoversNothing: the map is keyed by line now; the same edge is the test above
 
 func TestScanTestDecls_SkipsDirectoriesAndUnparseableFiles(t *testing.T) {
 	t.Parallel()

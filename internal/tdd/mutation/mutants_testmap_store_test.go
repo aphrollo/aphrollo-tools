@@ -99,7 +99,10 @@ func TestHashPackage_EmptyListing(t *testing.T) {
 func sampleMap() testMap {
 	return testMap{
 		Schema: testMapSchema, Package: "internal/p", Hash: "h1",
-		Tests: []string{"TestA", "TestB"}, Funcs: map[string][]int{"f": {0, 1}, "g": {1}},
+		Tests: []string{"TestA", "TestB"}, Blocks: []mapBlock{
+			{coverBlock{"p.go", 4, 4}, []int{0, 1}},
+			{coverBlock{"p.go", 8, 8}, []int{1}},
+		},
 	}
 }
 
@@ -114,7 +117,7 @@ func TestTestMapStore_RoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("loadTestMap: no map")
 	}
-	if got.Hash != "h1" || !slices.Equal(got.Tests, want.Tests) || !slices.Equal(got.Funcs["f"], []int{0, 1}) {
+	if got.Hash != "h1" || !slices.Equal(got.Tests, want.Tests) || got.Blocks[0].coverBlock != want.Blocks[0].coverBlock || !slices.Equal(got.Blocks[0].Tests, []int{0, 1}) {
 		t.Errorf("loaded %+v, want %+v", got, want)
 	}
 	if _, ok := loadTestMap(root, "internal/other"); ok {
@@ -132,8 +135,8 @@ func TestTestMapStore_UntrustedMapsAreNoMap(t *testing.T) {
 		mutate func(*testMap)
 	}{
 		{"another schema", func(m *testMap) { m.Schema = testMapSchema + 1 }},
-		{"an index at the end of the test list", func(m *testMap) { m.Funcs["f"] = []int{len(m.Tests)} }},
-		{"a negative index", func(m *testMap) { m.Funcs["f"] = []int{-1} }},
+		{"an index at the end of the test list", func(m *testMap) { m.Blocks[0].Tests = []int{len(m.Tests)} }},
+		{"a negative index", func(m *testMap) { m.Blocks[0].Tests = []int{-1} }},
 	} {
 		m := sampleMap()
 		tc.mutate(&m)
@@ -146,7 +149,7 @@ func TestTestMapStore_UntrustedMapsAreNoMap(t *testing.T) {
 	}
 	// The last valid index is the one before the end of the list.
 	m := sampleMap()
-	m.Funcs["f"] = []int{len(m.Tests) - 1}
+	m.Blocks[0].Tests = []int{len(m.Tests) - 1}
 	if err := saveTestMap(root, m); err != nil {
 		t.Fatal(err)
 	}
