@@ -56,8 +56,12 @@ func UnitOf(file string, projectRoot func(string) string) (Unit, bool) {
 	if root == "" {
 		return Unit{}, false
 	}
+	lang := languageOf(file)
+	if !hasOwnManifest(lang, root) {
+		return Unit{}, false
+	}
 	project := relOrDot(repo, root)
-	return Unit{ID: languageOf(file) + ":" + project, Project: project, Kind: unitProjectRoot}, true
+	return Unit{ID: lang + ":" + project, Project: project, Kind: unitProjectRoot}, true
 }
 
 // languageOf is the name of the language row that owns file, "other" for a file no
@@ -151,4 +155,28 @@ func LangOfCommand(cmd string) string {
 		return "rust"
 	}
 	return ""
+}
+
+// ownManifests are the files that make a directory a project of a language, by the
+// language row's name; a language not listed takes any root the edit hook found.
+var ownManifests = map[string][]string{
+	"python":     {"pyproject.toml", "setup.py", "setup.cfg", "pytest.ini", "tox.ini", "Pipfile", "conftest.py", "requirements*.txt"},
+	"typescript": {"package.json"},
+	"rust":       {"Cargo.toml"},
+}
+
+// hasOwnManifest reports whether root holds a manifest of lang. The edit hook's
+// walk stops at the nearest manifest of any language, so a Python file under a node
+// package resolves to the node root: that is no Python project, and has no unit.
+func hasOwnManifest(lang, root string) bool {
+	names, ok := ownManifests[lang]
+	if !ok {
+		return true
+	}
+	for _, n := range names {
+		if m, _ := filepath.Glob(filepath.Join(root, n)); len(m) > 0 {
+			return true
+		}
+	}
+	return false
 }

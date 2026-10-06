@@ -236,3 +236,34 @@ func TestCovered_ARunOfAnotherLanguageInASharedRootCoversNothing(t *testing.T) {
 		}
 	}
 }
+
+// A .py file under a node project is in no Python project: the root the walk
+// finds is the node package's, and a unit named python:<that root> would be one
+// no pytest run or manifest of its own ever speaks for.
+func TestUnitOf_AFileIsInAProjectOnlyThroughAManifestOfItsOwnLanguage(t *testing.T) {
+	root := tree(t, ".git",
+		"web/package.json", "web/tools/gen.py", "web/src/app.ts",
+		"svc/pyproject.toml", "svc/app.py",
+		"lib/requirements.txt", "lib/mod.py",
+		"crate/Cargo.toml", "crate/build.ts",
+		"legacy/conftest.py", "legacy/t.py")
+	anyRoot := func(file string) string {
+		return findUpAny(filepath.Dir(file), "package.json", "pyproject.toml", "requirements.txt", "Cargo.toml", "conftest.py")
+	}
+	for _, c := range []struct {
+		file, id string
+		ok       bool
+	}{
+		{"web/tools/gen.py", "", false},
+		{"web/src/app.ts", "typescript:web", true},
+		{"svc/app.py", "python:svc", true},
+		{"lib/mod.py", "python:lib", true},
+		{"legacy/t.py", "python:legacy", true},
+		{"crate/build.ts", "", false},
+	} {
+		got, ok := UnitOf(filepath.Join(root, filepath.FromSlash(c.file)), anyRoot)
+		if ok != c.ok || got.ID != c.id {
+			t.Errorf("UnitOf(%s) = %q ok=%v, want %q ok=%v", c.file, got.ID, ok, c.id, c.ok)
+		}
+	}
+}
