@@ -204,6 +204,7 @@ trellis is a gate built around lanes and an event log.
 | CwdChanged, DirectoryAdded | Repo start; CwdChanged also puts the shims on PATH | 300 ms the first time, 20 ms after | Nothing reaches Claude (per the docs); the line rides the next hook |
 | PreToolUse (Edit, Write, MultiEdit, NotebookEdit, Bash, PowerShell) | Reads the checkpoint, `HEAD` and the gitdir in-process, so no git spawn. Then, in order: guardrails; where each target lands (Bash and PowerShell commands are parsed); the wall; red→green; the deny-law weight delta under a deadline. On overrun it says "law check deferred: judged at commit" and queues the law for the run (C15). A new `agent_id`'s first call carries its brief until SubagentStart delivery is recorded (C12) | 50 ms; 150 ms with a law check (timed in F4) | `permissionDecision: deny` in at most 120 tokens (rule, cause, next step, override), or guidance in at most 60. Never `updatedInput` |
 | PostToolUse (Edit, Write, MultiEdit, NotebookEdit; Bash and PowerShell writes found by diff) | Formats the file (Go in-process); writes an `edit` event with the content hash; checks laws on the edited lines; requests the unit's run, coalesced per lane and unit (§6) | 300 ms plus the run's foreground budget | "formatted x.go", a warn-law line, or the run's line |
+| PostToolUseFailure (Bash, PowerShell) | A suite the agent ran itself that exited non-zero arrives here, not at PostToolUse (`error` is "Exit code N" then the output). With the PostToolUse of one that exited 0, it counts as a run (A1): the verdict is read from the exit and the output, written under the tree it measured, and folded as the run of every unit the command covers. A pipeline, two suites in one line, or a line that only lists or builds is no run | 100 ms | Nothing |
 | PostToolBatch | Delivers what has finished. It becomes the run trigger only if F4 shows at least 1.5 edits per batch; then it also runs one `git status --porcelain=v2 -z` per lane to catch writes no Edit named (C3, S11) | 20 ms | One line per unit |
 | SubagentStart | Records the actor on the lane its cwd names | 50 ms | At most 250 tokens: lane, `tdd` mode, open reds |
 | Stop, SubagentStop | Blocks once on an unseen red for this actor under enforce, unless `stop_hook_active` is set | 100 ms | `decision: block`, with the red as the reason |
@@ -218,7 +219,7 @@ trellis is a gate built around lanes and an event log.
 | Shims `git`, `cargo` | Take a governor slot for builds, so a build queues visibly. Under `CLAUDECODE=1`, refuse `--no-verify`, `-c core.hooksPath`, and a move off trunk in the primary checkout | Counted against the caller | Rule, remedy, override |
 
 **Not used:**
-- PermissionRequest, PermissionDenied, PostToolUseFailure, PreCompact, PostCompact, TaskCreated, UserPromptExpansion and Elicitation.
+- PermissionRequest, PermissionDenied, PreCompact, PostCompact, TaskCreated, UserPromptExpansion and Elicitation.
 - WorktreeCreate and WorktreeRemove, because a hook there replaces git's own worktree creation.
 
 ## 5. The agent's experience
@@ -362,7 +363,7 @@ trellis deny [primary-write] Write lands in the main checkout on trunk · do: En
 
 | Key | Values (default) | Layer |
 |---|---|---|
-| `tdd` | `enforce`, `warn`, `off` (`warn` until the A/B decides) | all |
+| `tdd` | `enforce`, `warn`, `off` (`warn` until the A/B decides; an unpinned lane runs the arm a hash of its repo and name gives it, `aphrollo config show` says which, `aphrollo stats --ab` reads both) | all |
 | `isolation` | bool (`true`) | all |
 | `ci` | `auto`, `local`, `github` (`auto`) | all |
 | `ci.os` | list (`["linux"]`; this repo `["linux", "windows"]`) | repo |
@@ -630,7 +631,7 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 | Deny then `EnterWorktree name=` (6 headless runs) | 5 of 6 entered the worktree; 1 wrote through Bash straight away; every follower retried Write once first | Above the 80% bar. The deny text must say the write is refused until the worktree is entered; Bash write targets must be gated; lane names must be unique per task, since EnterWorktree reuses an existing name |
 | TaskCompleted | Not recordable: TaskCreate and TaskUpdate do not exist in this harness version, interactive or `-p` | The task check stays on Stop and SubagentStop; TaskCompleted is dropped until the tools ship |
 | CwdChanged, DirectoryAdded, Setup | Did not fire, including EnterWorktree and ExitWorktree in an interactive session | Repo start runs at SessionStart and on the first hook in a new cwd, not on these events |
-| Payload fields | The gate never reads `agent_id`; `tool_response.success` never occurs; failures arrive as PostToolUseFailure, which the gate does not handle | Adapters key subagents by `agent_id` and handle PostToolUseFailure |
+| Payload fields | The gate never reads `agent_id`; `tool_response.success` never occurs; failures arrive as PostToolUseFailure, which the gate handles for a failed shell test run (`gate posttoolusefailure`) | Adapters key subagents by `agent_id` and handle PostToolUseFailure |
 
 Still open: the exec (`args`) hook form, `asyncRewake`, and the same recordings on Linux.
 

@@ -18,7 +18,15 @@ type Payload struct {
 	Cwd            string `json:"cwd"`
 	ToolName       string `json:"tool_name"`
 	StopHookActive bool   `json:"stop_hook_active"`
-	ToolInput      struct {
+	// What a PostToolUse or PostToolUseFailure payload adds: the call's id, how long
+	// it took, its response (an object, or a string for some tools) and, for a call
+	// that failed, the error text and whether the user interrupted it.
+	ToolUseID    string          `json:"tool_use_id"`
+	DurationMS   int64           `json:"duration_ms"`
+	ToolResponse json.RawMessage `json:"tool_response"`
+	Error        string          `json:"error"`
+	IsInterrupt  bool            `json:"is_interrupt"`
+	ToolInput    struct {
 		FilePath  string `json:"file_path"`
 		Command   string `json:"command"`
 		OldString string `json:"old_string"`

@@ -39,6 +39,16 @@ func ConfigRoot() string {
 // every worktree of one repo has the one id. "" when root holds no repo. It
 // reads the filesystem and spawns nothing: a hook asks it on every call.
 func RepoID(root string) string {
+	if common := CommonDir(root); common != "" {
+		return core.RepoStateKey(common)
+	}
+	return ""
+}
+
+// CommonDir is the git directory every worktree of the repo at root shares: its own
+// .git for a main checkout, the common directory a linked worktree names. "" when
+// root holds no repo. It reads the filesystem and spawns nothing.
+func CommonDir(root string) string {
 	if root == "" {
 		return ""
 	}
@@ -48,7 +58,7 @@ func RepoID(root string) string {
 		return ""
 	}
 	if fi.IsDir() {
-		return core.RepoStateKey(gitPath)
+		return gitPath
 	}
 	data, err := os.ReadFile(gitPath)
 	gitdir, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir:")
@@ -66,7 +76,7 @@ func RepoID(root string) string {
 			common = filepath.Join(gitdir, common)
 		}
 	}
-	return core.RepoStateKey(filepath.Clean(common))
+	return filepath.Clean(common)
 }
 
 // ForDir reads every layer for the repo dir stands in, the way a hook reads

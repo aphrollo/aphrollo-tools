@@ -16,7 +16,7 @@ import (
 // sees until the test moves it.
 func laneAt(t *testing.T, key string) (root string, tree *string) {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	t.Setenv("TRELLIS_DATA", t.TempDir())
 	root = mkProject(t, "go.mod")
 	tree = &key
@@ -272,7 +272,7 @@ func TestSweepLaneState_DropsOldMarksAndPointersOfVanishedWorktrees(t *testing.T
 // A run's unit is named from the repository root and carries its package set,
 // without the -timeout the deferral adds.
 func TestRunUnitOf_IsRelativeToTheRepositoryAndCarriesThePackages(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := t.TempDir()
 	gitDo(t, repo, "init", "-q")
 	project := filepath.Join(repo, "svc")

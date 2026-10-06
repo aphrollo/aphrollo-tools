@@ -79,11 +79,9 @@ type Key struct {
 	Check func(string) error
 }
 
-// The live default of tdd is enforce, today's behaviour: the Stop and
-// SubagentStop checks block on an unseen red. The architecture's default is
-// warn "until the A/B decides"; phase A's A/B flips this one constant, and
-// nothing else, when it does.
-const tddBuiltIn = "enforce"
+// The built-in of tdd is warn, the architecture's default until the A/B decides: a lane no
+// layer pins runs the arm tddarm assigns it, and trunk, which has no lane, runs this.
+const tddBuiltIn = "warn"
 
 func str(s string) tomlsubset.Value { return tomlsubset.Value{Kind: tomlsubset.String, S: s} }
 func flag(b bool) tomlsubset.Value  { return tomlsubset.Value{Kind: tomlsubset.Bool, B: b} }

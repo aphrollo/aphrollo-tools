@@ -29,7 +29,7 @@ func holdsTrellis(dir string) bool {
 
 // silenceHooks are the gate subcommands an editor or git calls. Each one stands
 // down in a trellis repo: exit 0, no output, no state.
-var silenceHooks = append(slices.Clone(compatGitHooks), "sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend", "stop", "subagentstop", "taskcompleted")
+var silenceHooks = append(slices.Clone(compatGitHooks), "sessionstart", "pretooluse", "posttooluse", "posttoolusefailure", "userpromptsubmit", "sessionend", "stop", "subagentstop", "taskcompleted")
 
 // silenceGuard runs before the compat guard. A hook in a repo that holds
 // trellis.toml is answered here with nothing, and a queue shim is told to pass

@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/w/repo","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"go test ./internal/lane/...","description":"Run the lane tests"},"tool_response":{"stdout":"ok  \texample.com/m/internal/lane\t0.012s\n","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false},"tool_use_id":"toolu_go_green","duration_ms":2310}

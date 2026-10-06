@@ -8,8 +8,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/aphrollo/aphrollo-tools/internal/config"
 )
 
 // The stop checks answer the three hooks that end something: Stop (the turn),
@@ -161,20 +159,19 @@ func decideStop(event StopEvent, in stopInput) StopVerdict {
 	return StopVerdict{}
 }
 
-// The tdd setting's values the stop checks tell apart. enforce is the live default and blocks as the
-// checks always have; the schema's built-in is in internal/config, and phase
-// A's A/B flips it to warn there, not here. warn lets every stop through with
-// guidance only; off says nothing.
+// The tdd setting's values the stop checks tell apart. enforce blocks as the checks always
+// have; the built-in is warn (internal/config), and a lane no layer pins runs its A/B arm. warn
+// lets every stop through with guidance only; off says nothing.
 const (
 	modeWarn = "warn"
 	modeOff  = "off"
 )
 
-// stopMode is the tdd setting for the repo cwd stands in, through every layer.
-// A value no layer can hold is the schema's business: it falls back to the
-// built-in, and never to off.
+// stopMode is the tdd mode the lane cwd stands in runs under (EffectiveTDD): the value a
+// layer pins, else the lane's arm, else the built-in. A value no layer can hold is the
+// schema's business: it falls back to the built-in, and never to off.
 func stopMode(cwd string) string {
-	return config.ForDir(cwd).Get("tdd").Value.S
+	return EffectiveTDD(cwd).TDD
 }
 
 // warnStop is the stop check under tdd = warn: it never blocks, and says once

@@ -81,6 +81,7 @@ var gateVerbTable = []Verb{
 	{Name: "sessionstart"},
 	{Name: "pretooluse"},
 	{Name: "posttooluse"},
+	{Name: "posttoolusefailure"},
 	{Name: "userpromptsubmit"},
 	{Name: "sessionend"},
 	{Name: "stop"},

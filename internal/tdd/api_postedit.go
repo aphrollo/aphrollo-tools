@@ -5,6 +5,7 @@ package tdd
 import (
 	shadow "github.com/aphrollo/aphrollo-tools/internal/shadow"
 	postedit "github.com/aphrollo/aphrollo-tools/internal/tdd/postedit"
+	tddarm "github.com/aphrollo/aphrollo-tools/internal/tddarm"
 	time "time"
 )
 
@@ -56,7 +57,11 @@ func DirectPROpenDecision(p0 []byte) Decision { return postedit.DirectPROpenDeci
 
 func DiscardBashDecision(p0 []byte) Decision { return postedit.DiscardBashDecision(p0) }
 
+func EffectiveTDD(p0 string) tddarm.Mode { return postedit.EffectiveTDD(p0) }
+
 func EnableDeferredPhases(p0 bool) { postedit.EnableDeferredPhases(p0) }
+
+func FoldBashRun(p0 []byte) { postedit.FoldBashRun(p0) }
 
 func IsBashHook(p0 []byte) bool { return postedit.IsBashHook(p0) }
 
@@ -97,6 +102,10 @@ func RecordFinishedDeferredJobForTest(p0 string, p1 string) {
 func RecordFinishedRedDeferredJobForTest(p0 string, p1 string, p2 string, p3 string) {
 	postedit.RecordFinishedRedDeferredJobForTest(p0, p1, p2, p3)
 }
+
+func RecordLaneArm(p0 string, p1 string, p2 tddarm.Mode) { postedit.RecordLaneArm(p0, p1, p2) }
+
+func RedGreenWaived(p0 string) bool { return postedit.RedGreenWaived(p0) }
 
 func RenderPostToolUse(p0 string) ([]byte, int) { return postedit.RenderPostToolUse(p0) }
 

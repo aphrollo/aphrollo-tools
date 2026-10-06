@@ -82,7 +82,7 @@ func RevokeForSession(session, cwd, wall string) (string, error) {
 
 // walls is every wall `allow` and `revoke` can waive, in the order usage
 // lines name them. The CLI verbs and the /tdd session verb both read it.
-var walls = [...]string{WallPrimary, WallDiscard}
+var walls = [...]string{WallPrimary, WallDiscard, WallRedGreen}
 
 // KnownWall reports whether wall is one `allow`/`revoke` can waive.
 func KnownWall(wall string) bool {

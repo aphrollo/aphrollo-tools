@@ -96,11 +96,16 @@ func skipLane(root, lane string) bool {
 }
 
 func (w World) engine(root string) (*engine.Engine, *store.Store, error) {
+	return w.engineFor(root, Config)
+}
+
+// engineFor is the engine of the repo root belongs to, deciding under cfg.
+func (w World) engineFor(root string, cfg kernel.Config) (*engine.Engine, *store.Store, error) {
 	st, err := w.Open(root)
 	if err != nil {
 		return nil, nil, err
 	}
-	return &engine.Engine{Store: st, Config: Config}, st, nil
+	return &engine.Engine{Store: st, Config: cfg}, st, nil
 }
 
 // covered is Covered for the unit as the lane record and the store hold it: the
@@ -135,10 +140,18 @@ func causeOf(err error) string {
 	return CauseStore
 }
 
-// RedGreen asks the kernel the question each code file a PreToolUse call is about
-// to write puts to the red→green rule, and compares the answer to aphrollo's: the
-// live hook allows every one of them, for red→green is held at the commit, so any
-// guide or block of the kernel's is a would-be block (trellis-stricter).
+// askedFile is the answer to the question one code file a PreToolUse call is about to
+// write puts to the red→green rule: the kernel's decision, or, when the question
+// could not be put, the unjudged record that says why.
+type askedFile struct {
+	File, Root, ProjectRoot string
+	Unit                    Unit
+	Decision                kernel.Decision
+	Unjudged                *Record
+}
+
+// askCodeFiles puts to the red→green rule the question each code file of a PreToolUse
+// call is about to write asks, under the kernel config cfg.
 //
 // The question is put to the lane's real record through the engine, so it reads
 // the unit's phase as the runs and edits folded so far have left it (FoldRun). The
@@ -147,11 +160,15 @@ func causeOf(err error) string {
 // (it writes the verdict files, under their own lock) never takes, so the question
 // cannot hold a live write up. Every wait is bound to ctx, the hook's budget. Only
 // code files are asked: a test edit is never refused by this rule.
-func (w World) RedGreen(ctx context.Context, p Payload, files []string) []Record {
-	var out []Record
+func (w World) askCodeFiles(ctx context.Context, p Payload, files []string, cfg kernel.Config) []askedFile {
+	var out []askedFile
 	unitOf := w.unitOf()
 	ledgers := map[string][]LedgerEdit{}
-	asked := map[string]bool{}
+	seen := map[string]bool{}
+	skip := func(f, root, unit, cause string) {
+		r := withRoot(unjudged(HookPre, RuleRedGreen, unit, cause), root)
+		out = append(out, askedFile{File: f, Root: root, Unjudged: &r})
+	}
 	for _, f := range files {
 		if FileClassOf(f) != kernel.ClassCode {
 			continue
@@ -159,7 +176,7 @@ func (w World) RedGreen(ctx context.Context, p Payload, files []string) []Record
 		root := filepath.Dir(f) // the checkout the write lands in, which a shell command's need not be the cwd's
 		u, ok := unitOf(f)
 		if !ok {
-			out = append(out, withRoot(unjudged(HookPre, RuleRedGreen, "", CauseNoUnit), root))
+			skip(f, root, "", CauseNoUnit)
 			continue
 		}
 		lane := w.Lane(root)
@@ -167,17 +184,17 @@ func (w World) RedGreen(ctx context.Context, p Payload, files []string) []Record
 			continue
 		}
 		key := lane + "|" + u.ID
-		if asked[key] {
+		if seen[key] {
 			continue
 		}
-		asked[key] = true
+		seen[key] = true
 		if lane == "" {
-			out = append(out, withRoot(unjudged(HookPre, RuleRedGreen, u.ID, CauseNoLane), root))
+			skip(f, root, u.ID, CauseNoLane)
 			continue
 		}
-		eng, st, err := w.engine(root)
+		eng, st, err := w.engineFor(root, cfg)
 		if err != nil {
-			out = append(out, withRoot(unjudged(HookPre, RuleRedGreen, u.ID, CauseStore), root))
+			skip(f, root, u.ID, CauseStore)
 			continue
 		}
 		pr := w.ProjectRoot(f)
@@ -187,15 +204,41 @@ func (w World) RedGreen(ctx context.Context, p Payload, files []string) []Record
 		ev := PreEvent(p, lane, Edit{File: f, Class: kernel.ClassCode, Unit: u, Covered: w.covered(ctx, st, lane, u, ledgers[pr], unitOf), AddsSymbol: AddsSymbol(p, f)})
 		d, err := eng.Handle(ctx, ev)
 		if err != nil && d.Outcome == "" {
-			out = append(out, withRoot(unjudged(HookPre, RuleRedGreen, u.ID, causeOf(err)), root))
+			skip(f, root, u.ID, causeOf(err))
 			continue
 		}
-		r := recordOf(HookPre, RuleRedGreen, "commit-proof", d, Allow)
-		r.Unit, r.UnitPkg, r.Lang = u.ID, u.Pkg, LangOfUnit(u.ID)
-		if u.Kind == unitProjectRoot {
-			r.UnitRoot = filepath.ToSlash(pr)
+		out = append(out, askedFile{File: f, Root: root, ProjectRoot: pr, Unit: u, Decision: d})
+	}
+	return out
+}
+
+// RedGreen asks the kernel, under the shadow's config, the question each code file a
+// PreToolUse call is about to write puts to the red→green rule, and compares the answer
+// to aphrollo's: it allowed every one of them, so any guide or block of the kernel's is
+// a would-be block (trellis-stricter).
+func (w World) RedGreen(ctx context.Context, p Payload, files []string) []Record {
+	return w.RedGreenAs(ctx, p, files, nil)
+}
+
+// RedGreenAs is RedGreen for a call the live hook has acted on: actual says what it did
+// about each file it asked (Warn, Block), and a file it did not act on was allowed.
+func (w World) RedGreenAs(ctx context.Context, p Payload, files []string, actual map[string]Action) []Record {
+	var out []Record
+	for _, a := range w.askCodeFiles(ctx, p, files, Config) {
+		if a.Unjudged != nil {
+			out = append(out, *a.Unjudged)
+			continue
 		}
-		out = append(out, withRoot(r, root))
+		act, ok := actual[a.File]
+		if !ok {
+			act = Allow
+		}
+		r := recordOf(HookPre, RuleRedGreen, "commit-proof", a.Decision, act)
+		r.Unit, r.UnitPkg, r.Lang = a.Unit.ID, a.Unit.Pkg, LangOfUnit(a.Unit.ID)
+		if a.Unit.Kind == unitProjectRoot {
+			r.UnitRoot = filepath.ToSlash(a.ProjectRoot)
+		}
+		out = append(out, withRoot(r, a.Root))
 	}
 	return out
 }
@@ -317,9 +360,12 @@ func (w World) FoldEdit(ctx context.Context, f EditFold) string {
 type Fold struct {
 	Root, Actor, Tree, Job string
 	EditIDs                []string
-	Argv                   []string // the run's command; nil when unknown, which covers every unit
-	Verdict                kernel.Verdict
-	Cause                  string
+	// Own is a run the agent started itself from a shell: it names no edits, for it
+	// judges every edit the ledger holds, and a run with none to judge folds nothing.
+	Own     bool
+	Argv    []string // the run's command; nil when unknown, which covers every unit
+	Verdict kernel.Verdict
+	Cause   string
 }
 
 // FoldRun folds a finished run's result into the lane record, in one transaction.
@@ -344,6 +390,13 @@ func (w World) FoldRun(ctx context.Context, f Fold) string {
 	}
 	unitOf := w.unitOf()
 	ledger := w.Edits(f.Root)
+	ids := f.EditIDs
+	if f.Own {
+		ids = make([]string, 0, len(ledger))
+		for _, e := range ledger {
+			ids = append(ids, e.ID)
+		}
+	}
 	newest := map[string]string{} // unit id to the id of its newest ledger edit
 	for _, e := range ledger {
 		if u, ok := unitOf(e.File); ok && FileClassOf(e.File) != kernel.ClassOther {
@@ -353,7 +406,7 @@ func (w World) FoldRun(ctx context.Context, f Fold) string {
 	var order []string
 	units := map[string]Unit{}
 	for _, e := range ledger {
-		if !slices.Contains(f.EditIDs, e.ID) || FileClassOf(e.File) == kernel.ClassOther {
+		if !slices.Contains(ids, e.ID) || FileClassOf(e.File) == kernel.ClassOther {
 			continue
 		}
 		if u, ok := unitOf(e.File); ok && !slices.Contains(order, u.ID) {
@@ -362,11 +415,14 @@ func (w World) FoldRun(ctx context.Context, f Fold) string {
 		}
 	}
 	if len(order) == 0 {
+		if f.Own {
+			return ""
+		}
 		return CauseNoEdit
 	}
 	runUnit := ""
 	if f.Argv != nil {
-		runUnit = relOrDot(findUp(f.Root, ".git"), f.Root) + "|" + strings.Join(f.Argv, " ")
+		runUnit = RunUnitName(f.Root, f.Argv)
 	}
 	var evs []kernel.Event
 	for _, id := range order {
@@ -374,7 +430,7 @@ func (w World) FoldRun(ctx context.Context, f Fold) string {
 		if runUnit != "" && !runCovers(runUnit, u) {
 			continue
 		}
-		if !slices.Contains(f.EditIDs, newest[id]) {
+		if !slices.Contains(ids, newest[id]) {
 			continue
 		}
 		evs = append(evs, TreeEvent(f.Actor, lane, id, f.Tree), RunEvent(f.Actor, lane, id, f.Tree, f.Job, f.Verdict, f.Cause))

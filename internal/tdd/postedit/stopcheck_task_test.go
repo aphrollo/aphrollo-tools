@@ -28,7 +28,7 @@ func taskFields(cwd string) map[string]any {
 }
 
 func TestDecideStop_TaskCompletedKeepsTheTaskOpenNamingTheFailingTests(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := makeGoRepo(t)
 	stampProject(t, repo, "red", []string{"TestRetry/backoff", "TestRetry/jitter"})
 
@@ -59,7 +59,7 @@ func TestDecideStop_TaskCompletedJudgesTheLastRecordedOutcomeOfTheTree(t *testin
 		{"writing-test", nil, false},
 	} {
 		t.Run(tc.outcome, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			stopEnforceEnv(t)
 			repo := makeGoRepo(t)
 			stampProject(t, repo, tc.outcome, tc.failing)
 
@@ -79,7 +79,7 @@ func TestDecideStop_TaskCompletedJudgesTheLastRecordedOutcomeOfTheTree(t *testin
 }
 
 func TestDecideStop_TaskCompletedFindsARedProjectNestedInTheTasksTree(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := makeGoRepo(t)
 	crate := filepath.Join(repo, "crates", "a")
 	if err := os.MkdirAll(crate, 0o755); err != nil {
@@ -96,7 +96,7 @@ func TestDecideStop_TaskCompletedFindsARedProjectNestedInTheTasksTree(t *testing
 }
 
 func TestDecideStop_TaskCompletedIgnoresARedOfAnotherTree(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := makeGoRepo(t)
 	otherLane := makeGoRepo(t)
 	stampProject(t, otherLane, "red", []string{"TestElsewhere"})
@@ -111,7 +111,7 @@ func TestDecideStop_TaskCompletedIgnoresARedOfAnotherTree(t *testing.T) {
 // A red stamped under an older git state is not what the tree is now: a commit
 // is gated on a green suite, so the red is history.
 func TestDecideStop_TaskCompletedIgnoresARedStampedUnderAnEarlierGitState(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := makeGoRepo(t)
 	stampProject(t, repo, "red", []string{"TestA"})
 	write(t, repo, "later.go", "package later\n")
@@ -128,7 +128,7 @@ func TestDecideStop_TaskCompletedIgnoresARedStampedUnderAnEarlierGitState(t *tes
 // A recorded outcome the gate could not pin to a git state — none was taken, or
 // the project is no repository now — says nothing about the tree as it is.
 func TestDecideStop_TaskCompletedIgnoresARedWithNoGitStateToCompareTo(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := makeGoRepo(t)
 	state, path := loadSession(stopSession)
 	state.Stamp(repo, projectState{Outcome: "red", FailingTests: []string{"TestA"}})
@@ -150,7 +150,7 @@ func TestDecideStop_TaskCompletedIgnoresARedWithNoGitStateToCompareTo(t *testing
 // A green project beside a red one in the same tree is not what holds the task
 // open, so the reason never names it.
 func TestDecideStop_TaskCompletedDoesNotNameAGreenProjectBesideARedOne(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := makeGoRepo(t)
 	red, green := filepath.Join(repo, "crates", "red"), filepath.Join(repo, "crates", "green")
 	for _, dir := range []string{red, green} {
@@ -172,7 +172,7 @@ func TestDecideStop_TaskCompletedDoesNotNameAGreenProjectBesideARedOne(t *testin
 }
 
 func TestDecideStop_TaskCompletedNamesEveryRedProjectInOrder(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := makeGoRepo(t)
 	for _, name := range []string{"d", "b", "c", "a"} {
 		crate := filepath.Join(repo, "crates", name)
@@ -195,7 +195,7 @@ func TestDecideStop_TaskCompletedNamesEveryRedProjectInOrder(t *testing.T) {
 }
 
 func TestDecideStop_TaskCompletedAllowsWhenTheSessionTurnedTheGateOff(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := makeGoRepo(t)
 	stampProject(t, repo, "red", []string{"TestA"})
 	state, path := loadSession(stopSession)
@@ -214,7 +214,7 @@ func TestDecideStop_TaskCompletedAllowsWhenTheSessionTurnedTheGateOff(t *testing
 // A task closing is one more place Claude can hear a red it never saw; the
 // check delivers it with the failing names, exactly as a stop would.
 func TestDecideStop_TaskCompletedDeliversAnUnseenRedAndKeepsTheTaskOpen(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := makeGoRepo(t)
 	crate := filepath.Join(repo, "crates", "a")
 	redJobAt(t, crate)
@@ -232,7 +232,7 @@ func TestDecideStop_TaskCompletedDeliversAnUnseenRedAndKeepsTheTaskOpen(t *testi
 // Unlike a stop, a task is not released by a second ask: it stays open for as
 // long as its tests are red.
 func TestDecideStop_TaskCompletedKeepsBlockingWhileTheTestsStayRed(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	repo := makeGoRepo(t)
 	stampProject(t, repo, "red", []string{"TestA"})
 

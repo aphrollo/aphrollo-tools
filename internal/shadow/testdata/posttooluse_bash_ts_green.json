@@ -1,0 +1,1 @@
+{"session_id":"s1","cwd":"/w/repo/frontend","hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"npx vitest run"},"tool_response":{"stdout":" Test Files  1 passed (1)\n","stderr":"","interrupted":false,"isImage":false},"tool_use_id":"toolu_ts_green","duration_ms":3100}

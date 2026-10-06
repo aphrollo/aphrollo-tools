@@ -54,7 +54,7 @@ var (
 		"issue": true, "feedback": true,
 	}
 	compatGitHooks    = []string{"precommit", "premerge", "premergecommit", "prepush", "commitmsg", "postcommit", "postmerge", "postrewrite"}
-	compatClaudeHooks = []string{"sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend"}
+	compatClaudeHooks = []string{"sessionstart", "pretooluse", "posttooluse", "posttoolusefailure", "userpromptsubmit", "sessionend"}
 )
 
 // compatGateSub is the gate subcommand a command line names, "" for any other

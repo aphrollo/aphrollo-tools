@@ -49,7 +49,7 @@ func TestTddAllow_RefusesAnUnknownWallNamingEveryKnownOne(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	for _, verb := range []string{"allow", "revoke"} {
 		msg := tddCommand(verb, "nonsense", "s-unknown", "")
-		want := "gate: /tdd " + verb + " needs a wall (primary|discard), got nonsense"
+		want := "gate: /tdd " + verb + " needs a wall (primary|discard|red-green), got nonsense"
 		if msg != want {
 			t.Fatalf("/tdd %s nonsense = %q, want %q", verb, msg, want)
 		}

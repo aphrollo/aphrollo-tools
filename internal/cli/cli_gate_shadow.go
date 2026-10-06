@@ -9,6 +9,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
 	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/tddarm"
 )
 
 // preShadow gathers what one PreToolUse judgement observed, as facts for the
@@ -36,6 +37,14 @@ type preShadow struct {
 	// final is what the call came to once every judgement was folded: a waived
 	// call a later judgement blocked was blocked.
 	final shadow.Action
+
+	// The live red→green answer: the mode the lane runs under, the answer the kernel gave
+	// inside its budget, whether it was asked at all, and whether it is what blocked the
+	// call (the one block the record of red→green is still written for).
+	mode        tddarm.Mode
+	live        shadow.LiveResult
+	liveAsked   bool
+	liveBlocked bool
 }
 
 func newPreShadow(raw []byte) *preShadow {
@@ -161,14 +170,17 @@ func (p *preShadow) record() {
 // proof being held at the commit, so a call a wall or a law stopped is not asked:
 // the edit it was about does not happen.
 func (p *preShadow) redGreen(src shadow.Source) []shadow.Step {
-	if p.final == shadow.Block {
+	if p.final == shadow.Block && !p.liveBlocked {
 		return nil
 	}
 	pl, ok := shadow.ParsePayload(p.raw)
 	if !ok {
 		return nil
 	}
-	return shadow.RedGreenSteps(tdd.ShadowWorld(), src, pl, pl.Targets())
+	if p.liveAsked {
+		src.Arm, src.ArmWhy, src.Mode = p.mode.Arm, p.mode.Why, p.mode.TDD
+	}
+	return shadow.RedGreenStepsLive(tdd.ShadowWorld(), src, pl, pl.Targets(), p.live)
 }
 
 // hookSource is where a hook's records are filed: the root of the file an edit

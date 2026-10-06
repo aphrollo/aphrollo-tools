@@ -57,6 +57,8 @@ agent_researcher.md                                install
 agent_reviewer.md                                  install
 agents.go                                          install
 agents_test.go                                     install
+armmode.go                                         postedit
+armmode_test.go                                    postedit
 autoescape.go                                      escape
 autoescape_override_test.go                        tdd       # prefix says escape; its test body reaches tdd
 autoescape_suite.go                                suite     # created by P2
@@ -91,6 +93,8 @@ bashedit_primarydirt_test.go                       postedit
 bashedit_skiproots_test.go                         postedit
 bashedit_test.go                                   install   # prefix says postedit; its test body reaches install
 bashedits_docs_test.go                             install
+bashrunfold.go                                     postedit
+bashrunfold_test.go                                postedit
 bashsuite.go                                       postedit
 bashsuite_envswitch.go                             postedit
 bashsuite_envswitch_test.go                        postedit
@@ -1004,6 +1008,8 @@ readshared.go                                      core
 readshared_other.go                                core
 readshared_own_test.go                             core
 readshared_windows.go                              core
+redgreenlive.go                                    postedit
+redgreenlive_test.go                               postedit
 redsnippet_test.go                                 postedit
 renameretry.go                                     core
 renameretry_other.go                               core
@@ -1028,6 +1034,7 @@ runcheckout_cdtilde_test.go                        suite
 runcheckout_groups_test.go                       suite
 runcheckout_own_test.go                            suite
 runcheckout_test.go                                postedit  # prefix says suite; its test body reaches postedit
+runfold_wiring_test.go                             install
 runner.go                                          suite
 runner_core.go                                     core      # created by P2
 runner_core_own_test.go                            core

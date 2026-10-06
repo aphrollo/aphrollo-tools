@@ -87,6 +87,10 @@ func appendDropped(evs ...core.Event) {
 	clk := clock
 	start := clk.Now()
 	defer func() { waited.Add(int64(clk.Now().Sub(start))) }()
+	// The grace is armed before the writer starts, so a writer that is stuck on its first
+	// record always has a grace running that the clock can end.
+	grace, release := clk.Timer(DropGrace)
+	defer release()
 	write := appendEvent // read now: the goroutine below may outlive a test that swaps it
 	done := make(chan struct{})
 	go func() {
@@ -96,8 +100,6 @@ func appendDropped(evs ...core.Event) {
 			write(e)
 		}
 	}()
-	grace, release := clk.Timer(DropGrace)
-	defer release()
 	select {
 	case <-done:
 	case <-grace:

@@ -56,7 +56,7 @@ func TestConfigShow_PrintsEachKeyWithItsValueAndLayer(t *testing.T) {
 	if row := showRow(out, "ci"); len(row) < 4 || row[1] != "local" || row[2] != "repo" || row[3] != "trellis.toml:1" {
 		t.Errorf("ci row = %v\n%s", row, out)
 	}
-	if row := showRow(out, "tdd"); len(row) < 3 || row[1] != "enforce" || row[2] != "built-in" {
+	if row := showRow(out, "tdd"); len(row) < 3 || row[1] != "warn" || row[2] != "built-in" {
 		t.Errorf("tdd row = %v\n%s", row, out)
 	}
 	for _, key := range []string{"isolation", "ci.os", "mutation", "requires", "undercover", "trunk", "host.production", "pin", "budgets.commit_s", "budgets.merge_s", "test.reads", "test.slow_tag", "retro-prompt", "issue-prompt"} {
@@ -89,7 +89,7 @@ func TestConfigShow_NamesMisreadsOnStderrAndKeepsTheBuiltInValue(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if row := showRow(out, "tdd"); len(row) < 3 || row[1] != "enforce" || row[2] != "built-in" {
+	if row := showRow(out, "tdd"); len(row) < 3 || row[1] != "warn" || row[2] != "built-in" {
 		t.Errorf("tdd row = %v, want the built-in value", row)
 	}
 	for _, want := range []string{"trellis.toml:1", "repo layer", "tdd", "loud", "trellis.toml:2", "speling"} {

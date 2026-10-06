@@ -45,6 +45,8 @@ func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration)
 
 func GateLogNewerSchema() (int, bool) { return core.GateLogNewerSchema() }
 
+func LaneOf(p0 string) string { return core.LaneOf(p0) }
+
 func LogToken(p0 string) string { return core.LogToken(p0) }
 
 func MergeRejectedMarkerPath(p0 string) string { return core.MergeRejectedMarkerPath(p0) }

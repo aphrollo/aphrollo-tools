@@ -17,6 +17,8 @@ Subcommands:
   sessionstart      Inject the build-skill nudge at session start
   pretooluse        Evaluate a Claude Code PreToolUse edit payload from stdin
   posttooluse       Run related tests after an edit and report RED/GREEN
+  posttoolusefailure  PostToolUseFailure hook: count a suite the agent ran by hand that
+                    exited non-zero as a run of the units it covered
   userpromptsubmit  Handle the /gate command and re-inject a RED reminder
   sessionend        Drop the session's state file
   stop              Stop hook: block the end of a turn once when a deferred run
@@ -27,8 +29,8 @@ Subcommands:
   precommit         Git pre-commit gate: fail-first + mechanical (run in the repo)
   premerge          Git pre-merge-commit gate: mechanical ONLY, no fail-first/anti-cheat
   premergecommit    (alias of premerge; retiring next release)
-  allow             allow [primary]: waive a wall for this session (bare: list waivers)
-  revoke            revoke [primary]: restore a wall waived by allow (bare: list waivers)
+  allow             allow [primary|discard|red-green]: waive a wall for this session (bare: list waivers)
+  revoke            revoke [primary|discard|red-green]: restore a wall waived by allow (bare: list waivers)
   primary-edits     on|off (alias of allow/revoke primary; retiring next release)
   postcommit        Git post-commit hook: write the refs/notes/gate note on the
                     commit just made — what lets CI tell a red on a gated tip
@@ -411,7 +413,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 
 	switch args[0] {
-	case "sessionstart", "pretooluse", "posttooluse", "userpromptsubmit", "sessionend", "stop", "subagentstop", "taskcompleted":
+	case "sessionstart", "pretooluse", "posttooluse", "posttoolusefailure", "userpromptsubmit", "sessionend", "stop", "subagentstop", "taskcompleted":
 	default:
 		fmt.Fprintf(stderr, "aphrollo gate: unknown subcommand %q\n\n%s", args[0], gateUsage)
 		return 2
@@ -435,6 +437,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			stdout.Write(payload)
 		}
 		return code
+	case "posttoolusefailure":
+		// A shell call that exited non-zero: when it was a suite the agent ran itself,
+		// its red is a run like any other. It answers nothing.
+		tdd.FoldBashRun(raw)
+		return 0
 	case "posttooluse":
 		// PostToolUse never blocks: it only ever emits advisory context. It is
 		// also the one hook allowed to leave work running past its budget — a
@@ -442,6 +449,8 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		// nothing. A retro a merge in this session left pending rides after
 		// the hook's own text, once.
 		tdd.EnableDeferredPhases(true)
+		// A suite the agent ran itself is a run: folded after the answer (shadow.Flush).
+		tdd.FoldBashRun(raw)
 		if tdd.IsBashHook(raw) {
 			payload, code := tdd.RenderPostToolUse(tdd.WithPendingRetro(raw, tdd.PostBash(raw, tdd.RunSuite(postEditBudget()))))
 			if len(payload) > 0 {
@@ -474,6 +483,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	tdd.LogEditDecision(raw, guard)
 	obs := newPreShadow(raw)
 	final := mergeGuardrail(guard, gatePreToolUse(raw, stderr, obs))
+	final = obs.redGreenLive(final)
 	obs.settle(final)
 	payload, code := tdd.RenderPreToolUse(final)
 	if len(payload) > 0 {
