@@ -193,3 +193,34 @@ func TestRunPattern_Shapes(t *testing.T) {
 		t.Errorf("a name with a metacharacter: %q, want %q", got, want)
 	}
 }
+
+// A function the map has never seen has no mapped tests, but a commit that adds
+// it comes with the tests that exercise it: the ones the commit adds or touches.
+// Those are the cheap first run for it, instead of the whole package (the
+// mutation package alone takes over 550 s), and a mutant they miss still goes on
+// to the rest of the package.
+func TestSelectTests_AFunctionTheMapDoesNotListRunsTheTestsThisCommitWrote(t *testing.T) {
+	t.Parallel()
+	m := mapOf([]string{"TestA", "TestB"}, map[string][]int{"f": {0, 1}})
+	cases := []struct {
+		name      string
+		m         *testMap
+		current   []string
+		touched   []string
+		want      []string
+		wantWhole bool
+	}{
+		{"a test the commit added", m, []string{"TestA", "TestB", "TestNew"}, nil, []string{"TestNew"}, false},
+		{"a test the commit touched", m, []string{"TestA", "TestB"}, []string{"TestB"}, []string{"TestB"}, false},
+		{"added and touched together, sorted", m, []string{"TestA", "TestB", "TestNew"}, []string{"TestB"}, []string{"TestB", "TestNew"}, false},
+		{"a touched test the package no longer has", m, []string{"TestA", "TestB"}, []string{"TestGone"}, nil, true},
+		{"no map, a touched test", nil, []string{"TestA", "TestB"}, []string{"TestA"}, []string{"TestA"}, false},
+		{"no map, nothing touched", nil, []string{"TestA", "TestB"}, nil, nil, true},
+	}
+	for _, tc := range cases {
+		got, whole := selectTests(tc.m, tc.current, tc.touched, "unlisted")
+		if whole != tc.wantWhole || !slices.Equal(got, tc.want) {
+			t.Errorf("%s: selectTests = (%v, whole %v), want (%v, whole %v)", tc.name, got, whole, tc.want, tc.wantWhole)
+		}
+	}
+}

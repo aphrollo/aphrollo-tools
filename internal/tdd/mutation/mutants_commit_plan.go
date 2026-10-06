@@ -92,7 +92,8 @@ func commitMutantsOf(root string, added map[string]map[int]bool, unstaged map[st
 
 // commitPlans reads, for each package the mutants sit in, the tests it has
 // now, the ones this commit touched, and the kept map. A package with no map
-// gets a plan with a nil map, which runs the whole package.
+// gets a plan with a nil map, which runs the commit's own touched tests first and
+// then the whole package.
 func commitPlans(root string, mutants []commitMutant, added map[string]map[int]bool) map[string]*commitPlan {
 	plans := map[string]*commitPlan{}
 	for _, m := range mutants {

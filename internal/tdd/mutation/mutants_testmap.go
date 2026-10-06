@@ -111,20 +111,19 @@ func assembleTestMap(pkg, hash string, perTest map[string]map[string]bool) testM
 // selectTests is the tests a mutant in fn is run against: what the map lists
 // for it, plus every test the map has never seen and every test this commit
 // touches, since the map cannot say what those execute — keeping only the
-// tests the package still has. whole is true when no selection can be made,
-// and the whole package runs instead: no map, a function the map does not
-// list, nothing left of the listed tests, or a pattern too long for a command
-// line.
+// tests the package still has. A function the map does not list, or no map at
+// all, is run against those added and touched tests alone: they are what the
+// commit wrote for it, and a mutant they miss goes on to the rest of the
+// package. whole is true when no selection can be made, and the whole package
+// runs instead: nothing added or touched to run, nothing left of the listed
+// tests, or a pattern too long for a command line.
 func selectTests(m *testMap, current, touched []string, fn string) (names []string, whole bool) {
-	if m == nil {
-		return nil, true
+	var mapped, mapTests []string
+	if m != nil {
+		mapped, mapTests = m.testsFor(fn), m.Tests
 	}
-	mapped := m.testsFor(fn)
-	if len(mapped) == 0 {
-		return nil, true
-	}
-	known := make(map[string]bool, len(m.Tests))
-	for _, name := range m.Tests {
+	known := make(map[string]bool, len(mapTests))
+	for _, name := range mapTests {
 		known[name] = true
 	}
 	want := map[string]bool{}
@@ -132,7 +131,7 @@ func selectTests(m *testMap, current, touched []string, fn string) (names []stri
 		want[name] = true
 	}
 	for _, name := range current {
-		if !known[name] {
+		if m != nil && !known[name] {
 			want[name] = true
 		}
 	}
