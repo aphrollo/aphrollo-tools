@@ -239,3 +239,32 @@ func TestSettle_AStuckWriterCostsTheHookOneGraceForAllTheSkippedSteps(t *testing
 		t.Fatal("settle waited for a second grace after the first one ended")
 	}
 }
+
+// A writer stuck in a step's append must not hold the window's lock: the hook
+// closing the window at the end of its budget returns at once, and the step it
+// claimed is not written a second time as unjudged.
+func TestWindow_ACommitStuckInItsAppendDoesNotBlockTheHooksClose(t *testing.T) {
+	hold := make(chan struct{})
+	started := make(chan struct{}, 1)
+	oldAppend := appendEvent
+	appendEvent = func(core.Event) { started <- struct{}{}; <-hold }
+	t.Cleanup(func() { appendEvent = oldAppend })
+	w := &window{}
+	committed := make(chan bool, 1)
+	go func() { committed <- w.commit(0, []core.Event{{Kind: core.KindShadow}}) }()
+	<-started
+	closed := make(chan int, 1)
+	go func() { closed <- w.close() }()
+	select {
+	case n := <-closed:
+		if n != 1 {
+			t.Errorf("close = %d steps committed, want the 1 the stuck commit claimed", n)
+		}
+	case <-time.After(10 * time.Second):
+		t.Error("close waited for a commit stuck in its append")
+	}
+	close(hold)
+	if !<-committed {
+		t.Error("the commit that claimed its step reported a refusal")
+	}
+}

@@ -435,16 +435,21 @@ func (w *window) expired() bool {
 	return w.expiredLocked()
 }
 
+// commit claims step i and writes its events, unless the window is closed or its
+// budget spent. The claim is made under the lock and the write after it, so a
+// writer stuck in its append never holds the hook's close: the step is the
+// claimer's to write, and the hook never writes it as skipped.
 func (w *window) commit(i int, evs []core.Event) bool {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.closed || w.expiredLocked() {
+		w.mu.Unlock()
 		return false
 	}
+	w.done = i + 1
+	w.mu.Unlock()
 	for _, e := range evs {
 		appendEvent(e)
 	}
-	w.done = i + 1
 	return true
 }
 
