@@ -15,6 +15,10 @@ import (
 
 // harnessConfigDir is where the agent harness keeps its transcripts: its
 // config dir from the environment, else ~/.claude. "" when neither is known.
+// harnessConfigDirFn is the lookup a test replaces, so no test reads the
+// operator's real transcripts.
+var harnessConfigDirFn = harnessConfigDir
+
 func harnessConfigDir() string {
 	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
 		return d
@@ -38,7 +42,7 @@ func repoName(root string) string {
 // scanUsage reads the harness's local transcripts for this repo over the
 // window. Read-only, run when the report runs and never before.
 func scanUsage(root string, window time.Duration, now time.Time) *report.UsageFacts {
-	dir := harnessConfigDir()
+	dir := harnessConfigDirFn()
 	if dir == "" {
 		return nil
 	}

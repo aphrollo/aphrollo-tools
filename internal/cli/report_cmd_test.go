@@ -14,8 +14,23 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
+// transcriptsSet is whether the running test chose the harness config dir.
+var transcriptsSet bool
+
+// transcriptsAt points the report at a fake harness config dir for the test.
+func transcriptsAt(t *testing.T, dir string) {
+	t.Helper()
+	prev := harnessConfigDirFn
+	harnessConfigDirFn = func() string { return dir }
+	transcriptsSet = true
+	t.Cleanup(func() { harnessConfigDirFn, transcriptsSet = prev, false })
+}
+
 func runReportCmd(t *testing.T, args ...string) (int, string, string) {
 	t.Helper()
+	if !transcriptsSet {
+		transcriptsAt(t, t.TempDir())
+	}
 	var out, errBuf bytes.Buffer
 	code := Run(append([]string{"report"}, args...), strings.NewReader(""), &out, &errBuf)
 	return code, out.String(), errBuf.String()
@@ -24,6 +39,7 @@ func runReportCmd(t *testing.T, args ...string) (int, string, string) {
 // fakeTracker installs a Fake as the repo's code host and returns it.
 func fakeTracker(t *testing.T) *host.Fake {
 	t.Helper()
+	transcriptsAt(t, t.TempDir())
 	f := &host.Fake{}
 	f.OpenIssueFn = func(host.IssueRequest) (string, error) { return "https://github.com/o/r/issues/5", nil }
 	prev := reportTrackerFn
@@ -178,7 +194,7 @@ func TestGateGC_OnlyTheDetachedDailySweepFilesTheWeeklyReport(t *testing.T) {
 func usageConfig(t *testing.T, repo string) {
 	t.Helper()
 	cfg := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	transcriptsAt(t, cfg)
 	dir := filepath.Join(cfg, "projects", "p")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
