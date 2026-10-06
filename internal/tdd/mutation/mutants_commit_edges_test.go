@@ -238,57 +238,12 @@ func TestRunMutantsCommit_ABrokenConfigIsExitOne(t *testing.T) {
 	}
 }
 
-func TestEditStage_ANonGoRepoIsInert(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := makeCargoRepoForCommit(t)
-	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = true\n")
-	s := scriptGo(t, func(goCall) (int, string) { return 0, "" })
-	if res := editStage(root, "src/lib.go"); res.Blocked || s.count() != 0 {
-		t.Errorf("stage = %+v after %d runs, want inert", res, s.count())
-	}
-}
-
-func TestEditAddedLines_AGitFailureIsAnError(t *testing.T) {
-	root := editRepo(t)
-	for name, failing := range map[string]string{"the diff": "diff", "the untracked listing": "ls-files"} {
-		real := gitDiffOutFn
-		restore := setGitDiffOutForTest(func(dir string, args ...string) (string, string, error) {
-			if slices.Contains(args, failing) {
-				return "", "fatal: broken", errors.New("exit status 128")
-			}
-			return real(dir, args...)
-		})
-		_, err := editAddedLines(root, "gate/never-tracked.go")
-		restore()
-		if err == nil {
-			t.Errorf("%s failed and editAddedLines said nothing", name)
-		}
-	}
-}
-
-func TestEditAddedLines_AnUnreadableNewFileIsAnError(t *testing.T) {
-	root := editRepo(t)
-	if err := os.Symlink(filepath.Join(root, "nowhere.go"), filepath.Join(root, "gate", "dangling.go")); err != nil {
-		// skip-ok: a box that cannot create symlinks cannot make the unreadable file this test needs
-		t.Skip("symlinks unavailable: " + err.Error())
-	}
-	if _, err := editAddedLines(root, "gate/dangling.go"); err == nil {
-		t.Error("an untracked file that cannot be read was measured as if it were empty")
-	}
-}
-
-func TestRunMutantsEdit_ACannotRecordFailsLoudly(t *testing.T) {
-	root := editRepo(t)
-	scriptGo(t, killsUnderTheMutant)
-	var errOut strings.Builder
-	done := filepath.Join(t.TempDir(), "missing-dir", "done")
-	if code := RunMutantsEdit(root, "gate/gate.go", done, &errOut); code != 1 || !strings.Contains(errOut.String(), "recording the result") {
-		t.Errorf("exit %d stderr %q, want 1 and the failure named", code, errOut.String())
-	}
-}
-
 // ratchet: test_removed TestRunMutantsTestMap_ANonGoRepoIsInert: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
 // ratchet: test_removed TestRunMutantsTestMap_APackageListFailureIsAnError: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
 
 // ratchet: test_removed TestRefreshTestMaps_APackageWithNoTestsIsNeitherBuiltNorCurrent: proved for the one-package ensure as TestEnsureTestMap_APackageWithNoTestsHasNoMapAndKeepsNone
 // ratchet: test_removed TestRefreshTestMaps_AFailureNamesItAndTheOthersAreStillDone: the stage measures each package in turn and names one that fails, proved by TestMeasureTestMaps_AFailedBuildIsNamedAndLeavesNoMap
+// ratchet: test_removed TestEditStage_ANonGoRepoIsInert: the edit-time mutation run (gate mutants edit) is gone; mutation runs at commit only
+// ratchet: test_removed TestRunMutantsEdit_ACannotRecordFailsLoudly: the edit-time mutation run (gate mutants edit) is gone
+// ratchet: test_removed TestEditAddedLines_AGitFailureIsAnError: the edit-time mutation run (gate mutants edit) is gone
+// ratchet: test_removed TestEditAddedLines_AnUnreadableNewFileIsAnError: the edit-time mutation run (gate mutants edit) is gone

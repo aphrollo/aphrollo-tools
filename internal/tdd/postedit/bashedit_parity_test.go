@@ -324,39 +324,5 @@ func TestPostBash_RunsEveryPackageTheCommandChanged(t *testing.T) {
 
 // ratchet: test_removed TestPostBash_LintsTheChangedGoFilesOncePerPackage: the edit-time lint moved into the run (lintrun.go), so a Bash write no longer lints inline
 
-// ratchet: test_removed TestPostBash_StartsTheMutationRunAfterAGreenCall: inverted into TestPostBash_StartsNoMutationRunAfterAGreenCall, a Bash call starts no mutation run now
-//
-// A green Bash call over a changed Go file starts no mutation run: the commit
-// gate and CI hold mutation.
-func TestPostBash_StartsNoMutationRunAfterAGreenCall(t *testing.T) {
-	root, src := mutantsEditFixture(t, true)
-	noInlineLint(t)
-	jobs := recordEditRunSpawns(t, nil)
-	cmd := "./regen.sh"
-	PreBash(bashPayload(t, "s1070mut", root, cmd))
-	mustWrite(t, src, "package m\n\nfunc Widget(n int) bool { return n > 2 }\n")
-
-	got := PostBash(bashPayload(t, "s1070mut", root, cmd), greenRun)
-
-	if !strings.Contains(got, "green") {
-		t.Fatalf("the call is not green: %q", got)
-	}
-	if len(*jobs) != 0 {
-		t.Fatalf("mutation jobs = %+v, want none", *jobs)
-	}
-}
-
-func TestPostBash_StartsNoMutationRunAfterARedCall(t *testing.T) {
-	root, src := mutantsEditFixture(t, true)
-	noInlineLint(t)
-	jobs := recordEditRunSpawns(t, nil)
-	cmd := "./regen.sh"
-	PreBash(bashPayload(t, "s1070mutred", root, cmd))
-	mustWrite(t, src, "package m\n\nfunc Widget(n int) bool { return n > 2 }\n")
-
-	PostBash(bashPayload(t, "s1070mutred", root, cmd), redRun)
-
-	if len(*jobs) != 0 {
-		t.Fatalf("a red call started mutation jobs: %+v", *jobs)
-	}
-}
+// ratchet: test_removed TestPostBash_StartsNoMutationRunAfterAGreenCall: the detached edit-time mutation run no longer exists to be started or not; TestDetachedProcess_NoSourceStartsOneForMutation holds that for every hook
+// ratchet: test_removed TestPostBash_StartsNoMutationRunAfterARedCall: the detached edit-time mutation run no longer exists to be started or not; TestDetachedProcess_NoSourceStartsOneForMutation holds that for every hook

@@ -314,7 +314,6 @@ e2e_zig_test.go                                    suite
 edit_ownership.go                                  suite
 edit_ownership_own_test.go                         suite
 editgit_spawns_test.go                             postedit
-edithook_detached_test.go                          postedit
 editledger.go                                      failfirst
 editledger_batch_test.go                           failfirst
 editledger_event_test.go                           failfirst
@@ -671,8 +670,6 @@ mutants_commit_cli_test.go                         mutation
 mutants_commit_clock_test.go                       mutation
 mutants_commit_coverage_test.go                    mutation
 mutants_commit_edges_test.go                       mutation
-mutants_commit_edit.go                             mutation
-mutants_commit_edit_test.go                        mutation
 mutants_commit_enum.go                             mutation
 mutants_commit_enum_test.go                        mutation
 mutants_commit_funcs.go                            mutation
@@ -742,6 +739,7 @@ mutants_measure_verdict_test.go                    mutation
 mutants_memcap_test.go                             mutation
 mutants_newlines.go                                mutation
 mutants_newlines_test.go                           mutation
+mutants_nodetach_test.go                           mutation
 mutants_notcovered_test.go                         mutation
 mutants_noverdict_test.go                          mutation
 mutants_outcomes.go                                mutation
@@ -821,9 +819,6 @@ mutants_verdict.go                                 mutation
 mutants_windows.go                                 lock
 mutants_windows_core.go                            core      # created by P2
 mutants_zerotested_test.go                         tdd
-mutantsedit.go                                     postedit
-mutantsedit_edges_test.go                          postedit
-mutantsedit_test.go                                postedit
 mutationhold.go                                    mutation
 mutationhold_test.go                               mutation
 nightlyflakehunt_workflow_pin_test.go              tdd

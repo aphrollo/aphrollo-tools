@@ -62,54 +62,11 @@ func TestGateMutantsVerbs_OutsideARepositoryIgnoreAStrayDeclaration(t *testing.T
 	}
 	inDir(t, dir)
 	var out, errb bytes.Buffer
-	done := filepath.Join(t.TempDir(), "done")
-	if code := Run([]string{"gate", "mutants", "edit", "--file", "x.go", "--done", done}, strings.NewReader(""), &out, &errb); code != 0 {
-		t.Errorf("edit: exit %d, want 0: %s", code, errb.String())
-	}
-	if data, err := os.ReadFile(done); err != nil || strings.TrimSpace(string(data)) != "ok" {
-		t.Errorf("edit result = %q (%v), want ok", data, err)
+	if code := Run([]string{"gate", "mutants", "commit"}, strings.NewReader(""), &out, &errb); code != 1 || !strings.Contains(errb.String(), "git repository") {
+		t.Errorf("commit: exit %d stderr %q, want 1 and no repository named", code, errb.String())
 	}
 	if log, err := gateLogBytes(t); err == nil && strings.Contains(string(log), "mutants") {
 		t.Errorf("a run happened outside a repository:\n%s", log)
-	}
-}
-
-// `edit` is what the edit hook starts detached: it needs the file and where to
-// record the result, and records "ok" where there is nothing to measure.
-func TestGateMutantsEdit_NeedsItsFlagsAndRecordsWhereItIsPointed(t *testing.T) {
-	gateConfigDir(t)
-	root := gitLaneNoKey(t)
-	inDir(t, root)
-	var out, errb bytes.Buffer
-	if code := Run([]string{"gate", "mutants", "edit"}, strings.NewReader(""), &out, &errb); code != 2 {
-		t.Errorf("no flags: exit %d, want 2", code)
-	}
-	done := filepath.Join(t.TempDir(), "done")
-	if code := Run([]string{"gate", "mutants", "edit", "--file", "x.go"}, strings.NewReader(""), &out, &errb); code != 2 {
-		t.Errorf("no --done: exit %d, want 2", code)
-	}
-	if code := Run([]string{"gate", "mutants", "edit", "--done", done}, strings.NewReader(""), &out, &errb); code != 2 {
-		t.Errorf("no --file: exit %d, want 2", code)
-	}
-	errb.Reset()
-	if code := Run([]string{"gate", "mutants", "edit", "--file", "x.go", "--done", done}, strings.NewReader(""), &out, &errb); code != 0 {
-		t.Fatalf("in a repo declaring nothing: exit %d, want 0: %s", code, errb.String())
-	}
-	if data, err := os.ReadFile(done); err != nil || strings.TrimSpace(string(data)) != "ok" {
-		t.Errorf("result = %q (%v), want ok", data, err)
-	}
-}
-
-func TestGateMutantsEdit_OutsideARepositoryRecordsOK(t *testing.T) {
-	gateConfigDir(t)
-	inDir(t, t.TempDir())
-	done := filepath.Join(t.TempDir(), "done")
-	var out, errb bytes.Buffer
-	if code := Run([]string{"gate", "mutants", "edit", "--file", "x.go", "--done", done}, strings.NewReader(""), &out, &errb); code != 0 {
-		t.Fatalf("exit %d, want 0: %s", code, errb.String())
-	}
-	if data, err := os.ReadFile(done); err != nil || strings.TrimSpace(string(data)) != "ok" {
-		t.Errorf("result = %q (%v), want ok so the hook that started it is not left waiting", data, err)
 	}
 }
 
@@ -119,7 +76,7 @@ func TestGateMutants_HelpListsTheCommitTimeVerbs(t *testing.T) {
 	if code := Run([]string{"gate", "mutants", "--help"}, strings.NewReader(""), &out, &errb); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	for _, want := range []string{"commit ", "edit --file"} {
+	for _, want := range []string{"commit "} {
 		if !strings.Contains(errb.String(), want) {
 			t.Errorf("help never lists %q:\n%s", want, errb.String())
 		}
@@ -145,3 +102,18 @@ func TestGateMutants_NoTestmapVerbExists(t *testing.T) {
 
 // ratchet: test_removed TestGateMutantsTestmap_IsSilentWhereItHasNothingToDo: the testmap verb is gone
 // ratchet: test_removed TestGateMutantsTestmap_RefusesAFlagItDoesNotHave: the testmap verb is gone
+
+// The mutation run belongs to the commit gate: no verb runs it per edit, and
+// the help does not list one.
+func TestGateMutants_NoEditVerbExists(t *testing.T) {
+	gateConfigDir(t)
+	inDir(t, gitLaneNoKey(t))
+	var out, errb bytes.Buffer
+	code := Run([]string{"gate", "mutants", "edit", "--file", "x.go", "--done", "done"}, strings.NewReader(""), &out, &errb)
+	if code != 2 || !strings.Contains(errb.String(), `unknown verb "edit"`) {
+		t.Errorf("exit %d stderr %q, want 2 and the verb named unknown", code, errb.String())
+	}
+}
+
+// ratchet: test_removed TestGateMutantsEdit_NeedsItsFlagsAndRecordsWhereItIsPointed: the edit-time mutation verb is gone
+// ratchet: test_removed TestGateMutantsEdit_OutsideARepositoryRecordsOK: the edit-time mutation verb is gone

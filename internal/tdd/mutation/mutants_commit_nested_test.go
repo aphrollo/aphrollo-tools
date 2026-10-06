@@ -132,18 +132,6 @@ func TestMutantsAtCommitStage_AStagedFileOutsideEveryModuleStandsDown(t *testing
 	}
 }
 
-// The edit hook measures a file of the subdirectory module from that module.
-func TestEditStage_AFileOfASubdirectoryModuleIsMeasuredFromTheModule(t *testing.T) {
-	_, root := nestedCommitStage(t, "")
-	runs := recordGoRuns(t)
-
-	stderr := captureStderr(t, func() { editStage(root, "backend-go/gate/gate.go") })
-
-	got := runs()
-	if len(got) != 2 || filepath.Base(got[0].dir) != "backend-go" {
-		t.Fatalf("go test runs %+v, want two, started in backend-go:\n%s", got, stderr)
-	}
-}
-
 // ratchet: test_removed TestRunMutantsTestMap_AModuleInASubdirectoryIsListedFromThatDirectory: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
 // ratchet: test_removed TestNamedUnder_TakesTheDirectoriesOfOneModuleRelativeToIt: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
+// ratchet: test_removed TestEditStage_AFileOfASubdirectoryModuleIsMeasuredFromTheModule: the edit-time mutation run (gate mutants edit) is gone; the commit stage's own module test stands

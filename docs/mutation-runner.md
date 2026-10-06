@@ -849,18 +849,9 @@ internal/tdd/mutation/mutants_config.go:12:7: CONDITIONALS_BOUNDARY
 mutants: 10 tested, 9 caught, 0 unviable, 1 missed (0 accepted), 0 unmeasured
 ```
 
-**Edit time.** After an edit of a Go source file whose tests came back green,
-in a repo that declares the key, the edit hook starts `aphrollo gate mutants
-edit --file <path> --done <path>` detached
-(`internal/tdd/postedit/mutantsedit.go`): the same run over the lines that
-edit changed against HEAD, in the working tree as it stands, with its report
-going to a log and its outcome (`ok` or `refused`) written last to the `--done`
-file. The next hook of the session, an edit, a Bash call or a prompt, prints
-`gate: deferred mutants in <tree> (<file>) → refused|ok` with the tail of the
-report, once, and clears the record. There is one run per session and tree at a
-time: an edit made while the last one is unfinished, or finished and not yet
-read, starts nothing. A run past ten minutes is dropped with a NOT MEASURED
-line, and records older than a day are swept.
+**Edit time.** There is none. No edit hook, Bash hook or prompt starts a
+mutation run, and no detached process measures, prepares or builds anything for
+mutation: it runs at commit, in the foreground, and nowhere else.
 
 ## Gate-log tokens
 
@@ -888,7 +879,6 @@ stage refused and for what without re-running anything.
 | `mutants-unmeasured:commit-headroom` | the box had no memory headroom to start the commit-time run |
 | `mutants-unmeasured:commit-lock` | another mutation run held the box-wide lock for the whole budget |
 | `mutants-unmeasured:commit-diff` | git could not say what the commit adds |
-| `mutants-edit-abandoned` | an edit-time run did not finish within ten minutes and the next hook dropped it, reporting it NOT MEASURED |
 | `mutants-skipped:not-go` | `mutants-at-commit` in a repo that is not a Go module |
 | `mutants-skipped:nothing-to-measure` | the commit adds no line a mutant sits on |
 | `mutants-skipped:not-declared` | the repo declares no `mutants-at-merge` |

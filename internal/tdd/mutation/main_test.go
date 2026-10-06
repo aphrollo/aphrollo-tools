@@ -43,3 +43,5 @@ func TestMain(m *testing.M) {
 func refuseCoverageExec(context.Context, string, []string, []string, io.Writer) (int, error) {
 	return 1, errors.New("no toolchain in a unit test")
 }
+
+// ratchet: test_removed internal/tdd/mutation/mutants_commit_edit_test.go: the edit-time mutation run (gate mutants edit) and its result file are gone; mutation runs at commit only
