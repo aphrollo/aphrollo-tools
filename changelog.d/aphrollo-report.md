@@ -1,0 +1,9 @@
+level: minor
+
+`aphrollo report` is a new verb: a weekly continuous-improvement report built from the event log the gates already write.
+
+### What you will notice
+
+- `aphrollo report` prints six sections (friction per rule, wrong-block candidates, escapes by class and the stage that should have caught them, the A/B and shadow per arm and language, the token cost of what the harness injects, and proposals), each number with the event seqs behind it for `aphrollo why <seq>`. It only proposes; it never changes a rule.
+- `aphrollo report --issue` opens one `Report <ISO week>` issue in the repo's own remote and closes the previous week's with a comment linking it; a second run in the week changes nothing. The first time both A/B arms hold 30 lanes it opens one `A/B ready: <repo>` issue. `--dry` previews.
+- The daily gc sweep files the weekly report on its own, once 7 days after the last, in a repo with a GitHub origin. Set `report = false` in `aphrollo.toml` to turn it off.

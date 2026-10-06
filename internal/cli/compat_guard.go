@@ -40,7 +40,7 @@ var (
 		"-h": true, "--help": true, "help": true,
 		"version": true, "update": true, "status": true, "dev": true,
 		"guardrail": true, "refactor": true, "find": true, "outline": true,
-		"show": true, "config": true, "issue": true, "feedback": true, "ci": true, "stats": true, "why": true,
+		"show": true, "config": true, "issue": true, "feedback": true, "ci": true, "stats": true, "report": true, "why": true,
 		"release": true, "changelog": true,
 	}
 	// compatOpenGate holds the gate's session switches, reports and shims. The
