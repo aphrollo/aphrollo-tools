@@ -484,3 +484,10 @@ func RunID(c Check) int64 {
 	}
 	return n
 }
+
+// IssueCloser closes an issue with a comment. It is apart from Issues so a
+// caller that only opens issues is not made to implement it.
+type IssueCloser interface {
+	// CloseIssue comments on the issue and closes it; comment may be empty.
+	CloseIssue(number int, comment string) error
+}

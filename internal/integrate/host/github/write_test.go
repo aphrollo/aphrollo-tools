@@ -408,3 +408,21 @@ func TestNormalizeURL_ReducesEachRemoteShapeToItsWebBase(t *testing.T) {
 		}
 	}
 }
+
+func TestCloseIssue_CommentsThenClosesTheNumberedIssueAndFailureCarriesGitHubsWords(t *testing.T) {
+	s := &scripted{t: t}
+	s.reply = func([]string) ([]byte, error) { return nil, nil }
+	if err := s.host(originURL).CloseIssue(12, "Superseded by #13"); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"issue", "close", "12", "--comment", "Superseded by #13"}; !slices.Equal(s.calls[0].args, want) {
+		t.Errorf("argv = %v, want %v", s.calls[0].args, want)
+	}
+	s.reply = func([]string) ([]byte, error) { return []byte("no such issue"), errors.New("exit 1") }
+	if err := s.host(originURL).CloseIssue(12, ""); err == nil || !strings.Contains(err.Error(), "no such issue") {
+		t.Errorf("err = %v, want gh's own words", err)
+	}
+	if want := []string{"issue", "close", "12"}; !slices.Equal(s.calls[1].args, want) {
+		t.Errorf("no comment: argv = %v, want %v", s.calls[1].args, want)
+	}
+}

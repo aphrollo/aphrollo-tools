@@ -75,3 +75,17 @@ func fit(s string, n int) string {
 	}
 	return string(r[:n]) + "…"
 }
+
+var _ host.IssueCloser = (*GitHub)(nil)
+
+// CloseIssue closes the issue, with the comment when there is one.
+func (g *GitHub) CloseIssue(number int, comment string) error {
+	args := []string{"issue", "close", fmt.Sprint(number)}
+	if comment != "" {
+		args = append(args, "--comment", comment)
+	}
+	if _, err := g.read(args...); err != nil {
+		return err
+	}
+	return nil
+}
