@@ -57,6 +57,8 @@ agent_researcher.md                                install
 agent_reviewer.md                                  install
 agents.go                                          install
 agents_test.go                                     install
+armmode.go                                         postedit
+armmode_test.go                                    postedit
 autoescape.go                                      escape
 autoescape_override_test.go                        tdd       # prefix says escape; its test body reaches tdd
 autoescape_suite.go                                suite     # created by P2

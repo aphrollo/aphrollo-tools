@@ -5,6 +5,7 @@ package tdd
 import (
 	shadow "github.com/aphrollo/aphrollo-tools/internal/shadow"
 	postedit "github.com/aphrollo/aphrollo-tools/internal/tdd/postedit"
+	tddarm "github.com/aphrollo/aphrollo-tools/internal/tddarm"
 	time "time"
 )
 
@@ -55,6 +56,8 @@ func DeferredPhasesEnabled() bool { return postedit.DeferredPhasesEnabled() }
 func DirectPROpenDecision(p0 []byte) Decision { return postedit.DirectPROpenDecision(p0) }
 
 func DiscardBashDecision(p0 []byte) Decision { return postedit.DiscardBashDecision(p0) }
+
+func EffectiveTDD(p0 string) tddarm.Mode { return postedit.EffectiveTDD(p0) }
 
 func EnableDeferredPhases(p0 bool) { postedit.EnableDeferredPhases(p0) }
 

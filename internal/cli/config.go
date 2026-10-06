@@ -10,6 +10,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/config"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/tddarm"
 )
 
 const configUsage = `usage: aphrollo config [features] [--repo <dir>]
@@ -94,7 +95,8 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 	} else {
 		fmt.Fprintln(stdout, "repo        none: only the built-in and user layers are read")
 	}
-	fmt.Fprintf(stdout, "user config %s\n\n", filepath.Join(config.ConfigRoot(), "config.toml"))
+	fmt.Fprintf(stdout, "user config %s\n", filepath.Join(config.ConfigRoot(), "config.toml"))
+	fmt.Fprintf(stdout, "lane mode   %s\n\n", armText(cfg.Get("tdd"), repo, *dir))
 	for _, s := range cfg.Settings() {
 		fmt.Fprintf(stdout, "%-24s %-12s %s\n", s.Key, config.Display(s.Value), sourceOf(s))
 	}
@@ -211,4 +213,25 @@ func runConfigSet(args []string, stdout, stderr io.Writer) int {
 	}})
 	fmt.Fprintf(stdout, "wrote %s: %s\n", path, entry)
 	return 0
+}
+
+// armText says which mode the lane the directory stands in runs under and why: the
+// arm its repo and name hash to, or the layer that pins `tdd` and so leaves the A/B.
+func armText(set config.Setting, repo, dir string) string {
+	m := tdd.EffectiveTDD(dir)
+	lane := tdd.LaneOf(repo)
+	switch m.Why {
+	case tddarm.WhyPinned:
+		return fmt.Sprintf("%s: %s, pinned by %s (a pin is not in the A/B)", laneName(lane), m.TDD, sourceOf(set))
+	case tddarm.WhyAssigned:
+		return fmt.Sprintf("%s: %s arm, assigned by a hash of the repo and the lane name (pin tdd to leave the A/B)", lane, m.Arm)
+	}
+	return fmt.Sprintf("no lane (%s): %s, in no arm", laneName(lane), m.TDD)
+}
+
+func laneName(lane string) string {
+	if lane == "" {
+		return "no branch"
+	}
+	return lane
 }
