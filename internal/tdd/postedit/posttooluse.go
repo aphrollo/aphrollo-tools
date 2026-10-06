@@ -336,7 +336,8 @@ func parsePassedCount(output string) (int, bool) {
 }
 
 // treatAsEmptyPass reports whether a non-passing, non-timed-out SuiteResult
-// is actually nextest's "no tests to run" exit-4 case, which every consumer
+// is actually an empty run: nextest's "no tests to run" exit 4, or vitest's and
+// jest's "no test files found" exit 1 (#1245), which every consumer
 // (PostEdit, Precommit's mechanical stage) must treat as an empty PASS rather
 // than a failure. Callers flip res.Passed = true on a true result before
 // doing anything else with it.
