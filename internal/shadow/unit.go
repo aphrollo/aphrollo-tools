@@ -61,13 +61,18 @@ func UnitOf(file string, projectRoot func(string) string) (Unit, bool) {
 }
 
 // languageOf is the name of the language row that owns file, "other" for a file no
-// row owns.
+// row owns. A JavaScript file is named for the TypeScript row: the two are one
+// node project, whose tests (vitest, jest) read .ts and .js files alike, so a unit
+// per spelling would split one project's red from its code edits.
 func languageOf(file string) string {
 	t, err := lang.Defaults()
 	if err != nil {
 		return "other"
 	}
 	if l, ok := t.For(file); ok {
+		if l.Name == "javascript" {
+			return "typescript"
+		}
 		return l.Name
 	}
 	return "other"

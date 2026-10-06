@@ -93,7 +93,7 @@ type Edit struct {
 // PreEvent is the question a PreToolUse call asks of the kernel for one edit: a
 // write of Edit in lane, made by an agent. The target is a lane's, never the
 // primary checkout's (the primary-checkout wall is a rule of its own), and
-// AddsSymbol is the edit's own (AddsSymbol, Go only).
+// AddsSymbol is the edit's own (AddsSymbol: Go, Python, TypeScript and JavaScript).
 func PreEvent(p Payload, lane string, e Edit) kernel.Event {
 	tool := kernel.ToolWrite
 	if p.IsShell() {

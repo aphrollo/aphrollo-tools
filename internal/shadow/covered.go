@@ -60,7 +60,10 @@ func Covered(unit Unit, runs []store.RunVerdict, edits []LedgerEdit, unitOf func
 // runCovers reports whether a stored run (its unit is "<project>|<command>", see
 // the run recorder) ran the unit's tests: the same project, and a command that
 // either names no package (the whole project) or names the unit's package or a
-// pattern holding it. A project-root unit is covered by any run of its project.
+// pattern holding it. A project-root unit (Python, TypeScript) is covered by any run
+// of its project, a pytest of one file or a vitest of one test included: the gate
+// holds no per-test or per-symbol knowledge for these languages, so the project is
+// the unit and the run's arguments are not read.
 func runCovers(runUnit string, u Unit) bool {
 	project, cmd, _ := strings.Cut(runUnit, "|")
 	if project != u.Project {

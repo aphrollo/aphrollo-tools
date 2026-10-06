@@ -106,6 +106,7 @@ type Record struct {
 	Guide    string
 	Unit     string // the unit the record is about, for the rules that read a unit's state
 	UnitPkg  string // a Go unit's package relative to its module root, what a proof's patterns are relative to
+	UnitRoot string // a project-root unit's project root, slashes, what a proof run in it is joined by (no package pattern says what such a proof covered)
 	Root     string // the checkout the record is about, "" for the call's own
 	// For a run: the verdict classes each side read, and the cause.
 	TrellisVerdict, ActualVerdict, Cause, ActualCause string
@@ -304,6 +305,7 @@ func (r Record) event(s Source, lane string) core.Event {
 	set("key", s.Key)
 	set("unit", r.Unit)
 	set("unit_pkg", r.UnitPkg)
+	set("unit_root", r.UnitRoot)
 	set("guide", r.Guide)
 	set("trellis_verdict", r.TrellisVerdict)
 	set("aphrollo_verdict", r.ActualVerdict)

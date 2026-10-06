@@ -190,6 +190,9 @@ func (w World) RedGreen(ctx context.Context, p Payload, files []string) []Record
 		}
 		r := recordOf(HookPre, RuleRedGreen, "commit-proof", d, Allow)
 		r.Unit, r.UnitPkg = u.ID, u.Pkg
+		if u.Kind == unitProjectRoot {
+			r.UnitRoot = filepath.ToSlash(pr)
+		}
 		out = append(out, withRoot(r, root))
 	}
 	return out
