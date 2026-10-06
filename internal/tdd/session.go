@@ -70,7 +70,7 @@ func HandlePrompt(raw []byte) PromptResult {
 		r.Message = joinRetro(r.Message, TakeSessionRetros(in.SessionID))
 	}
 	if replyStyleFor(in.SessionID) == "terse" {
-		r.Style = StyleBlock()
+		r.Style = styleOnce(in.SessionID)
 	}
 	return r
 }
@@ -302,13 +302,12 @@ func skillNudge() string {
 	} else if path != "" {
 		invite += " — not installed yet; run `aphrollo install` to write it"
 	}
-	return "gate: before writing or changing any code this session, " + invite + ". " +
-		"The hooks run the tests, not you: " +
-		"after every Edit/Write, read the `gate:` line the PostToolUse hook prints (green with count / " +
-		"red-missing-impl / red / TIMEOUT / SKIPPED / QUEUED-SKIPPED) instead of running a suite by hand to " +
-		"check — the only manual runs are mutation proofs, soaks, or a targeted rerun after the hook said " +
-		"TIMEOUT or SKIPPED. Commit ONE mixed test+impl commit per task; the pre-commit gate re-proves RED " +
-		"and runs the touched crates' suites, and merges are gated by pre-merge-commit."
+	// One line: the session start is paid for by every session, and the rest
+	// (the verdict words, the commit gate, the merge gate) is in the skill and
+	// the managed block.
+	return "gate: before changing code, " + invite + ". The hooks run the tests, not you: read each `gate:` line after an edit " +
+		"(TIMEOUT/SKIPPED = not tested; BUILDING (deferred) = `aphrollo gate status --wait`), never re-run a suite by hand; " +
+		"one test+impl commit per task."
 }
 
 // HandleSessionStart returns the context injected at session start. It is silent
@@ -320,9 +319,15 @@ func HandleSessionStart(raw []byte) string {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return ""
 	}
-	s, _ := loadSession(in.SessionID)
+	s, statePath := loadSession(in.SessionID)
 	if s != nil && s.GateOff() {
 		return ""
+	}
+	// A session start (a resume, a compaction) may have dropped the style block
+	// from the context: the next prompt owes it again.
+	if s != nil && s.StyleSent {
+		s.StyleSent = false
+		_ = s.Save(statePath)
 	}
 	// Disk hygiene rides along here because session start is the only
 	// moment nobody is waiting on a build: the sweep itself is detached
@@ -339,9 +344,6 @@ func HandleSessionStart(raw []byte) string {
 	// it goes first, where it cannot scroll away.
 	if alarm := identityAlarmLine(in.Cwd); alarm != "" {
 		parts = append([]string{alarm}, parts...)
-	}
-	if effectiveReplyStyle(s) == "terse" {
-		parts = append(parts, StyleBlock())
 	}
 	if hint := ratchetHintLine(in.Cwd); hint != "" {
 		parts = append(parts, hint)
@@ -400,4 +402,21 @@ type sessionStartOutput struct {
 		HookEventName     string `json:"hookEventName"`
 		AdditionalContext string `json:"additionalContext"`
 	} `json:"hookSpecificOutput"`
+}
+
+// styleOnce is the reply-style block for a prompt of the session, "" once it
+// went out: the block is sent with the first prompt after a session start and
+// not again, where it used to ride on every prompt. A prompt with no session
+// has nowhere to remember it was sent, so it carries the block.
+func styleOnce(session string) string {
+	s, path := loadSession(session)
+	if s == nil {
+		return StyleBlock()
+	}
+	if s.StyleSent {
+		return ""
+	}
+	s.StyleSent = true
+	_ = s.Save(path)
+	return StyleBlock()
 }

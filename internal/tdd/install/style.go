@@ -58,5 +58,6 @@ func setReplyStyle(session, style string) error {
 		return errNoSession
 	}
 	s.Overrides.Style = style
+	s.StyleSent = false // a style just chosen is owed to the next prompt
 	return s.Save(path)
 }

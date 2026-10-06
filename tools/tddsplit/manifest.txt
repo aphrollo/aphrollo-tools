@@ -1083,6 +1083,7 @@ session_allow_test.go                              tdd
 session_core.go                                    core      # created by P2
 session_identity.go                                tdd
 session_identity_test.go                           tdd
+session_styleonce_test.go                          tdd
 session_test.go                                    tdd
 sessionactive.go                                   core
 sessionactive_own_test.go                          core

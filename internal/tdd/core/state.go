@@ -47,6 +47,9 @@ type fingerprint struct {
 type sessionState struct {
 	Schema    int                     `json:"schema"`
 	ByProject map[string]projectState `json:"by_project"`
+	// StyleSent says the reply-style block already went out in this session's
+	// context: it is sent once, with the first prompt after a session start.
+	StyleSent bool `json:"style_sent,omitempty"`
 	Overrides struct {
 		Off bool `json:"off"`
 		// Style is the session's `/tdd style` override ("terse" or "plain").
