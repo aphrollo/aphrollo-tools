@@ -121,20 +121,21 @@ func (g *GitHub) jsonLines(args ...string) ([]host.Check, error) {
 // RunInfo reads the workflow file and attempt of one Actions run.
 func (g *GitHub) RunInfo(id int64) (host.RunInfo, error) {
 	out, err := g.gh("api", "repos/{owner}/{repo}/actions/runs/"+strconv.FormatInt(id, 10),
-		"--jq", `.path + " " + (.run_attempt | tostring)`)
+		"--jq", `.path + " " + (.run_attempt | tostring) + " " + .event`)
 	if err != nil {
 		return host.RunInfo{}, err
 	}
-	path, attempt, ok := strings.Cut(strings.TrimSpace(string(out)), " ")
+	path, rest, ok := strings.Cut(strings.TrimSpace(string(out)), " ")
 	if !ok {
 		return host.RunInfo{}, fmt.Errorf("unreadable run: %q", out)
 	}
+	attempt, event, _ := strings.Cut(rest, " ")
 	path, _, _ = strings.Cut(path, "@")
 	n, err := strconv.Atoi(attempt)
 	if err != nil {
 		return host.RunInfo{}, err
 	}
-	return host.RunInfo{Workflow: pathpkg.Base(path), Attempt: n}, nil
+	return host.RunInfo{Workflow: pathpkg.Base(path), Attempt: n, Event: event}, nil
 }
 
 // PRRuns lists every pull_request run that belongs to PR number pr, whatever
@@ -223,16 +224,26 @@ func (g *GitHub) RerunFailedJobs(run int64) error {
 	return nil
 }
 
-// withoutSupersededCancelled drops each cancelled Actions job of a run that a
-// later run of the same workflow replaced on this commit. A concurrency group
-// cancels the earlier run when a later one starts, and a job the later run never
-// made has no newer check of its name to hide the cancelled one: it would read
-// as a failure of a commit that was tested whole by the run that replaced it.
-// A run whose workflow cannot be read replaces nothing, so an unreadable answer
-// never softens a check.
+// concurrencyCancelNote is the annotation GitHub puts on a job it cancelled
+// because a later run entered the same concurrency group.
+const concurrencyCancelNote = "Canceling since a higher priority waiting request"
+
+// withoutSupersededCancelled drops each cancelled Actions job that a concurrency
+// group cancelled when a later run of the same workflow and event started on this
+// commit, and that later run really ran something (a successful job that was not
+// skipped). A job the later run never made has no newer check of its name to hide
+// the cancelled one, and would read as a failure of a commit the later run tested
+// whole. Every other cancelled job stays: one cancelled by hand, one whose later
+// run is another event or ran nothing says nothing about the job, so it must not
+// read as green. A run or an annotation that cannot be read replaces nothing.
 func (g *GitHub) withoutSupersededCancelled(runs []host.Check) []host.Check {
-	cancelled := map[int64]bool{}
+	isCancelled := func(c host.Check) bool {
+		return c.App == "github-actions" && host.RunID(c) != 0 &&
+			strings.EqualFold(c.Status, "completed") && strings.EqualFold(c.Conclusion, "cancelled")
+	}
+	ran := map[int64]bool{} // runs with a successful job
 	var all []int64
+	anyCancelled := false
 	for _, c := range runs {
 		id := host.RunID(c)
 		if c.App != "github-actions" || id == 0 {
@@ -241,36 +252,50 @@ func (g *GitHub) withoutSupersededCancelled(runs []host.Check) []host.Check {
 		if !slices.Contains(all, id) {
 			all = append(all, id)
 		}
-		if strings.EqualFold(c.Status, "completed") && strings.EqualFold(c.Conclusion, "cancelled") {
-			cancelled[id] = true
+		if strings.EqualFold(c.Status, "completed") && strings.EqualFold(c.Conclusion, "success") {
+			ran[id] = true
 		}
+		anyCancelled = anyCancelled || isCancelled(c)
 	}
-	if len(cancelled) == 0 || len(all) < 2 {
+	if !anyCancelled || len(all) < 2 {
 		return runs
 	}
-	workflow := map[int64]string{}
+	info := map[int64]host.RunInfo{}
 	for _, id := range all {
-		if info, err := g.RunInfo(id); err == nil {
-			workflow[id] = info.Workflow
+		if i, err := g.RunInfo(id); err == nil {
+			info[id] = i
 		}
 	}
-	superseded := map[int64]bool{}
-	for id := range cancelled {
+	replaced := func(id int64) bool {
 		for _, later := range all {
-			if later > id && workflow[id] != "" && workflow[later] == workflow[id] {
-				superseded[id] = true
+			a, b := info[id], info[later]
+			if later > id && ran[later] && a.Workflow != "" && a.Workflow == b.Workflow && a.Event != "" && a.Event == b.Event {
+				return true
 			}
 		}
-	}
-	if len(superseded) == 0 {
-		return runs
+		return false
 	}
 	out := runs[:0:0]
 	for _, c := range runs {
-		if superseded[host.RunID(c)] && strings.EqualFold(c.Status, "completed") && strings.EqualFold(c.Conclusion, "cancelled") {
+		if isCancelled(c) && replaced(host.RunID(c)) && g.concurrencyCancelled(c.ID) {
 			continue
 		}
 		out = append(out, c)
 	}
 	return out
+}
+
+// concurrencyCancelled reports whether the job's annotations say its run was
+// cancelled by a concurrency group. An unreadable list says no.
+func (g *GitHub) concurrencyCancelled(id int64) bool {
+	anns, err := g.JobAnnotations(id)
+	if err != nil {
+		return false
+	}
+	for _, a := range anns {
+		if strings.Contains(a, concurrencyCancelNote) {
+			return true
+		}
+	}
+	return false
 }

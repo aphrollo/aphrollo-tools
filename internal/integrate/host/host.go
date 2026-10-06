@@ -199,6 +199,7 @@ type Check struct {
 type RunInfo struct {
 	Workflow string // the workflow file's base name, such as pipeline.yml
 	Attempt  int
+	Event    string // the event that made the run, such as pull_request or push
 }
 
 // PRRun is one workflow run of a pull_request event.
