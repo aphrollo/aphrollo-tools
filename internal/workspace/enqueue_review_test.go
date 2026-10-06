@@ -43,7 +43,7 @@ func queuedUndercover(t *testing.T, title, body string, lane ...string) (*Merge,
 }
 
 func TestMergeQueue_AFooterAndAMissingClosesAreFixedOnThePRBeforeItIsEnqueued(t *testing.T) {
-	m, held, edits, enqueued := queuedUndercover(t, "Fix the timer",
+	m, held, edits, enqueued := queuedUndercover(t, "Fix the retry timer drift in the queue",
 		"Fixes the retry timer.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)", "Closes #77")
 
 	var out, errb bytes.Buffer
@@ -63,7 +63,7 @@ func TestMergeQueue_AFooterAndAMissingClosesAreFixedOnThePRBeforeItIsEnqueued(t 
 }
 
 func TestMergeQueue_ACleanBodyIsLeftAlone(t *testing.T) {
-	m, _, edits, enqueued := queuedUndercover(t, "Fix the timer", "Fixes the retry timer.")
+	m, _, edits, enqueued := queuedUndercover(t, "Fix the retry timer drift in the queue", "Fixes the retry timer.")
 
 	var out, errb bytes.Buffer
 	if err := m.Apply(&out, &errb); err != nil {
@@ -75,7 +75,7 @@ func TestMergeQueue_ACleanBodyIsLeftAlone(t *testing.T) {
 }
 
 func TestMergeQueue_ARewriteThatDidNotTakeRefusesWithoutEnqueueing(t *testing.T) {
-	m, _, _, enqueued := queuedUndercover(t, "Fix the timer", "Fixes it.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)")
+	m, _, _, enqueued := queuedUndercover(t, "Fix the retry timer drift in the queue", "Fixes it.\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)")
 	ghEditPRBody = func(string, string, string) error { return nil } // accepted, never applied
 
 	var out, errb bytes.Buffer

@@ -124,3 +124,22 @@ func ensureBaseRef(wt, base string) {
 	// stderr-ok: a failed fetch leaves the ref missing, which the listing that follows reports in its own words.
 	_, _ = wtNetwork(wt, "fetch", "--quiet", "origin", "+refs/heads/"+base+":refs/remotes/origin/"+base)
 }
+
+// queuedTitleRefusal refuses a PR the merge queue would squash under a title the
+// commit-msg gate would refuse as a subject. The title is the one undercoverMerge
+// already read when it did (known), else it is read here.
+func queuedTitleRefusal(t *Target, number int, title string, known bool) error {
+	if !known {
+		read, _, err := ghPRText(t.Worktree, t.Branch)
+		if err != nil {
+			return fmt.Errorf("reading the PR's title: %w", err)
+		}
+		title = read
+	}
+	issue := tdd.PRTitleIssue(t.Worktree, title)
+	if issue == "" {
+		return nil
+	}
+	return fmt.Errorf("PR title %q would be the subject of the squash commit on the base branch, and %s — "+
+		"retitle it with `gh pr edit %d --title \"<what changed>\"`", strings.TrimSpace(title), strings.TrimPrefix(issue, "gate commit-msg: "), number)
+}

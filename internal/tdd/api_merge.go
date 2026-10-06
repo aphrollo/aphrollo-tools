@@ -63,6 +63,8 @@ func MergeQueueStoppedLine(p0 string) string { return merge.MergeQueueStoppedLin
 
 func NormalizeCIMode(p0 string) (string, error) { return merge.NormalizeCIMode(p0) }
 
+func PRTitleIssue(p0 string, p1 string) string { return merge.PRTitleIssue(p0, p1) }
+
 func PostCommitMergeSweep(p0 string, p1 io.Writer, p2 io.Writer) []PrunedLane {
 	return merge.PostCommitMergeSweep(p0, p1, p2)
 }

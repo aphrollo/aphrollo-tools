@@ -32,10 +32,10 @@ func githubOwnerRepo(wt string) (owner, repo string, ok bool) {
 
 // fillTitleBody derives a title/body the way `gh pr create --fill` would for
 // the common case, without needing GraphQL: a branch with exactly one commit
-// ahead of base uses that commit's subject/body; more than one lists each
-// subject as a bullet under the branch name as title. This is an
-// approximation of gh's own --fill (which also considers an issue/PR
-// template), good enough for the default "no --title" path.
+// ahead of base uses that commit's subject/body; more than one takes the
+// first commit's subject as the title and lists each subject as a bullet in the
+// body. This is an approximation of gh's own --fill (which also considers an
+// issue/PR template), good enough for the default "no --title" path.
 func fillTitleBody(wt, base, branch string) (title, body string) {
 	// stderr-ok: a failed `git log` here just falls back to the branch name as title; the exit code alone is the whole signal
 	out, err := wtGit(wt, "log", "--reverse", "--format=%H", base+".."+branch)
@@ -50,11 +50,21 @@ func fillTitleBody(wt, base, branch string) (title, body string) {
 		bod, _ := wtGit(wt, "log", "-1", "--format=%b", shas[0])
 		return strings.TrimSpace(string(subj)), strings.TrimSpace(string(bod))
 	}
+	if len(shas) == 0 {
+		return branch, ""
+	}
 	var b strings.Builder
 	for _, sha := range shas {
 		// stderr-ok: a failed subject read here just omits that bullet — the exit code alone is the whole signal
 		subj, _ := wtGit(wt, "log", "-1", "--format=%s", sha)
 		fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(string(subj)))
+	}
+	// The first commit names the change: a branch name is no subject, and under a
+	// merge queue the title is the subject the base branch gets.
+	// stderr-ok: a failed subject read here falls back to the branch name — the exit code alone is the whole signal
+	first, _ := wtGit(wt, "log", "-1", "--format=%s", shas[0])
+	if title := strings.TrimSpace(string(first)); title != "" {
+		return title, b.String()
 	}
 	return branch, b.String()
 }

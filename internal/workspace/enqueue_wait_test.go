@@ -177,6 +177,9 @@ func TestRunMergeQueue_QueueEnqueuesEveryPRBeforeWaitingForAny(t *testing.T) {
 	})
 	ghHasMergeQueue = func(string, string, string) (bool, error) { return true, nil }
 	premergeGateQueued = func(*Target, string, *tdd.CIVerdict, io.Writer) error { return nil }
+	oText := ghPRText
+	t.Cleanup(func() { ghPRText = oText })
+	ghPRText = func(string, string) (string, string, error) { return "Merge each lane through the queue", "", nil }
 	ghEnqueuePR = func(_, _ string, pr int, _ string) error {
 		trace = append(trace, fmt.Sprintf("enqueue %d", pr))
 		return nil

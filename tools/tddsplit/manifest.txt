@@ -952,6 +952,8 @@ procidentity_unix_own_test.go                      core
 procidentity_windows_core.go                       core
 procidentity_windows_own_test.go                   core
 projectroots_test.go                               precommit
+prtitle.go                                         merge
+prtitle_test.go                                    merge
 queuewaiters.go                                    lock
 queuewaiters_test.go                               lock
 raceslots.go                                       lock

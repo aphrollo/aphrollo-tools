@@ -235,8 +235,8 @@ func TestFillTitleBody_MultipleCommitsListsEachSubject(t *testing.T) {
 	run("add", "b.txt")
 	run("commit", "-q", "-m", "second")
 	title, body := fillTitleBody(repo, "main", "lane/y")
-	if title != "lane/y" {
-		t.Fatalf("title = %q, want the branch name for multiple commits", title)
+	if title != "first" {
+		t.Fatalf("title = %q, want the first commit's subject for multiple commits, never the branch name", title)
 	}
 	if !strings.Contains(body, "- first\n") || !strings.Contains(body, "- second\n") {
 		t.Fatalf("body = %q, want bullets for both commits", body)

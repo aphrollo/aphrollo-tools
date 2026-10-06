@@ -205,6 +205,11 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 	if err != nil {
 		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
+	if queued {
+		if err := queuedTitleRefusal(m.Target, pr.Number, prTitle, useBody); err != nil {
+			return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+		}
+	}
 	choice, err := chooseCI(m.Target.Worktree, m.CI)
 	if err != nil {
 		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
