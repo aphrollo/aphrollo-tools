@@ -329,7 +329,7 @@ func rglGitSpawns(t *testing.T) (calls func() []string) {
 		t.Skip("git not available") // skip-ok: git is the subject here, not a dependency that could be faked
 	}
 	dir, logPath := t.TempDir(), filepath.Join(t.TempDir(), "git-argv.log")
-	shfake.Install(t, dir, "git", "#!/bin/sh\nprintf '%s\n' \"$*\" >> \"$GITCOUNT_LOG\"\nexec \"$GITCOUNT_REAL\" \"$@\"\n")
+	shfake.Install(t, dir, "git", "#!/bin/sh\nprintf '%s\n' \"$*\" >> \"$GITCOUNT_LOG\"\nPATH=$(printf %s \"$PATH\" | sed 's|^[^:]*:||')\nexport PATH\nexec\"$GITCOUNT_REAL\" \"$@\"\n")
 	t.Setenv("GITCOUNT_LOG", logPath)
 	t.Setenv("GITCOUNT_REAL", real)
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))

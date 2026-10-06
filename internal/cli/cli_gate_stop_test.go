@@ -21,6 +21,12 @@ const stopCLISession = "stop-cli-sess"
 func unseenRedProject(t *testing.T) string {
 	t.Helper()
 	gateConfigDir(t)
+	// A project with no lane runs the built-in warn; these tests are the enforce path.
+	cfg := t.TempDir()
+	t.Setenv("TRELLIS_CONFIG", cfg)
+	if err := os.WriteFile(filepath.Join(cfg, "config.toml"), []byte(tddEnforcePin), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	project := t.TempDir()
 	target := filepath.Join(project, "lib.rs")
 	if err := os.WriteFile(target, []byte("pub fn a() {}\n"), 0o600); err != nil {

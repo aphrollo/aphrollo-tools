@@ -72,7 +72,7 @@ func TestDecideStop_BlocksTheTurnOnceOnAnUnseenRedAndNamesItsGateLine(t *testing
 		{StopHookSubagentStop, "subagentstop.json"},
 	} {
 		t.Run(string(tc.event), func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			stopEnforceEnv(t)
 			crate := mkProject(t, "Cargo.toml")
 			redJobAt(t, crate)
 
@@ -106,7 +106,7 @@ func TestDecideStop_AllowsWhenStopHookActiveSaysTheTurnIsAlreadyContinuing(t *te
 		{StopHookSubagentStop, "subagentstop.json"},
 	} {
 		t.Run(string(tc.event), func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			stopEnforceEnv(t)
 			crate := mkProject(t, "Cargo.toml")
 			redJobAt(t, crate)
 			fields := stopFields(crate)
@@ -125,7 +125,7 @@ func TestDecideStop_AllowsWhenStopHookActiveSaysTheTurnIsAlreadyContinuing(t *te
 }
 
 func TestDecideStop_AllowsARedClaudeAlreadySaw(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	crate := mkProject(t, "Cargo.toml")
 	redJobAt(t, crate)
 	if told := promptHarvest(stopSession); !strings.Contains(told, "tests::a_breaks") {
@@ -142,7 +142,7 @@ func TestDecideStop_AllowsARedClaudeAlreadySaw(t *testing.T) {
 func TestDecideStop_AllowsWhenTheSessionTurnedTheGateOff(t *testing.T) {
 	for _, event := range []StopEvent{StopHookStop, StopHookSubagentStop} {
 		t.Run(string(event), func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			stopEnforceEnv(t)
 			crate := mkProject(t, "Cargo.toml")
 			redJobAt(t, crate)
 			state, path := loadSession(stopSession)
@@ -182,7 +182,7 @@ func TestDecideStop_AllowsEveryFinishedRunThatIsNotARedAndLeavesItForTheNextHook
 		{"every failed test timed out", "run", &PhaseOutcome{ExitCode: 1, Seconds: 600}, "panic: test timed out after 10m0s\n\nFAIL\texample.com/a\t600.003s\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			stopEnforceEnv(t)
 			crate := mkProject(t, "Cargo.toml")
 			finishedJobWith(t, crate, tc.phase, tc.out, tc.log)
 
@@ -199,7 +199,7 @@ func TestDecideStop_AllowsEveryFinishedRunThatIsNotARedAndLeavesItForTheNextHook
 }
 
 func TestDecideStop_BlocksOnAFailedBuildBecauseACompileErrorIsARed(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	crate := mkProject(t, "Cargo.toml")
 	finishedJobWith(t, crate, "build", &PhaseOutcome{ExitCode: 101, Seconds: 4},
 		"error[E0425]: cannot find function `backoff` in this scope\n")
@@ -215,7 +215,7 @@ func TestDecideStop_BlocksOnAFailedBuildBecauseACompileErrorIsARed(t *testing.T)
 // harvest already reports a stale red because it is usually a real break the
 // session made, so the stop check hands it over once, labelled as stale.
 func TestDecideStop_BlocksOnAStaleRedAndLabelsItAsAnEarlierTreeState(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	crate := mkProject(t, "Cargo.toml")
 	redJobAt(t, crate)
 	write(t, crate, "src/lib.rs", "pub fn a() { moved_on() }\n")
@@ -228,7 +228,7 @@ func TestDecideStop_BlocksOnAStaleRedAndLabelsItAsAnEarlierTreeState(t *testing.
 }
 
 func TestDecideStop_SubagentStopChecksOnlyTheSubagentsLane(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	lane := makeGoRepo(t)
 	otherLane := makeGoRepo(t)
 	crateInLane := filepath.Join(lane, "crates", "a")
@@ -258,7 +258,7 @@ func TestDecideStop_SubagentStopChecksOnlyTheSubagentsLane(t *testing.T) {
 }
 
 func TestDecideStop_StopChecksEveryTreeTheSessionStartedARunIn(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	lane := makeGoRepo(t)
 	otherLane := makeGoRepo(t)
 	redJobAt(t, filepath.Join(otherLane, "crates", "x"))
@@ -271,7 +271,7 @@ func TestDecideStop_StopChecksEveryTreeTheSessionStartedARunIn(t *testing.T) {
 }
 
 func TestDecideStop_AnotherSessionsRedIsNotThisSessions(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	crate := mkProject(t, "Cargo.toml")
 	redJobAt(t, crate)
 	fields := stopFields(crate)
@@ -285,7 +285,7 @@ func TestDecideStop_AnotherSessionsRedIsNotThisSessions(t *testing.T) {
 }
 
 func TestDecideStop_FailsOpenOnAPayloadItCannotRead(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	crate := mkProject(t, "Cargo.toml")
 	redJobAt(t, crate)
 
@@ -310,7 +310,7 @@ func TestDecideStop_FailsOpenOnAPayloadItCannotRead(t *testing.T) {
 // A payload that names no cwd cannot say which lane or tree it ends, so the
 // two checks that are scoped to one allow rather than guess.
 func TestDecideStop_SubagentStopAndTaskCompletedAllowWhenThePayloadNamesNoCwd(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	crate := mkProject(t, "Cargo.toml")
 	redJobAt(t, crate)
 	// Even a resolver that would find the red must not be asked about no cwd.
@@ -334,7 +334,7 @@ func TestDecideStop_SubagentStopAndTaskCompletedAllowWhenThePayloadNamesNoCwd(t 
 // two small files and resolves no tree: asking git for one is the cost this
 // guards against.
 func TestDecideStop_NothingToReportResolvesNoTree(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	prev := stopTreeFn
 	stopTreeFn = func(cwd string) string {
 		t.Errorf("resolved the tree of %q with nothing to report", cwd)
@@ -396,7 +396,7 @@ func TestRenderStopVerdict_AnAllowRendersNothingForEveryEvent(t *testing.T) {
 // with it: it is set where the check blocks, where it allows under stop_hook_active,
 // and is not set where no red is outstanding.
 func TestDecideStop_ReportsTheUnseenRedWhateverTheCheckDidAboutIt(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopEnforceEnv(t)
 	t.Setenv("TRELLIS_DATA", t.TempDir())
 	project := t.TempDir()
 	target := filepath.Join(project, "lib.rs")
@@ -418,4 +418,12 @@ func TestDecideStop_ReportsTheUnseenRedWhateverTheCheckDidAboutIt(t *testing.T) 
 	if v := DecideStop(StopHookTaskCompleted, payload(false)); v.Red {
 		t.Errorf("a task check reports no unseen-red fact: %+v", v)
 	}
+}
+
+// stopEnforceEnv isolates the session config and pins tdd = enforce in the user layer: a
+// directory with no lane runs the built-in warn, and these tests are the blocking path.
+func stopEnforceEnv(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stopmodeUserConfig(t, "tdd = \"enforce\"\n")
 }

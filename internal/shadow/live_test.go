@@ -13,7 +13,19 @@ var (
 	livOff     = kernel.Config{TDD: kernel.ModeOff}
 )
 
+// standStill keeps the live budget on a clock that stands still unless the test chose one: it
+// is judged on the time the work cost, never on how long this box took to run the test.
+func standStill(t *testing.T) {
+	t.Helper()
+	if _, wall := clock.(wallClock); wall {
+		old := clock
+		clock = &bjClock{now: t0}
+		t.Cleanup(func() { clock = old })
+	}
+}
+
 func (b *shadowBox) liveAsk(cfg kernel.Config, rels ...string) LiveResult {
+	standStill(b.t)
 	b.t.Helper()
 	files := make([]string, len(rels))
 	for i, rel := range rels {
