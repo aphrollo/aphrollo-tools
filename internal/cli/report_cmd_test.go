@@ -173,3 +173,53 @@ func TestGateGC_OnlyTheDetachedDailySweepFilesTheWeeklyReport(t *testing.T) {
 		t.Errorf("the detached sweep filed %d report issues, want 1", n)
 	}
 }
+
+// usageConfig writes one transcript of the repo into a fake harness config dir.
+func usageConfig(t *testing.T, repo string) {
+	t.Helper()
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	dir := filepath.Join(cfg, "projects", "p")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	at := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
+	rec := `{"type":"assistant","timestamp":"` + at + `","sessionId":"sess-1","requestId":"r1","cwd":` + jsonQuote(repo) +
+		`,"message":{"model":"claude-opus-5","usage":{"input_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":99}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "sess-1.jsonl"), []byte(rec), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func jsonQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
+
+func TestReport_IncludesTheSessionUsageOfThisRepoFromTheHarnessTranscripts(t *testing.T) {
+	repo := statsRepo(t, nil)
+	usageConfig(t, repo)
+	code, out, errOut := runReportCmd(t, "--repo", repo, "--json")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	var r report.Report
+	if err := json.Unmarshal([]byte(out), &r); err != nil || r.Usage == nil || r.Usage.Total.Output != 99 || r.Usage.Sessions != 1 {
+		t.Errorf("usage = %+v (%v), want the one transcript turn of 99 output tokens", r.Usage, err)
+	}
+}
+
+func TestReport_CompareAtTakesADateAndRefusesWhatItCannotRead(t *testing.T) {
+	repo := statsRepo(t, nil)
+	usageConfig(t, repo)
+	day := time.Now().UTC().Add(-48 * time.Hour).Format("2006-01-02")
+	code, out, errOut := runReportCmd(t, "--repo", repo, "--json", "--compare-at", day)
+	var r report.Report
+	if code != 0 || json.Unmarshal([]byte(out), &r) != nil || r.Usage == nil || r.Usage.Compare == nil || r.Usage.Compare.At != day {
+		t.Errorf("compare-at %s: code %d, %s, compare %+v", day, code, errOut, r.Usage)
+	}
+	if code, _, errOut := runReportCmd(t, "--repo", repo, "--compare-at", "not-a-date-or-sha"); code != 2 || !strings.Contains(errOut, "compare-at") {
+		t.Errorf("a bad --compare-at exit = %d, stderr %q", code, errOut)
+	}
+	old := time.Now().UTC().Add(-60 * 24 * time.Hour).Format("2006-01-02")
+	if code, _, errOut := runReportCmd(t, "--repo", repo, "--compare-at", old); code != 2 || !strings.Contains(errOut, "window") {
+		t.Errorf("a date outside the window exit = %d, stderr %q, want a refusal naming the window", code, errOut)
+	}
+}

@@ -18,10 +18,10 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const reportUsage = `usage: aphrollo report [--repo <path>] [--since <dur>] [--json] [--issue [--dry]]
+const reportUsage = `usage: aphrollo report [--repo <path>] [--since <dur>] [--compare-at <date|sha>] [--json] [--issue [--dry]]
 
 The weekly continuous-improvement report, folded from the repo's event log (the
-current repo by default; --since 7d unless given). Six sections, each number
+current repo by default; --since 7d unless given). Seven sections, each number
 with the event seqs behind it (replay one with 'aphrollo why <seq>'):
 
   1. friction per rule: denies, overrides, refusals, not-tested runs, time lost
@@ -35,8 +35,18 @@ with the event seqs behind it (replay one with 'aphrollo why <seq>'):
   5. the token cost of the injected texts and the biggest gate lines
   6. proposals, each naming the rule, the numbers and the change; the report
      only proposes, it never applies one
+  7. session usage, read from the agent harness's local transcripts
+     ($CLAUDE_CONFIG_DIR or ~/.claude, projects/*/*.jsonl and the subagent
+     files): tokens per day, lane, role (coordinator or subagent) and model,
+     the top sessions, the notional cost (from a price table in code, at read
+     time), and what share of the input aphrollo's hook text is, by hook event
+     and by gate-line kind. Aggregate numbers only: no prompt, code, tool text
+     or injected text is ever copied; a line it cannot read is counted and said
 
 Plain 'report' is read-only and prints the text; --json prints the model.
+
+  --compare-at  split the window at a date (2026-10-01) or a commit (its commit
+                date) and compare session usage before and after
 
   --issue    open ONE issue titled 'Report <ISO week>' in the repo's own remote
              with the report as its body, close the earlier report issues with
@@ -80,11 +90,12 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 	fs.SetOutput(stderr)
 	fs.Usage = func() { fmt.Fprint(stderr, reportUsage) }
 	var (
-		repo    = fs.String("repo", ".", "repository path")
-		since   = fs.String("since", "7d", "the window the report covers (7d, 12h)")
-		asJSON  = fs.Bool("json", false, "print the report model as JSON")
-		issue   = fs.Bool("issue", false, "open the week's report issue")
-		mutFlag = addMutFlags(fs)
+		repo      = fs.String("repo", ".", "repository path")
+		since     = fs.String("since", "7d", "the window the report covers (7d, 12h)")
+		asJSON    = fs.Bool("json", false, "print the report model as JSON")
+		issue     = fs.Bool("issue", false, "open the week's report issue")
+		compareAt = fs.String("compare-at", "", "compare session usage before and after a date or commit")
+		mutFlag   = addMutFlags(fs)
 	)
 	pos, err := mutFlag.parse(fs, "report", args, stderr)
 	if err != nil {
@@ -111,7 +122,19 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo report: --repo: %v\n", err)
 		return 2
 	}
-	rep := buildReport(root, window, time.Now().UTC())
+	now := time.Now().UTC()
+	var cmpAt time.Time
+	if *compareAt != "" {
+		if cmpAt, err = parseCompareAt(root, *compareAt); err != nil {
+			fmt.Fprintf(stderr, "aphrollo report: --compare-at: %v\n", err)
+			return 2
+		}
+		if start := now.Add(-window).Truncate(24 * time.Hour); !cmpAt.After(start) || cmpAt.After(now) {
+			fmt.Fprintf(stderr, "aphrollo report: --compare-at %s lies outside the window (%s to now): widen --since\n", *compareAt, start.Format("2006-01-02"))
+			return 2
+		}
+	}
+	rep := buildReport(root, window, now, cmpAt)
 	if *issue {
 		return deliverReport(root, rep, !mutFlag.execute(), stdout, stderr)
 	}
@@ -123,14 +146,15 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 }
 
 // buildReport folds the repo's event log and measures its injected texts.
-func buildReport(root string, window time.Duration, now time.Time) report.Report {
+func buildReport(root string, window time.Duration, now, compareAt time.Time) report.Report {
 	var briefs []measure.Brief
 	for _, b := range tdd.Briefs(tdd.RepoRoot(root)) {
 		briefs = append(briefs, measure.Brief{Name: b.Name, Subagent: b.Subagent, Bytes: len(b.Text)})
 	}
 	return report.Build(report.Input{
 		Events: tdd.ReadEvents(root), Now: now, Window: window,
-		Repo: filepath.Base(root), Briefs: measure.CheckBriefs(briefs),
+		Repo: repoName(root), Briefs: measure.CheckBriefs(briefs),
+		Usage: scanUsage(root, window, now), CompareAt: compareAt,
 	})
 }
 
@@ -211,7 +235,7 @@ func weeklyReport(root string, now time.Time) bool {
 	if !ok {
 		return false
 	}
-	rep := buildReport(root, reportDefaultWindow, now.UTC())
+	rep := buildReport(root, reportDefaultWindow, now.UTC(), time.Time{})
 	if _, err := report.Deliver(tr, rep, report.DeliverOptions{Repo: name, Labels: reportLabels(root)}); err != nil {
 		return false
 	}
