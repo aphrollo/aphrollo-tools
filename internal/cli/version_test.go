@@ -49,3 +49,41 @@ func TestVersion_RejectsArguments(t *testing.T) {
 		}
 	}
 }
+
+// A `go install module/cmd/aphrollo@v1.20.0` binary has no linker stamp but Go
+// recorded the module version: the verb says which release it is, and what the
+// build recorded of its source, and says "unstamped" only of a binary it can say
+// nothing about.
+func TestVersion_AGoInstallAtATagNamesItsReleaseNotUnstamped(t *testing.T) {
+	defer buildinfo.SetModuleBuildForTest("v1.20.0", "", false)()
+
+	var out, errb bytes.Buffer
+	if code := runVersion(nil, &out, &errb); code != 0 {
+		t.Fatalf("runVersion exit = %d, want 0", code)
+	}
+	if got, want := out.String(), "aphrollo 1.20.0 (module v1.20.0)\n"; got != want {
+		t.Fatalf("runVersion output = %q, want %q", got, want)
+	}
+}
+
+func TestVersion_AModuleBuildSaysTheRevisionAndAnEditedTree(t *testing.T) {
+	defer buildinfo.SetModuleBuildForTest("v1.20.0", "0123456789abcdef0123456789abcdef01234567", true)()
+
+	var out, errb bytes.Buffer
+	runVersion(nil, &out, &errb)
+
+	if got, want := out.String(), "aphrollo 1.20.0 (module v1.20.0, revision 0123456, modified)\n"; got != want {
+		t.Fatalf("runVersion output = %q, want %q", got, want)
+	}
+}
+
+func TestVersion_ADevelBuildStaysUnstamped(t *testing.T) {
+	defer buildinfo.SetModuleBuildForTest("(devel)", "", false)()
+
+	var out, errb bytes.Buffer
+	runVersion(nil, &out, &errb)
+
+	if got, want := out.String(), "aphrollo 0.0.0-dev (unstamped)\n"; got != want {
+		t.Fatalf("runVersion output = %q, want %q", got, want)
+	}
+}
