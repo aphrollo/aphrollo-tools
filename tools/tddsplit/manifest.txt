@@ -424,6 +424,8 @@ gateworktree_core.go                               core
 gateworktree_links_own_test.go                     core
 gateworktree_own_test.go                           core
 gc.go                                              gc
+gc_covermaps.go                                    gc
+gc_covermaps_test.go                               gc
 gc_deps.go                                         gc
 gc_deps_test.go                                    gc
 gc_gocache.go                                      gc
@@ -804,6 +806,7 @@ mutants_testmap_build.go                           mutation
 mutants_testmap_build_test.go                      mutation
 mutants_testmap_decls.go                           mutation
 mutants_testmap_decls_test.go                      mutation
+mutants_testmap_ensure_test.go                     mutation
 mutants_testmap_store.go                           mutation
 mutants_testmap_store_test.go                      mutation
 mutants_testmap_test.go                            mutation

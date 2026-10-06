@@ -3,7 +3,8 @@ package mutation
 import (
 	"bytes"
 	"context"
-	"errors"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -64,13 +65,60 @@ func listPackageInputs(ctx context.Context, root, dir string) (string, error) {
 	return out.String(), nil
 }
 
-// packageTestHash is the hash of what dir's test binary is built from.
+// goEnvFn answers the Go version and the build settings the test binary of the
+// module at root is built under: `go env` of the ones that change what is
+// compiled or run. A seam so a test needs no toolchain.
+var goEnvFn = listGoEnv
+
+// setGoEnvForTest replaces the answer for one test and returns the restore.
+func setGoEnvForTest(fn func(ctx context.Context, root string) (string, error)) (restore func()) {
+	prev := goEnvFn
+	goEnvFn = fn
+	return func() { goEnvFn = prev }
+}
+
+// listGoEnv is the real answer.
+func listGoEnv(ctx context.Context, root string) (string, error) {
+	var out, errOut bytes.Buffer
+	args := []string{"env", "GOVERSION", "GOFLAGS", "GOOS", "GOARCH", "CGO_ENABLED", "GOEXPERIMENT"}
+	if err := run.LightRunCtx(ctx, run.Spec{Name: "go", Args: args, Dir: root, Stdout: &out, Stderr: &errOut}); err != nil {
+		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(errOut.String()))
+	}
+	return out.String(), nil
+}
+
+// modulePath is the import path of the module whose go.mod is in root, "" when
+// there is none to read.
+func modulePath(root string) string {
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		// absence-ok: no go.mod names no module path, and the hash then rests on the files and the toolchain
+		return ""
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(line), "module "); ok {
+			return strings.Trim(strings.TrimSpace(rest), `"`)
+		}
+	}
+	return ""
+}
+
+// packageTestHash is the key of dir's map: the hash of what its test binary is
+// built from (the files of the package and of every package it imports inside
+// the module, by content), the package's import path, and the Go version and
+// build settings it is compiled under. A map of any other key is not used.
 func packageTestHash(ctx context.Context, root, dir string) (string, error) {
 	listing, err := goListFn(ctx, root, dir)
 	if err != nil {
 		return "", fmt.Errorf("go list %s: %w", dir, err)
 	}
-	return hashPackage(root, listing), nil
+	env, err := goEnvFn(ctx, root)
+	if err != nil {
+		return "", fmt.Errorf("go env for %s: %w", dir, err)
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "files %s\nimport %s/%s\nenv %s\n", hashPackage(root, listing), modulePath(root), dir, strings.TrimSpace(env))
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // buildTestMap builds the map of dir. built is false, with no error, for a
@@ -205,42 +253,27 @@ func tail(output string) string {
 	return strings.Join(lines[max(len(lines)-12, 0):], "\n")
 }
 
-// refreshTestMaps builds and keeps the map of each package dirs names whose
-// kept map is not the tree's, and leaves the rest. built counts what it
-// built, fresh what was already current. A package that fails is reported in
-// the error, and the others are still done.
-func refreshTestMaps(ctx context.Context, root string, cfg MutantsConfig, dirs []string, workers int, log io.Writer) (built, fresh int, err error) {
-	var errs []error
-	canary := watchGitWorld(root, "test-map build")
-	for _, dir := range dirs {
-		hash, herr := packageTestHash(ctx, root, dir)
-		if herr != nil {
-			errs = append(errs, herr)
-			continue
-		}
-		if kept, ok := loadTestMap(root, dir); ok && kept.Hash == hash {
-			fresh++
-			continue
-		}
-		m, ok, berr := buildTestMap(ctx, root, cfg, dir, workers, log)
-		if changes := canary.verify(log); len(changes) > 0 {
-			// A build that reached the real git state is not trusted for the
-			// map it made, or for any build after it.
-			errs = append(errs, errors.New(gitWorldRefusal("test-map build", root, changes)))
-			break
-		}
-		if berr != nil {
-			errs = append(errs, berr)
-			continue
-		}
-		if !ok {
-			continue
-		}
-		if serr := saveTestMap(root, m); serr != nil {
-			errs = append(errs, serr)
-			continue
-		}
-		built++
+// ensureTestMap answers the map of dir for the tree as it is: the kept one
+// when its key matches, else one measured now and kept for the next commit to
+// the same content. cached says it was kept. built is false, with no error,
+// for a package that has no test files. A map that cannot be kept is still
+// the answer; saving it is best effort, and what it could not do is said on
+// log.
+func ensureTestMap(ctx context.Context, root string, cfg MutantsConfig, dir string, workers int, log io.Writer) (m testMap, built, cached bool, err error) {
+	hash, err := packageTestHash(ctx, root, dir)
+	if err != nil {
+		return testMap{}, false, false, err
 	}
-	return built, fresh, errors.Join(errs...)
+	if kept, ok := loadTestMap(root, dir, hash); ok {
+		logf(log, "mutants: coverage of %s: reused, %d tests, %d blocks", dir, len(kept.Tests), len(kept.Blocks))
+		return *kept, true, true, nil
+	}
+	m, built, err = buildTestMap(ctx, root, cfg, dir, workers, log)
+	if err != nil || !built {
+		return testMap{}, false, false, err
+	}
+	if serr := saveTestMap(root, m); serr != nil {
+		logf(log, "mutants: coverage of %s not kept for the next commit: %v", dir, serr)
+	}
+	return m, true, false, nil
 }

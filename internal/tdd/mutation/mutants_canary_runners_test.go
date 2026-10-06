@@ -3,8 +3,7 @@ package mutation
 import (
 	"bytes"
 	"context"
-	"io"
-	"os"
+	os "os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -20,71 +19,6 @@ import (
 // avoids t.Fatal, since a runner calls it from its own goroutines.
 func leakInto(repo string) {
 	_ = exec.Command("git", "-C", repo, "config", "leak.key", "1").Run() // stderr-ok: the leak is the point; a failed one shows as a missing refusal
-}
-
-func TestRefreshTestMaps_ALeakingBuildKeepsNoMapAndSaysWhatChanged(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	rec := recordGitWorldChanges(t)
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	tc.compile = func(argv []string) (int, error) {
-		leakInto(root)
-		return 0, os.WriteFile(valueAfter(argv, "-o"), []byte("binary"), 0o700)
-	}
-	var log bytes.Buffer
-
-	built, _, err := refreshTestMaps(context.Background(), root, MutantsConfig{}, []string{"internal/p"}, 1, &log)
-
-	if err == nil || !strings.Contains(err.Error(), "the repository's config") || strings.Contains(err.Error(), "\n") || built != 0 {
-		t.Errorf("refreshTestMaps = built %d, err %v, want a refusal and no map built", built, err)
-	}
-	if _, ok := loadTestMap(root, "internal/p"); ok {
-		t.Error("the map of a build that reached the real repository was kept")
-	}
-	if strings.Contains(log.String(), "key = 1") {
-		t.Errorf("the log dumps the change; the details belong in the escape record:\n%s", log.String())
-	}
-	if len(rec.evidence) != 1 || !strings.Contains(rec.evidence[0], "+\tkey = 1") {
-		t.Errorf("the escape evidence does not say what changed: %v", rec.evidence)
-	}
-	if len(rec.runner) != 1 || rec.runner[0] != "test-map build" {
-		t.Errorf("recorded runners %v, want one escape for the test-map build", rec.runner)
-	}
-}
-
-// A leak stops the build: the packages after it are not built in a world that
-// has already been changed.
-func TestRefreshTestMaps_ALeakStopsTheBuildOfTheRemainingPackages(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	recordGitWorldChanges(t)
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	mustWrite(t, filepath.Join(root, "internal", "q", "q.go"), "package q\n")
-	mustWrite(t, filepath.Join(root, "internal", "q", "q_test.go"), "package q\n")
-	gitDo(t, root, "add", "-A")
-	gitDo(t, root, "commit", "-qm", "q")
-	t.Cleanup(setGoListForTest(func(_ context.Context, root, dir string) (string, error) {
-		return filepath.Join(root, filepath.FromSlash(dir)) + "|x.go|x_test.go||\n", nil
-	}))
-	tc.compile = func(argv []string) (int, error) {
-		leakInto(root)
-		return 0, os.WriteFile(valueAfter(argv, "-o"), []byte("binary"), 0o700)
-	}
-
-	built, _, err := refreshTestMaps(context.Background(), root, MutantsConfig{}, []string{"internal/p", "internal/q"}, 1, io.Discard)
-
-	if err == nil || built != 0 {
-		t.Errorf("built %d, err %v, want the leak to stop everything", built, err)
-	}
-	compiles := 0
-	for _, call := range tc.calls {
-		if call[0] == "go" {
-			compiles++
-		}
-	}
-	if compiles != 1 {
-		t.Errorf("%d packages were compiled, want 1: the build stops at the leak", compiles)
-	}
 }
 
 func TestMeasureLane_ALeakingRunIsRefusedWithWhatChanged(t *testing.T) {
@@ -173,3 +107,36 @@ func TestRunMutantsProve_ALeakingRunProvesNothing(t *testing.T) {
 		t.Errorf("recorded runners %v, want one escape for the proof", rec.runner)
 	}
 }
+
+// The coverage build runs under the stage's canary: a compile that reached the
+// real repository refuses the commit, says what changed, and keeps no map.
+func TestMutantsAtCommitStage_ALeakingCoverageBuildBlocksTheCommitAndKeepsNoMap(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	_, root := commitStage(t, "")
+	rec := recordGitWorldChanges(t)
+	tc := &fakeToolchain{list: "TestKind_A\n", profiles: map[string]string{"TestKind_A": "mode: set\nx/gate/gate.go:4.2,4.12 1 1\n"}}
+	tc.compile = func(argv []string) (int, error) {
+		leakInto(root)
+		return 0, os.WriteFile(valueAfter(argv, "-o"), []byte("binary"), 0o700)
+	}
+	prevExec := testMapExecFn
+	testMapExecFn = tc.exec
+	t.Cleanup(func() { testMapExecFn = prevExec })
+	t.Cleanup(setGoListForTest(func(context.Context, string, string) (string, error) {
+		return filepath.Join(root, "gate") + "|gate.go|gate_test.go||\n", nil
+	}))
+	scriptGo(t, func(goCall) (int, string) { return 0, "ok\tgate\n" })
+
+	var res GateResult
+	captureStderr(t, func() { res = mutantsAtCommitStage("precommit", root) })
+
+	if !res.Blocked || !strings.Contains(res.Message, "the repository's config") {
+		t.Fatalf("the stage let a coverage build that reached the real repository through: blocked %v, message %q", res.Blocked, res.Message)
+	}
+	if len(rec.runner) != 1 || rec.runner[0] != "commit-time run" {
+		t.Errorf("recorded runners %v, want one escape for the commit-time run", rec.runner)
+	}
+}
+
+// ratchet: test_removed TestRefreshTestMaps_ALeakingBuildKeepsNoMapAndSaysWhatChanged: the coverage build runs under the commit stage's canary now; TestMutantsAtCommitStage_ALeakingCoverageBuildBlocksTheCommitAndKeepsNoMap proves it
+// ratchet: test_removed TestRefreshTestMaps_ALeakStopsTheBuildOfTheRemainingPackages: a leak refuses the whole stage, so no package after it is judged

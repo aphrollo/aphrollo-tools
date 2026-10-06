@@ -166,9 +166,11 @@ func SetCommitExecForTest(fn func(ctx context.Context, dir string, env, argv []s
 	return func() { resolveExecFn, testMapExecFn = prev, prevMap }
 }
 
-// measureTestMaps gives each plan the map of its package: one coverage run of
-// the package's tests, in the foreground, within ctx's deadline, which is what
-// is left of the commit's budget. A package whose tests are run whole anyway
+// measureTestMaps gives each plan the map of its package: the kept one when the
+// package's content and toolchain are those it was measured at, else one
+// coverage run of the package's tests, in the foreground, within ctx's
+// deadline, which is what is left of the commit's budget, kept for the next
+// commit to the same content. A package whose tests are run whole anyway
 // has no use for one. A package whose coverage cannot be measured, or not in
 // the time left, is named on log and keeps no map: its mutants run the commit's
 // touched tests and then the whole package, and what the budget does not reach
@@ -182,7 +184,7 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 	}
 	sort.Strings(dirs)
 	for _, dir := range dirs {
-		m, ok, err := buildTestMap(ctx, root, cfg, dir, workers, log)
+		m, ok, _, err := ensureTestMap(ctx, root, cfg, dir, workers, log)
 		if err != nil {
 			logf(log, "mutants: coverage of %s NOT MEASURED — %v", dir, err)
 			continue

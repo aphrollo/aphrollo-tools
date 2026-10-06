@@ -7,6 +7,8 @@ import (
 	time "time"
 )
 
+const CoverCacheMaxAge = mutation.CoverCacheMaxAge
+
 const GCKindDepsMember = mutation.GCKindDepsMember
 
 const GCKindDepsThirdParty = mutation.GCKindDepsThirdParty
@@ -36,6 +38,8 @@ const mutantsCopyActiveWindow = mutation.MutantsCopyActiveWindow
 type GCCandidate = mutation.GCCandidate
 
 type GCKind = mutation.GCKind
+
+func CoverCacheDir(p0 string) string { return mutation.CoverCacheDir(p0) }
 
 func dirNewestAndSize(p0 string) (time.Time, int64) { return mutation.DirNewestAndSize(p0) }
 

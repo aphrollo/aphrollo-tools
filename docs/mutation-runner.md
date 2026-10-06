@@ -772,6 +772,20 @@ no tests, which is how a line is known to be uncovered. A package whose
 coverage cannot be measured, or not in the time the budget leaves, is named
 `NOT MEASURED` and its mutants fall back as above.
 
+**The cache.** What a commit measures is kept for the next commit to the same
+package. The key is the package's import path, the hash of everything its test
+binary is built from (the content of its own Go files, tests included, and of
+every package it imports inside the module) and the Go version and build
+settings (`go env GOVERSION GOFLAGS GOOS GOARCH CGO_ENABLED GOEXPERIMENT`). A
+map is kept in the repository's shared git directory
+(`aphrollo-mutcover/`, one file per package and key), so every lane of the
+repository reads what any of them measured, and a hit skips the compile and the
+solo runs. A map of another key is never used, not even meanwhile: it is keyed
+by line, and an edited line is another line. The directory holds at most 64
+maps within 64 MiB (the ones read longest ago go first), and `aphrollo gate gc`
+removes a map nothing has read for 30 days.
+
+
 **The budget.** The run has `mutants-commit-budget` seconds of wall-clock,
 counted from the start of the stage, on at most as many workers as the Go
 measurement derives for the box (`min(cores/3, free memory/2 GB, 8)`), each

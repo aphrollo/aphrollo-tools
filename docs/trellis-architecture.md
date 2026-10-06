@@ -156,7 +156,7 @@ trellis is a gate built around lanes and an event log.
 
 - **Tested code** (S12). Two conditions: every changed line lies in a function that a passing test of the unit executes, and the edit adds no exported symbol and no new function.
   - For Go, "executes" is read from the `-coverprofile` of the last green run.
-  - Otherwise it comes from the per-function test map that already exists, built after a merge by running each test alone under coverage.
+  - Otherwise there is no prebuilt map to read: the commit-time mutation stage measures line-to-tests coverage itself at the commit that needs it, and nothing is built ahead of an edit.
   - Where neither is available, a test file of the unit must name the symbol.
 - **Writes nobody parsed.** A write that no parser saw marks its unit unproven until the next real run. A not-tested result never moves a state.
 - **Concurrency.**
@@ -703,7 +703,7 @@ The flow is `docs/trellis-flow/session_flow.py` on main. Where roadmap PR #1114 
 8. **S3's fallback, "packages with `_windows.go` files and their importers."** #1112 failed in OS-agnostic path code, so the Windows verdict covers the full suite.
 9. **S12, "collect coverage in every batch."** Partly rejected.
    - Go adds `-coverprofile` to the run it already makes.
-   - Other runners use the existing per-function test map, or a static reference to the symbol.
+   - Other runners use a static reference to the symbol; no test map is built ahead of time.
    - Per-run coverage for cargo does not fit a 20 s budget.
 
 ## Changes from the draft

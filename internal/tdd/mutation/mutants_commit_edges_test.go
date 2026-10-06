@@ -99,36 +99,6 @@ func TestBuildTestMap_AListingFailureIsAnError(t *testing.T) {
 	}
 }
 
-func TestRefreshTestMaps_APackageWithNoTestsIsNeitherBuiltNorCurrent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{compile: func([]string) (int, error) { return 0, nil }}
-	root := buildFixture(t, tc)
-	built, fresh, err := refreshTestMaps(context.Background(), root, MutantsConfig{}, []string{"internal/p"}, 1, io.Discard)
-	if err != nil || built != 0 || fresh != 0 {
-		t.Errorf("refresh = built %d fresh %d err %v, want zeros", built, fresh, err)
-	}
-	if _, ok := loadTestMap(root, "internal/p"); ok {
-		t.Error("a map was kept for a package with no tests")
-	}
-}
-
-func TestRefreshTestMaps_AFailureNamesItAndTheOthersAreStillDone(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	realList := goListFn
-	t.Cleanup(setGoListForTest(func(ctx context.Context, r, dir string) (string, error) {
-		if dir == "internal/broken" {
-			return "", errors.New("go list broke")
-		}
-		return realList(ctx, r, dir)
-	}))
-	built, fresh, err := refreshTestMaps(context.Background(), root, MutantsConfig{}, []string{"internal/broken", "internal/p"}, 1, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "internal/broken") || built != 1 || fresh != 0 {
-		t.Errorf("refresh = built %d fresh %d err %v, want the broken package named and the other built", built, fresh, err)
-	}
-}
-
 // At most the worker count run at once, and a count below one is one.
 func TestRunCommitMutants_WorkerCountsBelowOneRunOneWorker(t *testing.T) {
 	root := commitRoot(t)
@@ -319,3 +289,6 @@ func TestRunMutantsEdit_ACannotRecordFailsLoudly(t *testing.T) {
 
 // ratchet: test_removed TestRunMutantsTestMap_ANonGoRepoIsInert: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
 // ratchet: test_removed TestRunMutantsTestMap_APackageListFailureIsAnError: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
+
+// ratchet: test_removed TestRefreshTestMaps_APackageWithNoTestsIsNeitherBuiltNorCurrent: proved for the one-package ensure as TestEnsureTestMap_APackageWithNoTestsHasNoMapAndKeepsNone
+// ratchet: test_removed TestRefreshTestMaps_AFailureNamesItAndTheOthersAreStillDone: the stage measures each package in turn and names one that fails, proved by TestMeasureTestMaps_AFailedBuildIsNamedAndLeavesNoMap

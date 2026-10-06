@@ -24,6 +24,7 @@ func TestMain(m *testing.M) {
 			// No unit test here compiles or runs a package's tests for coverage: the
 			// commit stage asks the seam, and the seam answers that it cannot.
 			testMapExecFn = refuseCoverageExec
+			goEnvFn = func(context.Context, string) (string, error) { return "go-unit-test\n", nil }
 			return m.Run()
 		},
 		GitBinary:        gitx.GitBinary,

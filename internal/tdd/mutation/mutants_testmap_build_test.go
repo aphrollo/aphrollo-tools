@@ -252,36 +252,5 @@ func TestBuildTestMap_ACancelledContextStopsTheBuild(t *testing.T) {
 	}
 }
 
-// refreshTestMaps builds only the packages whose kept map is not the tree's,
-// keeps what it builds and leaves the rest.
-func TestRefreshTestMaps_RebuildsOnlyWhatIsStale(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	ctx := context.Background()
-	built, fresh, err := refreshTestMaps(ctx, root, MutantsConfig{}, []string{"internal/p"}, 1, io.Discard)
-	if err != nil || built != 1 || fresh != 0 {
-		t.Fatalf("first refresh = built %d fresh %d err %v, want 1, 0, nil", built, fresh, err)
-	}
-	if _, ok := loadTestMap(root, "internal/p"); !ok {
-		t.Fatal("the built map was not kept")
-	}
-	calls := len(tc.calls)
-	built, fresh, err = refreshTestMaps(ctx, root, MutantsConfig{}, []string{"internal/p"}, 1, io.Discard)
-	if err != nil || built != 0 || fresh != 1 || len(tc.calls) != calls {
-		t.Errorf("second refresh = built %d fresh %d err %v with %d new commands, want 0, 1, nil and none",
-			built, fresh, err, len(tc.calls)-calls)
-	}
-	mustWrite(t, filepath.Join(root, "internal", "p", "p.go"), "package p\n\nfunc f() int {\n\treturn 3\n}\n")
-	built, fresh, err = refreshTestMaps(ctx, root, MutantsConfig{}, []string{"internal/p"}, 1, io.Discard)
-	if err != nil || built != 1 || fresh != 0 {
-		t.Errorf("refresh after an edit = built %d fresh %d err %v, want 1, 0, nil", built, fresh, err)
-	}
-}
-
-func TestRefreshTestMaps_NoPackages(t *testing.T) {
-	built, fresh, err := refreshTestMaps(context.Background(), t.TempDir(), MutantsConfig{}, nil, 1, io.Discard)
-	if err != nil || built != 0 || fresh != 0 {
-		t.Errorf("refresh of nothing = built %d fresh %d err %v, want zeros", built, fresh, err)
-	}
-}
+// ratchet: test_removed TestRefreshTestMaps_RebuildsOnlyWhatIsStale: the build is asked for one package by the commit stage, and the cache in front of it is proved by TestEnsureTestMap_TheSecondCallReusesTheMapAndRunsNothing and TestEnsureTestMap_AChangedKeyIsMeasuredAgain
+// ratchet: test_removed TestRefreshTestMaps_NoPackages: there is no multi-package refresh to ask for nothing

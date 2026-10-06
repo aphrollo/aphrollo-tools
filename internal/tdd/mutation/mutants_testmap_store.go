@@ -11,25 +11,50 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
-// Where the per-function test maps live and how one is told to be out of
-// date. A package's map is kept under the gate's state for the repo, one file
-// per package. It carries the hash of the package's sources and everything
-// its test binary is built from: a map whose hash is not the tree's is
-// rebuilt in the background, but is still used meanwhile, because it is keyed
-// by function and a function's tests rarely change when its body does.
+// Where the test maps live and how one is told to be out of date. A map is
+// kept in the repository's shared git directory, so every worktree of the
+// repository reads what any of them measured, one file per package and
+// content: the name carries the package and the hash of everything its test
+// binary is built from (the content of the package's and its dependencies'
+// files, the import path, the Go version and the flags), and a file is read
+// only when the hash it was asked for matches the one inside it. A map of
+// other content is never used, not even meanwhile: lines are what it is keyed
+// by, and a changed line is a different line.
+//
+// The directory is bounded: saving a map keeps the newest coverCacheMaxEntries
+// files within coverCacheMaxBytes and removes the rest, and `gate gc` removes
+// what has not been read for coverCacheMaxAge.
 
-// testMapPath is the file one package's map is kept in, "" when the gate has
-// no state directory for the repo.
-func testMapPath(root, dir string) string {
-	// Keyed on the repository's primary checkout, not the worktree asking:
-	// the map is built where a merge landed and read from every lane.
-	repo := primaryCheckoutRoot(root)
+const (
+	// coverCacheMaxEntries and coverCacheMaxBytes bound the kept maps of one
+	// repository.
+	coverCacheMaxEntries = 64
+	coverCacheMaxBytes   = 64 << 20
+	// CoverCacheMaxAge is how long a map may go unread before gc removes it.
+	CoverCacheMaxAge = 30 * 24 * time.Hour
+)
+
+// CoverCacheDir is the directory the repository's maps are kept in, "" when
+// the checkout is not in a git repository.
+func CoverCacheDir(root string) string {
+	repo := RepoRoot(root)
 	if repo == "" {
 		repo = root
 	}
-	base := mutantsLogDir(repo)
+	common := gitCommonDir(repo)
+	if common == "" {
+		return ""
+	}
+	return filepath.Join(common, "aphrollo-mutcover")
+}
+
+// testMapPath is the file the map of one package at one content hash is kept
+// in, "" when there is no directory to keep it in.
+func testMapPath(root, dir, hash string) string {
+	base := CoverCacheDir(root)
 	if base == "" {
 		return ""
 	}
@@ -37,14 +62,15 @@ func testMapPath(root, dir string) string {
 	if slug == "." {
 		slug = "_root"
 	}
-	return filepath.Join(base, "testmap", slug+".json")
+	return filepath.Join(base, slug+"-"+hash[:min(len(hash), 16)]+".json")
 }
 
-// saveTestMap keeps a map, replacing the last one for its package whole.
+// saveTestMap keeps a map under its package and hash, then trims the
+// directory to its bounds.
 func saveTestMap(root string, m testMap) error {
-	path := testMapPath(root, m.Package)
+	path := testMapPath(root, m.Package, m.Hash)
 	if path == "" {
-		return errors.New("no state directory to keep the test map in")
+		return errors.New("no git directory to keep the test map in")
 	}
 	data, err := json.Marshal(m)
 	if err != nil {
@@ -66,23 +92,65 @@ func saveTestMap(root string, m testMap) error {
 		_ = os.Remove(tmp.Name())
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	trimCoverCache(filepath.Dir(path), coverCacheMaxEntries, coverCacheMaxBytes)
+	return nil
 }
 
-// loadTestMap reads a package's map. A map of another schema, one that does
-// not parse, or one whose indexes do not fit its test list is no map.
-func loadTestMap(root, dir string) (*testMap, bool) {
-	path := testMapPath(root, dir)
+// trimCoverCache removes the least recently read maps of dir until at most
+// entries files remain, totalling at most maxBytes. The newest file is always
+// kept, whatever its size.
+func trimCoverCache(dir string, entries int, maxBytes int64) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	type kept struct {
+		path string
+		mod  time.Time
+		size int64
+	}
+	var all []kept
+	for _, f := range files {
+		info, err := f.Info()
+		if err != nil || f.IsDir() || !strings.HasSuffix(f.Name(), ".json") {
+			continue
+		}
+		all = append(all, kept{filepath.Join(dir, f.Name()), info.ModTime(), info.Size()})
+	}
+	slices.SortFunc(all, func(a, b kept) int {
+		if c := b.mod.Compare(a.mod); c != 0 {
+			return c
+		}
+		return strings.Compare(a.path, b.path)
+	})
+	var total int64
+	for i, f := range all {
+		total += f.size
+		if i > 0 && (i >= entries || total > maxBytes) {
+			_ = os.Remove(f.path)
+		}
+	}
+}
+
+// loadTestMap reads the map of a package at one content hash. A map of
+// another schema or hash, one that does not parse, or one whose indexes do not
+// fit its test list is no map. A map that is used is marked read, so what is
+// trimmed and swept is what nothing has used lately.
+func loadTestMap(root, dir, hash string) (*testMap, bool) {
+	path := testMapPath(root, dir, hash)
 	if path == "" {
 		return nil, false
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		// absence-ok: no kept map is the cold-cache case, which runs the whole package for each mutant
+		// absence-ok: no kept map is the cold-cache case, which measures the package's coverage
 		return nil, false
 	}
 	var m testMap
-	if json.Unmarshal(data, &m) != nil || m.Schema != testMapSchema {
+	if json.Unmarshal(data, &m) != nil || m.Schema != testMapSchema || m.Hash != hash || m.Package != dir {
 		return nil, false
 	}
 	for _, b := range m.Blocks {
@@ -92,6 +160,8 @@ func loadTestMap(root, dir string) (*testMap, bool) {
 			}
 		}
 	}
+	now := time.Now()
+	_ = os.Chtimes(path, now, now)
 	return &m, true
 }
 
