@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/shadow"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -98,7 +99,7 @@ type Shadow struct {
 var shadowNotes = []string{
 	"observed only where a hook acted: no fact exists where aphrollo did nothing, so agreement is overstated; trellis acting alone is seen at a waived primary-checkout write and, for red-green, at each code edit",
 	"the kernel ran on its default config, except red-green and stop-red, which it is asked under tdd = enforce (the level the document blocks them at): aphrollo declares no rule pins or isolation setting to read, so the other levels are the kernel's own",
-	"red-green is observed: asked at PreToolUse of each code edit against the lane's record, where aphrollo always allows (it holds the proof at the commit), so every kernel guide or block is a would-be block; an edit's unit is covered when a run of it was green on a tree holding its newest edit, and a unit with no run yet reads as uncovered; whether an edit adds a symbol is read from the edit's text for Go (a new func, or a new exported type, var or const), Python (a new def, or a public class) and TypeScript or JavaScript (a new function, or a new exported declaration), and is false for every other language and for a Bash write; a Python or TypeScript unit is its whole project (the gate holds no per-test or per-symbol knowledge for them), so any green run of the project covers it, and its fires are joined to the commit proof run in the project root; edits and runs on trunk lanes and the primary checkout are not asked",
+	"red-green is observed: asked at PreToolUse of each code edit against the lane's record, where aphrollo always allows (it holds the proof at the commit), so every kernel guide or block is a would-be block; an edit's unit is covered when a run of it was green on a tree holding its newest edit, and a unit with no run yet reads as uncovered; whether an edit adds a symbol is read from the edit's text for Go (a new func, or a new exported type, var or const), Python (a new def, or a public class) and TypeScript or JavaScript (a new function, or a new exported declaration), and is false for every other language and for a Bash write; a Python or TypeScript unit is its whole project (the gate holds no per-test or per-symbol knowledge for them), so any green run of the project covers it, and its fires are joined to the commit proof run in the project root by a runner of the same language; edits and runs on trunk lanes and the primary checkout are not asked",
 	"stop-red is asked at every Stop and SubagentStop with aphrollo's own unseen-red fact, so a block and an allow are both recorded; a red the lane record never folded, including one known only from a job record, is unjudged, never softer",
 	"a red-green would-be block is a catch when the commit proof later refuses on the lane (a proof must name packages holding the edit's unit), a pass when such a proof passes or the lane merges, and wrong on /tdd off within the wrong-block window; a pass only says the commit gate later proved red→green, which aphrollo already enforces, so passes are near-tautological and catches are rare by structure; the other would-be blocks still come mostly from waived primary-checkout writes, and a law's escape comment is not logged as an override",
 	"a run both sides read alike is an agreeing shadow event; a run no verdict was made of, and a red-green, stop-red or lane-fold record that lacked a lane, unit, tree or store or outran the budget, is counted unjudged with its cause and never as agreement",
@@ -291,7 +292,10 @@ func proofAbout(proof, fire stamped) bool {
 	// package pattern can say what a proof covered. The fire names its project's
 	// root, and a proof is about the unit when it ran in that root.
 	if root := fire.Detail["unit_root"]; root != "" {
-		return sameProjectRoot(proof.Root, root)
+		// Only a proof of the fire's language: a Go proof refused in a root shared with a
+		// Python project says nothing of it, and a stage label (postedit-ledger) names no runner.
+		want := shadow.LangOfUnit(unit)
+		return sameProjectRoot(proof.Root, root) && want != "" && shadow.LangOfCommand(firstWord(proof.Cmd)) == want
 	}
 	target, ok := fire.Detail["unit_pkg"]
 	if !ok {
@@ -402,4 +406,13 @@ func (s Shadow) Text() string {
 			"language "+l.Lang, l.Fires, l.Agree, l.Stricter, l.Softer, l.Mismatch, l.NotComparable, l.Unjudged, l.Dropped, l.HeldOut, tail)
 	}
 	return b.String()
+}
+
+// firstWord is the command word of a proof's command line.
+func firstWord(cmd string) string {
+	f := strings.Fields(cmd)
+	if len(f) == 0 {
+		return ""
+	}
+	return f[0]
 }

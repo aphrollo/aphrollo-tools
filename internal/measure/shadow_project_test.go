@@ -144,3 +144,20 @@ func TestShadow_ALanguageRowPrintsItsAgreementFromTenFires(t *testing.T) {
 		t.Errorf("text lacks %q:\n%s", want, text)
 	}
 }
+
+// A root can hold a Go module and a Python project: a Go proof refused there is no
+// catch of a Python fire, and the ledger's label is a proof of no language.
+func TestShadow_AProofCountsForAFireOnlyWhenItsRunnerIsOfTheFiresLanguage(t *testing.T) {
+	events := []tdd.Event{
+		pjFire(0, "goproof", "python:.", "/w"), pjProofIn(600, "goproof", "violated", "go test ./...", "/w"),
+		pjFire(0, "label", "python:.", "/w"), pjProofIn(600, "label", "red-proven", "postedit-ledger", "/w"),
+		pjFire(0, "tsproof", "python:.", "/w"), pjProofIn(600, "tsproof", "red-proven", "npx vitest run", "/w"),
+		pjFire(0, "right", "python:.", "/w"), pjProofIn(600, "right", "violated", "python -m pytest", "/w"),
+		pjFire(0, "rightts", "typescript:.", "/w"), pjProofIn(600, "rightts", "red-proven", "npx vitest run", "/w"),
+	}
+	got := shadowRule(t, computeShadow(events, Options{}), "red-green")
+	want := ShadowRule{Rule: "red-green", Fires: 5, Stricter: 5, Catches: 1, Passes: 1, Open: 3}
+	if got != want {
+		t.Errorf("red-green = %+v, want %+v", got, want)
+	}
+}
