@@ -85,6 +85,8 @@ Lanes run in order inside a phase; nothing new enters a running phase. Phase 0 (
 | C | `trellis ci` per tree and OS under the merge verb; local merges; divergent trunk | a merge completes with GitHub off |
 | M1 | The last aphrollo release switches boxes over; an `aphrollo` alias for one release | none |
 
+**Owner pause before B9.** Phase A ends and B9 waits: no repo is cut over until the owner has seen the A/B results (at least 30 lanes per arm, per arm and per language), the shadow agreement (`aphrollo stats --shadow`, with the budget drops) and the replay result for that repo, and has said go. The go is per repo, never for the next one. B1-B8 may be built before it; none of them cuts a repo over.
+
 **F exits:** the three measures recorded for a week on both boxes; first-run CI green at 85% or more with mutation counted separately; not tested under 10%; 0 exec sites outside `run`; `forwarder_count` falling; every adapter (hook payloads, recorded `gh` responses for the host port) tested on recorded payloads.
 
 ## How work is done
