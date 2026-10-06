@@ -3,6 +3,7 @@ package suite
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
@@ -119,7 +120,7 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 	case outcomeCheckError:
 		line := fmt.Sprintf("[%s] gate %s: in %s → REJECTED (%v)", stage, gateName, root, o.Err)
 		fmt.Fprintln(rootseam.Stderr(root), line)
-		AppendGateLog(gateName, root, cmd, "check-error-rejected", 0)
+		AppendGateLogDetail(gateName, root, cmd, "check-error-rejected", 0, map[string]string{"detail": boundedErrorText(o.Err)})
 		return GateResult{Blocked: true, Message: o.Message}
 	case outcomeFail:
 		fmt.Fprintf(rootseam.Stderr(root), "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmd, root)
@@ -149,4 +150,21 @@ func verdictFor(gateName, stage, root, cmd string, o stageOutcome) GateResult {
 		AppendGateLog(gateName, root, cmd, "unclassified-outcome-rejected", 0)
 		return GateResult{Blocked: true, Message: line}
 	}
+}
+
+// checkErrorDetailCap bounds the error text a check-error-rejected event keeps.
+const checkErrorDetailCap = 300
+
+// boundedErrorText is err's text on one line, cut to checkErrorDetailCap
+// characters with an ellipsis when it was longer: the event log keeps what
+// failed without one runaway error filling it.
+func boundedErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	text := strings.Join(strings.Fields(err.Error()), " ")
+	if r := []rune(text); len(r) > checkErrorDetailCap {
+		return string(r[:checkErrorDetailCap-1]) + "…"
+	}
+	return text
 }

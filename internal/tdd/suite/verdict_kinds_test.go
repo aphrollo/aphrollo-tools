@@ -81,3 +81,44 @@ func TestVerdictFor_AFailRetainsTheRunsOutputForGateOutput(t *testing.T) {
 		t.Errorf("retained record does not carry the failing run:\n%s", text)
 	}
 }
+
+// Issue #1241: a check-error-rejected verdict means the gate could not run its
+// own check, and the event kept only the verdict, so a retro could not say what
+// failed or whether it recurs. The event now carries the error the gate printed.
+func TestVerdictFor_ACheckErrorKeepsItsErrorOnTheEventBounded(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	long := "cannot start go: " + strings.Repeat("x", 2000)
+
+	verdictFor("precommit", "fail-first", root, "go test ./a", stageOutcome{Kind: outcomeCheckError, Err: errors.New(long), Message: "could not run"})
+
+	var got []string
+	for _, e := range ReadEvents(root) {
+		if e.Verdict == "check-error-rejected" && e.Kind == "commit_gate" {
+			got = append(got, e.Detail["detail"])
+		}
+	}
+	if len(got) != 1 || !strings.HasPrefix(got[0], "cannot start go: xxx") {
+		t.Fatalf("detail = %q, want the error text on the one check-error-rejected event", got)
+	}
+	if n := len([]rune(got[0])); n > 300 {
+		t.Errorf("detail holds %d characters, want it bounded at 300", n)
+	}
+}
+
+// The bound is on the text, not before it: an error of exactly the cap is kept
+// whole, and one a character longer is cut with an ellipsis in its place.
+func TestBoundedErrorText_KeepsTheCapWholeAndCutsOneMore(t *testing.T) {
+	exact := strings.Repeat("y", checkErrorDetailCap)
+	if got := boundedErrorText(errors.New(exact)); got != exact {
+		t.Errorf("an error of %d characters was changed to %d", checkErrorDetailCap, len([]rune(got)))
+	}
+	got := boundedErrorText(errors.New(exact + "y"))
+	if want := strings.Repeat("y", checkErrorDetailCap-1) + "…"; got != want {
+		t.Errorf("one past the cap = %d characters, want the cap with a closing ellipsis", len([]rune(got)))
+	}
+	if boundedErrorText(nil) != "" {
+		t.Error("no error must give no text")
+	}
+}
