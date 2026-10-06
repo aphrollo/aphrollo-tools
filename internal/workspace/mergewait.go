@@ -153,10 +153,14 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 	last := ""
 	apart := 0 // polls in a row the lane has differed from the PR head
 	rerequest := reRequests{asked: map[int64]bool{}}
+	var reads netRetry
 	for {
 		head, err := ghPRHead(t.Worktree, t.Branch)
 		if err != nil {
-			return err
+			if err := reads.pause(err, "the PR for "+t.Branch, t.Branch, o, deadline, stdout); err != nil {
+				return err
+			}
+			continue
 		}
 		if !strings.EqualFold(head.State, "OPEN") {
 			return fmt.Errorf("PR #%d for %s is %s, not open", head.Number, t.Branch, strings.ToLower(head.State))
@@ -181,8 +185,12 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 		}
 		checks, err := ghChecksAt(t.Worktree, head.HeadSHA)
 		if err != nil {
-			return err
+			if err := reads.pause(err, fmt.Sprintf("PR #%d for %s", head.Number, t.Branch), strconv.Itoa(head.Number), o, deadline, stdout); err != nil {
+				return err
+			}
+			continue
 		}
+		reads.reached()
 		line, done, failed, notStarted := pollState(head, laneSHA, checks)
 		state := fmt.Sprintf("  [wait] PR #%d %s: %s", head.Number, short(head.HeadSHA), line)
 		if state != last {
