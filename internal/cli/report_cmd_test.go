@@ -148,3 +148,28 @@ func TestWeeklyReport_StaysOffWhenTheRepoOptsOutOrHasNoIssueHost(t *testing.T) {
 		t.Error("a repo with no issue host reported")
 	}
 }
+
+func TestGateGC_OnlyTheDetachedDailySweepFilesTheWeeklyReport(t *testing.T) {
+	gateConfigDir(t)
+	t.Cleanup(tdd.SetGoCacheDirForTest(t.TempDir()))
+	f := fakeTracker(t)
+	repo := gcCapRepo(t, "10GB")
+	if err := os.Mkdir(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	for _, args := range [][]string{{"--repo", repo}, {"--repo", repo, "--quiet"}, {"--repo", repo, "--dry", "--quiet", "--known"}} {
+		if code := runGateGC(args, &stdout, &stderr); code != 0 {
+			t.Fatalf("gc %v exit %d: %s", args, code, stderr.String())
+		}
+	}
+	if n := callsOf(f, "OpenIssue"); n != 0 {
+		t.Fatalf("a manual or dry sweep filed %d report issues, want 0", n)
+	}
+	if code := runGateGC([]string{"--repo", repo, "--quiet", "--known"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit %d: %s", code, stderr.String())
+	}
+	if n := callsOf(f, "OpenIssue"); n != 1 {
+		t.Errorf("the detached sweep filed %d report issues, want 1", n)
+	}
+}

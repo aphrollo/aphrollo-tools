@@ -198,7 +198,13 @@ func reportDue(root string, now time.Time) bool {
 // set report = false. It is silent, as the sweep is: a failure files nothing
 // and the next sweep tries again. It reports whether it filed.
 func weeklyReport(root string, now time.Time) bool {
-	if root == "" || !config.ForDir(root).Get("report").Value.B || !reportDue(root, now) {
+	if root == "" {
+		return false
+	}
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	if !config.ForDir(root).Get("report").Value.B || !reportDue(root, now) {
 		return false
 	}
 	tr, name, ok := reportTrackerFn(root)
