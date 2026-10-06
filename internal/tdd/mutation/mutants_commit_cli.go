@@ -73,6 +73,14 @@ func RunMutantsTestMap(root string, dirs []string, stdout, stderr io.Writer) int
 		fmt.Fprintf(stdout, "test maps not built: %s\n", why)
 		return 0
 	}
+	return testMapOnce(root, func() int { return testMapModules(root, mods, dirs, cfg, stdout, stderr) }, stdout)
+}
+
+// testMapModules builds the maps of every tracked Go module below root, at
+// below-normal priority: the build is background work and yields the box to
+// whatever the developer is doing.
+func testMapModules(root string, mods, dirs []string, cfg MutantsConfig, stdout, stderr io.Writer) int {
+	lowerOwnPriority()
 	code := 0
 	for _, prefix := range mods {
 		var named []string

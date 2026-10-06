@@ -37,11 +37,25 @@ func testMapBuildWanted(root string) bool {
 }
 
 // startTestMapBuild starts the background build in a repo that wants it, and
-// does nothing anywhere else.
+// only when trunk moved in the primary checkout. The maps follow trunk: a merge
+// or pull into a lane, or onto another branch, changes nothing the next lane
+// selects tests from, and starting a full build for each of those stacked one
+// per lane catch-up on a busy box (#1248).
 func startTestMapBuild(root string) {
-	if testMapBuildWanted(root) {
+	if testMapBuildWanted(root) && trunkMovedInPrimary(root) {
 		testMapSpawnFn(root)
 	}
+}
+
+// trunkMovedInPrimary reports whether root is the primary checkout and has
+// trunk checked out.
+func trunkMovedInPrimary(root string) bool {
+	primary := primaryCheckoutRoot(root)
+	if primary == "" || !samePath(primary, root) {
+		return false
+	}
+	trunk := TrunkBranch(root)
+	return trunk != "" && laneBranchOf(root) == trunk
 }
 
 // testMapLaunchFn starts a prepared command detached, a seam so a test can say
