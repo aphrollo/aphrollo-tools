@@ -71,6 +71,7 @@ func snapshotGitWorld(root string) gitWorld {
 		laneDir := worktreeLaneDir(lane)
 		registrations = keepWorktrees(registrations, func(path string) bool { return isWatchedWorktree(path, laneDir) })
 		heads = keepWorktrees(heads, func(path string) bool { return !isGateWorktree(path) })
+		heads = withRebasingBranches(heads)
 		w = append(w, gitWorldPart{Label: "the worktree registrations", Present: true, Text: registrations})
 		w = append(w, gitWorldPart{Label: worktreeHeadsLabel, Present: true, Text: heads})
 		w = append(w, gitWorldPart{Label: branchesLabel, Present: true, Text: withoutLaneBranches(gitOut(lane, "for-each-ref", "--format=%(refname)", "refs/heads")), Excused: worktreeBranches(heads)})

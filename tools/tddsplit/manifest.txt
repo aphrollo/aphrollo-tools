@@ -648,6 +648,8 @@ mutants_canary_gitworld_test.go                    mutation
 mutants_canary_head_test.go                        mutation
 mutants_canary_main_test.go                        mutation
 mutants_canary_origin_test.go                      mutation
+mutants_canary_rebase.go                           mutation
+mutants_canary_rebase_test.go                      mutation
 mutants_canary_runners_test.go                     mutation
 mutants_canary_test.go                             mutation
 mutants_cancel_test.go                             mutation
