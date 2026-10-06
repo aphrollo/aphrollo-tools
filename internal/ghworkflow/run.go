@@ -23,6 +23,7 @@ type Options struct {
 	StepTimeout time.Duration  // per step, 30 minutes when zero
 	Env         []string       // the base environment, os.Environ() when nil
 	Jobs        int            // jobs that may run at once, one at a time in needs order when zero
+	ScratchBase string         // where the run makes its scratch, under a short number; the OS temp dir when empty
 
 	iso *isolation // set by Run: what keeps the steps' installs inside the run's scratch
 }
@@ -96,7 +97,7 @@ func (s *Summary) Count(result string) int {
 // unevaluable expression is printed.
 func Run(ctx context.Context, flows []*Workflow, opt Options) (*Summary, error) {
 	opt = opt.withDefaults()
-	tmp, err := os.MkdirTemp("", "aphrollo-ci-run-")
+	tmp, err := makeScratch(opt.ScratchBase)
 	if err != nil {
 		return nil, fmt.Errorf("a scratch directory for the run could not be made: %w", err)
 	}
@@ -291,13 +292,14 @@ func (r *jobRun) baseScope() map[string]any {
 	}
 	ev := r.opt.Event
 	pr := map[string]any{
+		"number": asNumber(ev["pr_number"]), "html_url": ev["pr_url"], "title": ev["pr_title"],
 		"draft": false,
 		"base":  map[string]any{"sha": ev["base_sha"], "ref": ev["base_ref"]},
 		"head":  map[string]any{"sha": ev["head_sha"], "ref": ev["head_ref"]},
 	}
 	return map[string]any{
 		"github": map[string]any{
-			"event_name": "pull_request", "sha": ev["sha"], "ref": "refs/pull/0/merge",
+			"event_name": "pull_request", "sha": ev["sha"], "ref": pullRef(ev["pr_number"]),
 			"base_ref": ev["base_ref"], "head_ref": ev["head_ref"], "repository": ev["repository"],
 			"workspace": r.opt.Dir, "run_id": "1", "run_attempt": "1", "actor": "local",
 			"workflow": r.wf.Name, "token": "", "event": map[string]any{"pull_request": pr},
@@ -523,4 +525,22 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
+}
+
+// pullRef is the ref a pull_request run is made for: the PR's merge ref, with
+// no number when the caller named no PR.
+func pullRef(number any) string {
+	if n := text(number); n != "" {
+		return "refs/pull/" + n + "/merge"
+	}
+	return "refs/pull/0/merge"
+}
+
+// asNumber is a count as an expression reads one: a float64, the type every
+// other number in a context has. Anything else is left as it is.
+func asNumber(v any) any {
+	if n, ok := v.(int); ok {
+		return float64(n)
+	}
+	return v
 }

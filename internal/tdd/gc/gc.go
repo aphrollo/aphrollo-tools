@@ -114,7 +114,12 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		out = append(out, gcGoTmpLitter(repo, olderThan, time.Now())...)
 	}
 	if scope.TempScratch {
-		for _, dir := range lockLitterDirs() {
+		dirs := lockLitterDirs()
+		for _, base := range ciScratchBases(repo) {
+			// where a local CI run makes its scratch, beside the lanes
+			out = append(out, gcCIScratch(base, time.Now())...)
+		}
+		for _, dir := range dirs {
 			out = append(out, gcTempScratch(dir, time.Now())...)
 			out = append(out, gcViteTemp(dir, time.Now())...)
 		}

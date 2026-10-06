@@ -74,3 +74,28 @@ func cargoTmpEnv(dir string) []string {
 	}
 	return env[1:] // GOTMPDIR is first
 }
+
+// ciScratchDirName is the directory, beside the lanes, that a local CI run
+// makes its scratch under.
+const ciScratchDirName = ".ci"
+
+// CIScratchRootOf is where the local CI runs of the repo whose primary checkout
+// is primary make their scratch: the .ci directory of the repo's worktree
+// layout, beside its lanes (<parent>/.worktrees/<repo>/.ci), on the project's
+// own drive. Never inside a worktree, where a run's files would show as
+// untracked and in a ratchet scan. "" for an empty primary.
+func CIScratchRootOf(primary string) string {
+	if primary == "" {
+		return ""
+	}
+	return filepath.Join(filepath.Dir(primary), ".worktrees", filepath.Base(primary), ciScratchDirName)
+}
+
+// CIScratchRoot is CIScratchRootOf for the repo dir belongs to, "" when its
+// primary checkout cannot be resolved.
+func CIScratchRoot(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	return CIScratchRootOf(primaryCheckoutRoot(dir))
+}

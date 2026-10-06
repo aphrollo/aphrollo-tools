@@ -129,3 +129,14 @@ jobs:
 		t.Errorf("the finished run's scratch %s was not removed (stat err %v)", scratch, err)
 	}
 }
+
+// A sweep that scans where a run makes its scratch would, in a test binary on
+// Windows, scan the real root of the system drive. Under test the base is the
+// test's own temp dir, whatever the test did or did not override.
+func TestScratchBase_UnderATestIsTheTestsOwnTempDir(t *testing.T) {
+	if got, want := ScratchBase(), os.TempDir(); got != want {
+		t.Errorf("ScratchBase() = %q under test, want the test's temp dir %q", got, want)
+	}
+}
+
+// ratchet: test_removed internal/ghworkflow/scratchbase_windows_test.go: the drive-root scratch base and its ACL checks are gone; the base is the .ci directory beside the lanes, pinned in the lock package's ciscratch_test.go

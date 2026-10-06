@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -150,10 +152,15 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 	deadline := waitNow().Add(o.Timeout)
 	last := ""
 	apart := 0 // polls in a row the lane has differed from the PR head
+	rerequest := reRequests{asked: map[int64]bool{}}
+	var reads netRetry
 	for {
 		head, err := ghPRHead(t.Worktree, t.Branch)
 		if err != nil {
-			return err
+			if err := reads.pause(err, "the PR for "+t.Branch, t.Branch, o, deadline, stdout); err != nil {
+				return err
+			}
+			continue
 		}
 		if !strings.EqualFold(head.State, "OPEN") {
 			return fmt.Errorf("PR #%d for %s is %s, not open", head.Number, t.Branch, strings.ToLower(head.State))
@@ -178,8 +185,12 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 		}
 		checks, err := ghChecksAt(t.Worktree, head.HeadSHA)
 		if err != nil {
-			return err
+			if err := reads.pause(err, fmt.Sprintf("PR #%d for %s", head.Number, t.Branch), strconv.Itoa(head.Number), o, deadline, stdout); err != nil {
+				return err
+			}
+			continue
 		}
+		reads.reached()
 		line, done, failed, notStarted := pollState(head, laneSHA, checks)
 		state := fmt.Sprintf("  [wait] PR #%d %s: %s", head.Number, short(head.HeadSHA), line)
 		if state != last {
@@ -191,7 +202,9 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 			return failedChecksError(t.Branch, head, failed)
 		}
 		if len(notStarted) > 0 {
-			return notStartedError(t.Branch, head, notStarted)
+			if !reRequestUnacquired(t.Worktree, head, notStarted, &rerequest, stdout) {
+				return notStartedError(t.Branch, head, notStarted)
+			}
 		}
 		if done {
 			recordSettledCI(t.Worktree, head.HeadSHA, head.Number, "green", "")
@@ -463,4 +476,83 @@ func awaitEnqueued(rec *tdd.MergeQueueRecord, prs []enqueuedPR, o WaitOpts, stdo
 		return nil
 	}
 	return &queueStopError{msg: "merge queue did not merge every PR:\n" + strings.Join(failed, "\n"), err: first}
+}
+
+// maxReRequests is how many times a wait asks the host to run again the jobs
+// hosted runners never acquired before it calls CI unavailable.
+const maxReRequests = 2
+
+// ghRerunFailed asks the host to run again the failed jobs of one Actions run.
+var ghRerunFailed = func(dir string, run int64) error {
+	return hostFor(dir).RerunFailedJobs(run)
+}
+
+// reRequests is what a wait has already asked for: how many asks it has made
+// and which jobs they covered.
+type reRequests struct {
+	n     int
+	asked map[int64]bool
+	stale int // polls in a row that showed only jobs already asked for
+}
+
+// reRequestGrace is how many polls in a row a wait lets pass over jobs it has
+// already asked for, which the list can lag in showing replaced, before it
+// calls them an outage.
+const reRequestGrace = 3
+
+// reRequestUnacquired decides what a wait does about jobs that never started.
+// It returns true when the wait should keep polling: the jobs are ones no
+// hosted runner acquired and either they were asked for already (the list can
+// still show the old job for a poll) or an ask was made now. It returns false
+// when the outage is real: another cause, no asks left, or the host refused.
+func reRequestUnacquired(dir string, head *PRHead, idle []CheckRun, rr *reRequests, stdout io.Writer) bool {
+	fresh := false
+	var runs []int64
+	for _, c := range idle {
+		id := host.RunID(c)
+		if !c.NotAcquired || id == 0 {
+			return false
+		}
+		if !rr.asked[c.ID] {
+			fresh = true
+		}
+		if !slices.Contains(runs, id) {
+			runs = append(runs, id)
+		}
+	}
+	if !fresh {
+		rr.stale++
+		if rr.stale <= reRequestGrace {
+			return true
+		}
+		fmt.Fprintf(stdout, "  [wait] PR #%d %s: no runner took %s after %d re-request(s); calling CI unavailable\n",
+			head.Number, short(head.HeadSHA), jobNames(idle), rr.n)
+		return false
+	}
+	rr.stale = 0
+	if rr.n >= maxReRequests {
+		return false
+	}
+	rr.n++
+	for _, id := range runs {
+		if err := ghRerunFailed(dir, id); err != nil {
+			fmt.Fprintf(stdout, "  [wait] PR #%d %s: could not re-request run %d: %v\n", head.Number, short(head.HeadSHA), id, err)
+			return false
+		}
+	}
+	for _, c := range idle {
+		rr.asked[c.ID] = true
+	}
+	fmt.Fprintf(stdout, "  [wait] PR #%d %s: hosted runners never took %d job(s); re-requesting them (ask %d of %d)\n",
+		head.Number, short(head.HeadSHA), len(idle), rr.n, maxReRequests)
+	return true
+}
+
+// jobNames lists the checks' names for a line a person reads.
+func jobNames(checks []CheckRun) string {
+	names := make([]string, len(checks))
+	for i, c := range checks {
+		names[i] = c.Name
+	}
+	return strings.Join(names, ", ")
 }

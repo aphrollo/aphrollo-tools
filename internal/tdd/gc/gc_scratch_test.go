@@ -276,3 +276,28 @@ func TestScanGC_TempScratchScopeSweepsTheReposGoScratchDir(t *testing.T) {
 		t.Fatalf("the repo's go-scratch dir was not swept: %+v", got)
 	}
 }
+
+// A local CI run makes its scratch under the .ci dir of the repo's worktree
+// layout, beside the lanes, under a short number. One a killed run left is
+// swept like any other scratch; one a live process holds is not.
+func TestScanGC_TempScratchScopeSweepsWhereALocalCIRunMakesItsScratch(t *testing.T) {
+	defer SetLockDirForTest(t.TempDir())()
+	repo := makeCargoRepo(t)
+	base := CIScratchRoot(repo)
+	mkFile(t, filepath.Join(base, "7", "f"), "x", 4*time.Hour)
+	mkFile(t, filepath.Join(base, "8", "f"), "x", 4*time.Hour)
+	mkFile(t, filepath.Join(base, "notanumber", "f"), "x", 4*time.Hour)
+	withScratchHeld(t, func(p string) (bool, bool) { return filepath.Base(p) == "8", true })
+
+	got := ScanGC(repo, 3*24*time.Hour, GCScope{TempScratch: true})
+
+	if _, found := candidateAt(got, filepath.Join(base, "7")); !found {
+		t.Errorf("the sweep missed the killed run's scratch under its base: %+v", got)
+	}
+	if _, found := candidateAt(got, filepath.Join(base, "8")); found {
+		t.Errorf("the sweep proposed a run a live process holds: %+v", got)
+	}
+	if _, found := candidateAt(got, filepath.Join(base, "notanumber")); found {
+		t.Errorf("the sweep proposed a directory no run made: %+v", got)
+	}
+}

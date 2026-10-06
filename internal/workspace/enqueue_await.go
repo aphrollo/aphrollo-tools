@@ -45,11 +45,16 @@ func (m *Merge) awaitMerged(q *Enqueued, o WaitOpts, stdout, stderr io.Writer) e
 	deadline := waitNow().Add(o.Timeout)
 	last := ""
 	out := 0 // polls in a row the PR has been out of the queue
+	var reads netRetry
 	for {
 		head, err := ghPRHead(wt, strconv.Itoa(q.PR))
 		if err != nil {
-			return err
+			if err := reads.pause(err, fmt.Sprintf("PR #%d for %s", q.PR, q.Branch), strconv.Itoa(q.PR), o, deadline, stdout); err != nil {
+				return err
+			}
+			continue
 		}
+		reads.reached()
 		switch strings.ToUpper(head.State) {
 		case "MERGED":
 			return m.landed(q.PR, q.URL, "merge queue", stdout, stderr)

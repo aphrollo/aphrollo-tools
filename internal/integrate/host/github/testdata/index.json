@@ -129,7 +129,7 @@
       "api",
       "repos/{owner}/{repo}/actions/runs/37167140462",
       "--jq",
-      ".path + \" \" + (.run_attempt | tostring)"
+      ".path + \" \" + (.run_attempt | tostring) + \" \" + .event"
     ],
     "file": "12.out"
   },

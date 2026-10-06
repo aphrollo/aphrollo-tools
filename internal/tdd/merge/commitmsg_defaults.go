@@ -90,18 +90,7 @@ func defaultCommitMsgCheck(repoRoot, ws, body string) (GateResult, bool) {
 	if subject == "" {
 		return none, false
 	}
-	for _, raw := range cargoAphrolloPackages(ws, "commit-message-allow") {
-		re, err := regexp.Compile(raw)
-		if err == nil && re.MatchString(subject) {
-			// A repo-declared shape (a release bump, say) is exempt from
-			// every default check below — an unparseable pattern is skipped
-			// the same way commit-message-deny already skips one, rather
-			// than blocking every commit over a typo.
-			return none, false
-		}
-	}
-
-	if mergeSubject.MatchString(subject) {
+	if subjectExempt(ws, subject) {
 		return none, false
 	}
 	if rule, msg := subjectShapeIssue(subject); rule != "" {
@@ -114,6 +103,20 @@ func defaultCommitMsgCheck(repoRoot, ws, body string) (GateResult, bool) {
 			changed)), true
 	}
 	return none, false
+}
+
+// subjectExempt reports whether a subject is one the shape rules never judge: a
+// repo-declared shape (a release bump, say), exempt from every default check — an
+// unparseable pattern is skipped the same way commit-message-deny already skips
+// one, rather than blocking every commit over a typo — or the subject git writes
+// for a merge itself.
+func subjectExempt(ws, subject string) bool {
+	for _, raw := range cargoAphrolloPackages(ws, "commit-message-allow") {
+		if re, err := regexp.Compile(raw); err == nil && re.MatchString(subject) {
+			return true
+		}
+	}
+	return mergeSubject.MatchString(subject)
 }
 
 // subjectShapeIssue answers the two shape rules #329 names as one deny list:

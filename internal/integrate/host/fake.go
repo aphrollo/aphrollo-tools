@@ -19,6 +19,7 @@ type Fake struct {
 	MarkReadyFn       func(branch string) error
 	SummaryFn         func(number int) (*Summary, error)
 	ChecksAtFn        func(sha string) ([]Check, error)
+	RerunFailedJobsFn func(run int64) error
 	RunInfoFn         func(id int64) (RunInfo, error)
 	PRRunsFn          func(branch string, pr int) ([]PRRun, error)
 	RunFailedJobsFn   func(id int64, attempt int) ([]string, error)
@@ -146,6 +147,14 @@ func (f *Fake) ChecksAt(sha string) ([]Check, error) {
 		return nil, nil
 	}
 	return f.ChecksAtFn(sha)
+}
+
+func (f *Fake) RerunFailedJobs(run int64) error {
+	f.note("RerunFailedJobs")
+	if f.RerunFailedJobsFn == nil {
+		return nil
+	}
+	return f.RerunFailedJobsFn(run)
 }
 
 func (f *Fake) RunInfo(id int64) (RunInfo, error) {

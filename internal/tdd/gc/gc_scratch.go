@@ -79,13 +79,27 @@ var mutationRunHeldFn = mutantsRunHeld
 // gcTempScratch proposes the scratch directories directly inside dir that no
 // live run holds.
 func gcTempScratch(dir string, now time.Time) []GCCandidate {
+	return gcScratchDirs(dir, now, scratchName)
+}
+
+// ciRunNumberRe is the name a local CI run gives its scratch directory under a
+// .ci base: a short number.
+var ciRunNumberRe = regexp.MustCompile(`^[0-9]{1,6}$`)
+
+// gcCIScratch proposes the run directories of a .ci base that no live run
+// holds, by the same rule as every other scratch directory.
+func gcCIScratch(dir string, now time.Time) []GCCandidate {
+	return gcScratchDirs(dir, now, ciRunNumberRe.MatchString)
+}
+
+func gcScratchDirs(dir string, now time.Time, isScratch func(string) bool) []GCCandidate {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
 	}
 	var out []GCCandidate
 	for _, e := range entries {
-		if !e.IsDir() || e.Type()&os.ModeSymlink != 0 || !scratchName(e.Name()) {
+		if !e.IsDir() || e.Type()&os.ModeSymlink != 0 || !isScratch(e.Name()) {
 			continue
 		}
 		path := filepath.Join(dir, e.Name())
@@ -110,5 +124,19 @@ func gcTempScratch(dir string, now time.Time) []GCCandidate {
 			Reason: "scratch of a run that is over (no live process holds it), idle " + formatDays(idle)})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// ciScratchBases are the directories a local CI run of repo's checkout makes
+// its scratch under: the .ci dir of the worktree layout, and the .aphrollo-ci
+// dir beside the checkout that runs fall back to when no primary resolves.
+func ciScratchBases(repo string) []string {
+	var out []string
+	if root := CIScratchRoot(repo); root != "" {
+		out = append(out, root)
+	}
+	if repo != "" {
+		out = append(out, filepath.Join(filepath.Dir(filepath.Clean(repo)), ".aphrollo-ci"))
+	}
 	return out
 }

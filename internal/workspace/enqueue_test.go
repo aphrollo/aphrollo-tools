@@ -68,6 +68,9 @@ func newQueueWorld(t *testing.T, ci CIStatus) (*ciWorld, *enqueueGH) {
 		ghChecksAt, laneHeadSHA = oChecks, oLane
 		ghQueueRemoval, ghDequeuePR = oRem, oDeq
 	})
+	oText := ghPRText
+	t.Cleanup(func() { ghPRText = oText })
+	ghPRText = func(string, string) (string, string, error) { return "Merge the lane through the queue", "", nil }
 	ghHasMergeQueue = func(wt, repo, base string) (bool, error) { q.calls = append(q.calls, "detect "+base); return true, nil }
 	ghEnqueuePR = func(wt, repo string, pr int, sha string) error {
 		q.repos = append(q.repos, repo)
