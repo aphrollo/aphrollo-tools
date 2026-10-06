@@ -426,3 +426,24 @@ func TestCloseIssue_CommentsThenClosesTheNumberedIssueAndFailureCarriesGitHubsWo
 		t.Errorf("no comment: argv = %v, want %v", s.calls[1].args, want)
 	}
 }
+
+func TestWhoami_AsksGhForTheLoginAndListIssuesCarriesTheAuthor(t *testing.T) {
+	s := &scripted{t: t}
+	s.reply = func(args []string) ([]byte, error) {
+		if args[0] == "api" {
+			return []byte("octo\n"), nil
+		}
+		return []byte(`[{"number":3,"title":"t","state":"OPEN","author":{"login":"octo"},"labels":[{"name":"report"}]}]`), nil
+	}
+	who, err := s.host(originURL).Whoami()
+	if err != nil || who != "octo" {
+		t.Fatalf("Whoami = %q, %v", who, err)
+	}
+	if want := []string{"api", "user", "--jq", ".login"}; !slices.Equal(s.calls[0].args, want) {
+		t.Errorf("argv = %v, want %v", s.calls[0].args, want)
+	}
+	got, err := s.host(originURL).ListIssues(host.IssueQuery{State: "all", Fields: []string{"number", "author", "labels"}})
+	if err != nil || len(got) != 1 || got[0].Author != "octo" || !slices.Equal(got[0].Labels, []string{"report"}) {
+		t.Errorf("issues = %+v, %v", got, err)
+	}
+}

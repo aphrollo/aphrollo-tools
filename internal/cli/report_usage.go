@@ -84,23 +84,31 @@ var openBrowserFn = openInBrowser
 func reportPagePath(root, title string) string {
 	dir := config.CommonDir(root)
 	if dir == "" {
-		dir = root
+		return ""
 	}
 	return filepath.Join(dir, "aphrollo-report", "report-"+strings.TrimPrefix(title, "Report ")+".html")
 }
 
-// writeReportPage renders the report as HTML, overwrites the week's page, prints
+// writeReportPage renders the report as HTML (with dry, only names the path),
+// overwrites the week's page, prints
 // its path and opens it. A browser that will not open is not a failure: the
 // path is already printed. No server, no listener, nothing left running.
-func writeReportPage(root string, rep report.Report, out string, open bool, stdout, stderr io.Writer) int {
+func writeReportPage(root string, rep report.Report, out string, open, dry bool, stdout, stderr io.Writer) int {
+	path := out
+	if path == "" {
+		if path = reportPagePath(root, rep.Title); path == "" {
+			fmt.Fprintf(stderr, "aphrollo report web: %s has no git common dir to hold the page: pass --out <path>\n", root)
+			return 1
+		}
+	}
+	if dry {
+		fmt.Fprintln(stdout, path)
+		return 0
+	}
 	page, err := report.RenderHTML(rep)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo report web: %v\n", err)
 		return 1
-	}
-	path := out
-	if path == "" {
-		path = reportPagePath(root, rep.Title)
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		fmt.Fprintf(stderr, "aphrollo report web: %v\n", err)

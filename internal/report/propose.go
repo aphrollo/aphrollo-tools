@@ -74,7 +74,7 @@ func propose(r Report) []Proposal {
 				Change:  "trim the text to its cap"})
 		}
 	}
-	if r.ABTotal.Decidable {
+	if r.ABTotal.Decidable && !r.abReadyIssued {
 		out = append(out, Proposal{Rule: "red-green",
 			Numbers: abLanes(r.ABTotal),
 			Change:  "read the arms side by side, then decide enforce or warn: the owner's call"})

@@ -6,13 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
-	"slices"
 	"time"
 
-	"github.com/aphrollo/aphrollo-tools/internal/config"
-	"github.com/aphrollo/aphrollo-tools/internal/git"
-	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
 	"github.com/aphrollo/aphrollo-tools/internal/measure"
 	"github.com/aphrollo/aphrollo-tools/internal/report"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -74,21 +69,6 @@ const reportEvery = 7 * 24 * time.Hour
 // reportDefaultWindow is the span a report covers unless --since says otherwise.
 const reportDefaultWindow = 7 * 24 * time.Hour
 
-// reportTrackerFn is the repo's issue host and the name the A/B ready issue
-// carries; ok is false when the repo has no issue host (no GitHub origin). A
-// test replaces it with a Fake.
-var reportTrackerFn = func(root string) (report.Tracker, string, bool) {
-	c, err := git.New(root, git.Options{})
-	if err != nil {
-		return nil, "", false
-	}
-	_, name, ok := github.OwnerRepo(c.RemoteURL("origin"))
-	if !ok {
-		return nil, "", false
-	}
-	return github.New(github.Options{Dir: root, Timeout: -1}), name, true
-}
-
 // runReport is `aphrollo report`.
 func runReport(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("report", flag.ContinueOnError)
@@ -123,6 +103,12 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "aphrollo report: --out and --no-open belong to 'report web'")
 		return 2
 	}
+	set := map[string]bool{}
+	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
+	if *issue && (set["since"] || set["compare-at"]) {
+		fmt.Fprintln(stderr, "aphrollo report: --issue files the default 7-day report and takes neither --since nor --compare-at; print the report without --issue to see a window")
+		return 2
+	}
 	if web && *issue {
 		fmt.Fprintln(stderr, "aphrollo report web: --issue files the text report; run it without web")
 		return 2
@@ -136,11 +122,7 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo report: --since: %v\n", err)
 		return 2
 	}
-	root, err := filepath.Abs(*repo)
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo report: --repo: %v\n", err)
-		return 2
-	}
+	root := repoRootOf(*repo)
 	now := time.Now().UTC()
 	var cmpAt time.Time
 	if *compareAt != "" {
@@ -153,12 +135,12 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 	}
-	rep := buildReport(root, window, now, cmpAt)
-	if web {
-		return writeReportPage(root, rep, *out, !*noOpen, stdout, stderr)
-	}
 	if *issue {
-		return deliverReport(root, rep, !mutFlag.execute(), stdout, stderr)
+		return deliverReport(root, !mutFlag.execute(), stdout, stderr)
+	}
+	rep := buildReport(root, window, now, cmpAt, false)
+	if web {
+		return writeReportPage(root, rep, *out, !*noOpen, !mutFlag.execute(), stdout, stderr)
 	}
 	if *asJSON {
 		return printJSON(rep, stdout, stderr)
@@ -168,7 +150,7 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 }
 
 // buildReport folds the repo's event log and measures its injected texts.
-func buildReport(root string, window time.Duration, now, compareAt time.Time) report.Report {
+func buildReport(root string, window time.Duration, now, compareAt time.Time, abReady bool) report.Report {
 	var briefs []measure.Brief
 	for _, b := range tdd.Briefs(tdd.RepoRoot(root)) {
 		briefs = append(briefs, measure.Brief{Name: b.Name, Subagent: b.Subagent, Bytes: len(b.Text)})
@@ -176,91 +158,6 @@ func buildReport(root string, window time.Duration, now, compareAt time.Time) re
 	return report.Build(report.Input{
 		Events: tdd.ReadEvents(root), Now: now, Window: window,
 		Repo: repoName(root), Briefs: measure.CheckBriefs(briefs),
-		Usage: scanUsage(root, window, now), CompareAt: compareAt,
+		Usage: scanUsage(root, window, now), CompareAt: compareAt, ABReadyIssued: abReady,
 	})
-}
-
-// reportLabels is the labels the report issues carry: the repo's declared
-// theme "report" when it declares labels, "report" when it declares none, and
-// none when it declares others (an undeclared label is a typo's theme).
-func reportLabels(root string) []string {
-	declared := tdd.IssueLabels(root)
-	if len(declared) == 0 || slices.Contains(declared, "report") {
-		return []string{"report"}
-	}
-	return nil
-}
-
-// deliverReport opens the report as an issue and stamps the week it was done.
-func deliverReport(root string, rep report.Report, dry bool, stdout, stderr io.Writer) int {
-	tr, name, ok := reportTrackerFn(root)
-	if !ok {
-		fmt.Fprintf(stderr, "aphrollo report: no issue host: %s has no GitHub origin, or gh is not on PATH\n", root)
-		return 1
-	}
-	lines, err := report.Deliver(tr, rep, report.DeliverOptions{Repo: name, Labels: reportLabels(root), Dry: dry})
-	for _, l := range lines {
-		fmt.Fprintln(stdout, l)
-	}
-	if err != nil {
-		fmt.Fprintf(stderr, "aphrollo report: %v\n", err)
-		return 1
-	}
-	if !dry {
-		stampReport(root, time.Now())
-	}
-	return 0
-}
-
-func reportStampPath(root string) string {
-	if dir := config.CommonDir(root); dir != "" {
-		return filepath.Join(dir, reportStampFile)
-	}
-	return ""
-}
-
-func stampReport(root string, now time.Time) {
-	path := reportStampPath(root)
-	if path == "" {
-		return
-	}
-	if os.WriteFile(path, []byte(now.UTC().Format(time.RFC3339)), 0o600) == nil {
-		_ = os.Chtimes(path, now, now)
-	}
-}
-
-// reportDue is whether a week has passed since the last report issue.
-func reportDue(root string, now time.Time) bool {
-	path := reportStampPath(root)
-	if path == "" {
-		return false
-	}
-	info, err := os.Stat(path)
-	return err != nil || now.Sub(info.ModTime()) >= reportEvery
-}
-
-// weeklyReport files the week's report issue from the daily gc sweep: once
-// 7 days have passed since the last, in a repo with an issue host that has not
-// set report = false. It is silent, as the sweep is: a failure files nothing
-// and the next sweep tries again. It reports whether it filed.
-func weeklyReport(root string, now time.Time) bool {
-	if root == "" {
-		return false
-	}
-	if abs, err := filepath.Abs(root); err == nil {
-		root = abs
-	}
-	if !config.ForDir(root).Get("report").Value.B || !reportDue(root, now) {
-		return false
-	}
-	tr, name, ok := reportTrackerFn(root)
-	if !ok {
-		return false
-	}
-	rep := buildReport(root, reportDefaultWindow, now.UTC(), time.Time{})
-	if _, err := report.Deliver(tr, rep, report.DeliverOptions{Repo: name, Labels: reportLabels(root)}); err != nil {
-		return false
-	}
-	stampReport(root, now)
-	return true
 }

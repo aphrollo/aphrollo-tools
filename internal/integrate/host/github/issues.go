@@ -89,3 +89,14 @@ func (g *GitHub) CloseIssue(number int, comment string) error {
 	}
 	return nil
 }
+
+var _ host.Identity = (*GitHub)(nil)
+
+// Whoami is the login gh is authenticated as.
+func (g *GitHub) Whoami() (string, error) {
+	out, err := g.read("api", "user", "--jq", ".login")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}

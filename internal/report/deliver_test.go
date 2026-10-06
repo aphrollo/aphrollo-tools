@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 )
@@ -47,8 +48,8 @@ func decidable() Report {
 }
 
 func TestDeliver_OpensThisWeeksIssueAndClosesLastWeeksWithALinkingComment(t *testing.T) {
-	tr := newTracker(host.Issue{Number: 7, Title: "Report 2026-W40", State: "OPEN"}, host.Issue{Number: 8, Title: "Some other issue", State: "OPEN"})
-	lines, err := Deliver(tr, build(nil), DeliverOptions{Repo: "aphrollo-tools", Labels: []string{"report"}})
+	tr := newTracker(host.Issue{Number: 7, Title: "Report 2026-W40", State: "OPEN", Labels: []string{"report"}}, host.Issue{Number: 8, Title: "Some other issue", State: "OPEN"})
+	lines, err := dl(tr, build(nil), DeliverOptions{Repo: "aphrollo-tools", Labels: []string{"report"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,11 +70,11 @@ func TestDeliver_OpensThisWeeksIssueAndClosesLastWeeksWithALinkingComment(t *tes
 func TestDeliver_ASecondRunInTheSameWeekUpdatesNothing(t *testing.T) {
 	tr := newTracker()
 	opts := DeliverOptions{Repo: "r"}
-	if _, err := Deliver(tr, build(nil), opts); err != nil {
+	if _, err := dl(tr, build(nil), opts); err != nil {
 		t.Fatal(err)
 	}
 	before := len(tr.Calls())
-	lines, err := Deliver(tr, build(nil), opts)
+	lines, err := dl(tr, build(nil), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +90,7 @@ func TestDeliver_ASecondRunInTheSameWeekUpdatesNothing(t *testing.T) {
 
 func TestDeliver_DryOpensAndClosesNothing(t *testing.T) {
 	tr := newTracker(host.Issue{Number: 7, Title: "Report 2026-W40", State: "OPEN"})
-	lines, err := Deliver(tr, decidable(), DeliverOptions{Repo: "r", Dry: true})
+	lines, err := dl(tr, decidable(), DeliverOptions{Repo: "r", Dry: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,13 +105,13 @@ func TestDeliver_DryOpensAndClosesNothing(t *testing.T) {
 func TestDeliver_TheABReadyIssueIsOpenedOnceEverWhenBothArmsReachThirty(t *testing.T) {
 	tr := newTracker()
 	opts := DeliverOptions{Repo: "aphrollo-tools"}
-	if _, err := Deliver(tr, decidable(), opts); err != nil {
+	if _, err := dl(tr, decidable(), opts); err != nil {
 		t.Fatal(err)
 	}
 	// A later week: a new report, but the A/B issue exists.
 	later := decidable()
-	later.Title = "Report 2026-W42"
-	if _, err := Deliver(tr, later, opts); err != nil {
+	opts.Now = now.Add(7 * 24 * time.Hour)
+	if _, err := dl(tr, later, opts); err != nil {
 		t.Fatal(err)
 	}
 	n := 0
@@ -126,7 +127,7 @@ func TestDeliver_TheABReadyIssueIsOpenedOnceEverWhenBothArmsReachThirty(t *testi
 
 func TestDeliver_NoABReadyIssueWhileAnArmIsShort(t *testing.T) {
 	tr := newTracker()
-	if _, err := Deliver(tr, build(nil), DeliverOptions{Repo: "r"}); err != nil {
+	if _, err := dl(tr, build(nil), DeliverOptions{Repo: "r"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, o := range tr.opened {
@@ -139,7 +140,126 @@ func TestDeliver_NoABReadyIssueWhileAnArmIsShort(t *testing.T) {
 func TestDeliver_AListFailureIsReturnedAndNothingIsOpened(t *testing.T) {
 	tr := newTracker()
 	tr.ListIssuesFn = func(host.IssueQuery) ([]host.Issue, error) { return nil, errors.New("no network") }
-	if _, err := Deliver(tr, build(nil), DeliverOptions{Repo: "r"}); err == nil || len(tr.opened) != 0 {
+	if _, err := dl(tr, build(nil), DeliverOptions{Repo: "r"}); err == nil || len(tr.opened) != 0 {
 		t.Errorf("err = %v, opened = %d; want the error and no issue (a blind open would duplicate)", err, len(tr.opened))
+	}
+}
+
+// dl delivers a prebuilt report, dated now unless the options say.
+func dl(t Tracker, r Report, o DeliverOptions) ([]string, error) {
+	if o.Now.IsZero() {
+		o.Now = now
+	}
+	return Deliver(t, func(bool) Report { return r }, o)
+}
+
+func withUsage() Report {
+	r := build(nil)
+	r.Usage = &Usage{Repo: "r", ByModel: []UsageGroup{
+		{Key: "claude-opus-5-5", Turns: 2, Output: 5, CostUSD: 3}, {Key: "claude-opus-4-8", Turns: 1, Output: 1, CostUSD: 1},
+		{Key: "claude-sonnet-5-5", Turns: 4}, {Key: "claude-haiku-4-5-20251001", Turns: 1}, {Key: "mystery-9", Turns: 1}}} // gitleaks:allow (model ids, not keys)
+	return r
+}
+
+func TestPublished_ModelIdsBecomeTheirSizeAndNoIdReachesTheBody(t *testing.T) {
+	text := withUsage().Published().Text()
+	for _, bad := range []string{"claude", "opus", "sonnet", "haiku", "mystery"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("the published text carries %q:\n%s", bad, text)
+		}
+	}
+	for _, want := range []string{"large model", "medium model", "small model", "other model"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the published text lacks %q", want)
+		}
+	}
+	if !strings.Contains(withUsage().Text(), "claude-opus-5-5") {
+		t.Error("the local report lost the real model ids")
+	}
+	if g := withUsage().Published().Usage.ByModel[0]; g.Key != "large model" || g.Turns != 3 || g.CostUSD != 4 {
+		t.Errorf("the two large models = %+v, want one row of 3 turns and $4", g)
+	}
+}
+
+// refuseWord is an undercover check that refuses any text with word in it.
+func refuseWord(word string) func(title, body string) string {
+	return func(title, body string) string {
+		if strings.Contains(title+body, word) {
+			return "text carries " + word
+		}
+		return ""
+	}
+}
+
+func TestDeliver_TheUndercoverCheckRunsOnTheTitleAndBodyBeforeAnythingIsOpened(t *testing.T) {
+	tr := newTracker()
+	if _, err := dl(tr, build(nil), DeliverOptions{Repo: "r", Refuse: refuseWord("Report")}); !errors.Is(err, ErrRefused) || len(tr.opened) != 0 {
+		t.Errorf("a refused title: err %v, opened %d; want ErrRefused and nothing opened", err, len(tr.opened))
+	}
+	tr = newTracker()
+	if _, err := dl(tr, build(nil), DeliverOptions{Repo: "r", Refuse: refuseWord("Friction")}); !errors.Is(err, ErrRefused) || len(tr.opened) != 0 {
+		t.Errorf("a body refused even without its usage: err %v, opened %d; want ErrRefused", err, len(tr.opened))
+	}
+}
+
+func TestDeliver_ARefusedUsageSectionIsWithheldAndSaidSoNotSilentlyDropped(t *testing.T) {
+	tr := newTracker()
+	r := withUsage()
+	r.Usage.Sessions = 77
+	lines, err := dl(tr, r, DeliverOptions{Repo: "r", Refuse: refuseWord("77 sessions")})
+	if err != nil || len(tr.opened) != 1 {
+		t.Fatalf("err %v, opened %d; want the report opened without its usage", err, len(tr.opened))
+	}
+	body := tr.opened[0].Body
+	if strings.Contains(body, "77 sessions") || !strings.Contains(body, "withheld, because the undercover check refused it") {
+		t.Errorf("body = %q, want the usage withheld with a line saying so", body)
+	}
+	_ = lines
+}
+
+func TestDeliver_OnlyReportIssuesThatAreOursAreClosed(t *testing.T) {
+	tr := newTracker(
+		host.Issue{Number: 1, Title: "Report 2026-W38", State: "OPEN", Labels: []string{"report"}},
+		host.Issue{Number: 2, Title: "Report 2026-W39", State: "OPEN", Author: "me"},
+		host.Issue{Number: 3, Title: "Report 2026-W40", State: "OPEN", Author: "stranger"})
+	if _, err := dl(tr, build(nil), DeliverOptions{Repo: "r", Author: "me"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := tr.closed[1]; !ok {
+		t.Error("the report-labelled issue was not closed")
+	}
+	if _, ok := tr.closed[2]; !ok {
+		t.Error("the issue by the same account was not closed")
+	}
+	if _, ok := tr.closed[3]; ok {
+		t.Error("a stranger's issue titled like a report was closed")
+	}
+}
+
+func TestDeliver_TheReportIsNotBuiltWhenTheWeekAndTheABIssuesAlreadyExist(t *testing.T) {
+	tr := newTracker(host.Issue{Number: 1, Title: "Report 2026-W41", State: "OPEN"}, host.Issue{Number: 2, Title: "A/B ready: r", State: "OPEN"})
+	built := 0
+	if _, err := Deliver(tr, func(bool) Report { built++; return build(nil) }, DeliverOptions{Repo: "r", Now: now}); err != nil || built != 0 {
+		t.Errorf("err %v, built %d times; want no build when there is nothing to open", err, built)
+	}
+}
+
+func TestPropose_TheABDecisionIsNotProposedOnceTheReadyIssueExists(t *testing.T) {
+	r := Build(Input{Now: now, Window: week, Repo: "r"})
+	r.ABTotal.Decidable = true
+	has := func(rep Report) bool {
+		for _, p := range propose(rep) {
+			if p.Rule == "red-green" {
+				return true
+			}
+		}
+		return false
+	}
+	if !has(r) {
+		t.Fatal("no red-green proposal for a decidable A/B")
+	}
+	r.abReadyIssued = true
+	if has(r) {
+		t.Error("red-green proposed again after the A/B ready issue was opened")
 	}
 }

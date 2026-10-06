@@ -33,6 +33,8 @@ type Input struct {
 	// Usage is the session usage scanned from the harness's transcripts, nil to leave the section out; CompareAt, when set, adds its before and after.
 	Usage     *UsageFacts
 	CompareAt time.Time
+	// ABReadyIssued is whether the A/B ready issue was already opened.
+	ABReadyIssued bool
 }
 
 // Refs are the event seqs behind a number, so `aphrollo why <seq>` can replay
@@ -159,6 +161,10 @@ type Report struct {
 	Proposals []Proposal     `json:"proposals"`
 	// Usage is the session usage section; nil when no transcripts were read.
 	Usage *Usage `json:"usage,omitempty"`
+	// withheld is set on the published form whose usage section the undercover check refused.
+	withheld bool
+	// abReadyIssued is set when the A/B ready issue exists, so the report does not propose what the owner has been told.
+	abReadyIssued bool
 }
 
 type stamped struct {
@@ -204,6 +210,7 @@ func Build(in Input) Report {
 		}
 	}
 	r.Tokens = Tokens{Briefs: in.Briefs, Biggest: f.biggestLines()}
+	r.abReadyIssued = in.ABReadyIssued
 	r.Proposals = propose(r)
 	if in.Usage != nil {
 		u := BuildUsage(*in.Usage, in.Now, in.Window, in.CompareAt)

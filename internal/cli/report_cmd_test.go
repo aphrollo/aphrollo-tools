@@ -3,7 +3,9 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,7 +45,7 @@ func fakeTracker(t *testing.T) *host.Fake {
 	f := &host.Fake{}
 	f.OpenIssueFn = func(host.IssueRequest) (string, error) { return "https://github.com/o/r/issues/5", nil }
 	prev := reportTrackerFn
-	reportTrackerFn = func(string) (report.Tracker, string, bool) { return f, "aphrollo-tools", true }
+	reportTrackerFn = func(string, bool) (report.Tracker, string, bool) { return f, "aphrollo-tools", true }
 	t.Cleanup(func() { reportTrackerFn = prev })
 	return f
 }
@@ -113,7 +115,7 @@ func TestReport_IssueOpensTheWeeksIssueAndDryOpensNothing(t *testing.T) {
 
 func TestReport_IssueWithNoHostSaysSoAndFails(t *testing.T) {
 	prev := reportTrackerFn
-	reportTrackerFn = func(string) (report.Tracker, string, bool) { return nil, "", false }
+	reportTrackerFn = func(string, bool) (report.Tracker, string, bool) { return nil, "", false }
 	defer func() { reportTrackerFn = prev }()
 	code, _, errOut := runReportCmd(t, "--repo", statsRepo(t, nil), "--issue")
 	if code != 1 || !strings.Contains(errOut, "issue host") {
@@ -159,7 +161,7 @@ func TestWeeklyReport_StaysOffWhenTheRepoOptsOutOrHasNoIssueHost(t *testing.T) {
 		t.Errorf("report = false still reported: %v", f.Calls())
 	}
 	other := statsRepo(t, nil)
-	reportTrackerFn = func(string) (report.Tracker, string, bool) { return nil, "", false }
+	reportTrackerFn = func(string, bool) (report.Tracker, string, bool) { return nil, "", false }
 	if weeklyReport(other, time.Now()) {
 		t.Error("a repo with no issue host reported")
 	}
@@ -237,5 +239,133 @@ func TestReport_CompareAtTakesADateAndRefusesWhatItCannotRead(t *testing.T) {
 	old := time.Now().UTC().Add(-60 * 24 * time.Hour).Format("2006-01-02")
 	if code, _, errOut := runReportCmd(t, "--repo", repo, "--compare-at", old); code != 2 || !strings.Contains(errOut, "window") {
 		t.Errorf("a date outside the window exit = %d, stderr %q, want a refusal naming the window", code, errOut)
+	}
+}
+
+// trackerBounds records, for each host the report asked for, whether it was
+// asked for the bounded one.
+func trackerBounds(t *testing.T, f *host.Fake) *[]bool {
+	t.Helper()
+	var bounds []bool
+	prev := reportTrackerFn
+	reportTrackerFn = func(_ string, bounded bool) (report.Tracker, string, bool) {
+		bounds = append(bounds, bounded)
+		return f, "aphrollo-tools", true
+	}
+	t.Cleanup(func() { reportTrackerFn = prev })
+	return &bounds
+}
+
+func TestReport_TheUnattendedPathBoundsGhAndATypedIssueDoesNot(t *testing.T) {
+	f := &host.Fake{}
+	f.OpenIssueFn = func(host.IssueRequest) (string, error) { return "https://github.com/o/r/issues/5", nil }
+	bounds := trackerBounds(t, f)
+	repo := statsRepo(t, nil)
+	transcriptsAt(t, t.TempDir())
+	weeklyReport(repo, time.Now())
+	runReportCmd(t, "--repo", repo, "--issue", "--dry")
+	if len(*bounds) != 2 || !(*bounds)[0] || (*bounds)[1] {
+		t.Errorf("bounded = %v, want the weekly path bounded and the typed one not", *bounds)
+	}
+}
+
+func TestReport_IssueRefusesAWindowAndACompareDate(t *testing.T) {
+	fakeTracker(t)
+	repo := statsRepo(t, nil)
+	for _, args := range [][]string{{"--since", "3d"}, {"--compare-at", "2026-10-01"}} {
+		code, _, errOut := runReportCmd(t, append([]string{"--repo", repo, "--issue"}, args...)...)
+		if code != 2 || !strings.Contains(errOut, "--issue") {
+			t.Errorf("--issue %v: exit %d, stderr %q, want a refusal naming --issue", args, code, errOut)
+		}
+	}
+}
+
+// undercoverRepo is a repo that keeps its history undercover and whose log holds a deny of a
+// rule named with a tell, so the report's body would carry it.
+func undercoverRepo(t *testing.T) string {
+	t.Helper()
+	repo := statsRepo(t, map[time.Duration]tdd.Event{time.Hour: denyEvent("lane/a", "claude-rule")})
+	if err := os.WriteFile(filepath.Join(repo, "aphrollo.toml"), []byte("[aphrollo]\nundercover = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return repo
+}
+
+func TestReport_ATextTheUndercoverCheckRefusesIsNeverPublished(t *testing.T) {
+	f := fakeTracker(t)
+	repo := undercoverRepo(t)
+	code, _, errOut := runReportCmd(t, "--repo", repo, "--issue")
+	if code != 1 || callsOf(f, "OpenIssue") != 0 || !strings.Contains(errOut, "undercover") {
+		t.Errorf("typed --issue: exit %d, opens %d, stderr %q; want a refusal and nothing opened", code, callsOf(f, "OpenIssue"), errOut)
+	}
+	if weeklyReport(repo, time.Now()) || callsOf(f, "OpenIssue") != 0 {
+		t.Error("the weekly path opened a refused report")
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", reportRefusedFile)); err != nil {
+		t.Errorf("the refusal left no line in the git common dir: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", reportBackoffFile)); err != nil {
+		t.Errorf("the failure left no backoff: %v", err)
+	}
+}
+
+func TestWeeklyReport_AFailureBacksOffADayAndAFiledWeekCostsOnlyAListing(t *testing.T) {
+	f := fakeTracker(t)
+	repo := statsRepo(t, nil)
+	f.ListIssuesFn = func(host.IssueQuery) ([]host.Issue, error) { return nil, errors.New("gh down") }
+	now := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+	if weeklyReport(repo, now) {
+		t.Fatal("filed with the host down")
+	}
+	lists := callsOf(f, "ListIssues")
+	if weeklyReport(repo, now.Add(23*time.Hour)) || callsOf(f, "ListIssues") != lists {
+		t.Error("asked the host again inside the backoff day")
+	}
+	f.ListIssuesFn = func(host.IssueQuery) ([]host.Issue, error) {
+		return []host.Issue{{Number: 1, Title: report.Title(now.Add(25 * time.Hour)), State: "OPEN"}, {Number: 2, Title: "A/B ready: aphrollo-tools", State: "OPEN"}}, nil
+	}
+	if !weeklyReport(repo, now.Add(25*time.Hour)) {
+		t.Error("did not retry after the backoff day")
+	}
+	if callsOf(f, "OpenIssue") != 0 {
+		t.Error("opened an issue for a week already filed")
+	}
+}
+
+func TestWeeklyReport_RunsFromASubdirectoryOfTheRepo(t *testing.T) {
+	f := fakeTracker(t)
+	repo := statsRepo(t, nil)
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		t.Skipf("no git: %v %s", err, out) // skip-ok: the subdirectory case needs a real repository
+	}
+	sub := filepath.Join(repo, "internal", "x")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !weeklyReport(sub, time.Now()) || callsOf(f, "OpenIssue") != 1 {
+		t.Errorf("a sweep started in a subdirectory filed %d issues, want 1", callsOf(f, "OpenIssue"))
+	}
+	if _, err := os.Stat(filepath.Join(repo, ".git", reportStampFile)); err != nil {
+		t.Errorf("no stamp in the repo's git dir: %v", err)
+	}
+}
+
+func TestReportWeb_DryNamesThePathAndWritesNothingAndNoCommonDirIsRefused(t *testing.T) {
+	opened := fakeOpener(t, nil)
+	repo := statsRepo(t, nil)
+	code, out, _ := runReportCmd(t, "web", "--repo", repo, "--dry")
+	path := strings.TrimSpace(out)
+	if code != 0 || path == "" {
+		t.Fatalf("dry exit %d, out %q", code, out)
+	}
+	if _, err := os.Stat(path); err == nil || len(*opened) != 0 {
+		t.Errorf("--dry wrote or opened the page (%v, %v)", err, *opened)
+	}
+	bare := t.TempDir()
+	if code, _, errOut := runReportCmd(t, "web", "--repo", bare, "--no-open"); code != 1 || !strings.Contains(errOut, "--out") {
+		t.Errorf("no git dir: exit %d, stderr %q, want a refusal naming --out", code, errOut)
+	}
+	if entries, _ := os.ReadDir(bare); len(entries) != 0 {
+		t.Errorf("the page was written into the directory itself: %v", entries)
 	}
 }

@@ -51,16 +51,17 @@ func costUSD(model string, t UsageTokens) (float64, bool) {
 // UsageGroup is the cells of one key summed. For an injection group Tokens is
 // the estimated tokens injected and Count the injections that held them.
 type UsageGroup struct {
-	Key        string  `json:"key"`
-	Turns      int64   `json:"turns"`
-	Fresh      int64   `json:"fresh_input"`
-	CacheWrite int64   `json:"cache_write"`
-	CacheRead  int64   `json:"cache_read"`
-	Output     int64   `json:"output"`
-	Thinking   int64   `json:"thinking"`
-	CostUSD    float64 `json:"cost_usd"`
-	Tokens     int64   `json:"injected_tokens,omitempty"`
-	Count      int64   `json:"injections,omitempty"`
+	Key          string  `json:"key"`
+	Turns        int64   `json:"turns"`
+	Fresh        int64   `json:"fresh_input"`
+	CacheWrite   int64   `json:"cache_write"`
+	CacheWrite1h int64   `json:"cache_write_1h"`
+	CacheRead    int64   `json:"cache_read"`
+	Output       int64   `json:"output"`
+	Thinking     int64   `json:"thinking"`
+	CostUSD      float64 `json:"cost_usd"`
+	Tokens       int64   `json:"injected_tokens,omitempty"`
+	Count        int64   `json:"injections,omitempty"`
 }
 
 // Submitted is the input of the group's turns, fresh and cached.

@@ -103,6 +103,9 @@ func (r Report) Text() string {
 		p("")
 		p("7. Session usage (aggregates only: no prompt, code, tool text or injected text is copied)")
 		b.WriteString(r.Usage.Text())
+	} else if r.withheld {
+		p("")
+		p("7. Session usage: withheld, because the undercover check refused it")
 	}
 	return b.String()
 }
