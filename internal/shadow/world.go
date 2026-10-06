@@ -123,7 +123,7 @@ func (w World) covered(ctx context.Context, st *store.Store, lane string, u Unit
 
 // unjudged is the record of a step that could not be made, and why.
 func unjudged(hook, rule, unit, cause string) Record {
-	return Record{Hook: hook, Rule: rule, Relation: Unjudged, Cause: cause, Unit: unit}
+	return Record{Hook: hook, Rule: rule, Relation: Unjudged, Cause: cause, Unit: unit, Lang: LangOfUnit(unit)}
 }
 
 // causeOf is the unjudged cause of an error of the engine or the store: the
@@ -191,7 +191,7 @@ func (w World) RedGreen(ctx context.Context, p Payload, files []string) []Record
 			continue
 		}
 		r := recordOf(HookPre, RuleRedGreen, "commit-proof", d, Allow)
-		r.Unit, r.UnitPkg = u.ID, u.Pkg
+		r.Unit, r.UnitPkg, r.Lang = u.ID, u.Pkg, LangOfUnit(u.ID)
 		if u.Kind == unitProjectRoot {
 			r.UnitRoot = filepath.ToSlash(pr)
 		}

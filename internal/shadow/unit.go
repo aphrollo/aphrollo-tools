@@ -118,3 +118,37 @@ func joinUnit(project, pkg string) string {
 	}
 	return j
 }
+
+// LangOfUnit is the language a unit id belongs to, as stats reads agreement per
+// language: a Go package's id has no language prefix, a project-root unit's leads
+// with its language row's name, and the node rows (typescript, javascript) are
+// "ts". "" for no unit.
+func LangOfUnit(id string) string {
+	if id == "" {
+		return ""
+	}
+	name, _, ok := strings.Cut(id, ":")
+	if !ok {
+		return "go"
+	}
+	if name == "typescript" || name == "javascript" {
+		return "ts"
+	}
+	return name
+}
+
+// LangOfCommand is the language of a test runner's command word, "" for one that
+// names none.
+func LangOfCommand(cmd string) string {
+	switch strings.ToLower(strings.TrimSuffix(filepath.Base(cmd), filepath.Ext(cmd))) {
+	case "go":
+		return "go"
+	case "python", "python3", "pytest", "py":
+		return "python"
+	case "npx", "npm", "node", "vitest", "jest", "pnpm", "yarn", "bun":
+		return "ts"
+	case "cargo":
+		return "rust"
+	}
+	return ""
+}

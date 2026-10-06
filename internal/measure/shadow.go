@@ -57,6 +57,30 @@ func (r ShadowRule) Rate() string {
 	return fmt.Sprintf("%.0f%%", share(r.Agree, r.Fires)*100)
 }
 
+// ShadowLang is the fires that name a language, counted by relation: where the
+// kernel and aphrollo agree for Go, Python and TypeScript separately, and how many
+// were the holdout arm's, so the A/B reads per arm and per language.
+type ShadowLang struct {
+	Lang          string `json:"lang"`
+	Fires         int    `json:"fires"`
+	Agree         int    `json:"agree"`
+	Stricter      int    `json:"trellis_stricter"`
+	Softer        int    `json:"trellis_softer"`
+	Mismatch      int    `json:"verdict_mismatch"`
+	NotComparable int    `json:"not_comparable"`
+	Unjudged      int    `json:"unjudged"`
+	Dropped       int    `json:"budget_dropped"`
+	HeldOut       int    `json:"held_out"`
+}
+
+// Rate is the share of the language's fires where both sides agreed, "" under MinShadowFires.
+func (l ShadowLang) Rate() string {
+	if l.Fires < MinShadowFires {
+		return ""
+	}
+	return fmt.Sprintf("%.0f%%", share(l.Agree, l.Fires)*100)
+}
+
 // Shadow is the shadow fires of a window, by rule.
 type Shadow struct {
 	Window string `json:"window"`
@@ -65,6 +89,8 @@ type Shadow struct {
 	Dropped int          `json:"budget_dropped"`
 	Notes   []string     `json:"notes"`
 	Rules   []ShadowRule `json:"rules"`
+	// Languages are the rows of the fires that name a language (red-green and run records do), by name.
+	Languages []ShadowLang `json:"languages"`
 }
 
 // shadowNotes say what the numbers are not: they are read from facts the hooks
@@ -87,6 +113,7 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 		out.Window = "last " + windowText(o.Window)
 	}
 	rules := map[string]*ShadowRule{}
+	langs := map[string]*ShadowLang{}
 	for i, e := range s.evs {
 		if !s.in(e.at) {
 			continue
@@ -140,11 +167,43 @@ func ComputeShadow(events []tdd.Event, now time.Time, o Options) Shadow {
 				r.Overruns++
 			}
 		}
+		if lang := e.Detail["lang"]; lang != "" {
+			l := langs[lang]
+			if l == nil {
+				l = &ShadowLang{Lang: lang}
+				langs[lang] = l
+			}
+			l.Fires++
+			if held {
+				l.HeldOut++
+			}
+			switch e.Detail["relation"] {
+			case "agree":
+				l.Agree++
+			case "trellis-stricter":
+				l.Stricter++
+			case "trellis-softer":
+				l.Softer++
+			case "verdict-mismatch":
+				l.Mismatch++
+			case "not-comparable":
+				l.NotComparable++
+			case "unjudged":
+				l.Unjudged++
+				if e.Detail["cause"] == "budget" {
+					l.Dropped++
+				}
+			}
+		}
 	}
 	for _, r := range rules {
 		out.Rules = append(out.Rules, *r)
 	}
 	sort.Slice(out.Rules, func(i, j int) bool { return out.Rules[i].Rule < out.Rules[j].Rule })
+	for _, l := range langs {
+		out.Languages = append(out.Languages, *l)
+	}
+	sort.Slice(out.Languages, func(i, j int) bool { return out.Languages[i].Lang < out.Languages[j].Lang })
 	return out
 }
 
@@ -333,6 +392,14 @@ func (s Shadow) Text() string {
 		} else {
 			p("%sunder %d fires: no rate", cont, MinShadowFires)
 		}
+	}
+	for _, l := range s.Languages {
+		tail := fmt.Sprintf("under %d fires: no rate", MinShadowFires)
+		if rate := l.Rate(); rate != "" {
+			tail = "agreement " + rate
+		}
+		p("%-21s%3d fires  agree %d  would-be block %d  softer %d  mismatch %d  not comparable %d  unjudged %d (%d budget)  held out %d  %s",
+			"language "+l.Lang, l.Fires, l.Agree, l.Stricter, l.Softer, l.Mismatch, l.NotComparable, l.Unjudged, l.Dropped, l.HeldOut, tail)
 	}
 	return b.String()
 }

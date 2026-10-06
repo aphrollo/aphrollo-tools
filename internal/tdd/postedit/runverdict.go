@@ -386,6 +386,9 @@ func redRunOf(v store.Verdict, unit string) (store.RunVerdict, bool) {
 func queueShadowRun(phase string, out PhaseOutcome, res SuiteResult, root, session, editID string, argv []string, word string) {
 	verdict, cause, ok := phaseVerdictOf(phase, res, out)
 	src := shadow.Source{Root: root, Actor: session, Key: out.TreeKey}
+	if len(argv) > 0 {
+		src.Lang = shadow.LangOfCommand(argv[0])
+	}
 	shadow.QueueRun(src, func() (shadow.RunFact, bool) {
 		return shadow.RunFact{Word: word, Verdict: verdict, Cause: cause}, ok && word != ""
 	})

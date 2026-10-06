@@ -163,3 +163,25 @@ func TestHarvest_ARealVitestRedLogFoldsAsTheProjectsRed(t *testing.T) {
 		t.Errorf("unit = %+v, want the real vitest red on tree-pj", u)
 	}
 }
+
+// A run's shadow record names the language of its runner, so stats reads
+// agreement per language.
+func TestHarvest_ARunsShadowRecordNamesTheLanguageOfItsRunner(t *testing.T) {
+	shadow.Flush()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	_, linked := primaryRepo(t)
+	mustWrite(t, filepath.Join(linked, "frontend", "package.json"), `{"name": "frontend"}`)
+	mustWrite(t, filepath.Join(linked, "frontend", "src", "api.test.ts"), "test('a', () => {})\n")
+	kpjfoldHarvest(t, linked, "frontend", "frontend/src/api.test.ts", []string{"npx", "vitest", "run"},
+		" FAIL  src/api.test.ts > a\nAssertionError: expected 1 to be 2\n", 1)
+	var langs []string
+	for _, e := range eventsOfKind(filepath.Join(linked, "frontend"), "shadow") {
+		if e.Detail["rule"] == "run-verdict" {
+			langs = append(langs, e.Detail["lang"])
+		}
+	}
+	if len(langs) != 1 || langs[0] != "ts" {
+		t.Errorf("run records name languages %v, want [ts]", langs)
+	}
+}

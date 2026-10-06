@@ -71,3 +71,76 @@ func TestShadow_TheBudgetDroppedSharePrintsItsPercentOnceThereAreTenRecords(t *t
 		t.Errorf("text lacks %q", want)
 	}
 }
+
+func TestShadow_TheDroppedLinePrintsAtTenRecordsEvenWithNoDrop(t *testing.T) {
+	var events []tdd.Event
+	for i := range 10 {
+		events = append(events, shadowAt(float64(i), "a", "run-verdict", "agree"))
+	}
+	if want := "budget drops          0 of 10 records (0.0%)\n"; !strings.Contains(computeShadow(events, Options{}).Text(), want) {
+		t.Errorf("text lacks %q", want)
+	}
+	if strings.Contains(computeShadow(events[:9], Options{}).Text(), "budget drops") {
+		t.Error("nine records with no drop printed a drop line")
+	}
+}
+
+func pjLangRow(t *testing.T, s Shadow, lang string) ShadowLang {
+	t.Helper()
+	for _, l := range s.Languages {
+		if l.Lang == lang {
+			return l
+		}
+	}
+	t.Fatalf("no row for language %q in %+v", lang, s.Languages)
+	return ShadowLang{}
+}
+
+func TestShadow_AgreementIsCountedPerLanguageAndPerArm(t *testing.T) {
+	events := []tdd.Event{
+		shadowAt(0, "a", "red-green", "agree", "lang", "go"),
+		shadowAt(1, "a", "red-green", "trellis-stricter", "lang", "go", "held_out", "true"),
+		shadowAt(2, "a", "run-verdict", "agree", "lang", "python"),
+		shadowAt(3, "a", "run-verdict", "verdict-mismatch", "lang", "python"),
+		shadowAt(4, "a", "red-green", "unjudged", "lang", "python", "cause", "budget"),
+		shadowAt(5, "a", "red-green", "trellis-softer", "lang", "ts", "held_out", "true"),
+		shadowAt(6, "a", "stop-red", "agree"), // no language: counted in its rule, in no language row
+	}
+	s := computeShadow(events, Options{})
+	if got, want := pjLangRow(t, s, "go"), (ShadowLang{Lang: "go", Fires: 2, Agree: 1, Stricter: 1, HeldOut: 1}); got != want {
+		t.Errorf("go = %+v, want %+v", got, want)
+	}
+	if got, want := pjLangRow(t, s, "python"), (ShadowLang{Lang: "python", Fires: 3, Agree: 1, Mismatch: 1, Unjudged: 1, Dropped: 1}); got != want {
+		t.Errorf("python = %+v, want %+v", got, want)
+	}
+	if got, want := pjLangRow(t, s, "ts"), (ShadowLang{Lang: "ts", Fires: 1, Softer: 1, HeldOut: 1}); got != want {
+		t.Errorf("ts = %+v, want %+v", got, want)
+	}
+	if len(s.Languages) != 3 || s.Languages[0].Lang != "go" || s.Languages[1].Lang != "python" || s.Languages[2].Lang != "ts" {
+		t.Errorf("languages = %+v, want go, python, ts in that order", s.Languages)
+	}
+	text := s.Text()
+	for _, want := range []string{
+		"language go            2 fires  agree 1  would-be block 1  softer 0  mismatch 0  not comparable 0  unjudged 0 (0 budget)  held out 1  under 10 fires: no rate\n",
+		"language python        3 fires  agree 1  would-be block 0  softer 0  mismatch 1  not comparable 0  unjudged 1 (1 budget)  held out 0  under 10 fires: no rate\n",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("text lacks %q:\n%s", want, text)
+		}
+	}
+}
+
+func TestShadow_ALanguageRowPrintsItsAgreementFromTenFires(t *testing.T) {
+	var events []tdd.Event
+	for i := range 10 {
+		rel := "agree"
+		if i >= 7 {
+			rel = "trellis-stricter"
+		}
+		events = append(events, shadowAt(float64(i), "a", "red-green", rel, "lang", "python"))
+	}
+	want := "language python       10 fires  agree 7  would-be block 3  softer 0  mismatch 0  not comparable 0  unjudged 0 (0 budget)  held out 0  agreement 70%\n"
+	if text := computeShadow(events, Options{}).Text(); !strings.Contains(text, want) {
+		t.Errorf("text lacks %q:\n%s", want, text)
+	}
+}

@@ -107,6 +107,7 @@ type Record struct {
 	Unit     string // the unit the record is about, for the rules that read a unit's state
 	UnitPkg  string // a Go unit's package relative to its module root, what a proof's patterns are relative to
 	UnitRoot string // a project-root unit's project root, slashes, what a proof run in it is joined by (no package pattern says what such a proof covered)
+	Lang     string // the unit's language (LangOfUnit), or a run's runner's (LangOfCommand), for the per-language rows of stats
 	Root     string // the checkout the record is about, "" for the call's own
 	// For a run: the verdict classes each side read, and the cause.
 	TrellisVerdict, ActualVerdict, Cause, ActualCause string
@@ -288,6 +289,7 @@ func verdictClass(v kernel.Verdict) kernel.Verdict {
 // actor, and the tree or lane key a later fold joins it to outcomes by.
 type Source struct {
 	Root, Actor, Key string
+	Lang             string // the language of the run a record is about (LangOfCommand), "" when none
 }
 
 // event is the record as the event log carries it: kind shadow, metadata only.
@@ -306,6 +308,7 @@ func (r Record) event(s Source, lane string) core.Event {
 	set("unit", r.Unit)
 	set("unit_pkg", r.UnitPkg)
 	set("unit_root", r.UnitRoot)
+	set("lang", r.Lang)
 	set("guide", r.Guide)
 	set("trellis_verdict", r.TrellisVerdict)
 	set("aphrollo_verdict", r.ActualVerdict)
@@ -543,12 +546,14 @@ func runStep(q queuedRun) Step {
 			if !judged {
 				r = unjudgedRun(f.Word)
 			}
+			r.Lang = q.src.Lang
 			return []core.Event{r.event(q.src, lane())}
 		},
 		skip: func(cause string) core.Event {
 			f, _ := q.fact() // the run's facts are held already: reading them reads nothing
 			r := unjudgedRun(f.Word)
 			r.Cause = cause
+			r.Lang = q.src.Lang
 			return r.event(q.src, lane())
 		},
 	}
