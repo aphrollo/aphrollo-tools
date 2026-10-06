@@ -78,16 +78,13 @@ func TestTDDSkill_StatesItsContract(t *testing.T) {
 	for _, want := range []string{
 		"name: tdd",
 		"argument-hint:",
-		"aphrollo install",
 		"aphrollo gate userpromptsubmit",
 		"red-missing-impl",
 		"red-bogus",
 		"TIMEOUT",
 		"mutation proof",
 		"change detector",
-		"DAMP",
-		"cargo check",
-		"go vet",
+		"QUEUED-SKIPPED",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("skill body missing %q", want)
@@ -200,8 +197,6 @@ func TestTDDSkill_TellsTheReaderHowToWaitOnADeferredVerdict(t *testing.T) {
 		// checkout from the shell cwd, which the harness resets away from
 		// the lane that was edited (issue #732).
 		"aphrollo gate status --wait <tree>",
-		"aphrollo gate stats",
-		"aphrollo gate output",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("skill body missing %q", want)

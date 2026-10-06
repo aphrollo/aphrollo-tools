@@ -164,59 +164,6 @@ func TestAgents_CarryNoWindowsLineEndings(t *testing.T) {
 	}
 }
 
-// TestBuilderAgent_TeachesTheGenericCoordinatorRules pins the rules a builder
-// brief used to repeat itself: the builder now carries them, so a brief only
-// carries the task. Every entry here must hold in any consuming repo,
-// including a Rust one, so the wording stays generic.
-func TestBuilderAgent_TeachesTheGenericCoordinatorRules(t *testing.T) {
-	t.Parallel()
-	body, ok := ManagedAgent("builder")
-	if !ok {
-		t.Fatal("the builder agent is not shipped")
-	}
-	for _, want := range []string{
-		"never edit a repo's primary checkout",
-		"git clone <lane> <scratch>",
-		"git -C <scratch> rev-parse --git-common-dir",
-		"TEST-ONLY commit",
-		"gate mutants prove",
-		"pgrep -x",
-		"never `pkill -f`",
-		"lower the code, never the baseline",
-		"STOP and report it verbatim",
-		"git fetch && git merge origin/<default>",
-		"GOOS=windows go build",
-		"prove:",
-		"pr:",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("builder agent does not teach %q", want)
-		}
-	}
-}
-
-// The agents are installed per user, so whatever the builder says holds in
-// every repo it works in — including one that never opted into mutation
-// measurement (issue #875). The rules that exist only because a merge measures
-// mutants (a prove line per condition, UNREADABLE proves nothing, no computed
-// scan index) live in the repo's own managed block instead, which states them
-// only where the repo declares the measurement.
-func TestBuilderAgent_LeavesTheMeasurementRulesToTheRepoBlock(t *testing.T) {
-	t.Parallel()
-	body, ok := ManagedAgent("builder")
-	if !ok {
-		t.Fatal("the builder agent is not shipped")
-	}
-	for _, rule := range []string{"--want-fail", "UNREADABLE", "loop index"} {
-		if strings.Contains(body, rule) {
-			t.Errorf("the builder agent carries the measurement rule %q in every repo", rule)
-		}
-	}
-	if !strings.Contains(body, "CLAUDE.md block") {
-		t.Error("the builder agent must point at the repo's CLAUDE.md block for the mutation rules")
-	}
-}
-
 // A builder that reads only "result arrives at the next hook" ends its turn
 // waiting, and the next hook is delivered by its own next edit. The wait it
 // is taught names the tree the BUILDING line names, because a bare --wait
@@ -230,5 +177,84 @@ func TestBuilderAgent_TeachesWaitingOnTheTreeTheBuildingLineNames(t *testing.T) 
 	}
 	if !strings.Contains(body, "aphrollo gate status --wait <tree>") {
 		t.Error("the builder agent does not teach `aphrollo gate status --wait <tree>`")
+	}
+}
+
+// TestBuilderAgent_TeachesTheGenericCoordinatorRules pins the rules a builder
+// brief used to repeat itself: the builder carries them, so a brief only
+// carries the task. Every entry here must hold in any consuming repo,
+// including a Rust one, so the wording stays generic.
+func TestBuilderAgent_TeachesTheGenericCoordinatorRules(t *testing.T) {
+	t.Parallel()
+	body, ok := ManagedAgent("builder")
+	if !ok {
+		t.Fatal("the builder agent is not shipped")
+	}
+	for _, want := range []string{
+		"Work only in the brief's lane",
+		"`SCOPE CREEP: <what>`",
+		"report it verbatim",
+		"Never weaken a test or a baseline",
+		"Never `--no-verify`",
+		"No attribution trailers",
+		"Never pattern-kill",
+		"Do not spawn subagents",
+		"`pr`",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("builder agent does not teach %q", want)
+		}
+	}
+}
+
+// The agents are installed per user, so whatever the builder says holds in
+// every repo it works in — including one that never opted into mutation
+// measurement (issue #875). The rules that exist only because a merge measures
+// mutants (a prove line per condition, no computed scan index) live in the
+// repo's own managed block instead, which states them only where the repo
+// declares the measurement.
+func TestBuilderAgent_LeavesTheMeasurementRulesToTheRepoBlock(t *testing.T) {
+	t.Parallel()
+	body, ok := ManagedAgent("builder")
+	if !ok {
+		t.Fatal("the builder agent is not shipped")
+	}
+	for _, rule := range []string{"--want-fail", "KILLED", "scan index"} {
+		if strings.Contains(body, rule) {
+			t.Errorf("the builder agent carries the measurement rule %q in every repo", rule)
+		}
+	}
+}
+
+// How much machinery a request gets is the user's call, not the agents': the
+// builder and the reviewer say they are for planned (/sdd) work, the researcher
+// says it is for a search that would flood the main context, and none says it
+// is the only one that may edit or review.
+func TestAgents_DescribeWhenTheyAreUsedAndNeverClaimTheMainSessionMayNotEdit(t *testing.T) {
+	t.Parallel()
+	want := map[string][]string{
+		"builder":    {"/sdd", "Planned work only", "the main session makes small changes itself"},
+		"reviewer":   {"/sdd", "Planned work only"},
+		"researcher": {"only when a search would flood the main context"},
+	}
+	for name, phrases := range want {
+		body, ok := ManagedAgent(name)
+		if !ok {
+			t.Fatalf("the %s agent is not shipped", name)
+		}
+		head, _, _ := strings.Cut(strings.TrimPrefix(body, "---\n"), "\n---\n")
+		for _, phrase := range phrases {
+			if !strings.Contains(head, phrase) {
+				t.Errorf("the %s description does not say %q:\n%s", name, phrase, head)
+			}
+		}
+		for _, gone := range []string{"only agent that edits", "the only agent"} {
+			if strings.Contains(body, gone) {
+				t.Errorf("the %s agent still says %q", name, gone)
+			}
+		}
+		if !strings.Contains(body, "Do not spawn subagents") {
+			t.Errorf("the %s agent must keep telling itself not to spawn subagents", name)
+		}
 	}
 }

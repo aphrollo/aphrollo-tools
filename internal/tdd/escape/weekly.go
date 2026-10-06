@@ -20,8 +20,8 @@ const weeklyStampFile = "weekly-digest-last-run"
 const weeklyEvery = 7 * 24 * time.Hour
 
 // maybeWeeklyDigest returns the digest line when a week has passed since the
-// last one, and stamps it. "" otherwise, or when there is no log to read.
-func maybeWeeklyDigest(now time.Time) string {
+// last one, and stamps it. escapes adds the open-escape clause. "" otherwise, or when there is no log to read.
+func maybeWeeklyDigest(now time.Time, escapes bool) string {
 	path := gcStatePath(weeklyStampFile)
 	if path == "" {
 		return ""
@@ -29,7 +29,7 @@ func maybeWeeklyDigest(now time.Time) string {
 	if info, err := os.Stat(path); err == nil && now.Sub(info.ModTime()) < weeklyEvery {
 		return ""
 	}
-	line := weeklyDigest(now)
+	line := weeklyDigest(now, escapes)
 	if line == "" {
 		return ""
 	}
@@ -40,7 +40,7 @@ func maybeWeeklyDigest(now time.Time) string {
 
 // weeklyDigest reads the last seven days of gate.log and renders the one
 // line. "" when there is nothing to report at all.
-func weeklyDigest(now time.Time) string {
+func weeklyDigest(now time.Time, escapes bool) string {
 	since := now.Add(-weeklyEvery)
 	s := GateStats(strings.NewReader(gateLinesSince(since)), since)
 
@@ -68,9 +68,13 @@ func weeklyDigest(now time.Time) string {
 		denies += n
 	}
 
+	line := fmt.Sprintf("aphrollo: last 7d — green %d%%, queued-skipped %d%%, denies %d, overrides %d",
+		percent(green, runs), percent(queued, runs), denies, overrides)
+	if !escapes {
+		return line
+	}
 	open, oldest := OpenEscapes()
-	return fmt.Sprintf("aphrollo: last 7d — green %d%%, queued-skipped %d%%, denies %d, overrides %d, open escapes %d (oldest %dd)",
-		percent(green, runs), percent(queued, runs), denies, overrides, open, int(oldest.Hours()/24))
+	return fmt.Sprintf("%s, open escapes %d (oldest %dd)", line, open, int(oldest.Hours()/24))
 }
 
 // percent is the share of total, 0 when nothing ran — a rate over no runs is

@@ -110,6 +110,6 @@ func VerifyClosureLocal(p0 string, p1 []string, p2 string, p3 string, p4 io.Writ
 	return escape.VerifyClosureLocal(p0, p1, p2, p3, p4)
 }
 
-func maybeWeeklyDigest(p0 time.Time) string { return escape.MaybeWeeklyDigest(p0) }
+func maybeWeeklyDigest(p0 time.Time, p1 bool) string { return escape.MaybeWeeklyDigest(p0, p1) }
 
 func syncClosedEscapes(p0 string) int { return escape.SyncClosedEscapes(p0) }

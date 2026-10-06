@@ -123,12 +123,13 @@ func TestRemoveSDDSkill_LeavesASkillThisToolNeverWrote(t *testing.T) {
 
 // A coordinating session spawned a fresh builder for every review fix round,
 // base merge and re-measure, and each one re-read the whole lane its original
-// builder already held (issue #892). Every text that shapes the orchestration
-// states the reuse rule: the sdd skill in full, the managed block in one
-// bullet, and the two agents the half that concerns them.
+// builder already held (issue #892). The reuse rule now lives only where a plan
+// is run: the sdd skill states it in full and the reviewer agent states the
+// half that concerns it. The managed block, which every session reads, no
+// longer tells a session to orchestrate at all, and no agent but the sdd skill
+// speaks of a coordinator.
 func TestOrchestrationText_ResumesTheLanesOwnAgentsWithOnlyTheDelta(t *testing.T) {
 	t.Parallel()
-	builder, _ := ManagedAgent("builder")
 	reviewer, _ := ManagedAgent("reviewer")
 	for label, c := range map[string]struct {
 		body string
@@ -138,16 +139,19 @@ func TestOrchestrationText_ResumesTheLanesOwnAgentsWithOnlyTheDelta(t *testing.T
 			"only the delta", "a fresh builder is for a new issue", "re-reviews its own findings",
 			"the coordinator never edits", "only what the agent lacks",
 		}},
-		"managed block": {ClaudeMDBlock(BlockFlags{}), []string{
-			"only the delta", "a fresh builder is for a new issue", "re-reviews its own findings",
-			"the coordinator never edits", "only what the agent lacks",
-		}},
-		"builder agent":  {builder, []string{"resumed with a delta"}},
-		"reviewer agent": {reviewer, []string{"re-review"}},
+		"reviewer agent": {reviewer, []string{"resumed after a fix"}},
 	} {
 		for _, want := range c.want {
 			if !strings.Contains(strings.ToLower(c.body), want) {
 				t.Errorf("%s does not say %q", label, want)
+			}
+		}
+	}
+	builder, _ := ManagedAgent("builder")
+	for label, body := range map[string]string{"managed block": ClaudeMDBlock(BlockFlags{}), "builder agent": builder} {
+		for _, gone := range []string{"coordinator never edits", "only the delta"} {
+			if strings.Contains(strings.ToLower(body), gone) {
+				t.Errorf("%s still says %q", label, gone)
 			}
 		}
 	}

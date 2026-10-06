@@ -31,14 +31,14 @@ func currentBlock(in DoctorInput) string { return managedBlockFor(in.Repo) }
 func TestDoctor_ReportsAManagedBlockWrittenByAnOlderTemplate(t *testing.T) {
 	in := healthyInstall(t)
 	stale := strings.Replace(currentBlock(in),
-		"- **Housekeeping:**", "- **Housekeeping:** `aphrollo gate mutants watch` (background run) ·", 1)
+		"- **Read the `tdd` skill**", "- **Read the `tdd` skill** `aphrollo gate mutants watch` (background run) ·", 1)
 	putManagedBlock(t, in.Repo, stale)
 
 	c := check(t, Doctor(in), "CLAUDE.md block")
 	if c.OK {
 		t.Fatalf("a block from an older template must be a finding, got ok: %s", c.Detail)
 	}
-	for _, want := range []string{"stale", "Housekeeping", "aphrollo install"} {
+	for _, want := range []string{"stale", "Read the `tdd` skill", "aphrollo install"} {
 		if !strings.Contains(c.Detail, want) {
 			t.Errorf("detail = %q, want it to carry %q", c.Detail, want)
 		}
@@ -54,7 +54,7 @@ func TestDoctor_ReportsAManagedBlockWrittenByAnOlderTemplate(t *testing.T) {
 func TestDoctor_NamesAnEntryTheTemplateNoLongerCarries(t *testing.T) {
 	in := healthyInstall(t)
 	retired := "- **A merge needs a fresh receipt:** `aphrollo gate mutants watch` writes it.\n"
-	block := strings.Replace(currentBlock(in), "\n_This block is written", retired+"\n_This block is written", 1)
+	block := strings.Replace(currentBlock(in), "- **Two modes", retired+"- **Two modes", 1)
 	putManagedBlock(t, in.Repo, block)
 
 	c := check(t, Doctor(in), "CLAUDE.md block")
@@ -128,7 +128,7 @@ func TestDoctor_AStaleBlockInAMergeOnlyPrimaryPointsAtALane(t *testing.T) {
 	addWorktree(t, root, "lane-a")
 	in.Repo = root
 	putManagedBlock(t, root, strings.Replace(currentBlock(in),
-		"- **Housekeeping:**", "- **Housekeeping:** stale text ·", 1))
+		"- **Read the `tdd` skill**", "- **Read the `tdd` skill** stale text ·", 1))
 
 	c := check(t, Doctor(in), "CLAUDE.md block")
 	if c.OK {

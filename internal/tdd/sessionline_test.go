@@ -155,6 +155,7 @@ func TestSessionStartCarriesTheIssueSummaryLine(t *testing.T) {
 	// test tries to remove it.
 	t.Cleanup(SetGCSpawnForTest(func(string) {}))
 	repo := makeGitHubRepo(t)
+	write(t, repo, "aphrollo.toml", "[aphrollo]\nissue-prompt = true\n")
 	stubGhScript(t, map[string]string{"issue list": `[{"labels":[{"name":"physics"}]}]`})
 
 	msg := HandleSessionStart([]byte(`{"session_id":"s1","cwd":` + jsonString(repo) + `}`))
@@ -194,5 +195,32 @@ func TestIssueSummaryLineGivesUpOnASlowFetch(t *testing.T) {
 	}
 	if data := tddtest.GateLogContent(t, ""); !strings.Contains(data, issuesFetchFailedVerdict) {
 		t.Errorf("a timed-out fetch must be logged like any other failure:\n%s", data)
+	}
+}
+
+func TestSessionStart_OpenIssuesLineIsOptInThroughIssuePrompt(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	t.Setenv("TRELLIS_CONFIG", t.TempDir())
+	t.Cleanup(SetGCSpawnForTest(func(string) {}))
+	repo := makeGitHubRepo(t)
+	stubGhScript(t, map[string]string{"issue list": `[{"labels":[{"name":"physics"}]}]`})
+	if _, err := RecordEscape(EscapeOptions{Reason: "one that got through"}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"session_id":"sess-issue-prompt","cwd":` + jsonString(repo) + `}`)
+
+	off := HandleSessionStart(raw)
+	if strings.Contains(off, "open issue") || strings.Contains(off, "open escape") {
+		t.Errorf("issue-prompt is off by default, yet the session start says:\n%s", off)
+	}
+	if n, _ := OpenEscapes(); n != 1 {
+		t.Errorf("the escape record must survive the prompt being off, open = %d", n)
+	}
+
+	write(t, repo, "aphrollo.toml", "[aphrollo]\nissue-prompt = true\n")
+	on := HandleSessionStart(raw)
+	if !strings.Contains(on, "1 open issue") || !strings.Contains(on, "1 open escape - aphrollo issue / gate escape record") {
+		t.Errorf("issue-prompt = true must bring the line back, got:\n%s", on)
 	}
 }

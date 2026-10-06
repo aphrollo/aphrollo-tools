@@ -67,110 +67,44 @@ func (f BlockFlags) blocks() bool {
 	return f.MutantsAtCommitBlock || f.MutantsAtMergeBlock
 }
 
-// ClaudeMDBlock renders the managed block for a repo declaring f.
+// ClaudeMDBlock renders the managed block for a repo declaring f. A session
+// pays for it in tokens (measure.BriefCap), so a line says what a session
+// cannot infer and leaves the rest to `aphrollo <verb> --help`.
 func ClaudeMDBlock(f BlockFlags) string {
 	var b strings.Builder
 	b.WriteString(claudeMDBegin + "\n")
-	b.WriteString("## Working with the aphrollo gate\n\n")
-	b.WriteString("- **Where `aphrollo install` put the queue shims on the agent's PATH, " + shimToolsPhrase(f) + " to them** (`aphrollo gate doctor` says whether it did):\n")
-	b.WriteString("  a run through a shim QUEUES visibly behind another build instead of hanging on a silent lock, and a session never exports PATH by hand.\n")
-	b.WriteString("- **The hooks run the tests, not you.** After every Edit/Write, PostToolUse prints\n")
-	b.WriteString("  exactly ONE `gate:` line for the edit, then one `gate: deferred` line per earlier job of the session, in any tree,\n")
-	b.WriteString("  that finished since, naming its own tree and command. Read them; never re-run a suite they ran. Iterate with " + iterateCommands(f) + ", which runs nothing.\n")
-	// A subagent (`builder`, `researcher`, `Explore`, ...) never gets the
-	// session-start nudge — SessionStart context is not forwarded to it — but
-	// project instructions ARE, so this is the one place a subagent with no
-	// Skill tool can learn where the `tdd` skill lives instead of searching
-	// the filesystem for it. The path is the default one, spelled from the
-	// home dir, so every box renders the same line.
-	b.WriteString("- **A Bash script is fine for multi-file edits.** Each source file it changed gets what an Edit gets (gofmt, deny laws, smell checks, edit ledger, the suite once per root) on the same `gate:` line;\n")
-	b.WriteString("  the one difference is that a deny law cannot refuse a Bash write before it happens: the hit is named right after the write, with file and law, and refused at commit.\n")
-	b.WriteString("- **Before writing or changing code, read the `tdd` skill** at `~/.claude/skills/tdd/SKILL.md` (under `$CLAUDE_CONFIG_DIR` when set; `aphrollo install` writes it).\n")
-	b.WriteString("- **What the line means:** `green (N passed)` · `red-missing-impl` (a clean RED) · `red` ·\n")
-	b.WriteString("  `red-bogus` (broken test setup, not a real RED) · `TIMEOUT` / `SKIPPED` / `QUEUED-SKIPPED`\n")
-	b.WriteString("  (**inconclusive — the code was NOT tested**) · `BUILDING (deferred)` (the build outran the\n")
-	// The route to the run's TEXT rides on this same bullet rather than a
-	// bullet of its own: the block is bounded at a length a session reads in
-	// one glance, and the rule it belongs to — what a manual run is FOR — is
-	// stated right here. Wanting the output was the commonest reason to
-	// re-run a suite the gate had just run, and `gate stats` cannot answer
-	// it, so a session told only about stats meets the refusal with no route.
-	b.WriteString("  budget and continues; its result arrives at the next hook, or wait in the foreground with `aphrollo gate status --wait <tree>`, the tree the line names). The only sanctioned manual runs: a mutation proof, a deliberate soak, or ONE targeted run of the failing test after a TIMEOUT. Wanting the run's TEXT is not one of them: `aphrollo gate stats` answers what the verdict WAS, `aphrollo gate output` prints what that run actually PRINTED — assertion lines and all, unfiltered.\n")
-	b.WriteString("- **Commit gate, cheapest first:** staged-baseline guard → ratchet laws → docs check →\n")
-	b.WriteString("  suppression check → per root, " + rootStages(f) + ". It proves the staged test RED at HEAD, then GREEN with the change, and STOPS — the\n")
-	b.WriteString("  mechanical suite runs at the MERGE; a commit prints a `NOT RUN` line naming each touched package it did not test, so an untested package is never a silent absence.\n")
-	b.WriteString("- **Laws are data:** `.ratchet/laws/*.toml` (scope + one matcher + severity), with baselines in\n")
-	b.WriteString("  the sibling `baselines` dir that only ever go DOWN. `aphrollo ratchet check` judges the tree\n")
-	b.WriteString("  and tightens; `aphrollo ratchet test` proves each law against its fixtures. A new hit is\n")
-	b.WriteString("  admitted by the law's escape comment, NEVER by editing a baseline — a raised one is rejected.\n")
-	b.WriteString("- **An open point is an ISSUE, never a markdown follow-up:** `aphrollo issue \"<title>\"\n")
-	b.WriteString("  --label <theme>` opens one against this repo's remote, labelled from the list it declares\n")
-	b.WriteString("  (`issue-labels`), and prints the URL as its only output — never park one in a document.\n")
-	b.WriteString("- **Escapes close the loop.** A red after a local green (CI, merge gate, survivor mutant, a\n")
-	b.WriteString("  playtest defect a check could have caught) is recorded with `aphrollo gate escape record\n")
-	b.WriteString("  <reason>`, and closed only by a stage or law named in the fix, never by a sentence in this\n")
-	b.WriteString("  file. The count only goes down; `gate stats` prints it weekly at session start.\n")
-	b.WriteString("- **The primary checkout is merge-only.** Once a repo has any linked worktree, the checkout holding\n")
-	b.WriteString("  `main` takes merges and nothing else: the Edit/Write/Bash/PowerShell hooks are a GUARDRAIL; the git queue shim,\n")
-	b.WriteString("  where it is on the agent's PATH, is the WALL (refusing `checkout -b`/`switch -c`, a move off main, a non-merge commit).\n")
-	b.WriteString("  Work in a lane: `git worktree add -b lane/<name> <parent>/.worktrees/<repo>/<name> main`; override with `aphrollo gate allow primary` (works from inside a turn; `aphrollo gate revoke primary` restores it).\n")
-	b.WriteString("  A lane refreshes this committed block with `aphrollo install --managed-block-only --repo <lane>`, never a full install: that writes git hooks into the git dir every worktree shares.\n")
-	// The merge line is about THIS repo, not about the tool: a conditional
-	// ("with `mutants-at-merge = true` ...") makes a reader go and find out
-	// which half applies to them, which is the errand the block exists to
-	// save them.
-	if f.MutantsAtMergeCI && f.MutantsAtMergeBlock {
-		b.WriteString("- **A merge is measured in CI:** this repo declares `mutants-at-merge = \"ci\"` and pins `mutants-at-merge-level = \"block\"`, so the merge gate measures nothing locally and refuses to merge unless CI's `mutants-verdict` check passed on the PR head, which a survivor fails; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
-	} else if f.MutantsAtMergeCI {
-		b.WriteString("- **A merge is measured in CI:** this repo declares `mutants-at-merge = \"ci\"` without pinning `mutants-at-merge-level = \"block\"`, so CI's `mutants-verdict` check reports survivors and the merge gate neither waits for it nor refuses on it, and measures nothing locally; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
-	} else if f.MutantsAtMerge {
-		b.WriteString("- **A merge is measured, not certified:** the pre-merge gate runs this lane's mutation measurement in the foreground and refuses an unaccepted survivor by name; `aphrollo gate mutants run` measures THIS checkout the same way before you merge.\n")
-	} else {
-		b.WriteString("- **A merge is checked, not measured:** this repo declares no `mutants-at-merge`, so the merge gate runs the mechanical suite and NO mutation measurement; `aphrollo gate mutants run` measures THIS checkout by hand.\n")
+	b.WriteString("## aphrollo gate\n")
+	b.WriteString("- **Hooks run the tests, not you.** Read each `gate:` and `gate: deferred` line after an edit; never re-run a suite they ran. Iterate with " + iterateCommands(f) + ". Usage: `aphrollo <verb> --help`.\n")
+	b.WriteString("- **Verdicts:** `green (N passed)` · `red-missing-impl` (clean RED) · `red` · `red-bogus` · `TIMEOUT`/`SKIPPED`/`QUEUED-SKIPPED` = **not tested** · `BUILDING (deferred)`: `aphrollo gate status --wait <tree>`, never end the turn waiting. Run text: `aphrollo gate output`.\n")
+	// A subagent never gets the session-start nudge but does get project
+	// instructions, so this is where one with no Skill tool learns the path.
+	b.WriteString("- **Read the `tdd` skill** (`~/.claude/skills/tdd/SKILL.md`) before changing code.\n")
+	b.WriteString("- **Commit gate:** laws, docs, " + rootStages(f) + ", fail-first; the merge runs the suite (`NOT RUN` = untested).\n")
+	b.WriteString("- **The primary checkout is merge-only:** work in a lane; `aphrollo gate allow primary` overrides. Refresh this block with `aphrollo install --managed-block-only --repo <lane>`.\n")
+	switch {
+	case f.MutantsAtMergeCI && f.MutantsAtMergeBlock:
+		b.WriteString("- **Merge:** CI's `mutants-verdict` must pass; a survivor fails it.\n")
+	case f.MutantsAtMergeCI:
+		b.WriteString("- **Merge:** CI's `mutants-verdict` reports survivors, refuses none.\n")
+	case f.MutantsAtMerge:
+		b.WriteString("- **Merge:** the gate refuses an unaccepted mutant survivor.\n")
 	}
 	if f.MutantsAtCommit && f.MutantsAtCommitBlock {
-		b.WriteString("- **A commit is measured:** this repo pins `mutants-at-commit = \"block\"`, so the commit gate mutates the lines the commit adds, runs each mutant against the tests of its own function and refuses a survivor by name; a box with no memory headroom, or a run past its wall-clock budget, prints `NOT MEASURED` for what it did not reach and CI decides; `aphrollo gate mutants commit` runs it by hand.\n")
-	} else if f.MutantsAtCommit {
-		b.WriteString("- **A commit is measured, and reported:** this repo declares `mutants-at-commit = true`, so the commit gate mutates the lines the commit adds, runs each mutant against the tests of its own function and names each survivor without refusing the commit; a box with no memory headroom, or a run past its wall-clock budget, prints `NOT MEASURED` for what it did not reach; `aphrollo gate mutants commit` runs it by hand.\n")
+		b.WriteString("- **Commit:** a survivor among the added lines' mutants refuses it.\n")
 	}
 	// The rules that exist only because this repo measures mutants. The
-	// builder agent is one file per user and reaches every repo, so they live
-	// here, where they reach only a repo that declared the measurement.
-	if f.measures() && !f.blocks() {
-		b.WriteString("- **Mutation findings are guidance** in this repo: a survivor is reported, never refused, so no `gate mutants prove` line is owed. A survivor on a line you add is still a test worth writing.\n")
-	}
+	// builder agent reaches every repo, so they live here, where they reach
+	// only a repo that declared the measurement.
 	if f.measures() && f.blocks() {
-		who := "this repo measures mutants"
-		if f.MutantsAtMergeCI || f.MutantsBeforePRCI {
-			who = "CI's `mutants-verdict` measures this repo's mutants, and the local box does not"
-			if f.MutantsAtCommit {
-				who = "CI's `mutants-verdict` measures this repo's mutants, and the commit gate measures the lines a commit adds"
-			}
-		}
-		b.WriteString("- **Mutation rules** (" + who + "): quote one `aphrollo gate mutants prove --file <f> --old <expr> --new <expr> --want-fail <Test>`\n")
-		b.WriteString("  KILLED line per new condition; UNREADABLE proves nothing. A mutant nobody can observe is removed by rewriting the code, not by an accept-list entry.\n")
-		b.WriteString("  A timed-out mutant is refused like a survivor, so never compute a scan or loop index as an expression: no `i++` in a loop that already\n")
-		b.WriteString("  steps `i`; consume a flag's value with a `skip` bool over a range loop; advance a scan with `i += n`, never `i - n`.\n")
+		b.WriteString("- **Mutation:** quote one `aphrollo gate mutants prove --file <f> --old <e> --new <e> --want-fail <Test>` KILLED line per new condition; never compute a loop or scan index (`i++` in a stepping loop, `i - n`): a timed-out mutant is refused.\n")
 	}
-	b.WriteString("- **Orchestrating:** follow-ups on a lane (fix round, base merge, re-measure, red CI) resume its builder with only the delta; a fresh builder is for a new issue. A reviewer did not build the lane and re-reviews its own findings; the coordinator never edits; a brief carries only what the agent lacks.\n")
-	b.WriteString("- **Housekeeping:** `aphrollo gate stats --since 7d` (pipeline health) · `aphrollo gate gc` (reclaims stale build dirs; `--dry` lists them).\n")
+	b.WriteString("- **Two modes, set by the request, never by habit.** *Ad hoc* (default: questions, checks, analysis, fixes, small features): you do it, with no subagents, reviewer or plan. An answer needs no lane; an edit goes in a lane (`aphrollo workspace create . lane/<name>`) you merge yourself (`aphrollo workspace merge --wait`). *Planned*: only on `/sdd` or an asked-for plan: spec, lanes, one builder each, a cold reviewer. State the mode when work starts; go from ad hoc to planned only if the user agrees.\n")
 	if f.Undercover {
-		b.WriteString("- **Commit messages** say what the change does and nothing about how it was\n")
-		b.WriteString("  written: no attribution trailers, tool names, or model names. The `commit-msg`\n")
-		b.WriteString("  hook rejects one and quotes the offending line.\n")
+		b.WriteString("- **Commit messages:** no attribution trailers or tool/model names (`commit-msg` rejects them).\n")
 	}
-	b.WriteString("\n_This block is written by `aphrollo install`: edit the template in aphrollo, never the block, which the next install overwrites._\n")
+	b.WriteString("_Managed by `aphrollo install`; do not edit._\n")
 	b.WriteString(claudeMDEnd + "\n")
 	return b.String()
-}
-
-// shimToolsPhrase names the commands the queue shims intercept in this repo:
-// `cargo` is a fact only where the repo builds with it.
-func shimToolsPhrase(f BlockFlags) string {
-	if f.Cargo {
-		return "`git` and `cargo` resolve"
-	}
-	return "`git` resolves"
 }
 
 // iterateCommands is the compile-only command of each toolchain the repo
@@ -197,16 +131,16 @@ func iterateCommands(f BlockFlags) string {
 func rootStages(f BlockFlags) string {
 	var stages []string
 	if f.Cargo {
-		stages = append(stages, "a cargo root runs fmt→guards→clippy→check→fail-first")
+		stages = append(stages, "cargo fmt→guards→clippy→check")
 	}
 	if f.Go {
-		stages = append(stages, "a Go root runs vet→lint→fail-first")
+		stages = append(stages, "Go vet→lint")
 	}
 	if f.Npm {
-		stages = append(stages, "an npm root runs tsc→eslint→fail-first")
+		stages = append(stages, "npm tsc→eslint")
 	}
 	if len(stages) == 0 {
-		return "the toolchain's own checks, then fail-first"
+		return "the toolchain's own checks"
 	}
 	return strings.Join(stages, "; ")
 }

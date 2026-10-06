@@ -130,6 +130,10 @@ var schema = []Key{
 	{Name: "reply_style", Kind: tomlsubset.String, Enum: []string{"terse", "plain"}, Default: str("terse"), Layers: inUser, Field: "reply_style"},
 	{Name: "test.reads", Kind: tomlsubset.List, Default: list(), Layers: inRepo, Table: "test", Field: "reads"},
 	{Name: "test.slow_tag", Kind: tomlsubset.String, Default: str(""), Layers: inRepo, Table: "test", Field: "slow_tag"},
+	// The two lines the gate injects into a session unasked: the post-merge retro
+	// questions and the session-start open-issues line. Off until a repo or user opts in.
+	{Name: "retro-prompt", Kind: tomlsubset.Bool, Default: flag(false), Layers: inAll, Field: "retro-prompt"},
+	{Name: "issue-prompt", Kind: tomlsubset.Bool, Default: flag(false), Layers: inAll, Field: "issue-prompt"},
 }
 
 // The open families: a rule id and a runner name are the keys of their tables.

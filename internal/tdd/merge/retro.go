@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/config"
 )
 
 // The post-merge retro. After `workspace merge` lands a PR, one bounded gh
@@ -40,7 +42,9 @@ func PostMergeRetro(mainRepo, worktree, branch string, pr int, stderr io.Writer)
 	for _, w := range cfg.Warnings {
 		fmt.Fprintln(stderr, "warning: "+w)
 	}
-	if !cfg.active() {
+	// The retro is text injected into a session unasked, so it is off until
+	// the repo or the user sets retro-prompt.
+	if !cfg.active() || !config.ForDir(worktree).Get("retro-prompt").Value.B {
 		return
 	}
 	c := retroCollector{dir: worktree, deadline: retroNow().Add(retroBudget)}
