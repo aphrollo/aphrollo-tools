@@ -43,7 +43,7 @@ type Refs struct {
 }
 
 func makeRefs(all []int64) Refs {
-	s := slices.Clone(all)
+	s := slices.DeleteFunc(slices.Clone(all), func(q int64) bool { return q <= 0 })
 	slices.Sort(s)
 	s = slices.Compact(s)
 	r := Refs{Seqs: s}

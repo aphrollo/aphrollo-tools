@@ -222,3 +222,22 @@ func TestBuild_ARuleOnTwoLanesAndDaysIsOneRowSummedFromItsCells(t *testing.T) {
 		t.Errorf("friction = %+v, want one row of 2 denies from its two cells' sum", r.Friction)
 	}
 }
+
+func TestBuild_ADetailThatMentionsUnmeasuredDoesNotMakeAPassedVerdictNotTested(t *testing.T) {
+	r := build([]tdd.Event{
+		evAt(1, 5, "commit_gate", "lane/a", "mutants-passed:tested=30,caught=30,unmeasured=0"),
+		evAt(2, 5, "stage.timing", "lane/a", "bash-edit:internal/timeout/skipped_test.go"),
+		evAt(3, 5, "commit_gate", "lane/a", "mutants-unmeasured:commit-budget"),
+	})
+	if len(r.Friction) != 1 || r.Friction[0].Rule != "gate:mutants-unmeasured" {
+		t.Errorf("friction = %+v, want only mutants-unmeasured (a detail or a path is not the verdict)", r.Friction)
+	}
+}
+
+func TestBuild_AnEventWithNoSeqIsCountedButNamesNoReplayCommand(t *testing.T) {
+	r := build([]tdd.Event{evAt(0, 5, "deny", "lane/a", "", "rule", "r"), evAt(9, 5, "deny", "lane/a", "", "rule", "r")})
+	f := r.Friction[0]
+	if f.Denies != 2 || !slices.Equal(f.Refs.Seqs, []int64{9}) {
+		t.Errorf("denies %d, seqs %v, want 2 denies and only the replayable seq 9", f.Denies, f.Refs.Seqs)
+	}
+}

@@ -188,11 +188,13 @@ func isRefusal(head string) bool {
 	return false
 }
 
+// isNotTested reads the verdict's head only: a detail ("unmeasured=0") or a path
+// in it is not the verdict.
 func isNotTested(verdict string) bool {
-	l := strings.ToLower(verdict)
-	if strings.Contains(l, notTestedExcept) {
+	if strings.Contains(strings.ToLower(verdict), notTestedExcept) {
 		return false
 	}
+	l := strings.ToLower(verdictHead(verdict))
 	for _, p := range notTestedParts {
 		if strings.Contains(l, p) {
 			return true

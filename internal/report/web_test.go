@@ -140,3 +140,20 @@ func TestRenderHTML_AReportWithNothingInItStillRenders(t *testing.T) {
 		t.Errorf("an empty report page = %q", page)
 	}
 }
+
+func TestText_MatchesTheGoldenTextByteForByte(t *testing.T) {
+	got := webFixture().Text()
+	path := filepath.Join("testdata", "text_golden.txt")
+	if os.Getenv("UPDATE_GOLDEN") != "" {
+		if err := os.WriteFile(path, []byte(got), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("no golden text (run with UPDATE_GOLDEN=1 once): %v", err)
+	}
+	if got != string(want) {
+		t.Errorf("the text differs from testdata/text_golden.txt; UPDATE_GOLDEN=1 rewrites it after a reviewed change:\n%s", got)
+	}
+}
