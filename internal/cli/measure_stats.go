@@ -13,7 +13,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const measureStatsUsage = `usage: aphrollo stats [--repo <path>] [--lane <name>] [--week | --since <dur>] [--json] [--briefs | --shadow]
+const measureStatsUsage = `usage: aphrollo stats [--repo <path>] [--lane <name>] [--week | --since <dur>] [--json] [--briefs | --shadow | --ab]
 
 Prints the pipeline measures folded from the repo's event log (the current
 repo by default): lane speed (first event to merge, p50/p90), first-run CI
@@ -32,6 +32,10 @@ named earlier, over the window (the one to trend to 0). Read-only.
                    live hooks, per rule: fires, agreement, would-be blocks and, of
                    those, catches, wrong blocks and passes from what followed on
                    the lane; a rule under 10 fires says so instead of a rate
+  --ab             instead: the red-to-green A/B per arm and language: lanes, denies,
+                   warnings, overrides, escapes, friction (denies, overrides, time to
+                   green) and whether each arm has the 30 lanes it needs; a pinned
+                   lane is in neither arm
   --briefs         instead: the token count of the managed CLAUDE.md block, the
                    tdd skill and each agent brief against the caps (400 for the
                    block and skill, 250 for an agent), over-cap ones marked
@@ -52,6 +56,7 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 	asJSON := fs.Bool("json", false, "print JSON")
 	briefs := fs.Bool("briefs", false, "measure the managed block, skill and agent briefs against the token caps")
 	shadowSection := fs.Bool("shadow", false, "print the shadow section: trellis beside aphrollo's live hooks")
+	abSection := fs.Bool("ab", false, "print the red-to-green A/B readout per arm")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -66,6 +71,10 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo stats: --repo: %v\n", err)
 		return 2
 	}
+	if *abSection && (*briefs || *shadowSection) {
+		fmt.Fprintln(stderr, "aphrollo stats: --ab replaces the report, as --briefs and --shadow do: pass one")
+		return 2
+	}
 	if *briefs {
 		return printBriefs(*repo, *asJSON, stdout, stderr)
 	}
@@ -75,6 +84,14 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	note := horizonNote(*repo)
+	if *abSection {
+		ab := measure.ComputeAB(tdd.ReadEvents(*repo), time.Now().UTC(), measure.Options{Lane: *lane, Window: window})
+		if *asJSON {
+			return printJSON(ab, stdout, stderr)
+		}
+		fmt.Fprint(stdout, ab.Text())
+		return 0
+	}
 	if *shadowSection {
 		s := measure.ComputeShadow(tdd.ReadEvents(*repo), time.Now().UTC(), measure.Options{Lane: *lane, Window: window})
 		if *asJSON {
