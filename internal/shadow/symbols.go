@@ -6,6 +6,9 @@ import (
 	"regexp"
 	"strings"
 	"unicode"
+
+	"github.com/aphrollo/aphrollo-tools/internal/lang"
+	"github.com/aphrollo/aphrollo-tools/internal/mask"
 )
 
 // AddsSymbol is the kernel's Event.AddsSymbol for a write about to happen: whether it
@@ -26,16 +29,17 @@ import (
 // kind. None of the three is parsed: the gate holds no symbol table for them, so a
 // declaration is a line the language's own syntax opens with.
 func AddsSymbol(p Payload, file string) bool {
-	names, fresh := declaredNames, newSymbol
+	namesOf, fresh := declaredNames, newSymbol
 	switch strings.ToLower(filepath.Ext(file)) {
 	case ".go":
 	case ".py":
-		names, fresh = pyDeclaredNames, anyNewName
+		namesOf, fresh = pyDeclaredNames, anyNewName
 	case ".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs":
-		names, fresh = nodeDeclaredNames, anyNewName
+		namesOf, fresh = nodeDeclaredNames, anyNewName
 	default:
 		return false
 	}
+	names := func(src string) map[string]bool { return namesOf(masked(file, src)) }
 	switch p.ToolName {
 	case "Edit":
 		return fresh(names(p.ToolInput.OldString), names(p.ToolInput.NewString))
@@ -165,4 +169,16 @@ func newSymbol(before, now map[string]bool) bool {
 		}
 	}
 	return false
+}
+
+// masked is src with the strings and comments of file's lexing row blanked (the
+// file's own row, or the default row for a language whose row declares no lexing,
+// as Go and TypeScript do), so a declaration quoted in a docstring, a template
+// string or a comment is not read as one.
+func masked(file, src string) string {
+	t, err := lang.Defaults()
+	if err != nil {
+		return src
+	}
+	return mask.NewLexer(t.LexRow(file, 0)).Lex(src, true, true)
 }

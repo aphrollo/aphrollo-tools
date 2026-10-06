@@ -60,3 +60,33 @@ func TestAddsSymbol_ReadsTheGoEditsOwnTextForANewFuncOrExportedName(t *testing.T
 		}
 	}
 }
+
+// A def or a function inside a string, a docstring or a comment is text, not a
+// declaration: the edit's text is read with strings and comments blanked.
+func TestAddsSymbol_ADeclarationInAStringOrACommentIsNotOne(t *testing.T) {
+	edit := func(now string) Payload {
+		var p Payload
+		p.ToolName = "Edit"
+		p.ToolInput.NewString = now
+		return p
+	}
+	for _, c := range []struct {
+		name, file, now string
+		want            bool
+	}{
+		{"a python docstring", "a.py", "\"\"\"\ndef example():\n    pass\n\"\"\"", false},
+		{"a python comment", "a.py", "# def old_way():", false},
+		{"a python def after a docstring", "a.py", "\"\"\"doc\"\"\"\ndef real():\n    pass", true},
+		{"a ts template string", "a.ts", "const doc = `\nfunction shown() {}\n`", false},
+		{"a ts block comment", "a.ts", "/*\nexport const hidden = 1\n*/", false},
+		{"a ts line comment", "a.ts", "// function gone() {}", false},
+		{"a ts function after a comment", "a.ts", "// note\nfunction real() {}", true},
+		{"a go raw string", "a.go", "var doc = `\nfunc Shown() {}\n`", false},
+		{"a go comment", "a.go", "// func Old() {}", false},
+		{"a go func", "a.go", "func New() {}", true},
+	} {
+		if got := AddsSymbol(edit(c.now), c.file); got != c.want {
+			t.Errorf("%s: AddsSymbol = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
