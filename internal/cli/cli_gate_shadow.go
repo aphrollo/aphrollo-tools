@@ -102,7 +102,7 @@ func actionOf(d tdd.Decision) shadow.Action {
 // is resolved here (it asks git), begun now and collected in the record's window.
 func (p *preShadow) judgePrimary(raw []byte) {
 	p.primary = tdd.JudgePrimary(raw)
-	if p.primary.Waived {
+	if _, ok := hookSource(raw); ok && shadow.Enabled && p.primary.Waived {
 		j := p.primary
 		p.landing = shadow.StartPrefetch(func() string { return j.Landing(raw) })
 	}

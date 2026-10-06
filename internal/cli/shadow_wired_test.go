@@ -443,3 +443,29 @@ func TestPreShadow_AWaivedCallStartsItsLandingProbeWhenTheWallJudgesIt(t *testin
 		t.Errorf("landing = %q, %v, want the primary checkout %q", root, ok, primary)
 	}
 }
+
+// A call the record would not be written for starts no probe: recording off, or a
+// payload that names no source.
+func TestPreShadow_AWaivedCallStartsNoLandingProbeWhenNothingWillBeRecorded(t *testing.T) {
+	gateConfigDir(t)
+	primary, _ := primaryWorktreeRepo(t)
+	raw := []byte(primaryEditPayload(t, filepath.Join(primary, "main.go")))
+	t.Setenv("APHROLLO_PRIMARY_EDITS", "1")
+
+	old := shadow.Enabled
+	t.Cleanup(func() { shadow.Enabled = old })
+	shadow.Enabled = false
+	p := newPreShadow(raw)
+	p.judgePrimary(raw)
+	if p.landing != nil {
+		t.Error("a landing probe was started with recording off")
+	}
+	shadow.Enabled = true
+
+	noSource := []byte(`{"tool_name":"Edit","session_id":"s","tool_input":{"old_string":"a"}}`)
+	p = newPreShadow(noSource)
+	p.judgePrimary(noSource)
+	if p.landing != nil {
+		t.Error("a landing probe was started for a payload with no source to file the record under")
+	}
+}
