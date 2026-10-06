@@ -210,3 +210,32 @@ func TestRecordFactsAnd_AnOverrunLeavesTheUnjudgedRecordWhicheverWayTheHookReads
 		}
 	}
 }
+
+// Three steps the window did not commit are three records written under one grace:
+// a stuck writer costs the hook DropGrace once, not once per record.
+func TestSettle_AStuckWriterCostsTheHookOneGraceForAllTheSkippedSteps(t *testing.T) {
+	clk, _ := bjSetup(t)
+	hold := make(chan struct{})
+	started := make(chan struct{}, 8)
+	oldAppend := appendEvent
+	appendEvent = func(core.Event) { started <- struct{}{}; <-hold }
+	t.Cleanup(func() { appendEvent = oldAppend; close(hold) })
+	step := Step{
+		run: func(context.Context) []core.Event { return nil },
+		skip: func(cause string) core.Event {
+			return unjudged(HookPre, RuleRedGreen, "", cause).event(Source{Root: "r"}, "lane/x")
+		},
+	}
+	returned := make(chan struct{})
+	go func() {
+		settle(&window{}, []Step{step, step, step})
+		close(returned)
+	}()
+	<-started // the writer is stuck on the first record
+	clk.Advance(DropGrace)
+	select {
+	case <-returned:
+	case <-time.After(10 * time.Second):
+		t.Fatal("settle waited for a second grace after the first one ended")
+	}
+}

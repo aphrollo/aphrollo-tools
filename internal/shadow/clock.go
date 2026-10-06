@@ -76,9 +76,14 @@ func (p *Prefetch[T]) Wait(ctx context.Context) (T, bool) {
 // do it in this time is left behind like any other, never waited for.
 var DropGrace = 50 * time.Millisecond
 
-// appendDropped writes the record of a drop (an unjudged record naming the budget)
-// within DropGrace on the clock. The wait is counted for TakeWaited.
-func appendDropped(e core.Event) {
+// appendDropped writes the records of what a hook dropped (unjudged records naming
+// the budget) within one DropGrace on the clock for all of them, in order on one
+// goroutine: however many were dropped, the hook waits once. Those not written when
+// the grace ends are left to the goroutine. The wait is counted for TakeWaited.
+func appendDropped(evs ...core.Event) {
+	if len(evs) == 0 {
+		return
+	}
 	clk := clock
 	start := clk.Now()
 	defer func() { waited.Add(int64(clk.Now().Sub(start))) }()
@@ -87,7 +92,9 @@ func appendDropped(e core.Event) {
 	go func() {
 		defer close(done)
 		defer func() { _ = recover() }()
-		write(e)
+		for _, e := range evs {
+			write(e)
+		}
 	}()
 	grace, release := clk.Timer(DropGrace)
 	defer release()

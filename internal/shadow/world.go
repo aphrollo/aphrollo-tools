@@ -485,11 +485,13 @@ func runSteps(ctx context.Context, w *window, steps []Step) {
 }
 
 // settle writes the unjudged record of every step the window did not commit.
-func settle(w *window, steps []Step) {
+func settle(w *window, steps []Step, extra ...core.Event) {
+	evs := extra
 	for _, st := range w.skippedFrom(steps) {
 		Overruns.Add(1)
-		appendDropped(st.skip(CauseBudget))
+		evs = append(evs, st.skip(CauseBudget))
 	}
+	appendDropped(evs...)
 }
 
 func (w *window) skippedFrom(steps []Step) []Step {

@@ -401,11 +401,12 @@ func RecordFactsAnd(s Source, facts func() []Fact, steps []Step) {
 	})
 	if !finished {
 		w.close()
+		var extra []core.Event
 		if !factsDone.Load() {
 			Overruns.Add(1)
-			appendDropped(unjudged(HookPre, RuleFacts, "", CauseBudget).event(s, core.LaneOf(s.Root)))
+			extra = append(extra, unjudged(HookPre, RuleFacts, "", CauseBudget).event(s, core.LaneOf(s.Root)))
 		}
-		settle(w, steps)
+		settle(w, steps, extra...)
 	}
 }
 
