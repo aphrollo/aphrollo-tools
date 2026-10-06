@@ -116,8 +116,8 @@ func TestUsage_TokensRegroupByDayLaneRoleAndModel(t *testing.T) {
 	if got := group(u.ByLane, "lane/lane1").Output; got != 60 {
 		t.Errorf("lane/lane1 output = %d, want 60 (the lane is read from the checkout, not the directory's name)", got)
 	}
-	if got := group(u.ByLane, "main").Output; got != 10 {
-		t.Errorf("main output = %d, want 10", got)
+	if got := group(u.ByLane, laneCoordination).Output; got != 10 {
+		t.Errorf("coordination output = %d, want 10: a coordinator turn in the primary checkout, far from its session's lane event", got)
 	}
 	if got := group(u.ByRole, "subagent").Output; got != 40 {
 		t.Errorf("subagent output = %d, want 40", got)
@@ -193,9 +193,9 @@ func TestUsage_CostIsComputedAtReadTimeFromThePriceTable(t *testing.T) {
 func TestUsage_InjectedTextIsMeasuredByHookEventAndGateLineKindNeverQuoted(t *testing.T) {
 	f := newUsageFixture(t)
 	f.transcript("p", "s.jsonl",
-		asst("s", "a", "2026-10-06T10:00:00Z", f.repo, "claude-opus-5", 0, 0, 100_000, 10, 0, false),
+		asst("s", "a", "2026-10-06T10:00:00Z", f.repo, "claude-opus-5", 1000, 0, 100_000, 10, 0, false),
 		hook("s", "2026-10-06T10:00:01Z", f.repo, "PostToolUse",
-			"gate: go test ./x → green (3 passed)", "gate: go test ./y → outcome=red-missing-impl", "gate: go test ./z → TIMEOUT "+secret),
+			"gate: go test ./x → green (3 passed)", "gate: go test ./y → outcome=red-missing-impl", "gate: go test ./z → TIMEOUT "+secret, "another hook said something long that is not ours"),
 		hook("s", "2026-10-06T10:00:02Z", f.repo, "SessionStart", "gate: before writing code this session, read the skill"))
 	u := usage(t, f.scan())
 	if u.Injection.Tokens == 0 {
@@ -213,7 +213,7 @@ func TestUsage_InjectedTextIsMeasuredByHookEventAndGateLineKindNeverQuoted(t *te
 	if g := group(u.Injection.ByEvent, "PostToolUse"); g.Count != 1 {
 		t.Errorf("PostToolUse injections = %+v, want 1", g)
 	}
-	if u.Injection.InputShare == "" {
+	if u.Injection.FreshShare == "" {
 		t.Error("no share of input")
 	}
 }
@@ -260,5 +260,55 @@ func TestUsage_AreplayOfTheSameFixtureIsTheSameBytes(t *testing.T) {
 	b, _ := json.Marshal(usage(t, f.scan()))
 	if string(a) != string(b) {
 		t.Error("two scans of one fixture differ")
+	}
+}
+
+func TestUsage_OnlyAphrollosOwnInjectionsAreCountedAndTheShareIsOfFreshInput(t *testing.T) {
+	f := newUsageFixture(t)
+	f.transcript("p", "s.jsonl",
+		asst("s", "a", "2026-10-06T10:00:00Z", f.repo, "claude-opus-5", 1000, 3000, 900_000, 10, 0, false),
+		hook("s", "2026-10-06T10:00:01Z", f.repo, "PostToolUse", "an unrelated hook text that is long enough to count if it were counted"),
+		hook("s", "2026-10-06T10:00:02Z", f.repo, "PostToolUse", "gate: go test ./x → green (3 passed)"))
+	u := usage(t, f.scan())
+	if u.Injection.Tokens != 10 { // "gate: go test ./x → green (3 passed)" is 38 bytes: 10 tokens
+		t.Errorf("injected tokens = %d, want only the gate line's 10", u.Injection.Tokens)
+	}
+	if u.Injection.FreshShare != "0.250%" { // 10 of 1000 fresh + 3000 cache write
+		t.Errorf("share = %q, want 0.250%% of the fresh input (the cache read is not in it)", u.Injection.FreshShare)
+	}
+	if !strings.Contains(u.Text(), "cache re-reads not counted") {
+		t.Errorf("the text does not say what is counted:\n%s", u.Text())
+	}
+}
+
+func TestUsage_AnOneHourCacheWriteCostsTwiceTheInputPriceAndTheFiveMinuteOneOnePointTwoFive(t *testing.T) {
+	f := newUsageFixture(t)
+	rec := `{"type":"assistant","timestamp":"2026-10-06T10:00:00Z","sessionId":"s","requestId":"a","cwd":` + jsonStr(f.repo) +
+		`,"message":{"model":"claude-opus-5","usage":{"input_tokens":0,"cache_creation_input_tokens":2000000,"cache_read_input_tokens":0,"output_tokens":0,` +
+		`"cache_creation":{"ephemeral_1h_input_tokens":1000000,"ephemeral_5m_input_tokens":1000000}}}}`
+	f.transcript("p", "s.jsonl", rec)
+	// 1M at 1.25 x 5 and 1M at 2 x 5.
+	if u := usage(t, f.scan()); u.Total.CostUSD != 16.25 || u.Total.CacheWrite1h != 1_000_000 {
+		t.Errorf("cost = %v, 1h = %d, want 16.25 and 1000000", u.Total.CostUSD, u.Total.CacheWrite1h)
+	}
+}
+
+func TestUsage_ASyntheticRecordIsNotATurn(t *testing.T) {
+	f := newUsageFixture(t)
+	f.transcript("p", "s.jsonl",
+		asst("s", "a", "2026-10-06T10:00:00Z", f.repo, "<synthetic>", 0, 0, 0, 0, 0, false),
+		asst("s", "b", "2026-10-06T10:01:00Z", f.repo, "claude-opus-5", 1, 0, 0, 5, 0, false))
+	if u := usage(t, f.scan()); u.Total.Turns != 1 || len(u.ByModel) != 1 {
+		t.Errorf("turns %d, models %d, want the synthetic record left out", u.Total.Turns, len(u.ByModel))
+	}
+}
+
+func TestUsage_ALineOverTheCapIsCountedUnreadableAndTheNextLineStillCounts(t *testing.T) {
+	f := newUsageFixture(t)
+	huge := `{"type":"user","timestamp":"2026-10-06T10:00:00Z","pad":"` + strings.Repeat("x", maxLineBytes+10) + `"}`
+	f.transcript("p", "s.jsonl", huge, asst("s", "a", "2026-10-06T10:01:00Z", f.repo, "claude-opus-5", 1, 0, 0, 5, 0, false))
+	u := usage(t, f.scan())
+	if u.Unreadable != 1 || u.Total.Turns != 1 {
+		t.Errorf("unreadable %d, turns %d, want the over-long line counted unreadable and the next one read", u.Unreadable, u.Total.Turns)
 	}
 }

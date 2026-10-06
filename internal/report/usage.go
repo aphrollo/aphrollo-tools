@@ -45,7 +45,9 @@ func costUSD(model string, t UsageTokens) (float64, bool) {
 	if !ok {
 		return 0, false
 	}
-	return (float64(t.Fresh)*p.Input + float64(t.Output)*p.Output + float64(t.CacheRead)*p.CacheRead + float64(t.CacheWrite)*p.CacheWrite) / 1e6, true
+	// The 1-hour cache write costs twice the input price, the 5-minute one 1.25 times.
+	w5m, w1h := t.CacheWrite-t.CacheWrite1h, t.CacheWrite1h
+	return (float64(t.Fresh)*p.Input + float64(t.Output)*p.Output + float64(t.CacheRead)*p.CacheRead + float64(w5m)*p.CacheWrite + float64(w1h)*2*p.Input) / 1e6, true
 }
 
 // UsageGroup is the cells of one key summed. For an injection group Tokens is
@@ -67,10 +69,16 @@ type UsageGroup struct {
 // Submitted is the input of the group's turns, fresh and cached.
 func (g UsageGroup) Submitted() int64 { return g.Fresh + g.CacheWrite + g.CacheRead }
 
+// FreshInput is the input that was not read from the cache: what the turns paid
+// full or write price for. It is the denominator of the injected text's share,
+// since the cache re-reads the same text on every later turn.
+func (g UsageGroup) FreshInput() int64 { return g.Fresh + g.CacheWrite }
+
 func (g *UsageGroup) add(t UsageTokens, cost float64) {
 	g.Turns += t.Turns
 	g.Fresh += t.Fresh
 	g.CacheWrite += t.CacheWrite
+	g.CacheWrite1h += t.CacheWrite1h
 	g.CacheRead += t.CacheRead
 	g.Output += t.Output
 	g.Thinking += t.Thinking
@@ -83,7 +91,7 @@ func (g *UsageGroup) add(t UsageTokens, cost float64) {
 // counted once, when it is injected; the cache then re-reads it on later turns.
 type Injection struct {
 	Tokens     int64        `json:"tokens"`
-	InputShare string       `json:"share_of_input"`
+	FreshShare string       `json:"share_of_fresh_input"`
 	ByEvent    []UsageGroup `json:"by_hook_event"`
 	ByKind     []UsageGroup `json:"by_kind"`
 }
@@ -93,7 +101,7 @@ type UsagePeriod struct {
 	Days       int        `json:"days"`
 	Group      UsageGroup `json:"usage"`
 	Injected   int64      `json:"injected_tokens"`
-	InputShare string     `json:"share_of_input"`
+	FreshShare string     `json:"share_of_fresh_input"`
 }
 
 // UsageCompare is the usage before and after a date, for a change to be read
@@ -149,7 +157,7 @@ func BuildUsage(f UsageFacts, now time.Time, window time.Duration, compareAt tim
 		u.TopSessions = u.TopSessions[:topSessionsN]
 	}
 	u.UnpricedTokens = unpriced(f)
-	u.Injection = injection(f, "", "", u.Total.Submitted())
+	u.Injection = injection(f, "", "", u.Total.FreshInput())
 	if cmp := compare(f, now, window, compareAt); cmp != nil {
 		u.Compare = cmp
 	}
@@ -237,7 +245,7 @@ func injection(f UsageFacts, from, to string, submitted int64) Injection {
 		bump(kinds, k.Kind, v)
 	}
 	in.ByEvent, in.ByKind = injectGroups(events), injectGroups(kinds)
-	in.InputShare = share(in.Tokens, submitted)
+	in.FreshShare = share(in.Tokens, submitted)
 	return in
 }
 
@@ -288,8 +296,8 @@ func compare(f UsageFacts, now time.Time, window time.Duration, at time.Time) *U
 	period := func(from, to time.Time) UsagePeriod {
 		fd, td := from.Format(dayLayout), to.Format(dayLayout)
 		g := sumRange("period", f, fd, td)
-		in := injection(f, fd, td, g.Submitted())
-		return UsagePeriod{Days: int(to.Sub(from) / (24 * time.Hour)), Group: g, Injected: in.Tokens, InputShare: in.InputShare}
+		in := injection(f, fd, td, g.FreshInput())
+		return UsagePeriod{Days: int(to.Sub(from) / (24 * time.Hour)), Group: g, Injected: in.Tokens, FreshShare: in.FreshShare}
 	}
 	return &UsageCompare{At: cut.Format(dayLayout), Before: period(start, cut), After: period(cut, end)}
 }
@@ -311,6 +319,9 @@ func (u Usage) Text() string {
 		cap  int
 	}{{"per role", u.ByRole, 0}, {"per day", u.ByDay, 0}, {"per lane", u.ByLane, textRows}, {"per model", u.ByModel, textRows}, {"top sessions", u.TopSessions, 0}} {
 		p("  %s", t.name)
+		if t.name == "per lane" {
+			p("    (lane: joined from the event log and the worktree calls, since a record's cwd names the primary checkout; coordination: coordinator turns with no lane in reach; unattributed: no lane event for the actor)")
+		}
 		for i, g := range t.gs {
 			if t.cap > 0 && i == t.cap {
 				p("    ... %d more (--json lists them all)", len(t.gs)-t.cap)
@@ -319,7 +330,7 @@ func (u Usage) Text() string {
 			line(g)
 		}
 	}
-	p("  aphrollo's injected text: ~%s tokens, %s of the input submitted (counted once when injected; the cache re-reads it on later turns)", tok(u.Injection.Tokens), orNone(u.Injection.InputShare))
+	p("  aphrollo injected ~%s tokens (first injection; cache re-reads not counted), %s of the fresh (non-cache-read) input", tok(u.Injection.Tokens), orNone(u.Injection.FreshShare))
 	for _, g := range u.Injection.ByEvent {
 		p("    hook %-26s %8s tokens  %d injections", g.Key, tok(g.Tokens), g.Count)
 	}
@@ -334,7 +345,7 @@ func (u Usage) Text() string {
 		}{{"before", c.Before}, {"after", c.After}} {
 			d := float64(max(x.per.Days, 1))
 			p("    %-6s %d days  $%.2f a day  output %s a day  input %s a day  injected share %s",
-				x.name, x.per.Days, x.per.Group.CostUSD/d, tok(int64(float64(x.per.Group.Output)/d)), tok(int64(float64(x.per.Group.Submitted())/d)), orNone(x.per.InputShare))
+				x.name, x.per.Days, x.per.Group.CostUSD/d, tok(int64(float64(x.per.Group.Output)/d)), tok(int64(float64(x.per.Group.Submitted())/d)), orNone(x.per.FreshShare))
 		}
 	}
 	return b.String()

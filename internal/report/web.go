@@ -89,7 +89,7 @@ func newPage(r Report) webPage {
 		}{{"before", u.Compare.Before}, {"after", u.Compare.After}} {
 			d := float64(max(x.per.Days, 1))
 			p.ComparePeriods = append(p.ComparePeriods, comparePeriod{x.name, x.per.Days, x.per.Group.CostUSD / d,
-				int64(float64(x.per.Group.Output) / d), orNone(x.per.InputShare)})
+				int64(float64(x.per.Group.Output) / d), orNone(x.per.FreshShare)})
 		}
 	}
 	return p

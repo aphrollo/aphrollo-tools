@@ -155,9 +155,10 @@ func buildReport(root string, window time.Duration, now, compareAt time.Time, ab
 	for _, b := range tdd.Briefs(tdd.RepoRoot(root)) {
 		briefs = append(briefs, measure.Brief{Name: b.Name, Subagent: b.Subagent, Bytes: len(b.Text)})
 	}
+	events := tdd.ReadEvents(root)
 	return report.Build(report.Input{
-		Events: tdd.ReadEvents(root), Now: now, Window: window,
+		Events: events, Now: now, Window: window,
 		Repo: repoName(root), Briefs: measure.CheckBriefs(briefs),
-		Usage: scanUsage(root, window, now), CompareAt: compareAt, ABReadyIssued: abReady,
+		Usage: scanUsage(root, window, now, events), CompareAt: compareAt, ABReadyIssued: abReady,
 	})
 }

@@ -42,17 +42,17 @@ func webFixture() Report {
 			Repo: "aphrollo-tools", Sessions: 3,
 			Total:  UsageGroup{Key: "total", Turns: 40, Fresh: 100, CacheWrite: 2000, CacheRead: 90000, Output: 5000, CostUSD: 12.5},
 			ByDay:  []UsageGroup{{Key: "2026-10-05", Fresh: 10, CacheRead: 40000, Output: 2000, CostUSD: 5}, {Key: "2026-10-06", Fresh: 20, CacheRead: 50000, Output: 3000, CostUSD: 7.5}},
-			ByLane: []UsageGroup{{Key: "lane/a", Output: 4000, CostUSD: 10}, {Key: "main", Output: 1000, CostUSD: 2.5}},
+			ByLane: []UsageGroup{{Key: "lane/a", Output: 4000, CostUSD: 10}, {Key: "coordination", Output: 700, CostUSD: 1.5}, {Key: "unattributed", Output: 300, CostUSD: 1}},
 			ByRole: []UsageGroup{{Key: "coordinator", Output: 3000, CostUSD: 8}, {Key: "subagent", Output: 2000, CostUSD: 4.5}},
 			ByModel: []UsageGroup{
 				{Key: "claude-opus-5", Output: 5000, CostUSD: 12.5},
 			},
 			TopSessions: []UsageGroup{{Key: "s-1", Turns: 30, Output: 4000, CostUSD: 9}},
-			Injection: Injection{Tokens: 700, InputShare: "0.760%", ByEvent: []UsageGroup{{Key: "PostToolUse", Tokens: 500, Count: 20}},
+			Injection: Injection{Tokens: 700, FreshShare: "0.760%", ByEvent: []UsageGroup{{Key: "PostToolUse", Tokens: 500, Count: 20}},
 				ByKind: []UsageGroup{{Key: "green", Tokens: 300}, {Key: "not-tested", Tokens: 200}}},
 			Compare: &UsageCompare{At: "2026-10-05",
-				Before: UsagePeriod{Days: 5, Group: UsageGroup{Output: 1000, CostUSD: 5}, Injected: 100, InputShare: "1.0%"},
-				After:  UsagePeriod{Days: 3, Group: UsageGroup{Output: 4000, CostUSD: 7.5}, Injected: 600, InputShare: "0.5%"}},
+				Before: UsagePeriod{Days: 5, Group: UsageGroup{Output: 1000, CostUSD: 5}, Injected: 100, FreshShare: "1.0%"},
+				After:  UsagePeriod{Days: 3, Group: UsageGroup{Output: 4000, CostUSD: 7.5}, Injected: 600, FreshShare: "0.5%"}},
 		},
 	}
 }

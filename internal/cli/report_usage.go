@@ -11,6 +11,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/config"
 	"github.com/aphrollo/aphrollo-tools/internal/git"
 	"github.com/aphrollo/aphrollo-tools/internal/report"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // harnessConfigDir is where the agent harness keeps its transcripts: its
@@ -41,12 +42,12 @@ func repoName(root string) string {
 
 // scanUsage reads the harness's local transcripts for this repo over the
 // window. Read-only, run when the report runs and never before.
-func scanUsage(root string, window time.Duration, now time.Time) *report.UsageFacts {
+func scanUsage(root string, window time.Duration, now time.Time, events []tdd.Event) *report.UsageFacts {
 	dir := harnessConfigDirFn()
 	if dir == "" {
 		return nil
 	}
-	o := report.ScanOptions{ConfigDir: dir, Repo: repoName(root), Now: now}
+	o := report.ScanOptions{ConfigDir: dir, Repo: repoName(root), Now: now, Events: events}
 	if window > 0 {
 		o.Since = now.Add(-window)
 	}

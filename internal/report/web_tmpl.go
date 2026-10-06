@@ -114,6 +114,10 @@ code { background:var(--code); border-radius:4px; padding:1px 5px; font:0.85rem 
 <p>Total: input {{tok .Total.Submitted}} (fresh {{tok .Total.Fresh}}, cache write {{tok .Total.CacheWrite}}, cache read {{tok .Total.CacheRead}}), output {{tok .Total.Output}}, {{usd .Total.CostUSD}}.</p>
 {{$.Charts.Days}}
 {{$.Charts.Lanes}}
+<table><tr><th>Lane</th><th class="n">Turns</th><th class="n">Output</th><th class="n">Cost</th></tr>
+{{range .ByLane}}<tr><td>{{.Key}}</td><td class="n">{{.Turns}}</td><td class="n">{{tok .Output}}</td><td class="n">{{usd .CostUSD}}</td></tr>
+{{end}}</table>
+<p class="note">A record's working directory names the primary checkout, so a lane is joined from the event log and the worktree calls. Coordination: coordinator turns with no lane in reach. Unattributed: no lane event for the actor.</p>
 {{$.Charts.Models}}
 <table><tr><th>Role</th><th class="n">Turns</th><th class="n">Output</th><th class="n">Cost</th></tr>
 {{range .ByRole}}<tr><td>{{.Key}}</td><td class="n">{{.Turns}}</td><td class="n">{{tok .Output}}</td><td class="n">{{usd .CostUSD}}</td></tr>
@@ -123,7 +127,7 @@ code { background:var(--code); border-radius:4px; padding:1px 5px; font:0.85rem 
 {{range .TopSessions}}<tr><td>{{.Key}}</td><td class="n">{{.Turns}}</td><td class="n">{{tok .Output}}</td><td class="n">{{usd .CostUSD}}</td></tr>
 {{end}}</table>
 <h3>aphrollo's injected text</h3>
-<p>About {{tok .Injection.Tokens}} tokens{{if .Injection.InputShare}}, {{.Injection.InputShare}} of the input submitted{{end}}. Counted once when injected; the cache re-reads it on later turns.</p>
+<p>aphrollo injected about {{tok .Injection.Tokens}} tokens (first injection; cache re-reads are not counted){{if .Injection.FreshShare}}, {{.Injection.FreshShare}} of the fresh (non-cache-read) input{{end}}.</p>
 {{$.Charts.Injection}}
 {{with .Compare}}<h3>Before and after {{.At}}</h3>
 {{$.Charts.Compare}}
