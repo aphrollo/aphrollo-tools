@@ -80,6 +80,11 @@ func TestEmptyPass_TableDriven(t *testing.T) {
 		want bool
 	}{
 		{"nextest exit-4 no-tests-to-run", SuiteResult{Passed: false, Output: nextestNoTestsOutput}, true},
+		// #1245: vitest handed a file its include pattern does not match (a
+		// Playwright spec) exits 1 having run nothing; jest does the same.
+		{"vitest exit-1 no test files found", SuiteResult{Passed: false, Output: "No test files found, exiting with code 1\n\nfilter: e2e/specs/login.spec.ts\ninclude: src/**/*.test.{ts,tsx}"}, true},
+		{"jest exit-1 no tests found", SuiteResult{Passed: false, Output: "No tests found, exiting with code 1\nRun with `--passWithNoTests` to exit with code 0"}, true},
+		{"a vitest assertion failure", SuiteResult{Passed: false, Output: " FAIL  src/a.test.ts > adds\nAssertionError: expected 2 to be 3\n Test Files  1 failed (1)"}, false},
 		{"already passing is not this case (irrelevant, but must not misfire)", SuiteResult{Passed: true, Output: "ok"}, false},
 		{"a real assertion failure", SuiteResult{Passed: false, Output: "--- FAIL: TestWidget\n    want 1 got 2"}, false},
 		{"a timed-out run is never reclassified", SuiteResult{Passed: false, TimedOut: true, Output: "no tests to run"}, false},

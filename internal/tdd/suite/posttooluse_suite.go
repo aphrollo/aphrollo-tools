@@ -79,7 +79,12 @@ func cmdString(r Runner) string {
 // runner that turns "nothing to run" into a nonzero exit and a Passed=false
 // SuiteResult, which without this check hard-blocked the commit as "tests
 // failing" over a crate that was never supposed to have any.
-var noTestsToRunRe = regexp.MustCompile(`(?i)no tests to run`)
+//
+// vitest and jest have the same shape (#1245): handed a file their own include
+// pattern does not match, such as a Playwright spec under e2e/, they exit 1
+// with "No test files found" / "No tests found, exiting with code 1" having
+// run nothing. That is an empty run, never a red.
+var noTestsToRunRe = regexp.MustCompile(`(?i)no tests to run|no test files found|no tests found, exiting with code 1`)
 
 // RunSuite is the production SuiteRunner: it executes the test command with a
 // bounded timeout and a quiet, deterministic environment (CI=1, NO_COLOR=1),
