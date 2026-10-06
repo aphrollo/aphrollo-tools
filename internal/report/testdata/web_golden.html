@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Report 2026-W41: aphrollo-tools</title>
+<style>
+:root { color-scheme: light dark; --bg:#fbfbfa; --fg:#1d1f21; --muted:#6b7075; --card:#ffffff; --line:#dcdedf; --bar:#3b6fb6; --bar2:#c0762b; --warn:#b3261e; --code:#eef0f2; }
+@media (prefers-color-scheme: dark) { :root { --bg:#14161a; --fg:#e6e8ea; --muted:#9aa0a6; --card:#1c1f24; --line:#30343a; --bar:#6aa0e8; --bar2:#e0a35c; --warn:#ff8a80; --code:#262a30; } }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
+main { max-width: 860px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 1.4rem; margin: 8px 0 2px; } h2 { font-size: 1.1rem; margin: 0 0 8px; }
+.sub { color:var(--muted); margin:0 0 16px; }
+section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:14px 0; overflow-x:auto; }
+table { border-collapse: collapse; width:100%; font-size: 0.92rem; }
+th, td { text-align:left; padding:4px 8px 4px 0; border-bottom:1px solid var(--line); vertical-align: top; }
+th { color:var(--muted); font-weight:600; }
+td.n, th.n { text-align:right; font-variant-numeric: tabular-nums; }
+code { background:var(--code); border-radius:4px; padding:1px 5px; font:0.85rem ui-monospace, monospace; user-select: all; }
+.refs { color:var(--muted); font-size:0.85rem; }
+.none, .note { color:var(--muted); }
+.over { color:var(--warn); font-weight:600; }
+.chart { width:100%; height:auto; display:block; margin:8px 0; }
+.chart .lbl, .chart .val { font:11px system-ui, sans-serif; fill:var(--fg); }
+.chart .bar { fill:var(--bar); }
+.chart .axis { stroke:var(--line); }
+.chart .line { stroke-width:2; } .chart .l1 { stroke:var(--bar); } .chart .l2 { stroke:var(--bar2); }
+.chart .key.l1 { fill:var(--bar); } .chart .key.l2 { fill:var(--bar2); }
+@media (max-width: 520px) { main { padding: 8px; } section { padding: 10px; } }
+</style>
+</head>
+<body>
+<main>
+<h1>Report 2026-W41</h1>
+<p class="sub">aphrollo-tools · last 7d up to 2026-10-07T12:00:00Z · 1234 events. Replay an event by running its <code>aphrollo why &lt;seq&gt;</code> text in the repo.</p>
+
+<section id="proposals">
+<h2>Proposals</h2>
+<p class="note">The report proposes; nothing here is applied.</p>
+<table><tr><th>Rule</th><th>Evidence</th><th>Proposed change</th></tr>
+<tr><td>disabled-test</td><td>5 denies, 3 waived<br><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td><td>lower the rule from block to guide</td></tr>
+</table>
+</section>
+
+<section id="friction">
+<h2>1. Friction per rule</h2>
+<svg class="chart" viewBox="0 0 640 80" role="img" aria-label="friction per rule"><g><title>ratchet:module_size: 5</title><text class="lbl" x="222" y="19" text-anchor="end">ratchet:module_size</text><rect class="bar" x="230" y="7" width="166.7" height="16" rx="2"/><text class="val" x="402.7" y="19">5</text></g><g><title>gate:lint-blocked: 3</title><text class="lbl" x="222" y="43" text-anchor="end">gate:lint-blocked</text><rect class="bar" x="230" y="31" width="100.0" height="16" rx="2"/><text class="val" x="336.0" y="43">3</text></g><g><title>run:deferred: 9</title><text class="lbl" x="222" y="67" text-anchor="end">run:deferred</text><rect class="bar" x="230" y="55" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="67">9</text></g></svg>
+<table><tr><th>Rule</th><th class="n">Denies</th><th class="n">Overrides</th><th class="n">Refusals</th><th class="n">Not tested</th><th class="n">Waited</th><th class="n">Background</th><th>Evidence</th></tr>
+<tr><td>ratchet:module_size</td><td class="n">4</td><td class="n">1</td><td class="n">0</td><td class="n">0</td><td class="n">2.2m</td><td class="n">0s</td><td><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td></tr>
+<tr><td>gate:lint-blocked</td><td class="n">0</td><td class="n">0</td><td class="n">3</td><td class="n">0</td><td class="n">40s</td><td class="n">15s</td><td><span class="refs"><code>aphrollo why 30</code></span></td></tr>
+<tr><td>run:deferred</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">9</td><td class="n">0s</td><td class="n">0s</td><td><span class="refs"><code>aphrollo why 32</code></span></td></tr>
+</table>
+<p class="note">Waited is gate time the agent stood waiting on; background is gate time that ran while it kept working.</p>
+</section>
+
+<section id="wrong">
+<h2>2. Wrong-block candidates</h2>
+<svg class="chart" viewBox="0 0 640 32" role="img" aria-label="share of denies waived per rule"><g><title>disabled-test: 60%</title><text class="lbl" x="222" y="19" text-anchor="end">disabled-test</text><rect class="bar" x="230" y="7" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="19">60%</text></g></svg>
+<table><tr><th>Rule</th><th class="n">Denies</th><th class="n">Waived</th><th class="n">Rate</th><th>Evidence</th></tr>
+<tr><td>disabled-test</td><td class="n">5</td><td class="n">3</td><td class="n">60%</td><td><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td></tr>
+</table>
+<h3>Shadow would-be blocks</h3><table><tr><th>Rule</th><th class="n">Fires</th><th class="n">Would-be blocks</th><th class="n">Wrong</th><th class="n">Caught</th><th class="n">Open</th></tr>
+<tr><td>red-green</td><td class="n">40</td><td class="n">8</td><td class="n">2</td><td class="n">1</td><td class="n">5</td></tr>
+</table>
+<h3>Stand-downs</h3><table><tr><th>Matcher</th><th class="n">Times</th><th>Evidence</th></tr>
+<tr><td>unknown-matcher-kind:tautology</td><td class="n">25</td><td><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td></tr>
+</table>
+</section>
+
+<section id="escapes">
+<h2>3. Escapes by class and the stage that should have caught them</h2>
+<svg class="chart" viewBox="0 0 640 32" role="img" aria-label="escapes by class"><g><title>product: local test gate (CI job test caught it): 2</title><text class="lbl" x="222" y="19" text-anchor="end">product: local test gate (CI job …</text><rect class="bar" x="230" y="7" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="19">2</text></g></svg>
+<table><tr><th>Class</th><th class="n">N</th><th>Should have been caught by</th><th>Evidence</th></tr>
+<tr><td>product</td><td class="n">2</td><td>local test gate (CI job test caught it)</td><td><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td></tr>
+</table>
+<p class="note">False positives (wrong denies): 1</p>
+</section>
+
+<section id="ab">
+<h2>4. A/B and shadow, per arm and language</h2>
+<svg class="chart" viewBox="0 0 640 56" role="img" aria-label="lanes per A/B arm"><g><title>enforce lanes (whole log, 30 needed): 12 of 30</title><text class="lbl" x="222" y="19" text-anchor="end">enforce lanes (whole log, 30 need…</text><rect class="bar" x="230" y="7" width="116.1" height="16" rx="2"/><text class="val" x="352.1" y="19">12 of 30</text></g><g><title>warn lanes (whole log, 30 needed): 31 of 30</title><text class="lbl" x="222" y="43" text-anchor="end">warn lanes (whole log, 30 needed)</text><rect class="bar" x="230" y="31" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="43">31 of 30</text></g></svg>
+<table><tr><th>Arm</th><th class="n">Lanes</th><th class="n">Denies</th><th class="n">Warnings</th><th class="n">Overrides</th><th class="n">Escapes</th><th class="n">Held out</th><th class="n">Budget drops</th></tr>
+<tr><td>enforce</td><td class="n">4</td><td class="n">3</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">1</td><td class="n">2</td></tr>
+<tr><td>warn</td><td class="n">6</td><td class="n">0</td><td class="n">5</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td></tr>
+</table>
+<p class="note">Lanes in the whole log: enforce 12 of 30 · warn 31 of 30 · not decidable yet</p>
+
+<h3>Shadow</h3>
+<p class="note">40 fires, 2 dropped for the budget.</p>
+<table><tr><th>Language</th><th class="n">Fires</th><th class="n">Agree</th><th class="n">Held out</th><th class="n">Budget drops</th></tr>
+<tr><td>go</td><td class="n">30</td><td class="n">80%</td><td class="n">1</td><td class="n">2</td></tr>
+<tr><td>python</td><td class="n">4</td><td class="n">under 10 fires</td><td class="n">0</td><td class="n">0</td></tr>
+</table>
+</section>
+
+<section id="tokens">
+<h2>5. Token cost of what the harness injects</h2>
+<svg class="chart" viewBox="0 0 640 56" role="img" aria-label="injected text tokens against its cap"><g><title>managed CLAUDE.md block: 366 / 400</title><text class="lbl" x="222" y="19" text-anchor="end">managed CLAUDE.md block</text><rect class="bar" x="230" y="7" width="258.4" height="16" rx="2"/><text class="val" x="494.4" y="19">366 / 400</text></g><g><title>tdd skill: 425 / 400</title><text class="lbl" x="222" y="43" text-anchor="end">tdd skill</text><rect class="bar" x="230" y="31" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="43">425 / 400</text></g></svg>
+<table><tr><th>Text</th><th class="n">Tokens</th><th class="n">Cap</th></tr>
+<tr><td>managed CLAUDE.md block</td><td class="n">366</td><td class="n">400</td></tr>
+<tr><td>tdd skill</td><td class="n over">425</td><td class="n">400</td></tr>
+</table>
+<h3>Biggest gate lines</h3><table><tr><th>Line</th><th class="n">Times</th><th class="n">Tokens</th><th>Evidence</th></tr>
+<tr><td>commit_gate:precommit:mutants-passed</td><td class="n">96</td><td class="n">900</td><td><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td></tr>
+</table>
+</section>
+
+<section id="usage">
+<h2>7. Session usage</h2>
+
+<p class="note">From the harness's local transcripts of aphrollo-tools: 3 sessions, 40 turns (a reply counted once), unreadable 0 lines and 0 files. Aggregates only: no prompt, code, tool text or injected text is on this page. Cost is a notional list price computed when the report is read.</p>
+<p>Total: input 92k (fresh 100, cache write 2000, cache read 90k), output 5000, $12.50.</p>
+<svg class="chart" viewBox="0 0 640 190" role="img" aria-label="tokens per day"><line class="axis" x1="8" y1="156" x2="632" y2="156"/><polyline class="line l1" fill="none" points="8.0,40.8 632.0,12.0"><title>input submitted</title></polyline><polyline class="line l2" fill="none" points="8.0,150.2 632.0,147.4"><title>output</title></polyline><text class="lbl" x="8" y="172">2026-10-05</text><text class="lbl" x="632" y="172" text-anchor="end">2026-10-06</text><text class="lbl key l1" x="8" y="184">— input submitted</text><text class="lbl key l2" x="198" y="184">— output</text><text class="lbl" x="632" y="12" text-anchor="end">peak 50020</text></svg>
+<svg class="chart" viewBox="0 0 640 56" role="img" aria-label="cost per lane"><g><title>lane/a: $10.00</title><text class="lbl" x="222" y="19" text-anchor="end">lane/a</text><rect class="bar" x="230" y="7" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="19">$10.00</text></g><g><title>main: $2.50</title><text class="lbl" x="222" y="43" text-anchor="end">main</text><rect class="bar" x="230" y="31" width="75.0" height="16" rx="2"/><text class="val" x="311.0" y="43">$2.50</text></g></svg>
+<svg class="chart" viewBox="0 0 640 32" role="img" aria-label="cost per model"><g><title>claude-opus-5: $12.50</title><text class="lbl" x="222" y="19" text-anchor="end">claude-opus-5</text><rect class="bar" x="230" y="7" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="19">$12.50</text></g></svg>
+<table><tr><th>Role</th><th class="n">Turns</th><th class="n">Output</th><th class="n">Cost</th></tr>
+<tr><td>coordinator</td><td class="n">0</td><td class="n">3000</td><td class="n">$8.00</td></tr>
+<tr><td>subagent</td><td class="n">0</td><td class="n">2000</td><td class="n">$4.50</td></tr>
+</table>
+<h3>Top sessions</h3>
+<table><tr><th>Session</th><th class="n">Turns</th><th class="n">Output</th><th class="n">Cost</th></tr>
+<tr><td>s-1</td><td class="n">30</td><td class="n">4000</td><td class="n">$9.00</td></tr>
+</table>
+<h3>aphrollo's injected text</h3>
+<p>About 700 tokens, 0.760% of the input submitted. Counted once when injected; the cache re-reads it on later turns.</p>
+<svg class="chart" viewBox="0 0 640 56" role="img" aria-label="injected tokens by gate-line kind"><g><title>green: 300</title><text class="lbl" x="222" y="19" text-anchor="end">green</text><rect class="bar" x="230" y="7" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="19">300</text></g><g><title>not-tested: 200</title><text class="lbl" x="222" y="43" text-anchor="end">not-tested</text><rect class="bar" x="230" y="31" width="200.0" height="16" rx="2"/><text class="val" x="436.0" y="43">200</text></g></svg>
+<h3>Before and after 2026-10-05</h3>
+<svg class="chart" viewBox="0 0 640 56" role="img" aria-label="cost a day before and after"><g><title>before 2026-10-05: $1.00</title><text class="lbl" x="222" y="19" text-anchor="end">before 2026-10-05</text><rect class="bar" x="230" y="7" width="120.0" height="16" rx="2"/><text class="val" x="356.0" y="19">$1.00</text></g><g><title>after 2026-10-05: $2.50</title><text class="lbl" x="222" y="43" text-anchor="end">after 2026-10-05</text><rect class="bar" x="230" y="31" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="43">$2.50</text></g></svg>
+<table><tr><th></th><th class="n">Days</th><th class="n">Cost a day</th><th class="n">Output a day</th><th class="n">Injected share</th></tr>
+<tr><td>before</td><td class="n">5</td><td class="n">$1.00</td><td class="n">200</td><td class="n">1.0%</td></tr>
+<tr><td>after</td><td class="n">3</td><td class="n">$2.50</td><td class="n">1333</td><td class="n">0.5%</td></tr>
+</table>
+
+</section>
+</main>
+</body>
+</html>
