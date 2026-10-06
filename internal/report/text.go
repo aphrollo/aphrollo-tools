@@ -99,6 +99,11 @@ func (r Report) Text() string {
 	if len(r.Proposals) == 0 {
 		p("  none: no rule is over a threshold")
 	}
+	if r.Usage != nil {
+		p("")
+		p("7. Session usage (aggregates only: no prompt, code, tool text or injected text is copied)")
+		b.WriteString(r.Usage.Text())
+	}
 	return b.String()
 }
 

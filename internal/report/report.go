@@ -30,6 +30,9 @@ type Input struct {
 	Repo string
 	// Briefs are the injected texts measured against their token caps.
 	Briefs []measure.BriefLine
+	// Usage is the session usage scanned from the harness's transcripts, nil to leave the section out; CompareAt, when set, adds its before and after.
+	Usage     *UsageFacts
+	CompareAt time.Time
 }
 
 // Refs are the event seqs behind a number, so `aphrollo why <seq>` can replay
@@ -154,6 +157,8 @@ type Report struct {
 	Shadow    measure.Shadow `json:"shadow"`
 	Tokens    Tokens         `json:"tokens"`
 	Proposals []Proposal     `json:"proposals"`
+	// Usage is the session usage section; nil when no transcripts were read.
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 type stamped struct {
@@ -200,6 +205,10 @@ func Build(in Input) Report {
 	}
 	r.Tokens = Tokens{Briefs: in.Briefs, Biggest: f.biggestLines()}
 	r.Proposals = propose(r)
+	if in.Usage != nil {
+		u := BuildUsage(*in.Usage, in.Now, in.Window, in.CompareAt)
+		r.Usage = &u
+	}
 	return r
 }
 
