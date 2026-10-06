@@ -754,17 +754,10 @@ together can mask each other and a pass of the pair would not show that each
 survives alone.
 
 **The test map** (`internal/tdd/mutation/mutants_testmap.go`) is one file per
-package under the gate state for the repository (keyed on its primary
-checkout, so every lane reads what a merge built). It is built by `aphrollo
-gate mutants testmap [--pkg <dir>]...`: compile the package's test binary
-once with coverage of the package, run each test alone under
-`-test.coverprofile`, and map each executed block to the function declaration
-holding its first line. It holds the hash of everything the test binary is
-built from, and a map whose hash is stale is still used, since it is keyed by
-function and a function's tests rarely change when its body does; it is
-rebuilt when the tree's hash differs. The post-merge hook starts the build
-in the background, detached, in a repo that declares the key. It is never
-built on the commit path.
+package under the gate state for the repository. Nothing builds it in the
+background: no hook starts a build after a merge or a commit, and no verb
+builds it by hand. A map that is kept is used for selection; with none, a
+mutant runs the tests the commit touched and then the whole package.
 
 **The budget.** The run has `mutants-commit-budget` seconds of wall-clock,
 counted from the start of the stage, on at most as many workers as the Go

@@ -57,22 +57,6 @@ func TestMutantsAtCommitStage_TheRunIsGivenTheBudgetLessWhatTheStageSpent(t *tes
 	}
 }
 
-func TestRunMutantsTestMap_ReportsItsTimeRoundedToATenthOfASecond(t *testing.T) {
-	tc := &fakeToolchain{}
-	root := testMapVerbFixture(t, true, tc)
-	prev := goTestedPackagesFn
-	goTestedPackagesFn = func(context.Context, string) (string, error) { return "", nil }
-	t.Cleanup(func() { goTestedPackagesFn = prev })
-	steppingClock(t, 1234*time.Millisecond)
-	var out, errOut bytes.Buffer
-	if code := RunMutantsTestMap(root, nil, &out, &errOut); code != 0 {
-		t.Fatalf("exit %d: %s", code, errOut.String())
-	}
-	if want := "test maps: 0 built, 0 current in 1.2s\n"; out.String() != want {
-		t.Errorf("stdout = %q, want %q", out.String(), want)
-	}
-}
-
 func TestBuildTestMap_ReportsItsTimeRoundedToATenthOfASecond(t *testing.T) {
 	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
 	root := buildFixture(t, tc)
@@ -100,3 +84,5 @@ func TestCommitVerdict_RoundsTimesToATenthOfASecond(t *testing.T) {
 		t.Errorf("stderr = %q, want both times rounded to a tenth", stderr)
 	}
 }
+
+// ratchet: test_removed TestRunMutantsTestMap_ReportsItsTimeRoundedToATenthOfASecond: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs

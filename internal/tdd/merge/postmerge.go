@@ -60,7 +60,6 @@ func PostMergeSweep(dir string, stdout, stderr io.Writer) []PrunedLane {
 	if root == "" {
 		return nil // not a repository, or git is missing — say nothing
 	}
-	startTestMapBuild(root)
 	if !PruneLanesOnMerge(root) {
 		return nil // the repo never asked
 	}
@@ -98,16 +97,11 @@ func PostCommitMergeSweep(dir string, stdout, stderr io.Writer) []PrunedLane {
 	if root == "" {
 		return nil // not a repository, or git is missing — say nothing
 	}
-	wantsMaps, wantsSweep := testMapBuildWanted(root), PruneLanesOnMerge(root)
-	if !wantsMaps && !wantsSweep {
+	if !PruneLanesOnMerge(root) {
 		return nil // the repo never asked
 	}
 	if !headConcludedByCommit(root) {
 		return nil // not a conflict resolved by hand — post-merge already covers whatever this is
-	}
-	startTestMapBuild(root)
-	if !wantsSweep {
-		return nil
 	}
 	primary := primaryCheckoutRoot(root)
 	if primary == "" {

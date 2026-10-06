@@ -258,28 +258,6 @@ func TestCommitVerdict_NothingMeasuredIsNotRefusedAndSaysSo(t *testing.T) {
 	}
 }
 
-func TestRunMutantsTestMap_ANonGoRepoIsInert(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := makeCargoRepoForCommit(t)
-	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = true\n")
-	var out, errOut strings.Builder
-	if code := RunMutantsTestMap(root, []string{"x"}, &out, &errOut); code != 0 || out.Len() != 0 || errOut.Len() != 0 {
-		t.Errorf("exit %d stdout %q stderr %q, want a silent 0", code, out.String(), errOut.String())
-	}
-}
-
-func TestRunMutantsTestMap_APackageListFailureIsAnError(t *testing.T) {
-	tc := &fakeToolchain{}
-	root := testMapVerbFixture(t, true, tc)
-	prev := goTestedPackagesFn
-	goTestedPackagesFn = func(context.Context, string) (string, error) { return "", errors.New("go list broke") }
-	t.Cleanup(func() { goTestedPackagesFn = prev })
-	var out, errOut strings.Builder
-	if code := RunMutantsTestMap(root, nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "go list broke") {
-		t.Errorf("exit %d stderr %q, want 1 and the failure", code, errOut.String())
-	}
-}
-
 func TestRunMutantsCommit_ABrokenConfigIsExitOne(t *testing.T) {
 	_, root := commitStage(t, "")
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-receipt = true\n")
@@ -337,3 +315,6 @@ func TestRunMutantsEdit_ACannotRecordFailsLoudly(t *testing.T) {
 		t.Errorf("exit %d stderr %q, want 1 and the failure named", code, errOut.String())
 	}
 }
+
+// ratchet: test_removed TestRunMutantsTestMap_ANonGoRepoIsInert: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
+// ratchet: test_removed TestRunMutantsTestMap_APackageListFailureIsAnError: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs

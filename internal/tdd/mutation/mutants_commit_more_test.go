@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,20 +22,6 @@ func listModule(t *testing.T) string {
 	mustWrite(t, filepath.Join(root, "a", "a_test.go"), "package a\n\nimport \"testing\"\n\nfunc Test_A(t *testing.T) {}\n")
 	mustWrite(t, filepath.Join(root, "b", "b.go"), "package b\n")
 	return root
-}
-
-func TestListTestedPackages_NamesOnlyThePackagesWithTests(t *testing.T) {
-	root := listModule(t)
-	out, err := listTestedPackages(context.Background(), root)
-	if err != nil {
-		t.Fatalf("listTestedPackages: %v", err)
-	}
-	if got, want := parseTestedDirs(root, out), []string{"a"}; !slices.Equal(got, want) {
-		t.Errorf("tested packages = %v, want %v", got, want)
-	}
-	if _, err := listTestedPackages(context.Background(), t.TempDir()); err == nil {
-		t.Error("a directory that is no module was listed without an error")
-	}
 }
 
 func TestListPackageInputs_NamesTheFilesTheTestBinaryIsBuiltFrom(t *testing.T) {
@@ -135,3 +120,5 @@ func TestEditAddedLines_ANewFileIsMeasuredToItsLastLine(t *testing.T) {
 		t.Errorf("lines = %v, want the file measured to its last line and not past its end", lines)
 	}
 }
+
+// ratchet: test_removed TestListTestedPackages_NamesOnlyThePackagesWithTests: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs

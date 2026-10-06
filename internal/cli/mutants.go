@@ -94,8 +94,6 @@ func runGateMutants(args []string, stdout, stderr io.Writer) int {
 		return runGateMutantsHold(args[1:], stdout, stderr)
 	case "commit":
 		return runGateMutantsCommit(stdout, stderr)
-	case "testmap":
-		return runGateMutantsTestMap(args[1:], stdout, stderr)
 	case "edit":
 		return runGateMutantsEdit(args[1:], stderr)
 	case "prove":
@@ -162,25 +160,6 @@ func runGateMutantsEdit(args []string, stderr io.Writer) int {
 		return 0
 	}
 	return tdd.RunMutantsEdit(root, *file, *done, stderr)
-}
-
-// runGateMutantsTestMap is `gate mutants testmap`: build the per-function test
-// maps the commit-time run selects tests with. It is what the post-merge hook
-// starts in the background, so outside a repo, or in one that declared no
-// mutants-at-commit, it does nothing and says nothing.
-func runGateMutantsTestMap(args []string, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("mutants testmap", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	var pkgs stringList
-	fs.Var(&pkgs, "pkg", "a package directory to build the map of (repeatable); default: every package with tests")
-	if err := fs.Parse(args); err != nil {
-		return 2
-	}
-	root := tdd.RepoRoot(".")
-	if root == "" {
-		return 0
-	}
-	return tdd.RunMutantsTestMap(root, pkgs, stdout, stderr)
 }
 
 // runGateMutantsRun is `gate mutants run`: read what the repo declares, measure
@@ -348,11 +327,6 @@ const mutantsUsage = `usage: aphrollo gate mutants <verb>
                      working tree as it stands. The edit hook starts it detached and
                      reads the result at the next hook; <done> records "ok" or
                      "refused", written last. Exit 1 when it refused.
-  testmap [--pkg <dir>]...
-                     build the per-function test maps that selection uses, for
-                     the named packages or every package with tests, skipping
-                     the ones already current. The post-merge hook starts it in
-                     the background; silent where mutants-at-commit is not set.
   hold [--dry] <file>...
                      take the pre-mutation WORKING state of each file, for a
                      hand proof run by editor rather than by "prove" (--dry

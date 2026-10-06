@@ -79,10 +79,6 @@ func RunMutantsProve(p0 MutantsProveOptions, p1 SuiteRunner, p2 io.Writer, p3 io
 	return mutation.RunMutantsProve(p0, p1, p2, p3)
 }
 
-func RunMutantsTestMap(p0 string, p1 []string, p2 io.Writer, p3 io.Writer) int {
-	return mutation.RunMutantsTestMap(p0, p1, p2, p3)
-}
-
 func SetCIRunnerJobsForTest(p0 func() []int) func() { return mutation.SetCIRunnerJobsForTest(p0) }
 
 func SetFreeSpaceForTest(p0 int, p1 bool) func() { return mutation.SetFreeSpaceForTest(p0, p1) }

@@ -26,3 +26,5 @@ func TestMain(m *testing.M) {
 		SetCIRunnerJobs:  SetCIRunnerJobsForTest,
 	}))
 }
+
+// ratchet: test_removed internal/tdd/mutation/mutants_testmap_once_test.go: the detached test-map build and its once-per-repository lock are gone
