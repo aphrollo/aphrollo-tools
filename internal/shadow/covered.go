@@ -69,6 +69,10 @@ func runCovers(runUnit string, u Unit) bool {
 	if project != u.Project {
 		return false
 	}
+	// A run of a language the unit is not in covers nothing, however the root is shared.
+	if rl, ul := LangOfCommand(firstWord(cmd)), LangOfUnit(u.ID); rl != "" && ul != "" && rl != ul {
+		return false
+	}
 	if u.Kind != unitGoPackage {
 		return true
 	}
@@ -96,4 +100,13 @@ func patternHolds(pat, pkg string) bool {
 		return pkg == base || strings.HasPrefix(pkg, base+"/")
 	}
 	return pat == pkg || (pat == "." && pkg == ".")
+}
+
+// firstWord is the command word of a run's command line.
+func firstWord(cmd string) string {
+	f := strings.Fields(cmd)
+	if len(f) == 0 {
+		return ""
+	}
+	return f[0]
 }

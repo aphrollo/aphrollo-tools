@@ -205,3 +205,34 @@ func TestPayload_ARecordedPythonOrTypeScriptEditIsACodeWriteThatAddsASymbol(t *t
 		}
 	}
 }
+
+// A repository with go.mod and a Python or node manifest in one root: the project is
+// the same, the language of the run is not. A green go test of the root covers no
+// Python unit of it, and a pytest covers no Go package.
+func TestCovered_ARunOfAnotherLanguageInASharedRootCoversNothing(t *testing.T) {
+	py := Unit{ID: "python:.", Project: ".", Kind: unitProjectRoot}
+	ts := Unit{ID: "typescript:.", Project: ".", Kind: unitProjectRoot}
+	goPkg := Unit{ID: "pkg", Project: ".", Pkg: "pkg", Kind: unitGoPackage}
+	edits := []LedgerEdit{{File: "f", At: t0}}
+	for _, c := range []struct {
+		name string
+		u    Unit
+		run  string
+		want bool
+	}{
+		{"go test over a python unit", py, ".|go test ./...", false},
+		{"pytest over a python unit", py, ".|python -m pytest", true},
+		{"bare pytest over a python unit", py, ".|pytest -x", true},
+		{"vitest over a python unit", py, ".|npx vitest run", false},
+		{"vitest over a ts unit", ts, ".|npx vitest run", true},
+		{"pytest over a ts unit", ts, ".|pytest", false},
+		{"pytest over a go package", goPkg, ".|pytest", false},
+		{"go test over a go package", goPkg, ".|go test ./...", true},
+		{"a command naming no language covers the project", py, ".|make test", true},
+	} {
+		runs := []store.RunVerdict{runOf(kernel.VerdictGreen, c.run, t0.Add(4*time.Second), 4000)}
+		if got := Covered(c.u, runs, edits, func(string) (Unit, bool) { return c.u, true }); got != c.want {
+			t.Errorf("%s: Covered = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
