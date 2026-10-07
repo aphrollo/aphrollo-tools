@@ -137,7 +137,7 @@ func TestPipeline_AMergeGroupRunReusesOnlyThroughTheDecisionToolToldItIsAMergeGr
 		step = step[:next]
 	}
 	for _, want := range []string{
-		"github.event_name == 'merge_group'",
+		"if: (github.event_name == 'push' || github.event_name == 'merge_group') && steps.filter.outputs.class == 'code'",
 		"./bin/aphrollo ci reuse",
 		"-event \"$EVENT\"",
 		"-head-ref \"$HEAD_REF\"",
