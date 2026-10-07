@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/cireuse"
 	"github.com/aphrollo/aphrollo-tools/internal/ciwhy"
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host/github"
@@ -15,6 +16,7 @@ import (
 
 const ciUsage = `usage: aphrollo ci run [--dry] [--ci-jobs N] [--ci-timeout DURATION]
        aphrollo ci why [<pr>|<run-id>|--main] [--workflow NAME] [--raw]
+       aphrollo ci reuse -repo O/R -sha SHA -tree TREE -workflow FILE -require JOB=STEP...
 
 ci run is the one CI entry point: it runs the repo's own GitHub workflow(s)
 that run on pull_request, in a throwaway worktree of this checkout's HEAD
@@ -52,6 +54,16 @@ shows the last 15 lines of the failed step.
   --main       the latest --workflow run on main
   --workflow   the pipeline's workflow name (default Pipeline)
   --raw        print the run's failed-step log exactly as gh returns it
+
+ci reuse is for a workflow's own changes job: it decides whether a push to trunk
+or a merge queue run may skip the heavy jobs because a green pipeline run of the
+same tree already passed. It prints reuse=true or reuse=false on stdout, ready
+for $GITHUB_OUTPUT, and the reason on stderr; it exits 0 for either answer and 2
+for a command line it refuses, printing no answer then, which a workflow reads as
+false. It reuses the merge queue's run of the pushed head, else the merged pull
+request's run, and the run must be a first attempt that succeeded, with each -require
+JOB=STEP-PREFIX job having run that step to success. Every doubt, including a
+lookup that failed, is false. README.md has a workflow to paste.
 `
 
 // runIDFloor splits a bare number into a PR or a run id: GitHub run ids are
@@ -74,6 +86,9 @@ func runCI(args []string, stdout, stderr io.Writer) int {
 	}
 	if len(args) > 0 && args[0] == "run" {
 		return runCIRun(args[1:], stdout, stderr)
+	}
+	if len(args) > 0 && args[0] == "reuse" {
+		return cireuse.Main(args[1:], stdout, stderr)
 	}
 	if len(args) == 0 || args[0] != "why" {
 		fmt.Fprint(stderr, ciUsage)

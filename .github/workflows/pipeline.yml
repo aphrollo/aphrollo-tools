@@ -96,11 +96,6 @@ jobs:
         # the full chain's own build fails loudly instead.
         continue-on-error: true
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
-      - name: Build the reuse decision from this commit
-        # Best effort like the classifier: with no binary `reuse` stays unset
-        # and every job runs.
-        continue-on-error: true
-        run: go build -trimpath -buildvcs=false -o bin/cireuse ./tools/cireuse
       - id: filter
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
@@ -191,7 +186,7 @@ jobs:
       # A push to main whose tree an earlier run already tested green does
       # not run the suites again: `reuse=true` stands the test, test-windows,
       # gate-env, lint and benchmarks jobs down, and `release` still runs
-      # behind the skipped jobs. tools/cireuse says yes only for a
+      # behind the skipped jobs. `aphrollo ci reuse` says yes only for a
       # first-attempt successful pipeline run from this repository, a
       # successful run of each step named below in the jobs named (the job
       # concluding success is not enough: a skipped job does), and a recorded
@@ -212,11 +207,11 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           set -uo pipefail
-          # cireuse prints its answer on stdout and its reason on stderr. A
+          # ci reuse prints its answer on stdout and its reason on stderr. A
           # missing binary or a refused command line prints no answer, which
           # reads as false.
           : > reuse-reason.txt
-          if [ -x bin/cireuse ] && ./bin/cireuse -repo "$REPO" -sha "$GITHUB_SHA" -tree "$(git rev-parse HEAD^{tree})" \
+          if [ -x bin/aphrollo ] && ./bin/aphrollo ci reuse -repo "$REPO" -sha "$GITHUB_SHA" -tree "$(git rev-parse HEAD^{tree})" \
             -workflow .github/workflows/pipeline.yml \
             -require 'test=Test (race' \
             -require 'test-windows=Test (race' \
@@ -226,7 +221,7 @@ jobs:
             :
           else
             echo "reuse=false" >> "$GITHUB_OUTPUT"
-            echo "cireuse gave no answer (not built, or refused its command line)" >> reuse-reason.txt
+            echo "ci reuse gave no answer (not built, or refused its command line)" >> reuse-reason.txt
           fi
           cat reuse-reason.txt
           {

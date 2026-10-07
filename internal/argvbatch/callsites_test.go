@@ -68,7 +68,6 @@ var spreadCallSites = map[string]string{
 	"internal/tdd/mutation/mutants_measure_tree.go:writeMeasureDiff": "batched: Run splits the lane-diff path list (#960)",
 	"internal/tdd/mutation/mutants_prove_sandbox.go:copyRepository":  "bounded: fixed git config argument pairs",
 	"internal/tdd/postedit/bashedit_mergescope.go:gitPathSet":        "batched: Run splits the merge-scope path list (#960)",
-	"tools/cireuse/ghsource.go:runGH":                                "bounded: fixed gh api and run download arguments, one repository, sha or run id",
 	"tools/flakehunt/issue.go:File":                                  "bounded: the fixed gh issue arguments plus a title and one comment body",
 	"tools/replay/run.go:git":                                        "bounded: a leaf spawn that runs the arguments its caller built; every caller passes fixed arguments and at most one path or ref",
 	"tools/replay/run.go:run":                                        "bounded: a leaf spawn of a binary under replay; every caller passes fixed arguments",

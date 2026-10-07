@@ -1,13 +1,15 @@
-package main
+package cireuse
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
+
+	runner "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // treeArtifact is the artifact the pipeline's `changes` job uploads on a pull
@@ -30,15 +32,16 @@ func newGHSource(repo, workflow string) *ghSource {
 }
 
 func runGH(args ...string) ([]byte, error) {
-	cmd := exec.Command("gh", args...)
 	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := runner.LightOutput(runner.Spec{Name: "gh", Args: args, Stderr: &stderr, Timeout: ghTimeout})
 	if err != nil {
 		return nil, fmt.Errorf("gh %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return out, nil
 }
+
+// ghTimeout bounds one gh call; a run download is the largest.
+const ghTimeout = 2 * time.Minute
 
 func (g *ghSource) get(dst any, format string, args ...any) error {
 	body, err := g.Run("api", fmt.Sprintf(format, args...))

@@ -1,4 +1,4 @@
-package main
+package cireuse
 
 import (
 	"bytes"

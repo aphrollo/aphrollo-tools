@@ -83,3 +83,26 @@ func TestRunCIWhy_RefusesAmbiguousOrMalformedTargets(t *testing.T) {
 }
 
 // ratchet: test_removed TestExecGh_AFailingGhIsAnErrorCarryingItsOwnOutput: execGh moved into the GitHub adapter's transport; its failing-gh-keeps-its-output reads are proven there (JobLog and jsonOf fold gh's output into the error) and by TestWhy_AnyOtherLogFetchFailureIsAnError.
+
+func TestRunCIReuse_RefusesAnIncompleteCommandLineWithoutAnAnswer(t *testing.T) {
+	var out, errb bytes.Buffer
+	code := runCI([]string{"reuse", "-repo", "o/r"}, &out, &errb)
+	if code != 2 || out.Len() != 0 {
+		t.Errorf("code %d stdout %q, want 2 and no answer on stdout", code, out.String())
+	}
+	if !strings.Contains(errb.String(), "-repo, -sha, -tree and -workflow are all required") {
+		t.Errorf("stderr %q does not say what is missing", errb.String())
+	}
+}
+
+func TestRunCI_HelpDocumentsReuse(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := runCI([]string{"--help"}, &out, &errb); code != 0 {
+		t.Fatalf("code %d", code)
+	}
+	for _, want := range []string{"aphrollo ci reuse", "reuse=true"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("ci help lacks %q", want)
+		}
+	}
+}

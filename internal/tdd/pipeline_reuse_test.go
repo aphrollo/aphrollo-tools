@@ -8,7 +8,7 @@ import (
 
 // A push to main re-ran the whole suite on a commit whose tree the merged
 // pull request's own run had already tested green: twice the load for no new
-// information. The `changes` job now asks `cireuse` whether that is the case
+// information. The `changes` job now asks `aphrollo ci reuse` whether that is the case
 // and the heavy jobs stand down on `reuse`. Everything below pins the parts of
 // that wiring a workflow edit can silently break.
 
@@ -80,9 +80,9 @@ func TestPipeline_ChangesJobDecidesReuseOnAPushOnly(t *testing.T) {
 		"reuse: ${{ steps.reuse.outputs.reuse }}",
 		"actions: read",
 		"pull-requests: read",
-		"go build -trimpath -buildvcs=false -o bin/cireuse ./tools/cireuse",
+		"go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo",
 		"GH_TOKEN: ${{ github.token }}",
-		"./bin/cireuse",
+		"./bin/aphrollo ci reuse",
 		"-tree \"$(git rev-parse HEAD^{tree})\"",
 	} {
 		if !strings.Contains(job, want) {
@@ -104,26 +104,27 @@ func TestPipeline_ChangesJobDecidesReuseOnAPushOnly(t *testing.T) {
 		t.Errorf("the reuse step does not require the code class, so a docs-only push would change behaviour:\n%s", step)
 	}
 	if !strings.Contains(step, "reuse=false") {
-		t.Errorf("a cireuse that fails or was never built must leave reuse=false:\n%s", step)
+		t.Errorf("an aphrollo that fails or was never built must leave reuse=false:\n%s", step)
 	}
 	if !strings.Contains(step, "GITHUB_STEP_SUMMARY") {
 		t.Errorf("the reuse step does not say in the job summary whose verdict was reused:\n%s", step)
 	}
 }
 
-// The build of cireuse is best effort like the classifier's: a tree that does
-// not compile must not fail the changes job, only leave reuse off.
+// The build of aphrollo, which holds `ci reuse`, is best effort like the
+// classifier it also serves: a tree that does not compile must not fail the
+// changes job, only leave reuse off.
 func TestPipeline_ReuseToolBuildFailureLeavesTheFullRunOn(t *testing.T) {
 	t.Parallel()
 	job := pipelineJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"), "changes")
-	i := strings.Index(job, "-o bin/cireuse ./tools/cireuse")
+	i := strings.Index(job, "-o bin/aphrollo ./cmd/aphrollo")
 	if i < 0 {
-		t.Fatal("no cireuse build in the changes job, so this test proves nothing")
+		t.Fatal("no aphrollo build in the changes job, so this test proves nothing")
 	}
 	step := job[:i]
 	step = step[strings.LastIndex(step, "      - "):]
 	if !strings.Contains(step, "continue-on-error: true") {
-		t.Errorf("the cireuse build is not continue-on-error:\n%s", step)
+		t.Errorf("the aphrollo build is not continue-on-error:\n%s", step)
 	}
 }
 
