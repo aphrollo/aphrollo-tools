@@ -97,7 +97,7 @@ type Child struct {
 	tree      tree
 	hook      Hook
 	exitErr   error
-	stop      func() bool // stops the timeout; a no-op where there is none
+	stop      func() bool // stops the timeout, false when its timer had already fired; true where there is none
 	timedOut  atomic.Bool
 	unguarded error
 	release   func()
@@ -271,15 +271,19 @@ func launch(cmd *exec.Cmd, t tree, spec Spec) (*Child, error) {
 	if spec.Hook != nil {
 		spec.Hook.Started(cmd.Process.Pid)
 	}
-	c := &Child{cmd: cmd, tree: t, hook: spec.Hook, release: func() {}, stop: func() bool { return false }}
+	c := &Child{cmd: cmd, tree: t, hook: spec.Hook, release: func() {}, stop: func() bool { return true }}
 	if spec.Timeout > 0 {
-		c.stop = time.AfterFunc(spec.Timeout, func() {
+		c.stop = afterFunc(spec.Timeout, func() {
 			c.timedOut.Store(true)
 			c.tree.kill()
-		}).Stop
+		})
 	}
 	return c, nil
 }
+
+// afterFunc starts the timeout timer and returns its stop, which reports false
+// when the timer had already fired. Tests replace it.
+var afterFunc = func(d time.Duration, f func()) func() bool { return time.AfterFunc(d, f).Stop }
 
 // Pid is the child's process id.
 func (c *Child) Pid() int { return c.cmd.Process.Pid }
@@ -292,10 +296,12 @@ func (c *Child) Wait() error {
 		c.exitErr = c.cmd.Wait()
 		c.err = c.exitErr
 		endHook(c.hook)
-		c.stop()
+		// A timer that had already fired when stopped means the deadline
+		// elapsed, even if its callback has not run yet to say so.
+		fired := !c.stop()
 		c.tree.finish()
 		c.release()
-		if c.timedOut.Load() {
+		if fired || c.timedOut.Load() {
 			c.err = errors.Join(ErrTimeout, c.err)
 		}
 	})
