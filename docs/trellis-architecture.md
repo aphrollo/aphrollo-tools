@@ -137,7 +137,7 @@ trellis is a gate built around lanes and an event log.
 
 | From | Event | To |
 |---|---|---|
-| none | The first hook whose cwd is a Claude Code worktree under `.claude/worktrees/` (made by `EnterWorktree name=` after a primary-write deny, or by `isolation: worktree`) | open. Dependency install and test-build warm-up start in the background |
+| none | The first hook whose cwd is a Claude Code worktree under `.claude/worktrees/` (made by `EnterWorktree name=` after a primary-write deny, or by `isolation: worktree`) | open. Dependency install starts; no test build is warmed |
 | open | A gated commit, then `pr.opened` | committed, then pr |
 | pr | CI starts, then concludes on each declared OS | ci_pending, then ci_green, ci_red or ci_unavailable |
 | ci_* | A new head is pushed | pr |
@@ -299,7 +299,7 @@ trellis deny [primary-write] Write lands in the main checkout on trunk · do: En
   - Heavy slots = clamp(min(threads/8, free GB/8), 1, 3), and a spawn needs 4 GB of headroom.
   - The queue is FIFO, and a newer request for the same lane and unit replaces a queued one.
   - The slot wait is spent inside the visible foreground budget (F0b). In 3 days, 46 edits waited out the hidden 150 s and tested nothing.
-- **Lane warm-up** (C2, C5). At `lane.opened`, in the background at idle priority under the governor, `depinstall` installs or links dependencies, then the test build is warmed. For cargo that is `cargo test --no-run`; Go's shared build cache makes it nearly free for Go. Until dependencies are in, a run reports "not tested: deps installing".
+- **Dependency install** (C2, C5). At `lane.opened`, `depinstall` installs or links dependencies (in the foreground at `workspace create`). No test build is warmed ahead of time: a background `cargo test --no-run` is not run, and the first run pays its own build. Until dependencies are in, a run reports "not tested: deps installing".
 - **Scoping.**
   - Units come from the language row: Go package, cargo crate, vitest related tests, pytest path.
   - `[test] reads` adds tests that read other paths.
@@ -576,7 +576,7 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 | A6–A8 | 3 | Intersection closure with per-language paths; pending merges; the allowed merge method with `sha`; `ci wait`; the local adapter of the host port (closure + `git merge --no-ff`, the local queue); the GitHub merge-queue path of `Land` (enqueue bound to head) and `--wait` through it (this repo's `workspace merge` enqueue is lane merge-enqueue, in flight) | Merge p95 at most 5 min; syncs per merge |
 | B1–B2 | 2 | Plugin: native launcher, fetch, sha256 check, keep 3, `.exe` layout, file-level swap, silent stub; the release workflow on hosted runners | Off-here p95 at most 50 ms; SessionStart at most 200 ms |
 | B3–B5 | 3 | `trellis init` (`--protect`, baseRef, managed block, excludes; it offers the merge-queue setup — ruleset, `merge_group` trigger, required checks covering every per-OS job — as an owner decision, since it changes repo settings; doctor in B3 fails a queue on while the workflow lacks `merge_group`, where PRs sit 60 min and drop, and required checks that do not cover every per-OS job, where a red OS merges); repo start with a repo-local hooksPath; CwdChanged, DirectoryAdded; briefs, skill, agents | A new box set up in one step; brief tokens |
-| B6–B8 | 3 | Deny then EnterWorktree; `lane.opened` with the dependency warm-up; actors; lifecycle prune; `why`, `feedback`, `allow`; `TRELLIS_OFF`, `eject`, `update --to` with `.bak` | Follow rate; primary-write overrides |
+| B6–B8 | 3 | Deny then EnterWorktree; `lane.opened` with the dependency install; actors; lifecycle prune; `why`, `feedback`, `allow`; `TRELLIS_OFF`, `eject`, `update --to` with `.bak` | Follow rate; primary-write overrides |
 | B9–B12 | 4 | **Owner pause before B9** (below). Then cut over one repo at a time, behind `trellis.toml` and a pin, replay first: this repo, go-telegram, fanvue, then borld through the borld session | Each repo's measures |
 | C1–C4 | 4 | `trellis ci` per tree and OS under the merge verb; local `--no-ff`; Linux mutation under `ci = local`; divergent trunk and `trellis sync` | A merge completes with GitHub off |
 | M1 | 1 | The last aphrollo release switches boxes over; an `aphrollo` alias for one release; the forwarder generator deleted | – |
@@ -691,7 +691,7 @@ The flow is `docs/trellis-flow/session_flow.py` on main. Where roadmap PR #1114 
 ## Appendix: Rejected critiques
 
 1. **C1, "report-only removes the local signal."** Commit mutation still prints its survivors, so Claude sees what CI will see; only the refusal goes. The rest of C1 is accepted.
-2. **C2, "a deferred run on a moved tree is discarded."** Its verdict is still delivered, labelled stale; only the cache write is withheld (#813). `pending(T)`, the per-runner budget and the warm-up are accepted.
+2. **C2, "a deferred run on a moved tree is discarded."** Its verdict is still delivered, labelled stale; only the cache write is withheld (#813). `pending(T)` and the per-runner budget are accepted.
 3. **C3, "skip runs on code-only batches; run when the next call is not an edit."**
    - The next call is known only at the next PreToolUse.
    - Skipping code-only batches withholds the green that closes a red.
@@ -733,7 +733,7 @@ The flow is `docs/trellis-flow/session_flow.py` on main. Where roadmap PR #1114 
   - A verdict counts as seen only after it is delivered.
   - The foreground budget is per runner, and a deferred run counts as pending, not not-tested.
   - Edit → verdict latency is measured.
-  - Dependencies and the test build are warmed when a lane opens.
+  - Dependencies are installed when a lane opens; no test build is warmed.
 - **Lanes** (C5). A write to trunk leads to a Claude Code `EnterWorktree name=` lane with `baseRef = head`. Claude Code's isolation checks are adopted, and the prune respects its worktree lock.
 - **Walls** (C6).
   - Walls are scoped to `CLAUDECODE=1`.
