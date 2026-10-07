@@ -7,9 +7,25 @@ import (
 	"strings"
 )
 
-// mergeGroupTriggerRe is a workflow's `merge_group:` trigger key, at the
-// start of a line: a comment or a word inside a string is not one.
-var mergeGroupTriggerRe = regexp.MustCompile(`(?m)^\s*merge_group\s*:`)
+// mergeGroupTriggerRe is a workflow's merge_group trigger on comment-free
+// text: the block key at the start of a line, or the word in the value of a
+// top-level `on:` (a scalar, a flow list or a flow map, with the key quoted or
+// not). A word inside a string elsewhere is not one.
+var mergeGroupTriggerRe = regexp.MustCompile(`(?m)^\s*merge_group\s*:|^["']?on["']?\s*:[^\n]*\bmerge_group\b`)
+
+// withoutComments is text with each whole-line comment and each trailing
+// ` # ...` removed, so a commented-out trigger or reuse step counts for nothing.
+func withoutComments(text string) string {
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "#") {
+			lines[i] = ""
+		} else if j := strings.Index(l, " #"); j >= 0 {
+			lines[i] = l[:j]
+		}
+	}
+	return strings.Join(lines, "\n")
+}
 
 // ciReuseVerb is what a workflow's reuse step calls.
 const ciReuseVerb = "aphrollo ci reuse"
@@ -30,10 +46,11 @@ func doctorCIQueueReuse(in DoctorInput) (DoctorCheck, bool) {
 	var queued []string
 	for _, wf := range workflows {
 		data, err := os.ReadFile(wf)
-		if err != nil || !mergeGroupTriggerRe.Match(data) {
+		text := withoutComments(string(data))
+		if err != nil || !mergeGroupTriggerRe.MatchString(text) {
 			continue
 		}
-		if strings.Contains(string(data), ciReuseVerb) {
+		if strings.Contains(text, ciReuseVerb) {
 			c.OK = true
 			c.Detail = filepath.Base(wf) + " asks `" + ciReuseVerb + "` on its merge queue run"
 			return c, true

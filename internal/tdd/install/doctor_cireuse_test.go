@@ -43,3 +43,40 @@ func TestDoctor_SkipsTheQueueReuseRowWithoutAMergeGroupTrigger(t *testing.T) {
 		}
 	}
 }
+
+// The inline forms of the trigger are the same trigger.
+func TestDoctor_SeesAMergeGroupTriggerWrittenInline(t *testing.T) {
+	for name, body := range map[string]string{
+		"a flow list":   "on: [push, merge_group]\njobs:\n  a:\n    runs-on: x\n",
+		"a flow map":    "on: {push: {}, merge_group: {types: [checks_requested]}}\njobs:\n  a:\n    runs-on: x\n",
+		"a scalar":      "on: merge_group\njobs:\n  a:\n    runs-on: x\n",
+		"a quoted key":  "\"on\": [merge_group]\njobs:\n  a:\n    runs-on: x\n",
+		"a trailing no": "on:\n  merge_group: # the queue\n    types: [checks_requested]\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := healthyInstall(t)
+			writeWorkflow(t, in.Repo, body)
+			c := check(t, Doctor(in), "CI queue reuse")
+			if !c.Warn {
+				t.Errorf("no warning for %s: %+v", name, c)
+			}
+		})
+	}
+}
+
+// A commented-out line is not a trigger and not a reuse step.
+func TestDoctor_IgnoresCommentedTriggerAndCommentedReuse(t *testing.T) {
+	in := healthyInstall(t)
+	writeWorkflow(t, in.Repo, "on:\n  push:\n  # merge_group:\n#   types: [checks_requested]\njobs:\n  a:\n    runs-on: x\n")
+	for _, name := range checkNames(Doctor(in)) {
+		if name == "CI queue reuse" {
+			t.Fatal("a commented merge_group made the row appear")
+		}
+	}
+
+	in = healthyInstall(t)
+	writeWorkflow(t, in.Repo, ciReuseQueueWorkflow+"      # - run: aphrollo ci reuse\n      - run: echo hi # aphrollo ci reuse\n")
+	if c := check(t, Doctor(in), "CI queue reuse"); !c.Warn {
+		t.Errorf("a reuse step that is only in a comment must still warn: %+v", c)
+	}
+}
