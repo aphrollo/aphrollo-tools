@@ -771,10 +771,12 @@ line-to-tests: one run of the whole suite writes one profile that cannot say
 which test ran a block. A test that writes no profile (it called `os.Exit` or
 `log.Fatal`, panicked, was killed or timed out, or could not start) is recorded
 as unknown, not as covering nothing: it is asked again at the next commit, its
-tests join every selection, and no mutant is called not covered. A package whose
-tests start their own binary again (`os.Args[0]` or `os.Executable` in a test
-file, the helper-process pattern) is run whole, since the parent's profile
-holds nothing of what the child executed. A package whose coverage cannot be
+tests join every selection, and no mutant is called not covered. A test that
+starts its own binary again (a function that names `os.Args` or `os.Executable`,
+the helper-process pattern, found in the test itself or in any helper it
+reaches) is not measured either, since the parent's profile holds nothing of
+what the child executed: it joins every selection like a test with no profile,
+and the rest of the package is still mapped. A package whose coverage cannot be
 measured is named `NOT MEASURED` and its mutants fall back as above.
 
 **The store** (`internal/tdd/mutation/mutants_covstore.go`,

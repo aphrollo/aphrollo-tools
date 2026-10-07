@@ -39,6 +39,10 @@ type pkgFunc struct {
 	Refs []string
 	// Global marks TestMain and init: they run around or before every test.
 	Global bool
+	// Reexec marks a function that starts the test binary again: it names
+	// os.Args or os.Executable. What a child process executes is in no profile
+	// of the parent.
+	Reexec bool
 }
 
 // pkgScan is the source of one package directory.
@@ -120,7 +124,7 @@ func scanPackage(dir string, tags []string) (pkgScan, error) {
 				f := pkgFunc{
 					Key: key, File: name, Names: []string{d.Name.Name}, Test: isTest,
 					Start: fset.Position(d.Pos()).Line, End: fset.Position(d.End()).Line,
-					Hash: hashText(text(d)), Refs: mentionedNames(d.Body),
+					Hash: hashText(text(d)), Refs: mentionedNames(d.Body), Reexec: namesOwnBinary(d.Body),
 					Global: d.Name.Name == "init" || (isTest && d.Name.Name == "TestMain"),
 				}
 				scan.Funcs[key] = f
@@ -160,6 +164,47 @@ func scanPackage(dir string, tags []string) (pkgScan, error) {
 	slices.Sort(rests)
 	scan.Rest = hashText(strings.Join(rests, ","))
 	return scan, nil
+}
+
+// namesOwnBinary reports whether n mentions os.Args or os.Executable, which is
+// how a test finds its own binary to start it again.
+func namesOwnBinary(n ast.Node) bool {
+	found := false
+	if n == nil {
+		return false
+	}
+	ast.Inspect(n, func(node ast.Node) bool {
+		if sel, ok := node.(*ast.SelectorExpr); ok {
+			if id, ok := sel.X.(*ast.Ident); ok && id.Name == "os" && (sel.Sel.Name == "Args" || sel.Sel.Name == "Executable") {
+				found = true
+			}
+		}
+		return !found
+	})
+	return found
+}
+
+// reexecTests is the runner tests that start the test binary again, in the
+// function itself or in any helper or variable it reaches by name, sorted.
+func (s pkgScan) reexecTests() []string {
+	var seed []string
+	for key, f := range s.Funcs {
+		if f.Reexec {
+			seed = append(seed, key)
+		}
+	}
+	if len(seed) == 0 {
+		return nil
+	}
+	closure := s.callersClosure(seed)
+	var tests []string
+	for name, key := range s.TestKey {
+		if closure[key] {
+			tests = append(tests, name)
+		}
+	}
+	slices.Sort(tests)
+	return tests
 }
 
 // hashText is the hex sha256 of s.

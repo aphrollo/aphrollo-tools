@@ -5,6 +5,7 @@ import (
 	"io"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -36,31 +37,73 @@ func TestSelectTests_UnknownTestsJoinEverySelectionAndNothingIsUncovered(t *test
 	}
 }
 
-func TestReexecsTestBinary_APackageThatStartsItsOwnBinaryIsRecognised(t *testing.T) {
+// A test that starts its own binary again (the helper-process pattern) runs the
+// code under test in a child whose coverage the parent's profile does not hold.
+// Such a test is found in the source, by what its function and the helpers it
+// reaches do, and a string that only says "os.Args[0]" is not one.
+func TestScanPackage_TestsThatStartTheirOwnBinaryAreFoundThroughHelpers(t *testing.T) {
 	t.Parallel()
-	for name, src := range map[string]string{
-		"os.Args[0]":    "package p\n\nimport (\n\t\"os\"\n\t\"os/exec\"\n\t\"testing\"\n)\n\nfunc TestHelper(t *testing.T) { _ = exec.Command(os.Args[0], \"-test.run=TestChild\") }\n",
-		"os.Executable": "package p\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestHelper(t *testing.T) { exe, _ := os.Executable(); _ = exe }\n",
-	} {
-		dir := t.TempDir()
-		mustWrite(t, filepath.Join(dir, "p_test.go"), src)
-		if !reexecsTestBinary(dir) {
-			t.Errorf("%s: a test that starts its own binary was not recognised", name)
-		}
+	tests := "package p\n\nimport (\n\t\"os\"\n\t\"os/exec\"\n\t\"testing\"\n)\n\n" +
+		"func child() *exec.Cmd { return exec.Command(os.Args[0], \"-test.run=Test_Child\") }\n" +
+		"func exe() string { s, _ := os.Executable(); return s }\n" +
+		"func Test_Direct(t *testing.T) { _ = exec.Command(os.Args[0]) }\n" +
+		"func Test_ViaHelper(t *testing.T) { _ = child() }\n" +
+		"func Test_ViaExecutable(t *testing.T) { _ = exe() }\n" +
+		"func Test_Plain(t *testing.T) { _ = \"os.Args[0]\" }\n"
+	scan, err := scanPackage(covscanWrite(t, map[string]string{"p.go": "package p\n", "p_test.go": tests}), nil)
+	if err != nil {
+		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	mustWrite(t, filepath.Join(dir, "p_test.go"), "package p\n\nimport \"testing\"\n\nfunc TestPlain(t *testing.T) {}\n")
-	mustWrite(t, filepath.Join(dir, "p.go"), "package p\n\nimport \"os\"\n\nvar _ = os.Args[0]\n")
-	if reexecsTestBinary(dir) {
-		t.Error("a package whose only mention of os.Args[0] is in non-test code was treated as re-executing")
-	}
-	if reexecsTestBinary(filepath.Join(dir, "absent")) {
-		t.Error("a directory that is not there was treated as re-executing")
+	want := []string{"Test_Direct", "Test_ViaExecutable", "Test_ViaHelper"}
+	if got := scan.reexecTests(); !slices.Equal(got, want) {
+		t.Fatalf("reexec tests = %v, want %v", got, want)
 	}
 }
 
-// Such a package runs whole for every mutant and costs no coverage build.
-func TestCommitPlans_APackageThatStartsItsOwnTestBinaryRunsWhole(t *testing.T) {
+func TestScanPackage_NonTestCodeThatReadsItsArgsIsNoReexecTest(t *testing.T) {
+	t.Parallel()
+	src := "package p\n\nimport \"os\"\n\nfunc name() string { return os.Args[0] }\n"
+	tests := "package p\n\nimport \"testing\"\n\nfunc Test_Plain(t *testing.T) { _ = 1 }\n"
+	scan, _ := scanPackage(covscanWrite(t, map[string]string{"p.go": src, "p_test.go": tests}), nil)
+	if got := scan.reexecTests(); len(got) != 0 {
+		t.Fatalf("reexec tests = %v, want none: no test reaches the code that reads its args", got)
+	}
+}
+
+// Such tests are never measured: what they execute is not in the parent's
+// profile. They join every selection, as a test with no profile does, and the
+// rest of the package is still mapped, so one helper-process test no longer
+// sends a package of hundreds of tests to the whole-package fallback.
+func TestEnsureCoverage_TestsThatStartTheirOwnBinaryJoinEverySelectionAndAreNotMeasured(t *testing.T) {
+	tc := &fakeToolchain{}
+	root := covbuildRepo(t, tc)
+	mustWrite(t, filepath.Join(root, "internal", "p", "p_test.go"), covbuildTests+"\nfunc Test_Child(t *testing.T) { _ = os.Args[0]; _ = f() }\n")
+	tc.list = "Test_A\nTest_B\nTest_C\nTest_Child\n"
+	var log strings.Builder
+
+	res, err := ensureCoverage(context.Background(), root, MutantsConfig{}, covRequest{Dir: "internal/p", Mutants: []commitMutant{covbuildMutant(4)}, Workers: 1}, &log)
+
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(res.Map.Unknown, []string{"Test_Child"}) {
+		t.Fatalf("unknown = %v, want the re-executing test", res.Map.Unknown)
+	}
+	for _, argv := range tc.calls {
+		if prefixValue(argv, "-test.run=") == "^Test_Child$" {
+			t.Fatalf("the re-executing test was run for coverage: %v", argv)
+		}
+	}
+	if res.Unmeasured != 2 {
+		t.Fatalf("unmeasured = %d, want Test_B and Test_C only", res.Unmeasured)
+	}
+	if !strings.Contains(log.String(), "start the test binary again") {
+		t.Errorf("log = %q, want the re-executing tests named", log.String())
+	}
+}
+
+// Such a package is mapped like any other: the plan is not whole.
+func TestCommitPlans_APackageThatStartsItsOwnTestBinaryIsStillMapped(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root := t.TempDir()
 	write(t, root, "gate/gate.go", commitGateSource)
@@ -69,10 +112,13 @@ func TestCommitPlans_APackageThatStartsItsOwnTestBinaryRunsWhole(t *testing.T) {
 
 	plans := commitPlans(root, []commitMutant{kindMutant}, map[string]map[int]bool{})
 
-	if !plans["gate"].Whole {
-		t.Error("the plan of a package that starts its own test binary is not whole")
+	if plans["gate"].Whole {
+		t.Error("the plan of a package that starts its own test binary is whole: its other tests can still be mapped")
 	}
 }
+
+// ratchet: test_removed TestReexecsTestBinary_APackageThatStartsItsOwnBinaryIsRecognised: a substring search of the test files named a string in a test as a re-exec; the scan reads the functions (TestScanPackage_TestsThatStartTheirOwnBinaryAreFoundThroughHelpers)
+// ratchet: test_removed TestCommitPlans_APackageThatStartsItsOwnTestBinaryRunsWhole: TestCommitPlans_APackageThatStartsItsOwnTestBinaryIsStillMapped
 
 // The first package cannot spend the budget and leave the next none: each gets
 // an equal share of what is left.

@@ -87,18 +87,25 @@ func ensureCoverage(ctx context.Context, root string, cfg MutantsConfig, req cov
 	st := loadCovStore(root, dir, envKey)
 	plan := planCoverage(st, scan, mutantDecls(scan, req.Mutants))
 	res := covResult{Built: true, Kept: len(plan.Valid)}
-	var unknown, absent []string
+	// A test that starts the test binary again is never measured and joins
+	// every selection, as a test that wrote no profile does.
+	reexec := scan.reexecTests()
+	unknown := slices.Clone(reexec)
+	var absent []string
 	if len(plan.Measure) > 0 {
 		var measured int
 		names := plan.Measure
 		if !req.FillBy.IsZero() {
 			names = slices.Concat(plan.Measure, plan.Fill)
 		}
-		measured, unknown, absent, res.Cut, err = runCoverage(ctx, root, cfg, req, scan, st, names, len(plan.Measure), log)
+		var silent []string
+		measured, silent, absent, res.Cut, err = runCoverage(ctx, root, cfg, req, scan, st, names, len(plan.Measure), log)
 		if err != nil {
 			return covResult{}, err
 		}
 		res.Measured = measured
+		unknown = append(unknown, silent...)
+		slices.Sort(unknown)
 	}
 	if len(plan.Measure) > 0 || plan.Reset || plan.Dropped > 0 {
 		if serr := st.save(root); serr != nil {
@@ -119,8 +126,11 @@ func ensureCoverage(ctx context.Context, root string, cfg MutantsConfig, req cov
 	}
 	logf(log, "mutants: coverage of %s: %d tests kept, %d measured, %d not measured%s, in %s",
 		dir, res.Kept, res.Measured, res.Unmeasured, cut, commitNowFn().Sub(start).Round(100*time.Millisecond))
-	if len(unknown) > 0 {
-		logf(log, "mutants: %d test(s) of %s wrote no profile (%s), so it is not known what they execute and they join every selection", len(unknown), dir, strings.Join(unknown[:min(len(unknown), 3)], ", "))
+	if len(reexec) > 0 {
+		logf(log, "mutants: %d test(s) of %s start the test binary again (%s), so a child's coverage is in no profile: they are not measured and join every selection", len(reexec), dir, strings.Join(reexec[:min(len(reexec), 3)], ", "))
+	}
+	if silent := len(unknown) - len(reexec); silent > 0 {
+		logf(log, "mutants: %d test(s) of %s wrote no profile, so it is not known what they execute and they join every selection", silent, dir)
 	}
 	return res, nil
 }

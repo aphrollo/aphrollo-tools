@@ -171,7 +171,12 @@ func planCoverage(st *covStore, scan pkgScan, mutantFuncs []string) covPlan {
 			delete(st.Shapes, key)
 		}
 	}
+	reexec := scan.reexecTests()
 	for _, name := range scan.testNameList() {
+		if slices.Contains(reexec, name) {
+			delete(st.Tests, name)
+			continue // never measured: a child's coverage is in no profile
+		}
 		if _, ok := st.Tests[name]; ok {
 			plan.Valid = append(plan.Valid, name)
 		} else {

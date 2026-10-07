@@ -104,10 +104,6 @@ func commitPlans(root string, mutants []commitMutant, added map[string]map[int]b
 		}
 		decls := scanTestDecls(filepath.Join(root, filepath.FromSlash(dir)), dir)
 		touched, whole := testChanges(decls, added)
-		// A test that starts its own binary again (the helper-process pattern) runs
-		// the code under test in a child whose coverage the parent's profile does
-		// not hold, so no map can say which tests execute a line: run it whole.
-		whole = whole || reexecsTestBinary(filepath.Join(root, filepath.FromSlash(dir)))
 		plans[dir] = &commitPlan{Dir: dir, Current: testNames(decls), Touched: touched, Whole: whole}
 	}
 	return plans
@@ -234,29 +230,4 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 			plans[dir].Map = &res.Map
 		}
 	}
-}
-
-// reexecsTestBinary reports whether a test file of the package in dir starts
-// the test binary again, by naming os.Args[0] or os.Executable, which is how a
-// helper-process test runs the code under test in a child. The profile of the
-// parent holds nothing of what the child executed.
-func reexecsTestBinary(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			continue
-		}
-		src := string(data)
-		if strings.Contains(src, "os.Args[0]") || strings.Contains(src, "os.Executable(") {
-			return true
-		}
-	}
-	return false
 }
