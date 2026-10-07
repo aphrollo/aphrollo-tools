@@ -68,8 +68,8 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      # actions and pull-requests: only the push-to-main reuse step reads
-      # them, to find the merged pull request and its pipeline run.
+      # actions and pull-requests: only the reuse step reads them, to find
+      # the pull request and its pipeline run.
       actions: read
       pull-requests: read
     outputs:
@@ -96,11 +96,6 @@ jobs:
         # the full chain's own build fails loudly instead.
         continue-on-error: true
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
-      - name: Build the reuse decision from this commit
-        # Best effort like the classifier: with no binary `reuse` stays unset
-        # and every job runs.
-        continue-on-error: true
-        run: go build -trimpath -buildvcs=false -o bin/cireuse ./tools/cireuse
       - id: filter
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
@@ -188,10 +183,18 @@ jobs:
           path: tested-tree/tree
           retention-days: 30
           if-no-files-found: error
+      # A merge group whose tree the one pull request in it already tested
+      # green (it was based on the current main) does not run the suites a
+      # second time either: the step runs on merge_group too, with the group's
+      # head ref, base and first parent, and `ci reuse` never reuses a group of
+      # several pull requests. A skipped matrix job would leave its expanded
+      # required checks pending, so test-windows still runs its shards on a
+      # merge group with every step standing down.
+      #
       # A push to main whose tree an earlier run already tested green does
       # not run the suites again: `reuse=true` stands the test, test-windows,
       # gate-env, lint and benchmarks jobs down, and `release` still runs
-      # behind the skipped jobs. tools/cireuse says yes only for a
+      # behind the skipped jobs. `aphrollo ci reuse` says yes only for a
       # first-attempt successful pipeline run from this repository, a
       # successful run of each step named below in the jobs named (the job
       # concluding success is not enough: a skipped job does), and a recorded
@@ -206,17 +209,25 @@ jobs:
       # TestPipeline_ReuseRequirementsNameRealJobsAndStepsAndCoverTheSkippedJobs.
       - name: Reuse the merged pull request's verdict
         id: reuse
-        if: github.event_name == 'push' && steps.filter.outputs.class == 'code'
+        if: (github.event_name == 'push' || github.event_name == 'merge_group') && steps.filter.outputs.class == 'code'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          # Only a merge group reads these two; a push passes them empty.
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
         run: |
           set -uo pipefail
-          # cireuse prints its answer on stdout and its reason on stderr. A
+          # ci reuse prints its answer on stdout and its reason on stderr. A
           # missing binary or a refused command line prints no answer, which
           # reads as false.
           : > reuse-reason.txt
-          if [ -x bin/cireuse ] && ./bin/cireuse -repo "$REPO" -sha "$GITHUB_SHA" -tree "$(git rev-parse HEAD^{tree})" \
+          # A merge group's head commit has the group's base as its first
+          # parent exactly when the group holds one pull request.
+          PARENT=$(git rev-parse --verify --quiet "HEAD^1" || true)
+          if [ -x bin/aphrollo ] && ./bin/aphrollo ci reuse -repo "$REPO" -sha "$GITHUB_SHA" -tree "$(git rev-parse HEAD^{tree})" \
+            -event "$EVENT" -head-ref "$HEAD_REF" -base-sha "$GROUP_BASE" -parent "$PARENT" \
             -workflow .github/workflows/pipeline.yml \
             -require 'test=Test (race' \
             -require 'test-windows=Test (race' \
@@ -226,7 +237,7 @@ jobs:
             :
           else
             echo "reuse=false" >> "$GITHUB_OUTPUT"
-            echo "cireuse gave no answer (not built, or refused its command line)" >> reuse-reason.txt
+            echo "ci reuse gave no answer (not built, or refused its command line)" >> reuse-reason.txt
           fi
           cat reuse-reason.txt
           {
@@ -451,7 +462,10 @@ jobs:
   # the internal/tdd subpackages, and everything else. -timeout is per test
   # binary, as in `test` above.
   test-windows:
-    if: github.event.pull_request.draft != true && needs.changes.outputs.reuse != 'true'
+    # On a merge group the job runs even when reuse stands the suites down:
+    # a matrix job skipped here would not report the expanded checks the
+    # queue requires. The steps below stand down on reuse instead.
+    if: github.event.pull_request.draft != true && (needs.changes.outputs.reuse != 'true' || github.event_name == 'merge_group')
     needs: changes
     strategy:
       fail-fast: false
@@ -465,20 +479,20 @@ jobs:
       # The checkout would otherwise turn every fixture's line endings into
       # CRLF (Git for Windows ships core.autocrlf=true), and the fixtures
       # compare exact bytes.
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' && needs.changes.outputs.reuse != 'true'
         shell: bash
         run: git config --global core.autocrlf false
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' && needs.changes.outputs.reuse != 'true'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - if: needs.changes.outputs.code == 'true'
+      - if: needs.changes.outputs.code == 'true' && needs.changes.outputs.reuse != 'true'
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
           cache: true
       - name: Test (race + shuffle), shard ${{ matrix.shard }}
-        if: needs.changes.outputs.code == 'true'
+        if: needs.changes.outputs.code == 'true' && needs.changes.outputs.reuse != 'true'
         shell: bash
         env:
           SHARD: ${{ matrix.shard }}

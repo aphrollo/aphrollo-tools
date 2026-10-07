@@ -285,6 +285,8 @@ doctest.go                                         suite
 doctest_own_test.go                                suite
 doctest_test.go                                    precommit # prefix says suite; its test body reaches precommit
 doctor.go                                          install
+doctor_cireuse.go                                  install
+doctor_cireuse_test.go                             install
 doctor_claudemd.go                                 install
 doctor_claudemd_test.go                            install
 doctor_core.go                                     core      # created by P2

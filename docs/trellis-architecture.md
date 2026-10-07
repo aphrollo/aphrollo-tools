@@ -76,7 +76,7 @@ trellis is a gate built around lanes and an event log.
   - `store` owns every byte under the state root.
   - `config` owns every setting and environment read.
   - `render` owns every byte Claude reads.
-  - the host port owns every call to the code host (GitHub today): PR view, head, checks, open, `Land`, queue state and removal reason, run lookup for reuse, issue, release. Calls are spread over `internal/workspace`, `internal/tdd/merge`, `internal/ciwhy`, `tools/cireuse` and `issue` today; one lane (F21b) moves them behind the port.
+  - the host port owns every call to the code host (GitHub today): PR view, head, checks, open, `Land`, queue state and removal reason, run lookup for reuse, issue, release. Calls are spread over `internal/workspace`, `internal/tdd/merge`, `internal/ciwhy`, `internal/cireuse` and `issue` today; one lane (F21b) moves them behind the port.
 - **Each rule exists once, and trellis adopts rules Claude Code already enforces rather than copying them.**
   - Inside a Claude Code worktree, Claude Code itself refuses an Edit, Write or NotebookEdit aimed at the main checkout, a command whose working directory is there, and git redirected into it.
   - trellis's wall covers what that leaves: a session on trunk in the primary checkout that is not in a worktree, and Bash or PowerShell writes that land there by path. For PowerShell, Claude Code checks only the working directory.
@@ -564,7 +564,7 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 | F7–F12 | 6 | `run`: the package itself (kill-on-close, governor, in-process creation time, `argvbatch` inside, `exec_outside_run`), then call sites package by package | 170 → 0; orphans after a kill; not tested 35–40% → under 10% |
 | F13–F17 | 5 | `kernel`: the lane machine; the TDD machine (pending, tested code); the rule table. Then `engine`, built against a store interface (S15), and `trellis why` | Table and `rapid` tests written first |
 | F18–F21 | 4 | `git`: one client; one status call per batch; trunk resolved, never hard-coded `"main"` | Git spawns per edit 10+ → at most 1 |
-| F21b | 1 | The host port in `integrate`, with the GitHub adapter and the local adapter stub: the GitHub calls spread over `internal/workspace`, `internal/tdd/merge`, `internal/ciwhy`, `tools/cireuse` and `issue` move behind PR view/head/checks/open, `Land(pr, head)`, queue state and removal reason, run lookup, issue and release. The adapter is tested on recorded `gh` responses | GitHub call sites outside the port N → 0 (N counted at the start of the lane) |
+| F21b | 1 | The host port in `integrate`, with the GitHub adapter and the local adapter stub: the GitHub calls spread over `internal/workspace`, `internal/tdd/merge`, `internal/ciwhy`, `internal/cireuse` and `issue` move behind PR view/head/checks/open, `Land(pr, head)`, queue state and removal reason, run lookup, issue and release. The adapter is tested on recorded `gh` responses | GitHub call sites outside the port N → 0 (N counted at the start of the lane) |
 | F22–F23 | 2 | `render`: the line grammar; the caps as golden tests; the `seen` rule (seen only after a delivery recorded as reaching Claude) | Tokens-per-task baseline |
 | F24–F27 | 4 | `store`: checkpoints, lock and fold versions; verdicts; retention. gate.log's readers move to the events, then gate.log stops | Lost updates → 0; state size capped |
 | F28–F29 | 2 | Shadow and holdout: red→green and run decisions recorded beside aphrollo's live hooks for a week | Agreement; would-be wrong blocks |

@@ -117,14 +117,34 @@ func TestPipeline_NeverCancelsAMergeGroupRun(t *testing.T) {
 	}
 }
 
-// A queue run must test its own tree, never reuse another run's verdict: the
-// reuse step is push-only. It does publish the tree it tested (see
-// TestPipeline_PullRequestRunPublishesTheTreeItTested), which is
-// what lets the push that fast-forwards main to the group's head reuse it.
-func TestPipeline_AMergeGroupRunTestsItsOwnTree(t *testing.T) {
+// ratchet: test_removed TestPipeline_AMergeGroupRunTestsItsOwnTree: the owner decision of 2026-10-07 lets a merge group reuse its one pull request's green run of an equal tree; the replacement below pins that it does so only through the decision tool
+// A queue run reuses another run's verdict only through `aphrollo ci reuse`,
+// told it is a merge group: the tool then reuses the one pull request's run and
+// only for an equal tree, and refuses a group of several pull requests. A reuse
+// step that did not pass the event would judge a queue run as a push. The run
+// publishes the tree it tested too (see
+// TestPipeline_PullRequestRunPublishesTheTreeItTested), which is what lets the
+// push that fast-forwards main to the group's head reuse it.
+func TestPipeline_AMergeGroupRunReusesOnlyThroughTheDecisionToolToldItIsAMergeGroup(t *testing.T) {
 	t.Parallel()
 	job := pipelineJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"), "changes")
-	if !strings.Contains(job, "if: github.event_name == 'push' && steps.filter.outputs.class == 'code'") {
-		t.Error("the reuse step is not push-only, so a merge_group run could skip its suites on another run's verdict")
+	i := strings.Index(job, "id: reuse")
+	if i < 0 {
+		t.Fatal("changes job has no `id: reuse` step")
+	}
+	step := job[i:]
+	if next := strings.Index(step, "\n      - "); next >= 0 {
+		step = step[:next]
+	}
+	for _, want := range []string{
+		"if: (github.event_name == 'push' || github.event_name == 'merge_group') && steps.filter.outputs.class == 'code'",
+		"./bin/aphrollo ci reuse",
+		"-event \"$EVENT\"",
+		"-head-ref \"$HEAD_REF\"",
+		"-parent \"$PARENT\"",
+	} {
+		if !strings.Contains(step, want) {
+			t.Errorf("the reuse step lacks %q, so a merge_group run could be judged as a push or skip on a group's verdict the tool never saw", want)
+		}
 	}
 }

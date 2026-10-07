@@ -1,13 +1,15 @@
-package main
+package cireuse
 
 import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
+
+	runner "github.com/aphrollo/aphrollo-tools/internal/run"
 )
 
 // treeArtifact is the artifact the pipeline's `changes` job uploads on a pull
@@ -30,15 +32,16 @@ func newGHSource(repo, workflow string) *ghSource {
 }
 
 func runGH(args ...string) ([]byte, error) {
-	cmd := exec.Command("gh", args...)
 	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
+	out, err := runner.LightOutput(runner.Spec{Name: "gh", Args: args, Stderr: &stderr, Timeout: ghTimeout})
 	if err != nil {
 		return nil, fmt.Errorf("gh %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}
 	return out, nil
 }
+
+// ghTimeout bounds one gh call; a run download is the largest.
+const ghTimeout = 2 * time.Minute
 
 func (g *ghSource) get(dst any, format string, args ...any) error {
 	body, err := g.Run("api", fmt.Sprintf(format, args...))
@@ -68,6 +71,21 @@ func (g *ghSource) Pulls(sha string) ([]Pull, error) {
 		pulls = append(pulls, Pull{Number: p.Number, MergedAt: p.MergedAt, MergeCommitSHA: p.MergeCommitSHA, HeadSHA: p.Head.SHA})
 	}
 	return pulls, nil
+}
+
+func (g *ghSource) Pull(number int) (Pull, error) {
+	var raw struct {
+		Number         int    `json:"number"`
+		MergedAt       string `json:"merged_at"`
+		MergeCommitSHA string `json:"merge_commit_sha"`
+		Head           struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	}
+	if err := g.get(&raw, "repos/%s/pulls/%d", g.Repo, number); err != nil {
+		return Pull{}, err
+	}
+	return Pull{Number: raw.Number, MergedAt: raw.MergedAt, MergeCommitSHA: raw.MergeCommitSHA, HeadSHA: raw.Head.SHA}, nil
 }
 
 func (g *ghSource) Runs(event, headSHA string) ([]Run, error) {

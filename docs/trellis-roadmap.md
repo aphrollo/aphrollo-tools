@@ -74,7 +74,7 @@ Lanes run in order inside a phase; nothing new enters a running phase. Phase 0 (
 | run | `internal/run`: every exec, memory cap, tree kill; call sites move package by package | exec sites outside `run` 170 to 0; not tested under 10% |
 | kernel | The lane machine, the TDD machine and the rule table; `engine`; `trellis why` | table and property tests first |
 | git | One git client, one status call per batch | git spawns per edit 10+ to at most 1 |
-| host | F21b: the host port in `integrate` with a GitHub adapter; the GitHub calls now spread over `internal/workspace`, `internal/tdd/merge`, `internal/ciwhy`, `tools/cireuse` and `issue` move behind it | GitHub call sites outside the port to 0 |
+| host | F21b: the host port in `integrate` with a GitHub adapter; the GitHub calls now spread over `internal/workspace`, `internal/tdd/merge`, `internal/ciwhy`, `internal/cireuse` and `issue` move behind it | GitHub call sites outside the port to 0 |
 | render | The line grammar, caps as golden tests, the `seen` rule | tokens-per-task baseline |
 | store | Checkpoints, lock and fold versions, retention; gate.log retires | lost updates 0 |
 | shadow | Red to green and run decisions recorded beside the live hooks for a week | agreement; would-be wrong blocks |

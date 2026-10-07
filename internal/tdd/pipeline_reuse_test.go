@@ -8,7 +8,7 @@ import (
 
 // A push to main re-ran the whole suite on a commit whose tree the merged
 // pull request's own run had already tested green: twice the load for no new
-// information. The `changes` job now asks `cireuse` whether that is the case
+// information. The `changes` job now asks `aphrollo ci reuse` whether that is the case
 // and the heavy jobs stand down on `reuse`. Everything below pins the parts of
 // that wiring a workflow edit can silently break.
 
@@ -73,17 +73,25 @@ func TestPipeline_ReleaseRunsWhenReuseSkippedTheTests(t *testing.T) {
 	}
 }
 
-func TestPipeline_ChangesJobDecidesReuseOnAPushOnly(t *testing.T) {
+// ratchet: test_removed TestPipeline_ChangesJobDecidesReuseOnAPushOnly: renamed TestPipeline_ChangesJobDecidesReuseOnAPushAndAMergeGroup, which keeps every assertion and adds the merge group ones
+func TestPipeline_ChangesJobDecidesReuseOnAPushAndAMergeGroup(t *testing.T) {
 	t.Parallel()
 	job := pipelineJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"), "changes")
 	for _, want := range []string{
 		"reuse: ${{ steps.reuse.outputs.reuse }}",
 		"actions: read",
 		"pull-requests: read",
-		"go build -trimpath -buildvcs=false -o bin/cireuse ./tools/cireuse",
+		"go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo",
 		"GH_TOKEN: ${{ github.token }}",
-		"./bin/cireuse",
+		"./bin/aphrollo ci reuse",
 		"-tree \"$(git rev-parse HEAD^{tree})\"",
+		"-event \"$EVENT\"",
+		"-head-ref \"$HEAD_REF\"",
+		"-base-sha \"$GROUP_BASE\"",
+		"-parent \"$PARENT\"",
+		"HEAD_REF: ${{ github.event.merge_group.head_ref }}",
+		"GROUP_BASE: ${{ github.event.merge_group.base_sha }}",
+		"EVENT: ${{ github.event_name }}",
 	} {
 		if !strings.Contains(job, want) {
 			t.Errorf("changes job lacks %q", want)
@@ -97,33 +105,34 @@ func TestPipeline_ChangesJobDecidesReuseOnAPushOnly(t *testing.T) {
 	if next := strings.Index(step[1:], "\n      - "); next >= 0 {
 		step = step[:next+1]
 	}
-	if !strings.Contains(step, "if: github.event_name == 'push'") {
-		t.Errorf("the reuse step runs on events other than a push:\n%s", step)
+	if !strings.Contains(step, "if: (github.event_name == 'push' || github.event_name == 'merge_group')") {
+		t.Errorf("the reuse step does not run on exactly a push and a merge group:\n%s", step)
 	}
 	if !strings.Contains(step, "steps.filter.outputs.class") || !strings.Contains(step, "code") {
 		t.Errorf("the reuse step does not require the code class, so a docs-only push would change behaviour:\n%s", step)
 	}
 	if !strings.Contains(step, "reuse=false") {
-		t.Errorf("a cireuse that fails or was never built must leave reuse=false:\n%s", step)
+		t.Errorf("an aphrollo that fails or was never built must leave reuse=false:\n%s", step)
 	}
 	if !strings.Contains(step, "GITHUB_STEP_SUMMARY") {
 		t.Errorf("the reuse step does not say in the job summary whose verdict was reused:\n%s", step)
 	}
 }
 
-// The build of cireuse is best effort like the classifier's: a tree that does
-// not compile must not fail the changes job, only leave reuse off.
+// The build of aphrollo, which holds `ci reuse`, is best effort like the
+// classifier it also serves: a tree that does not compile must not fail the
+// changes job, only leave reuse off.
 func TestPipeline_ReuseToolBuildFailureLeavesTheFullRunOn(t *testing.T) {
 	t.Parallel()
 	job := pipelineJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"), "changes")
-	i := strings.Index(job, "-o bin/cireuse ./tools/cireuse")
+	i := strings.Index(job, "-o bin/aphrollo ./cmd/aphrollo")
 	if i < 0 {
-		t.Fatal("no cireuse build in the changes job, so this test proves nothing")
+		t.Fatal("no aphrollo build in the changes job, so this test proves nothing")
 	}
 	step := job[:i]
 	step = step[strings.LastIndex(step, "      - "):]
 	if !strings.Contains(step, "continue-on-error: true") {
-		t.Errorf("the cireuse build is not continue-on-error:\n%s", step)
+		t.Errorf("the aphrollo build is not continue-on-error:\n%s", step)
 	}
 }
 
@@ -153,6 +162,36 @@ func TestPipeline_ReuseRequirementsNameRealJobsAndStepsAndCoverTheSkippedJobs(t 
 	}
 	if len(required) == 0 {
 		t.Fatal("no -require in the changes job, so this test proves nothing")
+	}
+}
+
+// The merge queue requires the checks of the branch protection to report, and
+// GitHub names a matrix job skipped at job level without expanding its matrix,
+// so a required `test-windows (cli)` would stay pending and stall the queue. A
+// heavy job with a matrix therefore runs on a merge group even when reuse
+// stands the suites down, and each of its steps stands down instead, so every
+// expanded check reports success without a test being run. The jobs named are
+// the matrix jobs whose shards the branch protection requires.
+func TestPipeline_ReusedMatrixJobsStillReportEachShardOnAMergeGroup(t *testing.T) {
+	t.Parallel()
+	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
+	for _, name := range []string{"test-windows"} {
+		block := pipelineJobBlock(t, wf, name)
+		if !strings.Contains(block, "    strategy:") {
+			t.Fatalf("job %q has no matrix, so this test proves nothing", name)
+		}
+		if line := jobIfLine(t, block); !strings.Contains(line, "github.event_name == 'merge_group'") {
+			t.Errorf("matrix job %q is skipped at job level on a merge group, which leaves its expanded checks pending: %s", name, line)
+		}
+		_, steps, ok := strings.Cut(block, "\n    steps:\n")
+		if !ok {
+			t.Fatalf("job %q has no steps", name)
+		}
+		for _, step := range strings.Split("\n"+steps, "\n      - ")[1:] {
+			if !strings.Contains(step, reuseGuard) {
+				t.Errorf("job %q has a step that still runs when the suites are reused:\n%s", name, step)
+			}
+		}
 	}
 }
 

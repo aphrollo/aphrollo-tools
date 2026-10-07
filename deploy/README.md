@@ -50,8 +50,8 @@ fallback and is never written by anything here.
 ## What a push to `main` re-runs
 
 A push to `main` runs the pipeline again, but not the suites when the merged
-pull request's own run already tested the same tree. The `changes` job builds
-`tools/cireuse` and, on a push classified as code, asks GitHub for the pull
+pull request's own run already tested the same tree. The `changes` job runs
+`aphrollo ci reuse` and, on a push classified as code, asks GitHub for the pull
 request whose merge commit is the pushed one, then for its `pipeline.yml` run
 on the pull request's head. It answers `reuse=true` only when that run is
 attempt 1, concluded success, ran the test step of `test`, every
@@ -62,9 +62,17 @@ equal to the pushed commit's tree. Then `test`, `test-windows`, `gate-env`,
 behind any skipped job. The job summary of `changes` names the pull request and
 run whose verdict was reused, or says why not.
 
+The merge queue's group run decides the same way before the push does: when the
+group holds the one pull request and its tree equals the tree that pull
+request's run tested, `changes` answers `reuse=true` on the `merge_group` event
+too, so the suites run once on the pull request and not again in the queue.
+The windows shards still start on a merge group, with every step standing down,
+because the queue requires the shard checks by name and a skipped matrix job does
+not report them. A group of several pull requests always runs everything.
+
 Anything else runs the full suite as before: no associated pull request, trunk
 moved so the trees differ, a check not green, a re-run, a run from a fork or
-another workflow, a lookup that failed, or a `cireuse` that did not build.
+another workflow, a lookup that failed, or an `aphrollo` that did not build.
 `scan` is not reused: `govulncheck` reads a vulnerability database that moves
 without the tree. A docs-only or comment-only push is unchanged.
 
