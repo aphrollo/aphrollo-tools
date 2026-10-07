@@ -14,6 +14,9 @@ import (
 // stdout and exit code.
 func offHookRun(t *testing.T, hook, payload string) (string, int) {
 	t.Helper()
+	// A posttooluse hook switches deferred phases on for the process; undo it so a
+	// test that asserts they start off does not see this one's.
+	t.Cleanup(func() { tdd.EnableDeferredPhases(false) })
 	var out, errBuf bytes.Buffer
 	code := runGate([]string{hook}, strings.NewReader(payload), &out, &errBuf)
 	return out.String(), code
