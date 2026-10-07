@@ -2,7 +2,6 @@ package mutation
 
 import (
 	"context"
-	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -102,16 +101,18 @@ func buildFixture(t *testing.T, tc *fakeToolchain) (root string) {
 	root = makeGoRepo(t)
 	mustWrite(t, filepath.Join(root, "internal", "p", "p.go"),
 		"package p\n\nfunc f() int {\n\treturn 1\n}\n\nfunc g() int {\n\treturn 2\n}\n")
-	mustWrite(t, filepath.Join(root, "internal", "p", "p_test.go"), "package p\n")
+	// Six tests, each reaching both functions, so a build for a mutant in either
+	// measures them all.
+	tests := "package p\n\nimport \"testing\"\n\n"
+	for _, name := range []string{"A", "B", "C", "D", "E", "F"} {
+		tests += "func Test_" + name + "(t *testing.T) { _ = f() + g() }\n"
+	}
+	mustWrite(t, filepath.Join(root, "internal", "p", "p_test.go"), tests)
 	gitDo(t, root, "add", "-A")
 	gitDo(t, root, "commit", "-qm", "the package under test")
 	prevTestMapExec := testMapExecFn
 	t.Cleanup(func() { testMapExecFn = prevTestMapExec })
 	testMapExecFn = tc.exec
-	restoreList := setGoListForTest(func(context.Context, string, string) (string, error) {
-		return filepath.Join(root, "internal", "p") + "|p.go|p_test.go||\n", nil
-	})
-	t.Cleanup(restoreList)
 	return root
 }
 
@@ -139,8 +140,8 @@ func TestBuildTestMap_MapsEachFunctionToItsTests(t *testing.T) {
 	if got, listed := m.testsAt("p.go", 8); !listed || !slices.Equal(got, []string{"Test_B"}) {
 		t.Errorf("testsAt(p.go, 8) = %v (listed %v), want Test_B alone", got, listed)
 	}
-	if m.Package != "internal/p" || m.Hash == "" {
-		t.Errorf("map = package %q hash %q, want internal/p and a hash", m.Package, m.Hash)
+	if m.Package != "internal/p" {
+		t.Errorf("map = package %q, want internal/p", m.Package)
 	}
 }
 
@@ -171,14 +172,21 @@ func TestBuildTestMap_CommandsRunWhereTheTestsExpectToRun(t *testing.T) {
 	}
 }
 
-func TestBuildTestMap_APackageWithNoTestFilesHasNoMap(t *testing.T) {
+// A build that wrote no binary (every test file is left out by a build tag)
+// has no test to measure: the map holds none, and no test is run.
+func TestBuildTestMap_ABuildThatWritesNoBinaryMeasuresNothing(t *testing.T) {
 	tc := &fakeToolchain{compile: func([]string) (int, error) { return 0, nil }}
 	root := buildFixture(t, tc)
-	_, built, err := buildTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, io.Discard)
-	if err != nil || built {
-		t.Errorf("buildTestMap = built %v, err %v, want neither", built, err)
+	m, built, err := buildTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, io.Discard)
+	if err != nil || !built || len(m.Tests) != 0 {
+		t.Errorf("buildTestMap = %+v built %v, err %v, want a map of no tests", m, built, err)
+	}
+	if _, solo := testRuns(tc); solo != 0 {
+		t.Errorf("%d solo runs, want none", solo)
 	}
 }
+
+// ratchet: test_removed TestBuildTestMap_APackageWithNoTestFilesHasNoMap: TestEnsureCoverage_APackageWithNoTestFunctionsRunsNothing, and TestBuildTestMap_ABuildThatWritesNoBinaryMeasuresNothing for a binary that was not written
 
 func TestBuildTestMap_ACompileFailureIsAnError(t *testing.T) {
 	tc := &fakeToolchain{compile: func([]string) (int, error) { return 2, nil }}
@@ -194,7 +202,7 @@ func TestBuildTestMap_ACompileFailureIsAnError(t *testing.T) {
 // a test that covers nothing: it is Unknown, and the build is not failed by it.
 func TestBuildTestMap_AFailingOrSilentTestDoesNotFailTheMap(t *testing.T) {
 	tc := &fakeToolchain{
-		list:     "Test_A\nTest_Silent\n",
+		list:     "Test_A\nTest_C\n",
 		profiles: map[string]string{"Test_A": profileF},
 	}
 	root := buildFixture(t, tc)
@@ -205,7 +213,7 @@ func TestBuildTestMap_AFailingOrSilentTestDoesNotFailTheMap(t *testing.T) {
 	if got, _ := m.testsAt("p.go", 4); !slices.Equal(got, []string{"Test_A"}) {
 		t.Errorf("testsAt(p.go, 4) = %v, want [Test_A]", got)
 	}
-	if !slices.Equal(m.Unknown, []string{"Test_Silent"}) || slices.Contains(m.Tests, "Test_Silent") {
+	if !slices.Equal(m.Unknown, []string{"Test_C"}) || slices.Contains(m.Tests, "Test_C") {
 		t.Errorf("Unknown = %v, Tests = %v, want the silent test unknown and not a test that covers nothing", m.Unknown, m.Tests)
 	}
 }
@@ -233,20 +241,25 @@ func TestBuildTestMap_WorkersAreBounded(t *testing.T) {
 	}
 }
 
+// A deadline is not an error: it ends the run and what finished is kept
+// (TestEnsureCoverage_ACancelledRunKeepsTheTestsThatFinished).
 func TestBuildTestMap_ACancelledContextStopsTheBuild(t *testing.T) {
 	tc := &fakeToolchain{list: "Test_A\nTest_B\n", profiles: map[string]string{}, perRun: time.Minute}
 	root := buildFixture(t, tc)
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	done := make(chan error, 1)
+	done := make(chan covResult, 1)
 	go func() {
-		_, _, err := buildTestMap(ctx, root, MutantsConfig{}, "internal/p", 2, io.Discard)
-		done <- err
+		res, err := ensureCoverage(ctx, root, MutantsConfig{}, covRequest{Dir: "internal/p", Mutants: coverFixtureMutants, Workers: 2}, io.Discard)
+		if err != nil {
+			t.Error(err)
+		}
+		done <- res
 	}()
 	select {
-	case err := <-done:
-		if !errors.Is(err, context.DeadlineExceeded) {
-			t.Errorf("error = %v, want the context's deadline", err)
+	case res := <-done:
+		if !res.Cut || res.Measured != 0 {
+			t.Errorf("result = %+v, want the deadline to cut the run with nothing measured and no error", res)
 		}
 	case <-time.After(30 * time.Second):
 		t.Fatal("the build did not stop when its context ended")

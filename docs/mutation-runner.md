@@ -729,8 +729,9 @@ memory cap every gate-started process is held to, with `-count=1 -failfast`
 package's test map says execute the mutant's line (below). A mutant on a line
 in a block no test executes is NOT MEASURED as `not-covered` and no `go test`
 is started for it: no test could kill it. A mutant its covering tests miss is
-a survivor at once, since a test that does not execute the line cannot be
-affected by the mutant. A package with no map (its coverage could not be
+a survivor at once when the map has every test of the package measured, since a
+test that does not execute the line cannot be affected by the mutant; with a
+partial map it is NOT MEASURED as `partial` (below). A package with no map (its coverage could not be
 measured), a line outside every block, or a `-run` pattern over 8000
 characters falls back: the tests the commit touches (a test with an added line
 in it; every test of a file whose helper, variable or type the commit changed;
@@ -756,46 +757,100 @@ together can mask each other and a pass of the pair would not show that each
 survives alone.
 
 **The test map** (`internal/tdd/mutation/mutants_testmap.go`) answers which
-tests execute which lines of one package. The commit that needs it builds it,
-in the foreground, inside its own budget; nothing is built in the background
-and nothing is prepared ahead of a commit: no hook starts a build after a
-merge or a commit, no verb builds one by hand, and a repo that does not
-declare `mutants-at-commit` never has one made. For each package the commit
-touches the stage compiles the test binary once with coverage of the package
-(`go test -c -covermode=set -coverpkg`), lists its tests, and runs each test
-alone under `-test.coverprofile` on the stage's workers, in a disposable copy
-of the lane. A solo run per test is what gives line-to-tests: one run of the
-whole suite writes one profile that cannot say which test ran a block, so the
-cost is one compile plus one pass over the tests, with a process start for
-each. Each profile's blocks (file, first line, last line) are folded into one
-list with the tests that executed each; a block no test executed is kept with
-no tests, which is how a line is known to be uncovered. A test that
-writes no profile (it called `os.Exit` or `log.Fatal`, panicked, was killed or
-timed out, or could not start) is recorded as unknown, not as covering nothing:
-the map is used for that commit only and never kept, the unknown tests join
-every selection, and no mutant is called not covered. A package whose tests
-start their own binary again (`os.Args[0]` or `os.Executable` in a test file,
-the helper-process pattern) is run whole, since the parent's profile holds
-nothing of what the child executed. A package whose coverage cannot be
-measured, or not in the time the budget leaves, is named `NOT MEASURED` and its
-mutants fall back as above. Each package gets an equal share of the time left,
-and the compile takes the whole memory share, since it is one process.
+tests execute which lines of one package. The commit that needs it measures
+what it needs, in the foreground, inside its own budget; nothing is built in
+the background and nothing is prepared ahead of a commit: no hook starts a
+build after a merge or a commit, no verb builds one by hand, and a repo that
+does not declare `mutants-at-commit` never has one made. What is measured is
+one test at a time: the stage compiles the package's test binary once with
+coverage of the package (`go test -c -covermode=set -coverpkg`), lists its
+tests, and runs each chosen test alone under `-test.coverprofile` on the
+stage's workers, in the same disposable copy of the lane the mutant runs use
+(one copy of the lane, not two). A solo run per test is what gives
+line-to-tests: one run of the whole suite writes one profile that cannot say
+which test ran a block. A test that writes no profile (it called `os.Exit` or
+`log.Fatal`, panicked, was killed or timed out, or could not start) is recorded
+as unknown, not as covering nothing: it is asked again at the next commit, its
+tests join every selection, and no mutant is called not covered. A test that
+starts its own binary again (a function of a test file that names `os.Args` or
+`os.Executable`, the helper-process pattern, found in the test itself or in any
+helper it reaches; production code that finds its own path does not count) is not measured either, since the parent's profile holds nothing of
+what the child executed: it joins every selection like a test with no profile,
+and the rest of the package is still mapped. A package whose coverage cannot be
+measured is named `NOT MEASURED` and its mutants fall back as above.
 
-**The cache.** What a commit measures is kept for the next commit to the same
-package. The key is the package's import path, the hash of everything its test
-binary is built from (the content of its own Go files, tests included, cgo and
-assembly files, `testdata/`, and the same for every package it imports inside
-the module or from a replacement directory outside it; `go.mod`, `go.sum` and
-`go.work`; `mutants-env`) and the Go version and build
-settings (`go env GOVERSION GOFLAGS GOOS GOARCH CGO_ENABLED GOEXPERIMENT`). A
-map is kept in the repository's shared git directory
-(`aphrollo-mutcover/`, one file per package and key), so every lane of the
-repository reads what any of them measured, and a hit skips the compile and the
-solo runs. A map of another key is never used, not even meanwhile: it is keyed
-by line, and an edited line is another line. The directory holds at most 64
-maps within 64 MiB (the ones read longest ago go first), and `aphrollo gate gc`
-removes a map nothing has read for 30 days.
+**The store** (`internal/tdd/mutation/mutants_covstore.go`,
+`mutants_covscan.go`, `mutants_covbuild.go`). What was measured is kept per
+test and per function, not as one blob per package, so a commit that edits one
+function measures the tests that ran it and not the package again.
 
+- *The entry.* For each test: the hash of the test's own function, and for each
+  function it executed, that function's hash and the executed blocks as line
+  pairs counted from the function's first line. Next to them, per function, the
+  shape: every block the profile lists for it, run or not, which is how a line
+  no test ran is told from a line that is not a block. Hashes are of the
+  function's source text, so where a function sits in its file is not part of
+  the key: a function that moves, or a file that is renamed, keeps its entries
+  and the lines are read again from the current source.
+- *Warm.* The stage scans the package's own source (`go/parser`; files the
+  build tags leave out are skipped) and compares. An entry holds while the test's
+  function and every function it names hash as they did. A test whose
+  function was edited, whose covered function was edited or deleted, or that
+  reaches a changed test helper (by name, through any chain of functions and
+  package variables) loses its entry and is measured again; a deleted test
+  loses it for good; every other test is read from the store and runs nothing.
+  Nothing is compiled when there is nothing to measure.
+- *Dependencies and fixtures.* Each entry also records a hash of what the test
+  read besides the package's own functions: the files of the packages this one
+  imports inside the module (`go list -deps -test`), the package's `testdata/`
+  tree, its `//go:embed` targets, cgo and assembly files; a module-cache
+  dependency is named by its versioned directory. An entry measured under
+  another hash is not dropped, since the store is still the best guide to which
+  tests to run; it picks tests as before, but the selection is never exact, so a
+  mutant its tests miss goes on to the whole package before it is called a
+  survivor. Such an entry is measured again when a commit's mutants make it a
+  candidate, or by the fill.
+- *What drops the whole store.* A change in a declaration that is not a
+  function (a type, a package variable or constant, an import, a doc comment
+  above one, which is where `//go:embed` lives), in `TestMain` or an `init`
+  function, or in the build key: the import path, the Go version and build
+  settings (`go env GOVERSION GOFLAGS GOOS GOARCH CGO_ENABLED GOEXPERIMENT`),
+  the test tags, `mutants-env`, and `go.mod`, `go.sum`, `go.work` and
+  `go.work.sum`. Each can change what every test does. The content of
+  the packages this one imports and of `testdata/` is not in the key, because
+  keying them would send every commit that touches a neighbor back to a cold
+  start; it is the dependency hash above.
+- *Cold.* With no store, measuring every test is as slow as it ever was
+  (about 8 minutes of coverage runs for `internal/tdd/mutation` alone), so it is
+  not tried inside a 90 second budget. The stage looks at which tests can reach
+  the functions the commit's mutants sit in, statically: a test reaches a
+  function if it mentions its name, or mentions a function or a package variable
+  that does, through any chain (`mentionedNames` in `mutants_covscan.go`; a
+  method is matched by its name whatever its receiver, so a call through an
+  interface or a method value is found). Those tests are measured first, then
+  the stage keeps measuring the rest of the package for as long as half of the
+  package's coverage share lasts, so the store converges over a few commits
+  instead of needing one long one.
+- *Partial.* Static reachability has documented misses: a function reached only
+  by reflection, through a func value another package hands back, or by a name
+  the scan cannot see (generated code, cgo). So a map in which some test of the
+  package has no measurement is partial, and a partial map is never read as
+  proof: a mutant its measured tests kill is caught; one they miss, and a line
+  none of them ran, is NOT MEASURED as `partial`, never a survivor and never
+  not-covered. Only a map with every test measured says a mutant survived, or
+  that a line is uncovered.
+- *The budget.* The coverage phase spends at most half of the time the
+  commit has left, split equally between the packages; the mutants keep the
+  rest. A deadline ends the run and loses nothing that finished: each test's
+  result goes into the store as it completes and the store is saved when the
+  deadline cuts the run, so the next commit starts from the finished tests.
+- *Where.* In the repository's shared git directory
+  (`aphrollo-mutcover/`, one file per package and build key), so every lane of
+  the repository reads what any of them measured. The directory holds at most 64
+  files within 64 MiB (the ones read longest ago go first), and `aphrollo gate
+  gc` removes a file nothing has read for 30 days. A file of another schema is
+  not read (schema 3 replaced the one-blob-per-package maps of schema 2, which
+  gc removes with the rest).
 
 **The budget.** The run has `mutants-commit-budget` seconds of wall-clock,
 counted from the start of the stage, on at most as many workers as the Go
@@ -809,7 +864,7 @@ for the whole budget. None of these refuses the commit: each is printed as
 gate precommit: mutants → NOT MEASURED (<why>) — this commit carries no commit-time mutation evidence; CI's mutants-verdict decides
 ```
 
-and counted in the gate log as `mutants-unmeasured:commit-<kind>`. A mutant on a line no test executes is counted under the kind `not-covered`.
+and counted in the gate log as `mutants-unmeasured:commit-<kind>`. A mutant on a line no test executes is counted under the kind `not-covered`, and one the tests measured so far did not kill, on a partial map, under `partial`.
 
 **The canary.** Every runner that starts test processes (this run, the merge
 measurement, `gate mutants prove`, the test-map build) fingerprints the git

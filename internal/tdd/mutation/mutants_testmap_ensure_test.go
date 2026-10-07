@@ -5,115 +5,82 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
 
-// ensureTestMap is the cache in front of the coverage build: the kept map when
-// the package's key matches, else one measured now and kept.
+// ensureCoverage is the store in front of the coverage build. What the
+// source says is proved in mutants_covbuild_test.go; here is what is outside
+// the source: the toolchain, the module, and a store that cannot be kept.
 
-func TestEnsureTestMap_TheSecondCallReusesTheMapAndRunsNothing(t *testing.T) {
+// The Go version, the module path and the module files are the build key: a
+// store of another key is not used, and its tests are measured again.
+func TestEnsureCoverage_AChangedBuildKeyIsMeasuredAgain(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	ctx := context.Background()
-
-	m, built, cached, err := ensureTestMap(ctx, root, MutantsConfig{}, "internal/p", 1, io.Discard)
-	if err != nil || !built || cached {
-		t.Fatalf("first call = built %v cached %v err %v, want a fresh measurement", built, cached, err)
-	}
-	calls := len(tc.calls)
-
-	var log strings.Builder
-	again, built, cached, err := ensureTestMap(ctx, root, MutantsConfig{}, "internal/p", 1, &log)
-
-	if err != nil || !built || !cached || len(tc.calls) != calls {
-		t.Fatalf("second call = built %v cached %v err %v with %d new commands, want the kept map and none", built, cached, err, len(tc.calls)-calls)
-	}
-	if again.Hash != m.Hash || !slices.Equal(again.Tests, m.Tests) {
-		t.Errorf("reused map %+v differs from the measured %+v", again, m)
-	}
-	if !strings.Contains(log.String(), "coverage of internal/p: reused") {
-		t.Errorf("log = %q, want the reuse said", log.String())
-	}
-}
-
-// Content, import path, toolchain: each is part of the key, and a map of
-// another key is measured again and not used.
-func TestEnsureTestMap_AChangedKeyIsMeasuredAgain(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	ctx := context.Background()
-	if _, _, _, err := ensureTestMap(ctx, root, MutantsConfig{}, "internal/p", 1, io.Discard); err != nil {
-		t.Fatal(err)
-	}
+	tc := &fakeToolchain{}
+	root := covbuildRepo(t, tc)
+	covbuildAsk(t, root, 1, 4)
 	for _, tc2 := range []struct {
 		name  string
 		apply func(t *testing.T)
 	}{
-		{"an edited source", func(t *testing.T) {
-			mustWrite(t, filepath.Join(root, "internal", "p", "p.go"), "package p\n\nfunc f() int {\n\treturn 3\n}\n")
-		}},
 		{"another Go version", func(t *testing.T) {
 			t.Cleanup(setGoEnvForTest(func(context.Context, string) (string, error) { return "go9.99\n", nil }))
 		}},
 		{"another module path", func(t *testing.T) {
 			mustWrite(t, filepath.Join(root, "go.mod"), "module example.com/renamed\n\ngo 1.26\n")
 		}},
+		{"another mutation environment", func(t *testing.T) {}},
 	} {
 		before := len(tc.calls)
 		tc2.apply(t)
-		_, built, cached, err := ensureTestMap(ctx, root, MutantsConfig{}, "internal/p", 1, io.Discard)
-		if err != nil || !built || cached || len(tc.calls) == before {
-			t.Errorf("after %s: built %v cached %v err %v with %d new commands, want a fresh measurement", tc2.name, built, cached, err, len(tc.calls)-before)
+		cfg := MutantsConfig{}
+		if tc2.name == "another mutation environment" {
+			cfg.Env = []string{"X=1"}
+		}
+		res := covbuildAskCtx(t, context.Background(), root, cfg, 1, nil, 4)
+		if res.Kept != 0 || len(tc.calls) == before {
+			t.Errorf("after %s: kept %d with %d new commands, want a fresh measurement", tc2.name, res.Kept, len(tc.calls)-before)
 		}
 	}
 }
 
-func TestEnsureTestMap_APackageWithNoTestsHasNoMapAndKeepsNone(t *testing.T) {
+func TestEnsureCoverage_AToolchainFailureNamesThePackageAndRunsNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{compile: func([]string) (int, error) { return 0, nil }}
-	root := buildFixture(t, tc)
-	_, built, cached, err := ensureTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, io.Discard)
-	if err != nil || built || cached {
-		t.Errorf("ensure = built %v cached %v err %v, want none of them", built, cached, err)
-	}
-}
-
-func TestEnsureTestMap_AListingOrToolchainFailureNamesThePackage(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	t.Cleanup(setGoListForTest(func(context.Context, string, string) (string, error) { return "", errors.New("go list broke") }))
-	if _, _, _, err := ensureTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, io.Discard); err == nil || !strings.Contains(err.Error(), "internal/p") {
-		t.Errorf("listing failure: err = %v, want the package named", err)
-	}
-	t.Cleanup(setGoListForTest(func(context.Context, string, string) (string, error) { return "x|a.go|||\n", nil }))
+	tc := &fakeToolchain{}
+	root := covbuildRepo(t, tc)
 	t.Cleanup(setGoEnvForTest(func(context.Context, string) (string, error) { return "", errors.New("go env broke") }))
-	if _, _, _, err := ensureTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, io.Discard); err == nil || !strings.Contains(err.Error(), "go env") {
-		t.Errorf("toolchain failure: err = %v, want go env named", err)
+	_, err := ensureCoverage(context.Background(), root, MutantsConfig{}, covRequest{Dir: "internal/p", Mutants: []commitMutant{covbuildMutant(4)}, Workers: 1}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "go env") || !strings.Contains(err.Error(), "internal/p") {
+		t.Fatalf("err = %v, want go env and the package named", err)
+	}
+	if len(tc.calls) != 0 {
+		t.Fatalf("%d commands ran after the toolchain failed", len(tc.calls))
 	}
 }
 
-// A map that cannot be kept is still the answer for this commit, with the
+// A store that cannot be kept is still the answer for this commit, with the
 // failure said, and the next commit measures again.
-func TestEnsureTestMap_AMapThatCannotBeKeptIsStillUsedAndTheFailureSaid(t *testing.T) {
+func TestEnsureCoverage_AStoreThatCannotBeKeptIsStillUsedAndTheFailureSaid(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	t.Cleanup(setGoEnvForTest(func(context.Context, string) (string, error) { return "go1\n", nil }))
+	tc := &fakeToolchain{}
+	root := covbuildRepo(t, tc)
 	// A file where the cache directory belongs keeps the directory from being made.
 	mustWrite(t, CoverCacheDir(root), "in the way")
 	var log strings.Builder
 
-	m, built, cached, err := ensureTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, &log)
+	res, err := ensureCoverage(context.Background(), root, MutantsConfig{}, covRequest{Dir: "internal/p", Mutants: []commitMutant{covbuildMutant(4)}, Workers: 1}, &log)
 
-	if err != nil || !built || cached || len(m.Tests) != 1 {
-		t.Fatalf("ensure = %+v built %v cached %v err %v, want the measured map", m, built, cached, err)
+	if err != nil || !res.Built || res.Measured != 1 {
+		t.Fatalf("result = %+v err %v, want the measured map", res, err)
 	}
 	if !strings.Contains(log.String(), "not kept for the next commit") {
 		t.Errorf("log = %q, want the failure to keep it said", log.String())
 	}
 }
+
+// ratchet: test_removed TestEnsureTestMap_TheSecondCallReusesTheMapAndRunsNothing: the store is per test now; TestEnsureCoverage_ASecondCommitOfTheSameTreeRunsNothing proves the reuse
+// ratchet: test_removed TestEnsureTestMap_AChangedKeyIsMeasuredAgain: the build key is proved by TestEnsureCoverage_AChangedBuildKeyIsMeasuredAgain, and an edited source by TestPlanCoverage_EditedFunctionInvalidatesOnlyTheTestsThatCoveredIt
+// ratchet: test_removed TestEnsureTestMap_APackageWithNoTestsHasNoMapAndKeepsNone: proved by TestEnsureCoverage_APackageWithNoTestFunctionsRunsNothing
+// ratchet: test_removed TestEnsureTestMap_AListingOrToolchainFailureNamesThePackage: there is no listing of the package's files; the toolchain failure is TestEnsureCoverage_AToolchainFailureNamesThePackageAndRunsNothing
+// ratchet: test_removed TestEnsureTestMap_AMapThatCannotBeKeptIsStillUsedAndTheFailureSaid: TestEnsureCoverage_AStoreThatCannotBeKeptIsStillUsedAndTheFailureSaid

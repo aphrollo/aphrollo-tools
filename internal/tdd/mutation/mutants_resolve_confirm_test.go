@@ -152,7 +152,8 @@ func TestResolveGapMutants_AKillNamingNoPackageRerunsTheWholeStage(t *testing.T)
 	if got.Status != "caught" {
 		t.Fatalf("got %q (%s), want caught", got.Status, got.Note)
 	}
-	if want := "go test -count=1 -failfast ./other"; strings.Join(rerun, " ") != want {
+	// expectation-changed: every mutant go test now carries -vet=off, so the confirmation run does too
+	if want := "go test -count=1 -failfast -vet=off ./other"; strings.Join(rerun, " ") != want {
 		t.Fatalf("confirmation run = %q, want %q", strings.Join(rerun, " "), want)
 	}
 }

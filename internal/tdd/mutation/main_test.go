@@ -25,6 +25,7 @@ func TestMain(m *testing.M) {
 			// commit stage asks the seam, and the seam answers that it cannot.
 			testMapExecFn = refuseCoverageExec
 			goEnvFn = func(context.Context, string) (string, error) { return "go-unit-test\n", nil }
+			goListFn = func(context.Context, string, string) (string, error) { return "", nil }
 			return m.Run()
 		},
 		GitBinary:        gitx.GitBinary,

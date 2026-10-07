@@ -41,7 +41,7 @@ func commitStage(t *testing.T, config string) (cfgDir, root string) {
 	root = makeGoRepo(t)
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = true\n"+config)
 	write(t, root, "gate/gate.go", commitBaseSource)
-	write(t, root, "gate/gate_test.go", "package gate\n")
+	write(t, root, "gate/gate_test.go", "package gate\n\nimport \"testing\"\n\nfunc TestKind_A(t *testing.T) { _ = Kind(1) }\nfunc TestKind_B(t *testing.T) { _ = Kind(20) }\nfunc TestOther(t *testing.T) { _ = Label(\"x\") }\n")
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "base")
 	write(t, root, "gate/gate.go", commitGateSource)

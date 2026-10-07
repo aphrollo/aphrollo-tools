@@ -99,25 +99,4 @@ func TestBuildTestMap_CompilesWithTheDeclaredTestTags(t *testing.T) {
 	}
 }
 
-// Tags are part of the key: a map measured without them is not the map of the
-// tagged build, and the other way round.
-func TestEnsureTestMap_ADifferentTagSetIsMeasuredAgain(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	ctx := context.Background()
-	if _, _, _, err := ensureTestMap(ctx, root, MutantsConfig{}, "internal/p", 1, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	before := len(tc.calls)
-
-	_, built, cached, err := ensureTestMap(ctx, root, MutantsConfig{TestTags: []string{"integration"}}, "internal/p", 1, io.Discard)
-
-	if err != nil || !built || cached || len(tc.calls) == before {
-		t.Errorf("tagged call = built %v cached %v err %v with %d new commands, want a fresh measurement", built, cached, err, len(tc.calls)-before)
-	}
-	_, _, cached, err = ensureTestMap(ctx, root, MutantsConfig{TestTags: []string{"integration"}}, "internal/p", 1, io.Discard)
-	if err != nil || !cached {
-		t.Errorf("the same tags again = cached %v err %v, want the kept map", cached, err)
-	}
-}
+// ratchet: test_removed TestEnsureTestMap_ADifferentTagSetIsMeasuredAgain: TestEnsureCoverage_DeclaredTagsReachTheCompileAndKeyTheStore

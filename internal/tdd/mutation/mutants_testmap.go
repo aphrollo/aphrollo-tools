@@ -56,6 +56,18 @@ type testMap struct {
 	// and never exact: those tests are added to every selection and a mutant
 	// is never called not covered on its word.
 	Unknown []string `json:"unknown,omitempty"`
+	// Partial says some test of the package has no measurement in this map: it
+	// was not reached in the time, or an edit took its entry and it was not
+	// remeasured. A line it lists may be executed by a test the map does not
+	// name, so a mutant the named tests miss is not called a survivor.
+	Partial bool `json:"-"`
+	// Unmeasured is how many tests have no measurement (the reason Partial is
+	// set).
+	Unmeasured int `json:"-"`
+	// Inexact says some test was measured under other dependencies or fixtures
+	// than the tree has now: the tests it names are a good first run, but they
+	// are not all that could execute the line, so no selection is exact.
+	Inexact bool `json:"-"`
 }
 
 // testsAt is the tests that executed a block holding the line of the named
@@ -159,6 +171,10 @@ type selection struct {
 	Whole     bool
 	Uncovered bool
 	Exact     bool
+	// Partial says the map the selection came from is partial: the tests are
+	// the ones measured, and a mutant they miss is not a survivor (NOT
+	// MEASURED), nor is a line none of them ran uncovered.
+	Partial bool
 }
 
 // selectTests is the tests a mutant on a line is run against. With a map and
@@ -171,14 +187,24 @@ type selection struct {
 func selectTests(m *testMap, current, touched []string, file string, line int) selection {
 	if m != nil {
 		if mapped, listed := m.testsAt(file, line); listed {
-			if len(m.Unknown) > 0 {
-				// What the tests with no profile execute is not known: they join
+			if m.Partial {
+				names := slices.Concat(mapped, m.Unknown)
+				slices.Sort(names)
+				names = slices.Compact(names)
+				if len(runPattern(names)) > maxRunPatternLen {
+					return selection{Whole: true}
+				}
+				return selection{Names: names, Partial: true}
+			}
+			if m.Inexact || len(m.Unknown) > 0 {
+				// What the tests with no profile execute is not known, and what an
+				// inexact map's tests read has changed: the unknown tests join
 				// the selection, and a mutant they all miss still goes on to the
 				// rest of the package.
 				names := slices.Concat(mapped, m.Unknown)
 				slices.Sort(names)
 				names = slices.Compact(names)
-				if len(runPattern(names)) > maxRunPatternLen {
+				if len(names) == 0 || len(runPattern(names)) > maxRunPatternLen {
 					return selection{Whole: true}
 				}
 				return selection{Names: names}
