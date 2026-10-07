@@ -237,8 +237,14 @@ func secretscanFake(t *testing.T, mode string) (log string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Only an .exe suffix names the program on PATH; a unix test binary is
+	// called precommit.test, and "gitleaks.test" is no gitleaks to LookPath.
+	suffix := ""
+	if strings.EqualFold(filepath.Ext(exe), ".exe") {
+		suffix = filepath.Ext(exe)
+	}
 	bin := t.TempDir()
-	if err := proc.WriteExecutable(filepath.Join(bin, "gitleaks"+filepath.Ext(exe)), body, 0o755); err != nil {
+	if err := proc.WriteExecutable(filepath.Join(bin, "gitleaks"+suffix), body, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	log = filepath.Join(t.TempDir(), "argv.log")
@@ -264,11 +270,21 @@ func secretscanCalls(t *testing.T, log string) []string {
 // report is a scanner that could not scan, never a finding.
 func TestSecretScanReal_ExitOneWithGarbageIsNotRunNotRejected(t *testing.T) {
 	root := secretscanRepo(t)
-	secretscanFake(t, "garbage")
+	log := secretscanFake(t, "garbage")
 
 	res := secretScanStage("precommit", root)
 	if res.Blocked || !strings.Contains(res.Message, "NOT RUN") || strings.Contains(res.Message, "REJECTED") {
 		t.Errorf("garbage on exit 1 must be NOT RUN, got %+v", res)
+	}
+	secretscanRanTheFake(t, log, res.Message)
+}
+
+// secretscanRanTheFake fails a test whose NOT RUN came from the fake never
+// being found rather than from its answer: a missing scanner is NOT RUN too.
+func secretscanRanTheFake(t *testing.T, log, message string) {
+	t.Helper()
+	if strings.Contains(message, "not on PATH") || len(secretscanCalls(t, log)) < 2 {
+		t.Fatalf("the fake gitleaks was never run (calls %q): %s", secretscanCalls(t, log), message)
 	}
 }
 
@@ -289,7 +305,7 @@ func TestSecretScanReal_ExitOneWithAFindingRefusesWithItsFingerprint(t *testing.
 
 func TestSecretScanReal_AScannerThatOutlastsItsTimeIsNotRun(t *testing.T) {
 	root := secretscanRepo(t)
-	secretscanFake(t, "hang")
+	log := secretscanFake(t, "hang")
 	prev := secretScanTimeout
 	secretScanTimeout = 500 * time.Millisecond
 	t.Cleanup(func() { secretScanTimeout = prev })
@@ -298,6 +314,7 @@ func TestSecretScanReal_AScannerThatOutlastsItsTimeIsNotRun(t *testing.T) {
 	if res.Blocked || !strings.Contains(res.Message, "NOT RUN") {
 		t.Errorf("a timed-out scan must be NOT RUN, got %+v", res)
 	}
+	secretscanRanTheFake(t, log, res.Message)
 }
 
 // The repo's own config goes to the scanner as CI's scan reads it, and the
