@@ -99,6 +99,7 @@ type Child struct {
 	exitErr   error
 	stop      func() bool // stops the timeout, false when its timer had already fired; true where there is none
 	timedOut  atomic.Bool
+	deadline  time.Time // when the timeout elapses; zero where there is none
 	unguarded error
 	release   func()
 	once      sync.Once
@@ -273,6 +274,7 @@ func launch(cmd *exec.Cmd, t tree, spec Spec) (*Child, error) {
 	}
 	c := &Child{cmd: cmd, tree: t, hook: spec.Hook, release: func() {}, stop: func() bool { return true }}
 	if spec.Timeout > 0 {
+		c.deadline = now().Add(spec.Timeout)
 		c.stop = afterFunc(spec.Timeout, func() {
 			c.timedOut.Store(true)
 			c.tree.kill()
@@ -280,6 +282,9 @@ func launch(cmd *exec.Cmd, t tree, spec Spec) (*Child, error) {
 	}
 	return c, nil
 }
+
+// now is the clock the deadline is judged by. Tests replace it.
+var now = time.Now
 
 // afterFunc starts the timeout timer and returns its stop, which reports false
 // when the timer had already fired. Tests replace it.
@@ -296,9 +301,10 @@ func (c *Child) Wait() error {
 		c.exitErr = c.cmd.Wait()
 		c.err = c.exitErr
 		endHook(c.hook)
-		// A timer that had already fired when stopped means the deadline
-		// elapsed, even if its callback has not run yet to say so.
-		fired := !c.stop()
+		// The deadline elapsed when the timer had already fired as it was
+		// stopped, or its callback ran, or the clock says so: a loaded box may
+		// not have serviced the timer while the child exited.
+		fired := !c.stop() || (!c.deadline.IsZero() && !now().Before(c.deadline))
 		c.tree.finish()
 		c.release()
 		if fired || c.timedOut.Load() {
