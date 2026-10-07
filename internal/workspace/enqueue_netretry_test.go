@@ -146,6 +146,8 @@ func TestIsTransientNetError_NamesTheNetworkFailuresAndNotTheAnswers(t *testing.
 		"gh api pulls/5: i/o timeout": true,
 		"gh api pulls/5: timed out after 1m0s — check network connectivity/credentials and retry":                             true,
 		"gh api pulls/5: HTTP 502: Bad Gateway":                                                                               true,
+		"gh api pulls/5: HTTP 500: Internal Server Error":                                                                     true,
+		"gh api --paginate: exit status 1: unexpected end of JSON input":                                                      true,
 		"gh api pulls/5: HTTP 429: Too Many Requests":                                                                         true,
 		"gh api pulls/5: HTTP 403: You have exceeded a secondary rate limit. Please wait a few minutes before you try again.": true,
 		"gh api pulls/5: HTTP 403: API rate limit exceeded for user ID 1.":                                                    true,
