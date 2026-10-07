@@ -37,12 +37,17 @@ func BuildEnvPath(shimDir string, pathDirs []string, sep string) string {
 // mergeSettingsEnvPath is PatchSettingsEnvPath for an install: it never takes
 // a directory out of the env.PATH already written. The new value is shimDir,
 // then the existing entries, then the installing process's own (pathDirs),
-// then the per-user toolchain dirs that exist on this machine. An install run
+// then the per-user toolchain dirs that exist on this machine. The value leads
+// with lead in order; an entry drop names is left out wherever it came from. An install run
 // from a minimal PATH (a provisioning tool's non-login shell) therefore adds
 // nothing it cannot see and drops nothing it cannot see either.
-func mergeSettingsEnvPath(existing []byte, shimDir string, pathDirs []string, sep string) ([]byte, bool, error) {
+func mergeSettingsEnvPath(existing []byte, lead, pathDirs []string, sep string, drop func(string) bool) ([]byte, bool, error) {
 	return patchSettingsEnvPath(existing, func(prior string) string {
-		return BuildEnvPath(shimDir, slices.Concat(strings.Split(prior, sep), pathDirs, toolchainDirs()), sep)
+		rest := slices.Concat(strings.Split(prior, sep), pathDirs, toolchainDirs())
+		if drop != nil {
+			rest = slices.DeleteFunc(rest, drop)
+		}
+		return BuildEnvPath(lead[0], slices.Concat(lead[1:], rest), sep)
 	})
 }
 
@@ -204,6 +209,32 @@ func StripSettingsEnvPathShim(existing []byte, shimDir, sep string) ([]byte, boo
 // makes never collide on the same backup name), and is a no-op when nothing
 // would change.
 func InitSettingsEnvPath(configDir, shimDir string, pathDirs []string, sep string, uninstall bool) (bool, error) {
+	if uninstall {
+		// No !existed short-circuit: StripSettingsEnvPathShim(nil, ...) on a
+		// missing file already parses to an empty document with nothing to
+		// strip, so changed comes back false either way and the generic
+		// no-op return below covers it — a separate guard here would be a
+		// mutation nothing could ever observe.
+		return writeSettingsEnvPath(configDir, func(existing []byte) ([]byte, bool, error) {
+			return StripSettingsEnvPathShim(existing, shimDir, sep)
+		})
+	}
+	return InitSettingsEnvPathLed(configDir, []string{shimDir}, pathDirs, sep, nil)
+}
+
+// InitSettingsEnvPathLed is InitSettingsEnvPath's install for an env.PATH
+// that leads with lead, in order (the shim dir, then the dir `aphrollo`
+// resolves through), and carries no entry drop names, wherever it came from:
+// a directory an earlier install wrote that no longer belongs on any PATH.
+func InitSettingsEnvPathLed(configDir string, lead, pathDirs []string, sep string, drop func(string) bool) (bool, error) {
+	return writeSettingsEnvPath(configDir, func(existing []byte) ([]byte, bool, error) {
+		return mergeSettingsEnvPath(existing, lead, pathDirs, sep, drop)
+	})
+}
+
+// writeSettingsEnvPath reads configDir/settings.json, lets patch compute the
+// new bytes, and writes them behind a backup when they changed.
+func writeSettingsEnvPath(configDir string, patch func(existing []byte) ([]byte, bool, error)) (bool, error) {
 	path := filepath.Join(configDir, "settings.json")
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -211,18 +242,7 @@ func InitSettingsEnvPath(configDir, shimDir string, pathDirs []string, sep strin
 	}
 	existed := err == nil
 
-	var out []byte
-	var changed bool
-	if uninstall {
-		// No !existed short-circuit: StripSettingsEnvPathShim(nil, ...) on a
-		// missing file already parses to an empty document with nothing to
-		// strip, so changed comes back false either way and the generic
-		// no-op return below covers it — a separate guard here would be a
-		// mutation nothing could ever observe.
-		out, changed, err = StripSettingsEnvPathShim(existing, shimDir, sep)
-	} else {
-		out, changed, err = mergeSettingsEnvPath(existing, shimDir, pathDirs, sep)
-	}
+	out, changed, err := patch(existing)
 	if err != nil {
 		return false, err
 	}

@@ -35,4 +35,8 @@ type DoctorInput struct {
 	// caller read them from the registry; nil off Windows or when the read
 	// failed, which makes the user-PATH check not applicable.
 	UserPathDirs []string
+	// LauncherDir is the dir the user PATH should carry for `aphrollo`: the
+	// user-space root for a user-space binary, else Bin's own dir ("" means
+	// Bin's dir).
+	LauncherDir string
 }

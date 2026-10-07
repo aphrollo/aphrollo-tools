@@ -419,3 +419,22 @@ func TestHookCommand_NoPointerNeverRunsTheFileAtTheRootsOwnPath(t *testing.T) {
 		t.Fatalf("Prelude resolved x to the root's own file: %q", out)
 	}
 }
+
+// Git Bash, the agent's own shell on Windows, never runs a .cmd for a bare
+// `aphrollo`, so the root carries an sh launcher on every platform.
+func TestWriteLauncher_TheRootCarriesAnShLauncherForGitBash(t *testing.T) {
+	root := filepath.Join(userbinTempHome(t), "bin")
+	if _, err := WriteLauncher(root, "/old/aphrollo"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(root, BinName))
+	if err != nil {
+		t.Fatalf("no sh launcher at %s: %v", filepath.Join(root, BinName), err)
+	}
+	s := string(data)
+	for _, want := range []string{"#!/bin/sh\n", "aphrollo_root=", `"$aphrollo_root/current"`, `exec "$x" "$@"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the sh launcher lacks %q:\n%s", want, s)
+		}
+	}
+}

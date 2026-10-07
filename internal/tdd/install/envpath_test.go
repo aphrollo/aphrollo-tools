@@ -437,3 +437,30 @@ func TestInitSettingsEnvPath_AMalformedSettingsFileIsRefusedAndLeftAlone(t *test
 		t.Errorf("settings.json = %q, want it left as it was", got)
 	}
 }
+
+// An install whose PATH leads with more than the shim dir puts the lead dirs
+// first in order, and an entry drop names leaves the PATH wherever it came
+// from: the env.PATH already written, the installing process's own PATH.
+func TestInitSettingsEnvPathLed_LeadsInOrderAndDropsWhatDropNames(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	seed := `{"env":{"PATH":"/old/7.0.0/cargo-queue:/opt/tools:/old/7.0.0"}}`
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(seed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	drop := func(d string) bool { return strings.HasPrefix(d, "/old/") }
+	if _, err := InitSettingsEnvPathLed(dir, []string{"/stable/cargo-queue", "/stable/bin"}, []string{"/old/6.0.0", "/usr/bin"}, ":", drop); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := envAt(t, data)["PATH"].(string)
+	if want := "/stable/cargo-queue:/stable/bin:/opt/tools:/usr/bin"; !strings.HasPrefix(got, want) {
+		t.Errorf("env.PATH = %q, want it to start %q", got, want)
+	}
+	if strings.Contains(got, "/old/") {
+		t.Errorf("env.PATH kept an entry drop names: %q", got)
+	}
+}

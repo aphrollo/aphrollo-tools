@@ -301,7 +301,9 @@ func installMachineGate(gitHooksDir, cargoShimDir, dir, binName string, uninstal
 		// provisioning tool's non-login shell) never shrinks it. A later
 		// change to the box's own PATH needs a re-install to reach that
 		// snapshot; doctorEnvPath warns when it has gone stale.
-		pchanged, perr := tdd.InitSettingsEnvPath(dir, cdir, userPathDirsFn(), pathListSep(), false)
+		binDir := launcherDir(binName)
+		pchanged, perr := tdd.InitSettingsEnvPathLed(dir, []string{cdir, binDir}, userPathDirsFn(), pathListSep(),
+			func(d string) bool { return staleUserBinDir(d, cdir, binDir) })
 		switch {
 		case perr != nil:
 			fmt.Fprintf(stderr, "aphrollo: %v\n", perr)
@@ -434,6 +436,11 @@ func pathListSep() string {
 // managed CLAUDE.md block's own example.
 func defaultCargoShimDir(bin string) string {
 	if binGOOS == "windows" {
+		if root, err := userbin.Root(); err == nil && userbin.Under(root, bin) {
+			// Beside the root, not in a version directory the next update
+			// leaves on PATH behind the new one.
+			return filepath.Join(filepath.Dir(root), "cargo-queue")
+		}
 		return filepath.Join(filepath.Dir(bin), "cargo-queue")
 	}
 	if home, err := os.UserHomeDir(); err == nil {
