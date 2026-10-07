@@ -23,7 +23,7 @@ func shQuote(s string) string {
 func HookCommand(root, fallback string, budgetSecs int, args string) string {
 	var b strings.Builder
 	b.WriteString("aphrollo_root=" + shQuote(root) + "; aphrollo_fallback=" + shQuote(fallback) + "; ")
-	b.WriteString(`x="$aphrollo_root/$(cat "$aphrollo_root/` + pointerName + `" 2>/dev/null)/` + BinName + ExeSuffix + `"; `)
+	b.WriteString(`v=$(cat "$aphrollo_root/` + pointerName + `" 2>/dev/null); x=""; [ -n "$v" ] && x="$aphrollo_root/$v/` + BinName + ExeSuffix + `"; `)
 	b.WriteString(`[ -x "$x" ] || x="$aphrollo_fallback"; `)
 	b.WriteString(`[ -x "$x" ] || { echo "aphrollo: no binary found (run: aphrollo update), hook skipped" >&2; exit 0; }; `)
 	if budgetSecs <= 0 {
@@ -41,7 +41,8 @@ func HookCommand(root, fallback string, budgetSecs int, args string) string {
 func Prelude(root, fallback string) string {
 	return "aphrollo_root=" + shQuote(root) + "\n" +
 		"aphrollo_fallback=" + shQuote(fallback) + "\n" +
-		`x="$aphrollo_root/$(cat "$aphrollo_root/` + pointerName + `" 2>/dev/null)/` + BinName + ExeSuffix + `"` + "\n" +
+		`v=$(cat "$aphrollo_root/` + pointerName + `" 2>/dev/null)` + "\n" +
+		`x=""; [ -n "$v" ] && x="$aphrollo_root/$v/` + BinName + ExeSuffix + `"` + "\n" +
 		`[ -x "$x" ] || x="$aphrollo_fallback"` + "\n"
 }
 

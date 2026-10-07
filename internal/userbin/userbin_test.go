@@ -1,12 +1,14 @@
 package userbin
 
 import (
+	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // userbinTempHome points every variable Root reads at one temp dir, so a test
@@ -171,7 +173,10 @@ func userbinSh(t *testing.T) string {
 
 func userbinRun(t *testing.T, command string) (code int, stdout, stderr string) {
 	t.Helper()
-	cmd := exec.Command(userbinSh(t), "-c", command)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, userbinSh(t), "-c", command)
+	cmd.WaitDelay = 2 * time.Second
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -394,5 +399,23 @@ func TestPathCheck_SaysWhenAphrolloResolvesAnywhereButTheInstall(t *testing.T) {
 	lookPathFn = func(string) (string, error) { return "", errors.New("not found") }
 	if line := PathCheck(root); !strings.Contains(line, "not on PATH") {
 		t.Fatalf("PathCheck = %q; want it to say aphrollo is not on PATH", line)
+	}
+}
+
+// With no pointer the version part of the path is empty and "$root//aphrollo"
+// collapses to "$root/aphrollo": on Linux that is the launcher itself, and a
+// hook or launcher that ran it exec'd itself forever (it hung CI). No pointer
+// means no user-space binary, whatever sits at that path.
+func TestHookCommand_NoPointerNeverRunsTheFileAtTheRootsOwnPath(t *testing.T) {
+	root := filepath.Join(userbinTempHome(t), "bin")
+	userbinScript(t, filepath.Join(root, BinName+ExeSuffix), `echo LOOP; exit 99`)
+	code, out, errs := userbinRun(t, HookCommand(root, filepath.Join(root, "gone"+ExeSuffix), 0, "gate stop"))
+	if code != 0 || strings.Contains(out, "LOOP") || !strings.Contains(errs, "skipped") {
+		t.Fatalf("code %d, stdout %q, stderr %q; want the no-binary no-op", code, out, errs)
+	}
+	body := "#!/bin/sh\n" + Prelude(root, filepath.Join(root, "gone"+ExeSuffix)) + "echo \"x=[$x]\"\n"
+	_, out, _ = userbinRun(t, "sh -c '"+strings.ReplaceAll(body, "'", `'\''`)+"'")
+	if strings.Contains(out, filepath.ToSlash(root)+"/"+BinName) {
+		t.Fatalf("Prelude resolved x to the root's own file: %q", out)
 	}
 }

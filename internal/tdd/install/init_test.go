@@ -1,6 +1,7 @@
 package install
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -380,7 +381,10 @@ func userlaunchFakeBin(t *testing.T, path, who string) {
 // userlaunchRun runs a hook command the way the harness does, through sh.
 func userlaunchRun(t *testing.T, command string) (code int, stdout, stderr string) {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", command)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd.WaitDelay = 2 * time.Second
 	var out, errb strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -466,4 +470,15 @@ func userlaunchHome(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+}
+
+// userlaunchShOut runs a shim under sh with a deadline, so a shim that never
+// returns fails the test instead of holding the job.
+func userlaunchShOut(t *testing.T, shim string, args ...string) ([]byte, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", append([]string{shim}, args...)...)
+	cmd.WaitDelay = 2 * time.Second
+	return cmd.CombinedOutput()
 }

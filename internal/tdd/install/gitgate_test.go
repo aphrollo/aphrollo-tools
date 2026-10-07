@@ -406,7 +406,7 @@ func TestLaunchShim_RunsTheUserSpaceBinaryThenFallsBackToTheRealTool(t *testing.
 		t.Fatal(err)
 	}
 
-	out, err := exec.Command("sh", shim, "status").CombinedOutput()
+	out, err := userlaunchShOut(t, shim, "status")
 	if err != nil || !strings.Contains(string(out), "REAL status") || !strings.Contains(string(out), "aphrollo update") {
 		t.Fatalf("no binary anywhere: %v\n%s\nwant the real tool and a line naming `aphrollo update`", err, out)
 	}
@@ -415,7 +415,7 @@ func TestLaunchShim_RunsTheUserSpaceBinaryThenFallsBackToTheRealTool(t *testing.
 	if err := userbin.SetCurrent(root, "5.0.0"); err != nil {
 		t.Fatal(err)
 	}
-	out, err = exec.Command("sh", shim, "status").CombinedOutput()
+	out, err = userlaunchShOut(t, shim, "status")
 	if err != nil || strings.TrimSpace(string(out)) != "user "+CmdName+" git status" {
 		t.Fatalf("with a user-space current: %v\n%s\nwant the user-space binary", err, out)
 	}
@@ -449,12 +449,29 @@ func TestLaunchShim_AHookWithNoBinaryRefusesAndSaysSo(t *testing.T) {
 	if err := proc.WriteExecutable(shim, []byte(launchShim(filepath.Join(dir, "none"), "precommit", "")), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	out, err := exec.Command("sh", shim).CombinedOutput()
+	out, err := userlaunchShOut(t, shim)
 	if err == nil {
 		t.Fatalf("the shim succeeded with no binary:\n%s", out)
 	}
 	s := string(out)
 	if strings.Contains(s, "UNGATED") || !strings.Contains(s, "refusing precommit") || !strings.Contains(s, "aphrollo update") {
 		t.Fatalf("output %q: want it to say it refuses and name `aphrollo update`", s)
+	}
+}
+
+// On Linux the root's own "aphrollo" is the launcher. A shim with no pointer
+// must not resolve to it: that exec'd the launcher, which exec'd itself, forever.
+func TestLaunchShim_NoPointerNeverRunsTheFileAtTheRootsOwnPath(t *testing.T) {
+	userlaunchHome(t)
+	root, _ := userbin.Root()
+	userlaunchFakeBin(t, filepath.Join(root, userbin.BinName+userbin.ExeSuffix), "LOOP")
+	dir := t.TempDir()
+	shim := filepath.Join(dir, "pre-commit")
+	if err := proc.WriteExecutable(shim, []byte(launchShim(filepath.Join(dir, "none"), "precommit", "")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := userlaunchShOut(t, shim)
+	if err == nil || strings.Contains(string(out), "LOOP") {
+		t.Fatalf("err %v, output %q; want the refusal, not the root's own file", err, out)
 	}
 }
