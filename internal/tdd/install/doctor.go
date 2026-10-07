@@ -73,6 +73,9 @@ func Doctor(in DoctorInput) []DoctorCheck {
 	if c, ok := doctorCIClippyList(in); ok {
 		checks = append(checks, c)
 	}
+	if c, ok := doctorCIQueueReuse(in); ok {
+		checks = append(checks, c)
+	}
 	if c, ok := doctorRatchetLaws(in); ok {
 		checks = append(checks, c)
 	}
