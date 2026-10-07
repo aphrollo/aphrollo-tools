@@ -2,14 +2,15 @@ package userbin
 
 import (
 	"fmt"
-	"path/filepath"
 	"strings"
 )
 
 // shQuote single-quotes s for POSIX sh, slash-normalized: a raw Windows path's
-// backslashes are escapes to the shell a hook runs in.
+// backslashes are escapes to the shell a hook runs in. The replacement is
+// literal rather than filepath.ToSlash, which is a no-op off Windows, so a
+// Windows path is normalized whichever OS writes the command.
 func shQuote(s string) string {
-	s = filepath.ToSlash(s)
+	s = strings.ReplaceAll(s, `\`, "/")
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
