@@ -98,20 +98,35 @@ func scanPackage(dir string, tags []string) (pkgScan, error) {
 			return pkgScan{}, err
 		}
 		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution)
+		file, err := parser.ParseFile(fset, name, src, parser.SkipObjectResolution|parser.ParseComments)
 		if err != nil {
 			return pkgScan{}, err
 		}
 		isTest := strings.HasSuffix(name, "_test.go")
 		var rest strings.Builder
 		seen := map[string]int{}
-		text := func(n ast.Node) string {
-			return string(src[fset.Position(n.Pos()).Offset:fset.Position(n.End()).Offset])
+		// text is the source of a declaration from its doc comment on, so a
+		// //go:embed directive or a build-affecting comment above it counts.
+		text := func(n ast.Node, doc *ast.CommentGroup) string {
+			from := n.Pos()
+			if doc != nil && doc.Pos() < from {
+				from = doc.Pos()
+			}
+			return string(src[fset.Position(from).Offset:fset.Position(n.End()).Offset])
 		}
+		// line is a position's own line, not the one a //line directive names.
+		line := func(p token.Pos) int { return fset.PositionFor(p, false).Line }
+		// A file of the external test package (package foo_test) keeps its own
+		// namespace, so its helper does not shadow a function of the package.
+		space := ""
+		if isTest && strings.HasSuffix(file.Name.Name, "_test") {
+			space = "x:"
+		}
+		vars := 0
 		for _, decl := range file.Decls {
 			switch d := decl.(type) {
 			case *ast.FuncDecl:
-				base := funcKey(d)
+				base := space + funcKey(d)
 				key := base
 				if d.Name.Name == "init" || d.Name.Name == "_" {
 					// More than one may stand in a package, so these are told apart
@@ -123,8 +138,8 @@ func scanPackage(dir string, tags []string) (pkgScan, error) {
 				seen[base]++
 				f := pkgFunc{
 					Key: key, File: name, Names: []string{d.Name.Name}, Test: isTest,
-					Start: fset.Position(d.Pos()).Line, End: fset.Position(d.End()).Line,
-					Hash: hashText(text(d)), Refs: mentionedNames(d.Body), Reexec: namesOwnBinary(d.Body),
+					Start: line(d.Pos()), End: line(d.End()),
+					Hash: hashText(text(d, d.Doc)), Refs: mentionedNames(d.Body), Reexec: namesOwnBinary(d.Body),
 					Global: d.Name.Name == "init" || (isTest && d.Name.Name == "TestMain"),
 				}
 				scan.Funcs[key] = f
@@ -132,10 +147,7 @@ func scanPackage(dir string, tags []string) (pkgScan, error) {
 					scan.TestKey[d.Name.Name] = key
 				}
 			case *ast.GenDecl:
-				if d.Tok == token.IMPORT {
-					continue
-				}
-				rest.WriteString(text(d))
+				rest.WriteString(text(d, d.Doc))
 				rest.WriteByte('\n')
 				if d.Tok != token.VAR && d.Tok != token.CONST {
 					continue
@@ -149,10 +161,19 @@ func scanPackage(dir string, tags []string) (pkgScan, error) {
 					for _, id := range vs.Names {
 						names = append(names, id.Name)
 					}
+					key := space + "var:" + names[0]
+					if names[0] == "_" {
+						key = fmt.Sprintf("%s@%s#%d", key, name, vars)
+					}
+					vars++
+					doc := vs.Doc
+					if doc == nil {
+						doc = d.Doc
+					}
 					scan.Vars = append(scan.Vars, pkgFunc{
-						Key: "var:" + names[0], File: name, Names: names, Test: isTest, Var: true,
-						Start: fset.Position(vs.Pos()).Line, End: fset.Position(vs.End()).Line,
-						Refs: mentionedNames(vs), Hash: hashText(text(vs)),
+						Key: key, File: name, Names: names, Test: isTest, Var: true,
+						Start: line(vs.Pos()), End: line(vs.End()),
+						Refs: mentionedNames(vs), Hash: hashText(text(vs, doc)), Reexec: namesOwnBinary(vs),
 					})
 				}
 			}
@@ -194,6 +215,11 @@ func (s pkgScan) reexecTests() []string {
 		// test that reaches it one.
 		if f.Reexec && f.Test {
 			seed = append(seed, key)
+		}
+	}
+	for _, v := range s.Vars {
+		if v.Reexec && v.Test {
+			seed = append(seed, v.Key)
 		}
 	}
 	if len(seed) == 0 {

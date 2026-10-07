@@ -306,7 +306,7 @@ func runOneCommitMutant(ctx context.Context, root string, env []string, plan *co
 		}
 		names, whole, exact, partial = sel.Names, sel.Whole, sel.Exact, sel.Partial
 		if partial && len(names) == 0 {
-			run.leave(commitGap{gapPartial, "no test measured so far executes this line of " + plan.Dir + ", and the coverage is partial, so a test not measured may"})
+			run.leave(commitGap{gapPartial, "no test measured so far executes this line of " + plan.Dir + ", and the coverage is partial (" + strconv.Itoa(plan.Map.Unmeasured) + " tests not measured), so one of them may"})
 			return
 		}
 	}
@@ -347,7 +347,7 @@ func runOneCommitMutant(ctx context.Context, root string, env []string, plan *co
 	status, gap := settleRun(ctx, root, env, overlay, packageArgs([]string{dir}), slices.Concat(tags, extra), tags, deadline, known)
 	run.Took += commitNowFn().Sub(began)
 	if status == "missed" && partial && gap.Why == "" {
-		run.leave(commitGap{gapPartial, fmt.Sprintf("survived the %d test(s) of %s measured for its line, and the coverage is partial, so a test not measured yet may kill it", len(names), dir)})
+		run.leave(commitGap{gapPartial, fmt.Sprintf("survived the %d test(s) of %s measured for its line, and the coverage is partial (%d tests not measured), so one of them may kill it", len(names), dir, plan.Map.Unmeasured)})
 		return
 	}
 	if status == "missed" && !confirm && !exact {

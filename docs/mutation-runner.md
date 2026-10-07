@@ -800,17 +800,26 @@ function measures the tests that ran it and not the package again.
   package variables) loses its entry and is measured again; a deleted test
   loses it for good; every other test is read from the store and runs nothing.
   Nothing is compiled when there is nothing to measure.
+- *Dependencies and fixtures.* Each entry also records a hash of what the test
+  read besides the package's own functions: the files of the packages this one
+  imports inside the module (`go list -deps -test`), the package's `testdata/`
+  tree, its `//go:embed` targets, cgo and assembly files; a module-cache
+  dependency is named by its versioned directory. An entry measured under
+  another hash is not dropped, since the store is still the best guide to which
+  tests to run; it picks tests as before, but the selection is never exact, so a
+  mutant its tests miss goes on to the whole package before it is called a
+  survivor. Such an entry is measured again when a commit's mutants make it a
+  candidate, or by the fill.
 - *What drops the whole store.* A change in a declaration that is not a
-  function (a type, a package variable or constant), in `TestMain` or an `init`
+  function (a type, a package variable or constant, an import, a doc comment
+  above one, which is where `//go:embed` lives), in `TestMain` or an `init`
   function, or in the build key: the import path, the Go version and build
   settings (`go env GOVERSION GOFLAGS GOOS GOARCH CGO_ENABLED GOEXPERIMENT`),
   the test tags, `mutants-env`, and `go.mod`, `go.sum`, `go.work` and
-  `go.work.sum`. Each can change what every test does. The content of the
-  packages this one imports and of `testdata/` is deliberately not in the key:
-  the coverage of the package's own lines is nearly independent of them, and
+  `go.work.sum`. Each can change what every test does. The content of
+  the packages this one imports and of `testdata/` is not in the key, because
   keying them would send every commit that touches a neighbor back to a cold
-  start. A change there that alters which lines a test executes is not seen
-  until one of the package's own functions or tests changes.
+  start; it is the dependency hash above.
 - *Cold.* With no store, measuring every test is as slow as it ever was
   (about 8 minutes of coverage runs for `internal/tdd/mutation` alone), so it is
   not tried inside a 90 second budget. The stage looks at which tests can reach

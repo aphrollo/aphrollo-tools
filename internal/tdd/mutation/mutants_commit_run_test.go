@@ -150,7 +150,7 @@ func TestRunCommitMutants_ASelectionThatKillsIsCaught(t *testing.T) {
 	if second.Overlay || second.Run != "^(TestKind_A)$" {
 		t.Errorf("second run = %+v, want the same tests with no overlay", second)
 	}
-	for _, want := range []string{"-count=1", "-failfast", "./gate"} {
+	for _, want := range []string{"-count=1", "-failfast", "-vet=off", "./gate"} {
 		if !slices.Contains(first.Args, want) {
 			t.Errorf("argv %v lacks %q", first.Args, want)
 		}

@@ -61,6 +61,13 @@ type testMap struct {
 	// remeasured. A line it lists may be executed by a test the map does not
 	// name, so a mutant the named tests miss is not called a survivor.
 	Partial bool `json:"-"`
+	// Unmeasured is how many tests have no measurement (the reason Partial is
+	// set).
+	Unmeasured int `json:"-"`
+	// Inexact says some test was measured under other dependencies or fixtures
+	// than the tree has now: the tests it names are a good first run, but they
+	// are not all that could execute the line, so no selection is exact.
+	Inexact bool `json:"-"`
 }
 
 // testsAt is the tests that executed a block holding the line of the named
@@ -189,14 +196,15 @@ func selectTests(m *testMap, current, touched []string, file string, line int) s
 				}
 				return selection{Names: names, Partial: true}
 			}
-			if len(m.Unknown) > 0 {
-				// What the tests with no profile execute is not known: they join
+			if m.Inexact || len(m.Unknown) > 0 {
+				// What the tests with no profile execute is not known, and what an
+				// inexact map's tests read has changed: the unknown tests join
 				// the selection, and a mutant they all miss still goes on to the
 				// rest of the package.
 				names := slices.Concat(mapped, m.Unknown)
 				slices.Sort(names)
 				names = slices.Compact(names)
-				if len(runPattern(names)) > maxRunPatternLen {
+				if len(names) == 0 || len(runPattern(names)) > maxRunPatternLen {
 					return selection{Whole: true}
 				}
 				return selection{Names: names}

@@ -172,17 +172,26 @@ func TestEnsureCoverage_ACancelledRunKeepsTheTestsThatFinished(t *testing.T) {
 	}
 }
 
-func TestEnsureCoverage_ATestThatWritesNoProfileIsUnknownAndNotKept(t *testing.T) {
+func TestEnsureCoverage_ATestThatWritesNoProfileIsUnknownAndNotAskedAgain(t *testing.T) {
 	tc := &fakeToolchain{profiles: map[string]string{"Test_B": covbuildProfile(false, true, false), "Test_C": covbuildProfile(false, false, true)}}
 	root := covbuildRepo(t, tc)
 	res := covbuildAsk(t, root, 1, 4)
 	if !slices.Equal(res.Map.Unknown, []string{"Test_A"}) {
 		t.Fatalf("unknown = %v", res.Map.Unknown)
 	}
-	_, soloBefore := testRuns(tc)
+	before := len(tc.calls)
+	again := covbuildAsk(t, root, 1, 4)
+	if len(tc.calls) != before {
+		t.Fatalf("a test that wrote no profile was asked again: %d commands", len(tc.calls)-before)
+	}
+	if !slices.Equal(again.Map.Unknown, []string{"Test_A"}) {
+		t.Fatalf("unknown on the second commit = %v, want it kept, joining every selection", again.Map.Unknown)
+	}
+	// An edit of the test is a new test: it is asked once more.
+	mustWrite(t, filepath.Join(root, "internal", "p", "p_test.go"), strings.Replace(covbuildTests, "_ = f() }", "_ = f() + 0 }", 1))
 	covbuildAsk(t, root, 1, 4)
-	if _, solo := testRuns(tc); solo-soloBefore != 1 {
-		t.Fatalf("a test with no profile is asked again, %d solo runs", solo-soloBefore)
+	if len(tc.calls) == before {
+		t.Fatal("an edited test that wrote no profile was not asked again")
 	}
 }
 
@@ -249,3 +258,5 @@ func TestEnsureCoverage_DeclaredTagsReachTheCompileAndKeyTheStore(t *testing.T) 
 		t.Fatal("a store measured under other tags was used")
 	}
 }
+
+// ratchet: test_removed TestEnsureCoverage_ATestThatWritesNoProfileIsUnknownAndNotKept: TestEnsureCoverage_ATestThatWritesNoProfileIsUnknownAndNotAskedAgain keeps the test as unknown with its hash

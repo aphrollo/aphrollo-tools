@@ -44,7 +44,10 @@ type covFunc struct {
 // covTest is one test's measurement: the hash of the test's own function and
 // what it executed.
 type covTest struct {
-	Hash  string    `json:"h"`
+	Hash string `json:"h"`
+	// Deps is the hash of what the test read besides the package's own
+	// functions (mutants_covdeps.go) when it was measured.
+	Deps  string    `json:"d,omitempty"`
 	Cover []covFunc `json:"c"`
 }
 
@@ -70,6 +73,12 @@ type covStore struct {
 	Aux     map[string]string   `json:"aux,omitempty"`
 	Shapes  map[string]covShape `json:"shapes,omitempty"`
 	Tests   map[string]covTest  `json:"tests,omitempty"`
+	// Silent is the tests that wrote no profile when measured, with the hash of
+	// their function: what they execute is not known, they join every selection,
+	// and they are not asked again until the test changes.
+	Silent map[string]string `json:"silent,omitempty"`
+	// cur is the dependency hash the entries recorded now are stamped with.
+	cur string
 }
 
 // covPlan is what a commit has to measure, from the store and the source.
@@ -82,6 +91,9 @@ type covPlan struct {
 	// Measure is the stale tests worth measuring now, the static candidates of
 	// the commit's functions first, then the tests an edit took the entry of.
 	Measure []string
+	// Unknown is the tests that are never measured: those that start the test
+	// binary again and those that wrote no profile. They join every selection.
+	Unknown []string
 	// Fill is the rest of the stale tests, sorted: measured after Measure
 	// while a run that is happening anyway has time to spare, so the store
 	// converges to every test of the package.
@@ -148,9 +160,11 @@ func planCoverage(st *covStore, scan pkgScan, mutantFuncs []string) covPlan {
 	if st.Tests == nil {
 		st.Tests = map[string]covTest{}
 	}
+	if st.Silent == nil {
+		st.Silent = map[string]string{}
+	}
 
 	invalidated := map[string]bool{}
-	plan.Dropped = 0
 	for name, entry := range st.Tests {
 		key, ok := scan.TestKey[name]
 		if !ok {
@@ -171,30 +185,51 @@ func planCoverage(st *covStore, scan pkgScan, mutantFuncs []string) covPlan {
 			delete(st.Shapes, key)
 		}
 	}
-	reexec := scan.reexecTests()
-	for _, name := range scan.testNameList() {
-		if slices.Contains(reexec, name) {
-			delete(st.Tests, name)
-			continue // never measured: a child's coverage is in no profile
-		}
-		if _, ok := st.Tests[name]; ok {
-			plan.Valid = append(plan.Valid, name)
-		} else {
-			plan.Stale = append(plan.Stale, name)
+	for name, hash := range st.Silent {
+		if key, ok := scan.TestKey[name]; !ok || scan.Funcs[key].Hash != hash {
+			delete(st.Silent, name)
 		}
 	}
+	plan.Unknown = scan.reexecTests()
+	for name := range st.Silent {
+		if !slices.Contains(plan.Unknown, name) {
+			plan.Unknown = append(plan.Unknown, name)
+		}
+	}
+	slices.Sort(plan.Unknown)
+	// outdated tests keep their entry but were measured under other
+	// dependencies or fixtures; they are measured again like stale ones.
+	var outdated []string
+	for _, name := range scan.testNameList() {
+		if slices.Contains(plan.Unknown, name) {
+			delete(st.Tests, name)
+			continue // never measured: not in any profile of the parent
+		}
+		entry, ok := st.Tests[name]
+		switch {
+		case !ok:
+			plan.Stale = append(plan.Stale, name)
+		case entry.Deps != st.cur:
+			plan.Valid = append(plan.Valid, name)
+			outdated = append(outdated, name)
+		default:
+			plan.Valid = append(plan.Valid, name)
+		}
+	}
+	remeasure := slices.Concat(plan.Stale, outdated)
+	slices.Sort(remeasure)
 	candidates := scan.candidateTests(mutantFuncs)
 	for _, name := range candidates {
-		if slices.Contains(plan.Stale, name) {
+		if slices.Contains(remeasure, name) {
 			plan.Measure = append(plan.Measure, name)
 		}
 	}
-	for _, name := range plan.Stale {
+	for _, name := range remeasure {
 		if invalidated[name] && !slices.Contains(plan.Measure, name) {
 			plan.Measure = append(plan.Measure, name)
 		}
 	}
-	for _, name := range plan.Stale {
+	for _, name := range remeasure {
 		if !slices.Contains(plan.Measure, name) {
 			plan.Fill = append(plan.Fill, name)
 		}
@@ -258,7 +293,8 @@ func recordProfile(st *covStore, scan pkgScan, test string, blocks map[coverBloc
 		slices.SortFunc(list, func(a, b [2]int) int { return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1])) })
 		st.Shapes[key] = covShape{Hash: hashes[key], Blocks: list}
 	}
-	entry := covTest{Hash: scan.Funcs[scan.TestKey[test]].Hash}
+	delete(st.Silent, test)
+	entry := covTest{Hash: scan.Funcs[scan.TestKey[test]].Hash, Deps: st.cur}
 	keys := make([]string, 0, len(hits))
 	for key := range hits {
 		keys = append(keys, key)
@@ -295,7 +331,12 @@ func (st *covStore) view(scan pkgScan, valid, unknown []string, unmeasured int) 
 			}
 		}
 	}
-	m := testMap{Schema: testMapSchema, Package: st.Package, Tests: names, Unknown: slices.Clone(unknown), Partial: unmeasured > 0}
+	m := testMap{Schema: testMapSchema, Package: st.Package, Tests: names, Unknown: slices.Clone(unknown), Partial: unmeasured > 0, Unmeasured: unmeasured}
+	for _, name := range names {
+		if st.Tests[name].Deps != st.cur {
+			m.Inexact = true
+		}
+	}
 	keys := make([]string, 0, len(st.Shapes))
 	for key := range st.Shapes {
 		keys = append(keys, key)

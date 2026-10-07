@@ -336,7 +336,9 @@ func runResolveTestsOut(ctx context.Context, root string, env []string, overlay 
 	runCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	var out bytes.Buffer
-	argv := []string{"go", "test", "-count=1", "-failfast"}
+	// -vet=off: the mutant's package was vetted when it was written, and the
+	// vet pass would only add to the compile each mutant already costs.
+	argv := []string{"go", "test", "-count=1", "-failfast", "-vet=off"}
 	if overlay != "" {
 		argv = append(argv, "-overlay", overlay)
 	}

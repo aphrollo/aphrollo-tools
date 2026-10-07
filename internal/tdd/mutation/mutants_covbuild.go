@@ -84,13 +84,18 @@ func ensureCoverage(ctx context.Context, root string, cfg MutantsConfig, req cov
 	if err != nil {
 		return covResult{}, err
 	}
+	deps, err := coverDepsHash(ctx, root, dir)
+	if err != nil {
+		return covResult{}, err
+	}
 	st := loadCovStore(root, dir, envKey)
+	st.cur = deps
 	plan := planCoverage(st, scan, mutantDecls(scan, req.Mutants))
 	res := covResult{Built: true, Kept: len(plan.Valid)}
-	// A test that starts the test binary again is never measured and joins
-	// every selection, as a test that wrote no profile does.
+	// A test that starts the test binary again, and one that wrote no profile
+	// last time, is not measured and joins every selection.
 	reexec := scan.reexecTests()
-	unknown := slices.Clone(reexec)
+	unknown := slices.Clone(plan.Unknown)
 	var absent []string
 	if len(plan.Measure) > 0 {
 		var measured int
@@ -104,6 +109,9 @@ func ensureCoverage(ctx context.Context, root string, cfg MutantsConfig, req cov
 			return covResult{}, err
 		}
 		res.Measured = measured
+		for _, name := range silent {
+			st.Silent[name] = scan.Funcs[scan.TestKey[name]].Hash
+		}
 		unknown = append(unknown, silent...)
 		slices.Sort(unknown)
 	}
@@ -170,7 +178,7 @@ func runCoverage(ctx context.Context, root string, cfg MutantsConfig, req covReq
 	// The compile is one process and takes the whole memory share; only the
 	// solo runs, which are many at once, divide it.
 	code, err := testMapExecFn(ctx, boxRoot, env,
-		slices.Concat([]string{"go", "test", "-c"}, tagsFlag(cfg.TestTags), []string{"-covermode=set", "-coverpkg=" + pattern, "-o", binary, pattern}), &out)
+		slices.Concat([]string{"go", "test", "-c"}, tagsFlag(cfg.TestTags), []string{"-vet=off", "-covermode=set", "-coverpkg=" + pattern, "-o", binary, pattern}), &out)
 	if ctx.Err() != nil {
 		return 0, nil, nil, true, nil // the deadline ended the compile: nothing finished, nothing to keep
 	}
@@ -191,12 +199,13 @@ func runCoverage(ctx context.Context, root string, cfg MutantsConfig, req covReq
 	}
 	listed := listedTests(out.String())
 	var run []string
+	targetedRun := 0
 	for i, name := range names {
-		if i >= targeted && !time.Now().Before(req.FillBy) {
-			break // the fill stops with the time it was given; what it skips is not measured
-		}
 		if slices.Contains(listed, name) {
 			run = append(run, name)
+			if i < targeted {
+				targetedRun++
+			}
 		} else {
 			absent = append(absent, name)
 		}
@@ -208,6 +217,9 @@ func runCoverage(ctx context.Context, root string, cfg MutantsConfig, req covReq
 	for range workers {
 		wg.Go(func() {
 			for i := range jobs {
+				if i >= targetedRun && !commitNowFn().Before(req.FillBy) {
+					continue // the window ended between handing this job out and starting it
+				}
 				covered, ok := soloCoverage(ctx, absDir, env, binary, filepath.Join(work, strconv.Itoa(i)+".out"), run[i])
 				mu.Lock()
 				switch {
@@ -223,6 +235,11 @@ func runCoverage(ctx context.Context, root string, cfg MutantsConfig, req covReq
 	}
 feed:
 	for i := range run {
+		// The tests beyond the targeted ones are started only while the fill
+		// window lasts, read when each is about to start, not once.
+		if i >= targetedRun && !commitNowFn().Before(req.FillBy) {
+			break feed
+		}
 		select {
 		case jobs <- i:
 		case <-ctx.Done():
