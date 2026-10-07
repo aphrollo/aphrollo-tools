@@ -95,9 +95,20 @@ no edit to a released changelog section or a merged fragment.
   stay on. Each flip is an event (`override-off` / `override-on`
   with `switch=session-off|session-on`), counted as a wrong-block signal.
   `aphrollo install` writes the `aphrollo` skill the command needs.
-- **Commit:** staged-baseline guard → ratchet laws → docs → vet/lint →
+- **Commit:** secret scan → staged-baseline guard → ratchet laws → docs → vet/lint →
   fail-first (the staged test must be RED without the change). Suites are
   `NOT RUN` here and run at the merge.
+- **Secret scan (commit):** `gitleaks` runs over the staged diff of every
+  non-merge commit, before any suite, with the repo's `.gitleaks.toml` when it
+  has one. Install gitleaks (8.19 or later uses `git --staged`; older uses
+  `protect --staged`): without it, or when it fails or outlasts 30 s, the stage
+  prints one `NOT RUN` line and the commit goes on, never a silent pass. A
+  finding refuses the commit for an agent and a person alike, with file:line,
+  rule, the finding's fingerprint and the local gitleaks version (a line says
+  when CI pins another). Clear a false positive in one of three ways: put
+  `gitleaks:allow` in a comment on that line, in the file's own comment syntax;
+  add the fingerprint to `.gitleaksignore`; or add an `[allowlist]` to
+  `.gitleaks.toml`. The merge does not scan: CI's `scan` job covers the PR range.
 - **PR:** `workspace pr`/`submit`/`ship` measure the lane's mutants first.
 - **Merge:** `workspace merge` runs the suites and the mutation measurement on
   the merged tree, refuses an unaccepted survivor or timeout, and a

@@ -53,6 +53,8 @@ func readGateEntries(p0 string, p1 time.Time) []gateEntry { return core.ReadGate
 
 func removeGateWorktree(p0 string, p1 string) { core.RemoveGateWorktree(p0, p1) }
 
+func samePath(p0 string, p1 string) bool { return core.SamePath(p0, p1) }
+
 func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }
 
 func stripQuoted(p0 string) string { return core.StripQuoted(p0) }
