@@ -1087,6 +1087,8 @@ sddskill.go                                        install
 sddskill.md                                        install
 sddskill_test.go                                   install
 seams.go                                           tddtest
+secretscan.go                                       precommit
+secretscan_test.go                                  precommit
 session.go                                         tdd
 session_allow_test.go                              tdd
 session_core.go                                    core      # created by P2

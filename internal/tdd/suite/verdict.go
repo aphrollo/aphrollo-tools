@@ -67,7 +67,7 @@ type stageOutcome struct {
 // keeping this list current is a documentation exercise, not a behavior one.
 var registeredStages = []string{
 	"vet", "lint", "fmt", "clippy", "check", "doctest", "mechanical", "docs", "ratchet-fixtures", "ratchet-check",
-	"fail-first", "dirty-tree", "tddsplit",
+	"fail-first", "dirty-tree", "tddsplit", "secrets",
 }
 
 // verdictFor is the one place a stage's raw outcome becomes a GateResult.
