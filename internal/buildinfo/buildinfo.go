@@ -16,7 +16,7 @@ import (
 )
 
 // commit, builtAt and version are set by the linker (see
-// internal/cli/selfinstall.go's buildArgs and .github/workflows/deploy.yml),
+// internal/cli/selfinstall.go's buildArgs),
 // never assigned at runtime outside the test setters.
 var (
 	commit  string

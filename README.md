@@ -21,11 +21,11 @@ go build -o aphrollo ./cmd/aphrollo   # then put it on PATH
 aphrollo install                      # session hooks, git gate, skills, agents, queue shims
 aphrollo install --managed-block-only --repo <lane>   # re-render only the CLAUDE.md block (no hooks, no shims)
 aphrollo version                      # the release version (0.0.0-dev+sha for a dev build), then the stamped commit and build time
-aphrollo update                       # build the newest release tag and swap it in
+aphrollo update                       # build the newest release tag into ~/.aphrollo/bin/<version> (no root); --to <version> switches back
 ```
 
 A version comes from the release tag a binary is built at, never from a file in
-the source: `aphrollo update` and the deploy stamp the tag they build into the
+the source: `aphrollo update` stamps the tag it builds into the
 binary, and a build at no release tag reports `0.0.0-dev+<sha>`. A PR does not
 carry a number. It says `version: none|patch|minor|major` in its body and, when
 it is not `none`, adds one `changelog.d/<lane>.md` fragment (a first line

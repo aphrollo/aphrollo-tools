@@ -113,9 +113,9 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 
 	// Checked before the fetch and build run at all: os.Executable (what
 	// resolveBinPath falls back to) resolves every symlink, so on the box
-	// that deploys via CI (deploy/deploy-prod.sh) this lands on
-	// /opt/aphrollo-cli/releases/<ts>-<sha>/aphrollo, a directory only the
-	// deploy pipeline's own account owns. Finding that out here means
+	// whose binary is a root-owned symlink chain this lands on
+	// /opt/aphrollo-cli/releases/<ts>-<sha>/aphrollo, a directory only root
+	// owns. Finding that out here means
 	// "permission denied" never comes out of `go build` after a wasted
 	// fetch and worktree checkout.
 	if !userSpace && !installWritable(filepath.Dir(bin)) {

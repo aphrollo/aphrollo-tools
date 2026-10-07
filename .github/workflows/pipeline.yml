@@ -3,16 +3,11 @@ name: Pipeline
 # CI quality gate for aphrollo-tools, mirroring aphrollo-agents/pipeline.yml so
 # every Go repo on the box is gated the same way. The repo is public, so every
 # job a pull_request event can run uses a GitHub-hosted runner (ubuntu-latest):
-# a fork's code never reaches the production host. The one self-hosted job,
-# `deploy`, lives in deploy.yml. Nothing here reads state left on the box: each job builds
+# a fork's code never reaches a self-hosted host. Nothing here reads state left on the box: each job builds
 # the CLI from its own checkout and installs the tools it calls.
 #
-# DEPLOY: /usr/local/bin/aphrollo installs on merge to main from deploy.yml,
-# which the `release` job below dispatches once the tag step is done. The
-# deploy is not a job here: it waits on the one self-hosted runner, and a run
-# held open by it queues every later push to main, so their releases would be
-# cancelled and never tagged. See deploy/README.md for the release layout and
-# the one-time aphrollo-infra prerequisites.
+# RELEASE: nothing deploys on merge. The `release` job below tags the merge, and
+# every box runs `aphrollo update` to move to a tag. See deploy/README.md.
 
 on:
   # Draft PRs run NO CI: the check jobs below gate on `pull_request.draft != true`,
@@ -263,7 +258,7 @@ jobs:
           cache: true
       - name: Workflow pin tests
         if: needs.changes.outputs.workflow == 'true'
-        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestDeployJobBuild_|TestNightlyFuzzWorkflow_|TestNightlyMutantsWorkflow_|TestNightlyFlakeHuntWorkflow_|TestNightlyProcWorkflow_|TestReplayWorkflow_)' ./internal/tdd ./internal/cli
+        run: go test -count=1 -run '^(TestPipeline_|TestGateEnvWorkflowStep_|TestLintWorkflowStep_|TestNightlyFuzzWorkflow_|TestNightlyMutantsWorkflow_|TestNightlyFlakeHuntWorkflow_|TestNightlyProcWorkflow_|TestReplayWorkflow_)' ./internal/tdd ./internal/cli
       - name: actionlint
         if: needs.changes.outputs.workflow == 'true'
         run: |
@@ -1215,12 +1210,12 @@ jobs:
         if: needs.changes.outputs.code == 'true'
         run: ./bin/aphrollo tdd --help >/dev/null && ./bin/aphrollo --help >/dev/null
 
-  # On merge to main (and manual dispatch), tag and hand off to deploy.yml.
+  # On merge to main (and manual dispatch), tag the release.
   # Checks run on push too (see the header note above), so this uses the same
   # always()+needs-result guard as aphrollo-api regardless: run after they are
   # all green, but a red one means this never fires. A manual workflow_dispatch
   # stays gated behind the same guard, and runs only on main: a dispatch from a lane
-  # branch would tag that unmerged commit with a real version, which deploy.yml ships.
+  # branch would tag that unmerged commit with a real version, which `aphrollo update` would then install.
   # A tag per release: no PR carries a version. When the merge that just landed
   # brings changelog.d fragments the newest v* tag does not contain,
   # `aphrollo release plan` (built from this very commit) names the tag they
@@ -1238,7 +1233,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write
-      actions: write
     concurrency:
       group: release-tag-aphrollo-cli
       cancel-in-progress: false
@@ -1256,15 +1250,6 @@ jobs:
         run: bash deploy/tag-release.sh
         env:
           GITHUB_SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ github.token }}
-      # The deploy is its own workflow (deploy.yml) so a host that is down can
-      # never hold this run open: queued, it would stall every later push to
-      # main, and GitHub cancels all but the newest pending run, so their
-      # releases would never be tagged. A tag pushed with GITHUB_TOKEN starts
-      # no workflow; a workflow_dispatch made with it does.
-      - name: Dispatch the deploy
-        run: gh workflow run deploy.yml --ref main
-        env:
           GH_TOKEN: ${{ github.token }}
 
   # Judges the MERGED TREE itself (#372): every check above judges a PR
