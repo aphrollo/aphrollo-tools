@@ -379,7 +379,7 @@ func gitConfigUnset(key string) error {
 // launchShim is binShim for a box with a user-space install: the shim runs the
 // user-space current when it is there and the installed path when it is not,
 // and a box with neither degrades exactly as binShim does, to the real tool
-// UNGATED with one line naming `aphrollo update`. The two paths are baked at
+// UNGATED (or, for a hook with no real tool, refusing) with one line naming `aphrollo update`. The two paths are baked at
 // install time and read back by doctor. An account with no user-space root
 // gets the plain binShim.
 func launchShim(bin, sub, fallback string) string {
@@ -387,8 +387,12 @@ func launchShim(bin, sub, fallback string) string {
 	if root == "" {
 		return binShim(bin, sub, fallback)
 	}
-	missing := "gate: no aphrollo binary in " + shellPath(root) + " or at " + shellPath(installed) +
-		" — running " + sub + " UNGATED; fix with: aphrollo update"
+	missing := "gate: no aphrollo binary in " + shellPath(root) + " or at " + shellPath(installed)
+	if fallback == "" {
+		missing += " — refusing " + sub + "; fix with: aphrollo update"
+	} else {
+		missing += " — running " + sub + " UNGATED; fix with: aphrollo update"
+	}
 	guard := "if [ ! -x \"$x\" ]; then\n" +
 		"  echo \"" + missing + "\" >&2\n"
 	if fallback == "" {

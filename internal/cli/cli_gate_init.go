@@ -63,6 +63,13 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		binName = resolved
 	}
 
+	if !*uninstall {
+		if root, fb := userbin.LaunchFor(binName); root != "" {
+			if _, lerr := userbin.WriteLauncher(root, fb); lerr != nil {
+				fmt.Fprintf(stderr, "aphrollo gate: could not write the launcher in %s: %v\n", root, lerr)
+			}
+		}
+	}
 	changed, err := tdd.InitSettings(dir, binName, *uninstall)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)

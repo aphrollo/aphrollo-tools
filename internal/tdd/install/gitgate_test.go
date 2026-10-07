@@ -439,3 +439,22 @@ func TestLaunchShim_TheDoctorReadsBackWhatTheShimRuns(t *testing.T) {
 		t.Fatalf("hookShimBin = %q, want the user-space binary %q", got, want)
 	}
 }
+
+// A hook shim has no real tool to fall through to: with no binary it refuses,
+// and must say that, not claim to have run ungated.
+func TestLaunchShim_AHookWithNoBinaryRefusesAndSaysSo(t *testing.T) {
+	userlaunchHome(t)
+	dir := t.TempDir()
+	shim := filepath.Join(dir, "pre-commit")
+	if err := proc.WriteExecutable(shim, []byte(launchShim(filepath.Join(dir, "none"), "precommit", "")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("sh", shim).CombinedOutput()
+	if err == nil {
+		t.Fatalf("the shim succeeded with no binary:\n%s", out)
+	}
+	s := string(out)
+	if strings.Contains(s, "UNGATED") || !strings.Contains(s, "refusing precommit") || !strings.Contains(s, "aphrollo update") {
+		t.Fatalf("output %q: want it to say it refuses and name `aphrollo update`", s)
+	}
+}

@@ -15,7 +15,7 @@ func shQuote(s string) string {
 
 // HookCommand is the one-line sh command a settings.json hook runs: resolve
 // the binary (user-space current, then fallback), then run it with args. A
-// binary found nowhere, or one that outruns budgetSecs (timeout(1), where the
+// binary found nowhere, or one that outruns budgetSecs (GNU timeout(1), where the
 // box has it), is a no-op that exits 0 with one stderr line, never a failed
 // hook. A binary's own exit code, a deny included, passes through. Nothing
 // here downloads.
@@ -29,7 +29,7 @@ func HookCommand(root, fallback string, budgetSecs int, args string) string {
 		b.WriteString(`exec "$x" ` + args)
 		return b.String()
 	}
-	fmt.Fprintf(&b, `t=""; command -v timeout >/dev/null 2>&1 && t="timeout %d"; $t "$x" %s; r=$?; `+
+	fmt.Fprintf(&b, `t=""; timeout --version >/dev/null 2>&1 && t="timeout %d"; $t "$x" %s; r=$?; `+
 		`[ "$r" -eq 124 ] && { echo "aphrollo: hook over its %ds budget, skipped" >&2; exit 0; }; exit "$r"`, budgetSecs, args, budgetSecs)
 	return b.String()
 }

@@ -70,7 +70,7 @@ type VersionSplit struct {
 	Events  []tdd.Event `json:"-"`
 }
 
-// SplitByVersion partitions the log by binary version, oldest version first. A
+// SplitByVersion partitions the log by binary version, in the order each version first appears in the log. A
 // lane is never cut: all its events go with the version of its first event,
 // since an arm assignment, its decisions and its merge only mean something
 // together. An event with no lane keeps its own version.

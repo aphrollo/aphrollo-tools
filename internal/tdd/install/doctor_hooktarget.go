@@ -138,3 +138,19 @@ func launchedBinary(root, fallback string) string {
 	}
 	return filepath.ToSlash(filepath.Join(root, "current", userbin.BinName+userbin.ExeSuffix))
 }
+
+// doctorAphrolloOnPath checks that typing `aphrollo` runs the user-space
+// install: its launcher or its current binary. With no user-space install
+// there is nothing to compare, and the check is silent.
+func doctorAphrolloOnPath(DoctorInput) DoctorCheck {
+	c := DoctorCheck{Name: "aphrollo on PATH", OK: true}
+	root, err := userbin.Root()
+	if err != nil {
+		return c
+	}
+	if line := userbin.PathCheck(root); line != "" {
+		c.OK = false
+		c.Detail = line + " (aphrollo update writes the launcher there; PATH is yours to change)"
+	}
+	return c
+}

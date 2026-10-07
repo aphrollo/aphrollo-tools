@@ -42,6 +42,8 @@ directory under the account's own space and points `current` at it:
 - `aphrollo version` says which binary is running and whether it is the
   user-space current.
 
+`aphrollo update` and `gate init` also write a launcher, `~/.aphrollo/bin/aphrollo` (`aphrollo.cmd` on Windows), that runs the pointed binary like a hook does. Put that directory first on PATH so typing `aphrollo` follows updates; update prints one line when PATH resolves elsewhere and never edits PATH or rc files.
+
 A root-owned `/usr/local/bin/aphrollo` from the old deploy keeps working as the
 fallback and is never written by anything here.
 

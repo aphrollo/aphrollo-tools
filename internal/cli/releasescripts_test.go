@@ -146,7 +146,7 @@ func TestTagRelease_GivesTheNewestTagAReleaseWhenGhSaysItIsNotFound(t *testing.T
 }
 
 // A transient API error is not "no release": creating then would fail with
-// "already exists". The job goes on, with a warning, to dispatch the deploy.
+// "already exists". The job goes on, with a warning, to finish the release.
 func TestTagRelease_AGhErrorOtherThanNotFoundCreatesNothingAndDoesNotFailTheJob(t *testing.T) {
 	out, logged, err := ghRelease(t, "1", "HTTP 502: Bad Gateway", "0")
 	if err != nil || !strings.Contains(out, "::warning::") {
@@ -157,7 +157,7 @@ func TestTagRelease_AGhErrorOtherThanNotFoundCreatesNothingAndDoesNotFailTheJob(
 	}
 }
 
-// The tag is pushed before the Release: the job must still reach the deploy.
+// The tag is pushed before the Release: the job must still finish.
 func TestTagRelease_AFailedReleaseCreateDoesNotFailTheJob(t *testing.T) {
 	out, _, err := ghRelease(t, "1", "release not found", "1")
 	if err != nil || !strings.Contains(out, "::warning::") {

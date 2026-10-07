@@ -1187,7 +1187,7 @@ jobs:
           fi
 
   # PR deploy-readiness: prove the binary compiles + runs with the same flags
-  # the deploy uses, so a broken build can't merge. Does NOT install (PR-only).
+  # an update builds with, so a broken build can't merge. Does NOT install (PR-only).
   build:
     if: github.event.pull_request.draft != true
     needs: [changes, test, lint, scan]
@@ -1224,7 +1224,7 @@ jobs:
   # notes are those fragments. Nothing is committed to main. A tag that exists is
   # [skip], so a rerun does nothing, and the concurrency group below queues two
   # pushes in quick succession instead of letting them race for one tag.
-  # `aphrollo update` and deploy.yml both follow the newest of these tags, not
+  # `aphrollo update` follows the newest of these tags, not
   # the tip of main, so a box only ever runs a version a consumer was told about.
   release:
     needs: [test, lint, scan, workflow-pins]

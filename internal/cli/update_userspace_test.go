@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
@@ -170,5 +171,89 @@ func TestUpdate_InitRunsUnderTheUserSpaceBinaryWithTheOldPathAsFallback(t *testi
 	joined := strings.Join(gotArgs, " ")
 	if gotBin != want || !strings.Contains(joined, "--bin "+want) || !strings.Contains(joined, "--fallback-bin "+rawExecutablePath()) {
 		t.Fatalf("init ran %q with %q; want --bin %s --fallback-bin %s", gotBin, joined, want, rawExecutablePath())
+	}
+}
+
+// Typing `aphrollo` must reach the install an update just made: the launcher
+// is written beside the versions, and when PATH would run something else the
+// update says so once and names the fix, without editing PATH or an rc file.
+func TestUpdate_WritesTheLauncherAndSaysOnceWhenPathResolvesElsewhere(t *testing.T) {
+	userspaceHome(t)
+	_, clone, _ := updateFixture(t)
+	userspaceBuild(t, "NEW")
+	root, _ := userbin.Root()
+	other := t.TempDir()
+	writeFakeBin(t, filepath.Join(other, "aphrollo"+userbin.ExeSuffix))
+	t.Setenv("PATH", other)
+
+	var out, errb bytes.Buffer
+	if code := runUpdate([]string{"--repo", clone, "--no-init"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d\n%s", code, errb.String())
+	}
+	if _, err := os.Stat(userbin.LauncherPath(root)); err != nil {
+		t.Fatalf("no launcher written: %v", err)
+	}
+	var lines []string
+	for _, l := range strings.Split(out.String(), "\n") {
+		if strings.Contains(l, "resolves to") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 1 || !strings.Contains(lines[0], filepath.Join(other, "aphrollo"+userbin.ExeSuffix)) || !strings.Contains(lines[0], "first on PATH") {
+		t.Fatalf("PATH lines = %q; want exactly one naming the resolved path and the fix\n%s", lines, out.String())
+	}
+}
+
+func TestUpdate_NoInitOnWindowsSaysTheQueueShimCopiesAreOneVersionBehind(t *testing.T) {
+	for goos, want := range map[string]bool{"windows": true, "linux": false} {
+		userspaceHome(t)
+		_, clone, _ := updateFixture(t)
+		userspaceBuild(t, "NEW")
+		prev := binGOOS
+		binGOOS = goos
+		var out, errb bytes.Buffer
+		code := runUpdate([]string{"--repo", clone, "--no-init"}, &out, &errb)
+		binGOOS = prev
+		if code != 0 {
+			t.Fatalf("%s: exit = %d\n%s", goos, code, errb.String())
+		}
+		if got := strings.Contains(out.String(), "aphrollo gate init"); got != want {
+			t.Errorf("%s: says to run gate init = %v, want %v\n%s", goos, got, want, out.String())
+		}
+	}
+}
+
+func TestUpdate_ToWithNoInitOnWindowsSaysTheSameAndStaleStageDirsGoAtTheNextUpdate(t *testing.T) {
+	userspaceHome(t)
+	_, clone, _ := updateFixture(t)
+	userspaceBuild(t, "NEW")
+	root, _ := userbin.Root()
+	userspaceSeed(t, root, "1.1.0")
+	prev := binGOOS
+	binGOOS = "windows"
+	t.Cleanup(func() { binGOOS = prev })
+	var out, errb bytes.Buffer
+	if code := runUpdate([]string{"--repo", clone, "--to", "1.1.0", "--no-init"}, &out, &errb); code != 0 || !strings.Contains(out.String(), "aphrollo gate init") {
+		t.Fatalf("--to --no-init: exit %d, output %q", code, out.String())
+	}
+
+	old, fresh := filepath.Join(root, ".stage-old"), filepath.Join(root, ".stage-fresh")
+	for _, d := range []string{old, fresh} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	when := time.Now().Add(-48 * time.Hour)
+	if err := os.Chtimes(old, when, when); err != nil {
+		t.Fatal(err)
+	}
+	if code := runUpdate([]string{"--repo", clone, "--no-init"}, &out, &errb); code != 0 {
+		t.Fatalf("update exit = %d\n%s", code, errb.String())
+	}
+	if _, err := os.Stat(old); err == nil {
+		t.Error("a stage dir older than a day survived the update")
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Errorf("a fresh stage dir, maybe another update's, was removed: %v", err)
 	}
 }

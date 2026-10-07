@@ -21,3 +21,13 @@ func userRoot() (string, error) {
 	}
 	return filepath.Join(home, ".aphrollo", "bin"), nil
 }
+
+const launcherName = BinName
+
+// launcherBody is the sh launcher: the user-space current, else fallback, else
+// one line and exit 127.
+func launcherBody(root, fallback string) string {
+	return "#!/bin/sh\n" + Prelude(root, fallback) +
+		"[ -x \"$x\" ] || { echo \"aphrollo: no binary found (run: aphrollo update)\" >&2; exit 127; }\n" +
+		"exec \"$x\" \"$@\"\n"
+}

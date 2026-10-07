@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
 
 	"github.com/aphrollo/aphrollo-tools/internal/userbin"
@@ -32,10 +33,13 @@ func versionBinaryLine() string {
 	return "binary: " + exe + " (not the user-space install; none installed)\n"
 }
 
-// sameFilePath compares two paths as the filesystem would, by the files they name when both exist.
+// sameFilePath compares two paths by the files they name, as the filesystem
+// would, so case and short-name spellings agree.
 func sameFilePath(a, b string) bool {
-	if filepath.Clean(a) == filepath.Clean(b) {
-		return true
+	fa, err := os.Stat(a)
+	if err != nil {
+		return false
 	}
-	return aliasResolvesTo(a, b)
+	fb, err := os.Stat(b)
+	return err == nil && os.SameFile(fa, fb)
 }

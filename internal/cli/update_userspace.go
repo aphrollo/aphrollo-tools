@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
 	"github.com/aphrollo/aphrollo-tools/internal/userbin"
@@ -24,6 +25,7 @@ func installUserSpace(root, version, tag, tmp string, noInit bool, forwarded []s
 		fmt.Fprintf(stderr, "%s: %v\n", prefix, err)
 		return 1
 	}
+	sweepStageDirs(root)
 	stage, err := os.MkdirTemp(root, ".stage-")
 	if err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", prefix, err)
@@ -59,6 +61,7 @@ func installUserSpace(root, version, tag, tmp string, noInit bool, forwarded []s
 		before = buildinfo.Version()
 	}
 	fmt.Fprintf(stdout, "%s: v%s -> %s\n", prefix, before, tag)
+	afterPointerMoved(root, prefix, noInit, stdout, stderr)
 	if noInit {
 		return 0
 	}
@@ -100,8 +103,48 @@ func switchUserSpace(version string, noInit bool, forwarded []string, stdout, st
 	}
 	bin := userbin.BinaryPath(root, version)
 	fmt.Fprintf(stdout, "%s: switched v%s -> v%s (%s)\n", prefix, before, version, bin)
+	afterPointerMoved(root, prefix, noInit, stdout, stderr)
 	if noInit {
 		return 0
 	}
 	return initAfterSwap(prefix, bin, userSpaceInitArgs(root, forwarded), stdout, stderr)
+}
+
+// afterPointerMoved is what follows a moved pointer: the launcher a person
+// types `aphrollo` through is refreshed, one line says when PATH would run
+// something else (PATH and shell startup files are never edited here), and a
+// --no-init on Windows says the queue shim copies are one version behind.
+func afterPointerMoved(root, prefix string, noInit bool, stdout, stderr io.Writer) {
+	fallback := userbin.LegacyFallback()
+	if exe := rawExecutablePath(); !userbin.Under(root, exe) {
+		fallback = exe
+	}
+	if _, err := userbin.WriteLauncher(root, fallback); err != nil {
+		fmt.Fprintf(stderr, "%s: could not write the launcher in %s: %v\n", prefix, root, err)
+	} else if line := userbin.PathCheck(root); line != "" {
+		fmt.Fprintf(stdout, "%s: %s\n", prefix, line)
+	}
+	if noInit && binGOOS == "windows" {
+		fmt.Fprintf(stdout, "%s: --no-init left the queue shims (cargo.exe, git.exe) copies of the previous binary; run `aphrollo gate init` to refresh them\n", prefix)
+	}
+}
+
+// staleStageAge is how old a staging directory must be before an update
+// removes it: a younger one may be another update's.
+const staleStageAge = 24 * time.Hour
+
+// sweepStageDirs removes staging directories an interrupted update left.
+func sweepStageDirs(root string) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !e.IsDir() || !strings.HasPrefix(e.Name(), ".stage-") {
+			continue
+		}
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > staleStageAge {
+			_ = os.RemoveAll(filepath.Join(root, e.Name()))
+		}
+	}
 }

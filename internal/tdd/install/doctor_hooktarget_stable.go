@@ -7,9 +7,10 @@ import (
 )
 
 // releaseDirComponent mirrors internal/cli's own marker (gateinit_stablebin.go):
-// the literal path component this box's deploy convention
-// (deploy/deploy-prod.sh) — and every CI-deployed aphrollo service following
-// the same shape — uses for a build directory the very NEXT deploy prunes.
+// the literal path component a box deployed the old way (deploy-on-merge,
+// since removed) and every CI-deployed aphrollo service following the same
+// shape use for a build directory the very NEXT deploy prunes. The guard stays
+// for boxes still laid out like that.
 // Kept as its own copy rather than an import: internal/cli already imports
 // this package, so the reverse import would cycle.
 const releaseDirComponent = "releases"

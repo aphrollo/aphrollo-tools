@@ -75,3 +75,19 @@ func TestGateInit_TheFallbackFlagDoesNotLeakIntoTheNextInit(t *testing.T) {
 		t.Fatalf("the second init's shim does not name its own --bin:\n%s", data)
 	}
 }
+
+// gate init (what `aphrollo install` runs) leaves the launcher beside the
+// versions, falling back to the path it was given.
+func TestGateInit_WritesTheLauncherWithTheInstalledPathAsFallback(t *testing.T) {
+	userspaceHome(t)
+	f := newGateInitFixture(t)
+	root, _ := userbin.Root()
+	bin := fakeInstalledBin(t)
+	if code, _, errb := f.run(bin); code != 0 {
+		t.Fatalf("init exit = %d: %s", code, errb)
+	}
+	data, err := os.ReadFile(userbin.LauncherPath(root))
+	if err != nil || !strings.Contains(strings.ReplaceAll(string(data), `\`, "/"), bin) {
+		t.Fatalf("launcher = %q, %v; want it to name %s", data, err, bin)
+	}
+}

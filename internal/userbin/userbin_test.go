@@ -331,3 +331,68 @@ func TestLaunch_ReadsBackWhatACommandAndAShimCarry(t *testing.T) {
 		t.Error("Launch accepted an old-style command")
 	}
 }
+
+// Windows ships its own timeout.exe, which waits for a keypress and takes no
+// command: found first on PATH it must never be run as a budget.
+func TestHookCommand_ATimeoutThatIsNotGNUIsNeverUsedAsABudget(t *testing.T) {
+	root := filepath.Join(userbinTempHome(t), "bin")
+	fb := filepath.Join(t.TempDir(), "aphrollo"+ExeSuffix)
+	userbinScript(t, fb, `echo "ran $*"`)
+	fake := t.TempDir()
+	userbinScript(t, filepath.Join(fake, "timeout"), `echo "ERROR: Invalid syntax" >&2; exit 1`)
+	t.Setenv("PATH", fake+string(os.PathListSeparator)+os.Getenv("PATH"))
+	code, out, _ := userbinRun(t, HookCommand(root, fb, 9, "gate stop"))
+	if code != 0 || strings.TrimSpace(out) != "ran gate stop" {
+		t.Fatalf("code %d, stdout %q; want the binary run with no budget", code, out)
+	}
+}
+
+func TestWriteLauncher_WritesOnceAndFollowsThePointerLikeAHook(t *testing.T) {
+	root := filepath.Join(userbinTempHome(t), "bin")
+	changed, err := WriteLauncher(root, "/old/aphrollo")
+	if err != nil || !changed {
+		t.Fatalf("first write: changed %v, err %v", changed, err)
+	}
+	if changed, err := WriteLauncher(root, "/old/aphrollo"); err != nil || changed {
+		t.Fatalf("second write: changed %v, err %v; want a no-op", changed, err)
+	}
+	data, err := os.ReadFile(LauncherPath(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.ReplaceAll(string(data), `\`, "/"), "/old/aphrollo") || !strings.Contains(string(data), "current") {
+		t.Fatalf("launcher does not name the fallback and the pointer:\n%s", data)
+	}
+	userbinLauncherBehaves(t, root)
+}
+
+func TestPathCheck_SaysWhenAphrolloResolvesAnywhereButTheInstall(t *testing.T) {
+	root := filepath.Join(userbinTempHome(t), "bin")
+	if line := PathCheck(root); line != "" {
+		t.Fatalf("with no user-space install there is nothing to say: %q", line)
+	}
+	p, _ := Install(root, "2.0.0", userbinStage(t, "x"))
+	if err := SetCurrent(root, "2.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteLauncher(root, ""); err != nil {
+		t.Fatal(err)
+	}
+	old := lookPathFn
+	t.Cleanup(func() { lookPathFn = old })
+	for _, ok := range []string{LauncherPath(root), p} {
+		lookPathFn = func(string) (string, error) { return ok, nil }
+		if line := PathCheck(root); line != "" {
+			t.Errorf("%s is the install, yet: %q", ok, line)
+		}
+	}
+	lookPathFn = func(string) (string, error) { return "/usr/local/bin/aphrollo", nil }
+	line := PathCheck(root)
+	if !strings.Contains(line, "/usr/local/bin/aphrollo") || !strings.Contains(line, "first on PATH") || strings.Contains(line, "\n") {
+		t.Fatalf("PathCheck = %q; want one line naming the resolved path and the fix", line)
+	}
+	lookPathFn = func(string) (string, error) { return "", errors.New("not found") }
+	if line := PathCheck(root); !strings.Contains(line, "not on PATH") {
+		t.Fatalf("PathCheck = %q; want it to say aphrollo is not on PATH", line)
+	}
+}
