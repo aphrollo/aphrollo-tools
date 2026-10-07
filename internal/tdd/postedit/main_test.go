@@ -37,3 +37,7 @@ func TestMain(m *testing.M) {
 		SetCIRunnerJobs:  mutation.SetCIRunnerJobsForTest,
 	}))
 }
+
+// ratchet: test_removed internal/tdd/postedit/mutantsedit_test.go: the detached edit-time mutation run, which no hook started any more, is deleted with its harvest
+// ratchet: test_removed internal/tdd/postedit/mutantsedit_edges_test.go: the detached edit-time mutation run is deleted with its harvest
+// ratchet: test_removed internal/tdd/postedit/edithook_detached_test.go: the detached edit-time mutation run is deleted; TestDetachedProcess_NoSourceStartsOneForMutation holds that no hook starts one

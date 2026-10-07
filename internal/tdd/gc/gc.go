@@ -34,6 +34,8 @@ import (
 //	    by name, the same way deps/, build/ and .fingerprint/ are below.
 //	(m) a per-worktree Go dependency-graph cache whose worktree no longer
 //	    exists (gc_graphcache.go).
+//	(o) a commit-time coverage map in the repository's git directory that
+//	    nothing has read for a month (gc_covermaps.go).
 //
 // Everything else is somebody's work. In particular deps/, build/ and
 // .fingerprint/ are NEVER reclaimable: they are what makes the next build
@@ -106,6 +108,9 @@ func ScanGC(repo string, olderThan time.Duration, scope GCScope) []GCCandidate {
 		if dir := StateDir(); dir != "" {
 			out = append(out, gcStaleGateDirs(dir)...)
 			out = append(out, gcGraphCaches(dir)...)
+		}
+		if root := RepoRoot(repo); root != "" {
+			out = append(out, gcCoverMaps(root, time.Now())...)
 		}
 		out = append(out, gcDeferredJobFiles(deferredDirPath(), deferredJobMaxAge, time.Now())...)
 		if jobs := legacyJobsDir(); jobs != "" {

@@ -142,18 +142,14 @@ func TestCommitPlans_ReadsTheTestsEachPackageHas(t *testing.T) {
 	write(t, root, "gate/gate.go", commitGateSource)
 	write(t, root, "gate/gate_test.go",
 		"package gate\n\nimport \"testing\"\n\nfunc TestKind_A(t *testing.T) {}\n\nfunc TestKind_B(t *testing.T) {}\n")
-	kept := testMap{Schema: testMapSchema, Package: "gate", Hash: "h", Tests: []string{"TestKind_A"}, Funcs: map[string][]int{"Kind": {0}}}
-	if err := saveTestMap(root, kept); err != nil {
-		t.Fatal(err)
-	}
 	added := map[string]map[int]bool{"gate/gate_test.go": commitLineSet(7)}
 	plans := commitPlans(root, []commitMutant{kindMutant, labelMutant}, added)
 	if len(plans) != 1 {
 		t.Fatalf("plans = %d, want one per package", len(plans))
 	}
 	p := plans["gate"]
-	if p.Map == nil || p.Map.Hash != "h" {
-		t.Errorf("map = %+v, want the kept one", p.Map)
+	if p.Map != nil {
+		t.Errorf("map = %+v, want none: a map is measured by the stage, never read from what an earlier run left", p.Map)
 	}
 	if want := []string{"TestKind_A", "TestKind_B"}; !slices.Equal(p.Current, want) {
 		t.Errorf("Current = %v, want %v", p.Current, want)

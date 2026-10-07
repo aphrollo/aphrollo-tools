@@ -92,10 +92,9 @@ mutants-before-pr = "ci"
 # budget (mutants-commit-budget, seconds, default 90). A survivor is reported and
 # never refuses the commit (mutants-at-commit = "block" pins the refusal); a box
 # with no headroom, a lock held past the budget, or a budget spent before every
-# mutant was judged leaves those mutants NOT MEASURED, and CI reports them. The per-function test maps it selects with
-# are built in the background after a merge (`gate mutants testmap`).
+# mutant was judged leaves those mutants NOT MEASURED, and CI reports them.
 #
-# On in this repo. Every test process the runner and the map build start runs
+# On in this repo. Every test process the runner starts runs
 # in the sealed environment (no GIT_* variables, temp dirs walled off from every
 # repository, a neutral global git config) in a disposable copy of the lane,
 # and a canary refuses the run's result when the repository's config, branches,

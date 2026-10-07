@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -133,50 +132,6 @@ func TestMutantsAtCommitStage_AStagedFileOutsideEveryModuleStandsDown(t *testing
 	}
 }
 
-// The test-map verb lists and builds from the module's own directory, found
-// among the repo's tracked go.mod files, and names the packages the hook gives
-// it relative to that directory.
-func TestRunMutantsTestMap_AModuleInASubdirectoryIsListedFromThatDirectory(t *testing.T) {
-	_, root := nestedCommitStage(t, "")
-	var listed []string
-	prev := goTestedPackagesFn
-	goTestedPackagesFn = func(_ context.Context, dir string) (string, error) {
-		listed = append(listed, filepath.Base(dir))
-		return "", nil
-	}
-	t.Cleanup(func() { goTestedPackagesFn = prev })
-	var out, errOut strings.Builder
-
-	code := RunMutantsTestMap(root, nil, &out, &errOut)
-
-	if code != 0 || len(listed) != 1 || listed[0] != "backend-go" {
-		t.Fatalf("exit %d, packages listed from %v, stderr %q, want one listing from backend-go", code, listed, errOut.String())
-	}
-	if !strings.Contains(out.String(), "test maps: in backend-go,") {
-		t.Errorf("stdout = %q, want the module named in the counts", out.String())
-	}
-}
-
-func TestNamedUnder_TakesTheDirectoriesOfOneModuleRelativeToIt(t *testing.T) {
-	t.Parallel()
-	dirs := []string{"backend-go/gate", "backend-go", "frontend/src", "backend-gox/a"}
-	if got := namedUnder("backend-go/", dirs); !slices.Equal(got, []string{"gate", "."}) {
-		t.Errorf("under backend-go/ = %v, want [gate .]", got)
-	}
-	if got := namedUnder("", dirs); !slices.Equal(got, dirs) {
-		t.Errorf("under the repo root = %v, want all of them", got)
-	}
-}
-
-// The edit hook measures a file of the subdirectory module from that module.
-func TestEditStage_AFileOfASubdirectoryModuleIsMeasuredFromTheModule(t *testing.T) {
-	_, root := nestedCommitStage(t, "")
-	runs := recordGoRuns(t)
-
-	stderr := captureStderr(t, func() { editStage(root, "backend-go/gate/gate.go") })
-
-	got := runs()
-	if len(got) != 2 || filepath.Base(got[0].dir) != "backend-go" {
-		t.Fatalf("go test runs %+v, want two, started in backend-go:\n%s", got, stderr)
-	}
-}
+// ratchet: test_removed TestRunMutantsTestMap_AModuleInASubdirectoryIsListedFromThatDirectory: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
+// ratchet: test_removed TestNamedUnder_TakesTheDirectoriesOfOneModuleRelativeToIt: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
+// ratchet: test_removed TestEditStage_AFileOfASubdirectoryModuleIsMeasuredFromTheModule: the edit-time mutation run (gate mutants edit) is gone; the commit stage's own module test stands

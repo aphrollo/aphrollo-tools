@@ -111,7 +111,8 @@ func TestBuildTestMap_ATreeThatIsNoRepositoryIsRefused(t *testing.T) {
 	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
 	root := t.TempDir()
 	mustWrite(t, filepath.Join(root, "internal", "p", "p.go"), "package p\n")
-	t.Cleanup(func() { testMapExecFn = runMutantsTool })
+	prevTestMapExec := testMapExecFn
+	t.Cleanup(func() { testMapExecFn = prevTestMapExec })
 	testMapExecFn = tc.exec
 	t.Cleanup(setGoListForTest(func(context.Context, string, string) (string, error) {
 		return filepath.Join(root, "internal", "p") + "|p.go|||\n", nil

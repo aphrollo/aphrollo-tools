@@ -26,3 +26,6 @@ func TestMain(m *testing.M) {
 		SetCIRunnerJobs:  mutation.SetCIRunnerJobsForTest,
 	}))
 }
+
+// ratchet: test_removed internal/tdd/merge/postmerge_testmap_test.go: the post-merge and post-commit hooks no longer start a test-map build
+// ratchet: test_removed internal/tdd/postmerge_testmap_test.go: the post-merge and post-commit hooks no longer start a test-map build

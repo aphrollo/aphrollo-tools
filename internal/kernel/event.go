@@ -203,7 +203,6 @@ type EffectKind string
 
 const (
 	EffectInstallDeps    EffectKind = "install-deps"
-	EffectWarmBuild      EffectKind = "warm-build"
 	EffectRemoveWorktree EffectKind = "remove-worktree"
 	// EffectLaneNews asks render for one line of lane news; Detail is the life
 	// the lane just entered.

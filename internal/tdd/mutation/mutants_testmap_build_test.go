@@ -105,7 +105,8 @@ func buildFixture(t *testing.T, tc *fakeToolchain) (root string) {
 	mustWrite(t, filepath.Join(root, "internal", "p", "p_test.go"), "package p\n")
 	gitDo(t, root, "add", "-A")
 	gitDo(t, root, "commit", "-qm", "the package under test")
-	t.Cleanup(func() { testMapExecFn = runMutantsTool })
+	prevTestMapExec := testMapExecFn
+	t.Cleanup(func() { testMapExecFn = prevTestMapExec })
 	testMapExecFn = tc.exec
 	restoreList := setGoListForTest(func(context.Context, string, string) (string, error) {
 		return filepath.Join(root, "internal", "p") + "|p.go|p_test.go||\n", nil
@@ -132,11 +133,11 @@ func TestBuildTestMap_MapsEachFunctionToItsTests(t *testing.T) {
 	if want := []string{"Test_A", "Test_B"}; !slices.Equal(m.Tests, want) {
 		t.Errorf("Tests = %v, want %v (a benchmark is not a test)", m.Tests, want)
 	}
-	if got, want := m.testsFor("f"), []string{"Test_A", "Test_B"}; !slices.Equal(got, want) {
-		t.Errorf("testsFor(f) = %v, want %v", got, want)
+	if got, listed := m.testsAt("p.go", 4); !listed || !slices.Equal(got, []string{"Test_A", "Test_B"}) {
+		t.Errorf("testsAt(p.go, 4) = %v (listed %v), want both tests", got, listed)
 	}
-	if got, want := m.testsFor("g"), []string{"Test_B"}; !slices.Equal(got, want) {
-		t.Errorf("testsFor(g) = %v, want %v", got, want)
+	if got, listed := m.testsAt("p.go", 8); !listed || !slices.Equal(got, []string{"Test_B"}) {
+		t.Errorf("testsAt(p.go, 8) = %v (listed %v), want Test_B alone", got, listed)
 	}
 	if m.Package != "internal/p" || m.Hash == "" {
 		t.Errorf("map = package %q hash %q, want internal/p and a hash", m.Package, m.Hash)
@@ -188,8 +189,9 @@ func TestBuildTestMap_ACompileFailureIsAnError(t *testing.T) {
 	}
 }
 
-// A test that fails alone still executed what it executed up to the failure,
-// and one that wrote no profile at all covers nothing without failing the map.
+// A test that fails alone still executed what it executed up to the failure.
+// One that wrote no profile at all (os.Exit, log.Fatal, a panic, a kill) is not
+// a test that covers nothing: it is Unknown, and the build is not failed by it.
 func TestBuildTestMap_AFailingOrSilentTestDoesNotFailTheMap(t *testing.T) {
 	tc := &fakeToolchain{
 		list:     "Test_A\nTest_Silent\n",
@@ -200,11 +202,11 @@ func TestBuildTestMap_AFailingOrSilentTestDoesNotFailTheMap(t *testing.T) {
 	if err != nil || !built {
 		t.Fatalf("buildTestMap = built %v, err %v", built, err)
 	}
-	if got := m.testsFor("f"); !slices.Equal(got, []string{"Test_A"}) {
-		t.Errorf("testsFor(f) = %v, want [Test_A]", got)
+	if got, _ := m.testsAt("p.go", 4); !slices.Equal(got, []string{"Test_A"}) {
+		t.Errorf("testsAt(p.go, 4) = %v, want [Test_A]", got)
 	}
-	if !slices.Contains(m.Tests, "Test_Silent") {
-		t.Errorf("Tests = %v, want the silent test listed so it is known", m.Tests)
+	if !slices.Equal(m.Unknown, []string{"Test_Silent"}) || slices.Contains(m.Tests, "Test_Silent") {
+		t.Errorf("Unknown = %v, Tests = %v, want the silent test unknown and not a test that covers nothing", m.Unknown, m.Tests)
 	}
 }
 
@@ -251,36 +253,5 @@ func TestBuildTestMap_ACancelledContextStopsTheBuild(t *testing.T) {
 	}
 }
 
-// refreshTestMaps builds only the packages whose kept map is not the tree's,
-// keeps what it builds and leaves the rest.
-func TestRefreshTestMaps_RebuildsOnlyWhatIsStale(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	ctx := context.Background()
-	built, fresh, err := refreshTestMaps(ctx, root, MutantsConfig{}, []string{"internal/p"}, 1, io.Discard)
-	if err != nil || built != 1 || fresh != 0 {
-		t.Fatalf("first refresh = built %d fresh %d err %v, want 1, 0, nil", built, fresh, err)
-	}
-	if _, ok := loadTestMap(root, "internal/p"); !ok {
-		t.Fatal("the built map was not kept")
-	}
-	calls := len(tc.calls)
-	built, fresh, err = refreshTestMaps(ctx, root, MutantsConfig{}, []string{"internal/p"}, 1, io.Discard)
-	if err != nil || built != 0 || fresh != 1 || len(tc.calls) != calls {
-		t.Errorf("second refresh = built %d fresh %d err %v with %d new commands, want 0, 1, nil and none",
-			built, fresh, err, len(tc.calls)-calls)
-	}
-	mustWrite(t, filepath.Join(root, "internal", "p", "p.go"), "package p\n\nfunc f() int {\n\treturn 3\n}\n")
-	built, fresh, err = refreshTestMaps(ctx, root, MutantsConfig{}, []string{"internal/p"}, 1, io.Discard)
-	if err != nil || built != 1 || fresh != 0 {
-		t.Errorf("refresh after an edit = built %d fresh %d err %v, want 1, 0, nil", built, fresh, err)
-	}
-}
-
-func TestRefreshTestMaps_NoPackages(t *testing.T) {
-	built, fresh, err := refreshTestMaps(context.Background(), t.TempDir(), MutantsConfig{}, nil, 1, io.Discard)
-	if err != nil || built != 0 || fresh != 0 {
-		t.Errorf("refresh of nothing = built %d fresh %d err %v, want zeros", built, fresh, err)
-	}
-}
+// ratchet: test_removed TestRefreshTestMaps_RebuildsOnlyWhatIsStale: the build is asked for one package by the commit stage, and the cache in front of it is proved by TestEnsureTestMap_TheSecondCallReusesTheMapAndRunsNothing and TestEnsureTestMap_AChangedKeyIsMeasuredAgain
+// ratchet: test_removed TestRefreshTestMaps_NoPackages: there is no multi-package refresh to ask for nothing

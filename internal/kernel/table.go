@@ -26,14 +26,14 @@ var (
 	ciLives = []Life{LifeCIPending, LifeCIGreen, LifeCIRed, LifeCIUnavailable}
 	// beforeMerge is every life a merge can still be recorded from.
 	beforeMerge = slices.Concat([]Life{LifeOpen, LifeCommitted, LifeAbandoned, LifePR}, ciLives)
-	deps        = []EffectKind{EffectInstallDeps, EffectWarmBuild}
+	deps        = []EffectKind{EffectInstallDeps}
 	news        = []EffectKind{EffectLaneNews}
 	// startsLane are the events that prove an actor is working in a lane.
 	startsLane = []Kind{KindLaneOpened, KindLaneEntered, KindEdit}
 )
 
-// table is the lane machine: data, read only. Dependency install and warm-up
-// start with the lane (§3, §6 "Lane warm-up"); a lane-news line goes out when
+// table is the lane machine: data, read only. Dependency install
+// starts with the lane (§3, §6 "Dependency install"); a lane-news line goes out when
 // CI concludes and when the lane is merged ("lane X closed", §4 post-merge).
 var table = slices.Concat(
 	each(startsLane, Row{Rule: "§3 lifecycle: first hook in a lane → open", From: []Life{LifeNone}, To: LifeOpen, Fx: deps}),

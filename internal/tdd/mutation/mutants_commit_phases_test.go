@@ -73,7 +73,7 @@ func TestRunCommitMutants_SelectedRunsComeBeforeAnyWholePackageRun(t *testing.T)
 	for _, c := range s.calls {
 		order = append(order, c.Run)
 	}
-	if want := []string{"^(TestKind_A)$", "", ""}; s.count() != 3 || order[0] != want[0] {
+	if want := []string{"^(TestKind_A)$", ""}; !slices.Equal(order, want) {
 		t.Errorf("-run of each go test = %q, want the selection first and then the rest unselected", order)
 	}
 }
@@ -84,7 +84,7 @@ func TestRunCommitMutants_AConfirmationSkipsTheTestsTheSelectionRan(t *testing.T
 	root := commitRoot(t)
 	s := scriptGo(t, func(goCall) (int, string) { return 0, "ok\tgate\n" })
 
-	got := runCommitOnce(t, root, planFor(mapFor("Kind", "TestKind_A", "TestKind_B")), kindMutant, time.Minute)
+	got := runCommitOnce(t, root, touchedPlan("TestKind_A", "TestKind_B"), kindMutant, time.Minute)
 
 	if got.Outcome.Status != "missed" || !got.WholePackage || s.count() != 2 {
 		t.Fatalf("outcome %q whole %v after %d runs, want missed by the whole package in two runs", got.Outcome.Status, got.WholePackage, s.count())
@@ -203,7 +203,7 @@ func TestRunCommitMutants_TookCountsBothRunsOfAMutant(t *testing.T) {
 	}
 	t.Cleanup(func() { commitNowFn = prev })
 
-	got := runCommitOnce(t, root, planFor(mapFor("Kind", "TestKind_A")), kindMutant, time.Minute)
+	got := runCommitOnce(t, root, touchedPlan("TestKind_A"), kindMutant, time.Minute)
 
 	if got.Took != 2*time.Second {
 		t.Errorf("Took = %s, want 2s for two runs of 1s each", got.Took)

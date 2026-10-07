@@ -32,6 +32,7 @@ everything else. The Cargo spelling wins when a repo has both.
 | `mutants-at-merge-level` | `"report"` or `"block"` | `"block"`: `gate mutants verdict` (CI's `mutants-verdict` check) fails on an unaccepted survivor, a timeout or an unjudged line the diff adds, and under `mutants-at-merge = "ci"` the local merge gate refuses a merge whose check did not pass. Absent or `"report"`: the same findings print under `REPORT ONLY`, the check passes, and the merge gate neither waits for the check nor refuses on it. A measurement that is itself broken (missing shard, unreadable accept-list) fails at either level. Any other value is refused |
 | `mutants-at-commit` | `true`, `false`, `"report"` or `"block"` | `true` or `"report"`: the commit gate mutates the lines the commit adds and runs each mutant against the tests selected for its function (see "At commit" below). Go repos only. `"block"`: a survivor also refuses the commit. Absent or false: the stage is inert and prints nothing. Any other value is refused |
 | `mutants-commit-budget` | positive integer | the seconds the commit-time run may spend, 90 when absent. A value that is not a positive whole number is refused |
+| `mutants-test-tags` | string array | build tags the repo's tests need (for example `["integration"]`, a tier behind `//go:build integration`), default none. The commit-time run compiles its coverage build with them and runs every mutant's `go test` with them, so code only a tagged suite executes is measured against that suite and not reported as a survivor of the untagged tests. A tagged suite that cannot run (a missing service) fails with and without the mutant, and its mutants are NOT MEASURED, never survivors. The tags are part of the coverage cache key |
 | `mutants-integration-packages` | string array | package directories (for example `"internal/cli"`) whose mutants are settled against the tests of the packages that import them; see "Mutants nothing judged" below. Every package not listed is judged by its own tests alone |
 | `mutants-env` | string array | `NAME=VALUE` switches exported for the run — the suites a mutant's code is only reachable from |
 | `mutation-baseline-exclude` | string array | `"<nextest filter> # why"` entries, folded into one `-E not(...)` for the run's whole test invocation |
@@ -725,16 +726,17 @@ hold).
 prove` makes, so a mutant that writes or resets acts on the copy), under the
 memory cap every gate-started process is held to, with `-count=1 -failfast`
 (`internal/tdd/mutation/mutants_commit_run.go`). The tests are the ones the
-package's test map lists for the mutant's enclosing function, plus every test
-the map has never seen and every test the commit touches (a test with an added
-line in it; every test of a file whose helper, variable or type the commit
-changed; a changed `TestMain` runs the whole package), keeping only tests the
-package still has. A selection with no map, no entry for the function, nothing
-left, or a `-run` pattern over 8000 characters runs the whole package for that
-mutant. A mutant the selection does not kill is run against the rest of the
-package (`-skip` of the selected tests, which passed under it) before it is
-called a survivor, because a map built before this commit may not list a test
-that now reaches the function. A failure is credited as a kill only when the
+package's test map says execute the mutant's line (below). A mutant on a line
+in a block no test executes is NOT MEASURED as `not-covered` and no `go test`
+is started for it: no test could kill it. A mutant its covering tests miss is
+a survivor at once, since a test that does not execute the line cannot be
+affected by the mutant. A package with no map (its coverage could not be
+measured), a line outside every block, or a `-run` pattern over 8000
+characters falls back: the tests the commit touches (a test with an added line
+in it; every test of a file whose helper, variable or type the commit changed;
+a changed `TestMain` runs the whole package) run first, and a mutant they miss
+is run against the rest of the package (`-skip` of the selected tests) before
+it is called a survivor, because that selection is a guess. A failure is credited as a kill only when the
 tests that failed pass without the mutant; that check is made once for a set of
 failing tests and shared by every mutant of the run they fail under.
 
@@ -742,7 +744,7 @@ The run is in two passes over the same workers. The first runs every mutant's
 selection (and nothing else), so a mutant a selected test kills in seconds is
 never left waiting behind a whole-package run or cut by the budget because of
 one. The second runs the whole package for each mutant the first did not
-settle: the ones whose selection passed and the ones with no selection. Each
+settle and whose selection was a guess (the fallback above). Each
 worker keeps its copy of the lane at a path of its own that every run reuses
 (`prove-<lane>/tree` for the first, `run-w<n>` for the others): the go build
 cache keys a compile on the directory, so a copy at a new path rebuilds every
@@ -753,24 +755,53 @@ several survivors are not folded into one binary, since two mutants applied
 together can mask each other and a pass of the pair would not show that each
 survives alone.
 
-**The test map** (`internal/tdd/mutation/mutants_testmap.go`) is one file per
-package under the gate state for the repository (keyed on its primary
-checkout, so every lane reads what a merge built). It is built by `aphrollo
-gate mutants testmap [--pkg <dir>]...`: compile the package's test binary
-once with coverage of the package, run each test alone under
-`-test.coverprofile`, and map each executed block to the function declaration
-holding its first line. It holds the hash of everything the test binary is
-built from, and a map whose hash is stale is still used, since it is keyed by
-function and a function's tests rarely change when its body does; it is
-rebuilt when the tree's hash differs. The post-merge hook starts the build
-in the background, detached, in a repo that declares the key. It is never
-built on the commit path.
+**The test map** (`internal/tdd/mutation/mutants_testmap.go`) answers which
+tests execute which lines of one package. The commit that needs it builds it,
+in the foreground, inside its own budget; nothing is built in the background
+and nothing is prepared ahead of a commit: no hook starts a build after a
+merge or a commit, no verb builds one by hand, and a repo that does not
+declare `mutants-at-commit` never has one made. For each package the commit
+touches the stage compiles the test binary once with coverage of the package
+(`go test -c -covermode=set -coverpkg`), lists its tests, and runs each test
+alone under `-test.coverprofile` on the stage's workers, in a disposable copy
+of the lane. A solo run per test is what gives line-to-tests: one run of the
+whole suite writes one profile that cannot say which test ran a block, so the
+cost is one compile plus one pass over the tests, with a process start for
+each. Each profile's blocks (file, first line, last line) are folded into one
+list with the tests that executed each; a block no test executed is kept with
+no tests, which is how a line is known to be uncovered. A test that
+writes no profile (it called `os.Exit` or `log.Fatal`, panicked, was killed or
+timed out, or could not start) is recorded as unknown, not as covering nothing:
+the map is used for that commit only and never kept, the unknown tests join
+every selection, and no mutant is called not covered. A package whose tests
+start their own binary again (`os.Args[0]` or `os.Executable` in a test file,
+the helper-process pattern) is run whole, since the parent's profile holds
+nothing of what the child executed. A package whose coverage cannot be
+measured, or not in the time the budget leaves, is named `NOT MEASURED` and its
+mutants fall back as above. Each package gets an equal share of the time left,
+and the compile takes the whole memory share, since it is one process.
+
+**The cache.** What a commit measures is kept for the next commit to the same
+package. The key is the package's import path, the hash of everything its test
+binary is built from (the content of its own Go files, tests included, cgo and
+assembly files, `testdata/`, and the same for every package it imports inside
+the module or from a replacement directory outside it; `go.mod`, `go.sum` and
+`go.work`; `mutants-env`) and the Go version and build
+settings (`go env GOVERSION GOFLAGS GOOS GOARCH CGO_ENABLED GOEXPERIMENT`). A
+map is kept in the repository's shared git directory
+(`aphrollo-mutcover/`, one file per package and key), so every lane of the
+repository reads what any of them measured, and a hit skips the compile and the
+solo runs. A map of another key is never used, not even meanwhile: it is keyed
+by line, and an edited line is another line. The directory holds at most 64
+maps within 64 MiB (the ones read longest ago go first), and `aphrollo gate gc`
+removes a map nothing has read for 30 days.
+
 
 **The budget.** The run has `mutants-commit-budget` seconds of wall-clock,
 counted from the start of the stage, on at most as many workers as the Go
 measurement derives for the box (`min(cores/3, free memory/2 GB, 8)`), each
 with its own copy of the lane. A mutant not started when the budget ends, and
-a run cut by it, is NOT MEASURED. The stage also measures nothing when the box
+a run cut by it, is NOT MEASURED; so is the coverage build when it does not fit. The stage also measures nothing when the box
 has no memory headroom, or when another mutation run holds the box-wide lock
 for the whole budget. None of these refuses the commit: each is printed as
 
@@ -778,7 +809,7 @@ for the whole budget. None of these refuses the commit: each is printed as
 gate precommit: mutants → NOT MEASURED (<why>) — this commit carries no commit-time mutation evidence; CI's mutants-verdict decides
 ```
 
-and counted in the gate log as `mutants-unmeasured:commit-<kind>`.
+and counted in the gate log as `mutants-unmeasured:commit-<kind>`. A mutant on a line no test executes is counted under the kind `not-covered`.
 
 **The canary.** Every runner that starts test processes (this run, the merge
 measurement, `gate mutants prove`, the test-map build) fingerprints the git
@@ -829,18 +860,9 @@ internal/tdd/mutation/mutants_config.go:12:7: CONDITIONALS_BOUNDARY
 mutants: 10 tested, 9 caught, 0 unviable, 1 missed (0 accepted), 0 unmeasured
 ```
 
-**Edit time.** After an edit of a Go source file whose tests came back green,
-in a repo that declares the key, the edit hook starts `aphrollo gate mutants
-edit --file <path> --done <path>` detached
-(`internal/tdd/postedit/mutantsedit.go`): the same run over the lines that
-edit changed against HEAD, in the working tree as it stands, with its report
-going to a log and its outcome (`ok` or `refused`) written last to the `--done`
-file. The next hook of the session, an edit, a Bash call or a prompt, prints
-`gate: deferred mutants in <tree> (<file>) → refused|ok` with the tail of the
-report, once, and clears the record. There is one run per session and tree at a
-time: an edit made while the last one is unfinished, or finished and not yet
-read, starts nothing. A run past ten minutes is dropped with a NOT MEASURED
-line, and records older than a day are swept.
+**Edit time.** There is none. No edit hook, Bash hook or prompt starts a
+mutation run, and no detached process measures, prepares or builds anything for
+mutation: it runs at commit, in the foreground, and nowhere else.
 
 ## Gate-log tokens
 
@@ -868,7 +890,6 @@ stage refused and for what without re-running anything.
 | `mutants-unmeasured:commit-headroom` | the box had no memory headroom to start the commit-time run |
 | `mutants-unmeasured:commit-lock` | another mutation run held the box-wide lock for the whole budget |
 | `mutants-unmeasured:commit-diff` | git could not say what the commit adds |
-| `mutants-edit-abandoned` | an edit-time run did not finish within ten minutes and the next hook dropped it, reporting it NOT MEASURED |
 | `mutants-skipped:not-go` | `mutants-at-commit` in a repo that is not a Go module |
 | `mutants-skipped:nothing-to-measure` | the commit adds no line a mutant sits on |
 | `mutants-skipped:not-declared` | the repo declares no `mutants-at-merge` |

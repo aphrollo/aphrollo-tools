@@ -16,14 +16,15 @@ import (
 // The edges of the commit-time run: what each new condition does at the limit
 // it names and either side of it, and for nothing and for one thing.
 
-func TestCoveredFuncs_ALineNumberTooLargeToParseCoversNothing(t *testing.T) {
+func TestCoveredBlocks_ALineNumberTooLargeToParseNamesNoBlock(t *testing.T) {
 	t.Parallel()
-	spans := map[string][]funcSpan{"a.go": spansOf("f", 1, 9)}
 	profile := "mode: set\nx/a.go:99999999999999999999.1,99999999999999999999.9 1 1\n"
-	if got := coveredFuncs(profile, spans); len(got) != 0 {
-		t.Errorf("covered = %v, want none", sortedKeys(got))
+	if got := coveredBlocks(profile); len(got) != 0 {
+		t.Errorf("blocks = %v, want none", got)
 	}
 }
+
+// ratchet: test_removed TestCoveredFuncs_ALineNumberTooLargeToParseCoversNothing: the map is keyed by line now; the same edge is the test above
 
 func TestScanTestDecls_SkipsDirectoriesAndUnparseableFiles(t *testing.T) {
 	t.Parallel()
@@ -95,36 +96,6 @@ func TestBuildTestMap_AListingFailureIsAnError(t *testing.T) {
 	_, built, err := buildTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, io.Discard)
 	if err == nil || built || len(tc.calls) != 0 {
 		t.Errorf("buildTestMap = built %v, err %v after %d commands, want an error before any command", built, err, len(tc.calls))
-	}
-}
-
-func TestRefreshTestMaps_APackageWithNoTestsIsNeitherBuiltNorCurrent(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{compile: func([]string) (int, error) { return 0, nil }}
-	root := buildFixture(t, tc)
-	built, fresh, err := refreshTestMaps(context.Background(), root, MutantsConfig{}, []string{"internal/p"}, 1, io.Discard)
-	if err != nil || built != 0 || fresh != 0 {
-		t.Errorf("refresh = built %d fresh %d err %v, want zeros", built, fresh, err)
-	}
-	if _, ok := loadTestMap(root, "internal/p"); ok {
-		t.Error("a map was kept for a package with no tests")
-	}
-}
-
-func TestRefreshTestMaps_AFailureNamesItAndTheOthersAreStillDone(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
-	root := buildFixture(t, tc)
-	realList := goListFn
-	t.Cleanup(setGoListForTest(func(ctx context.Context, r, dir string) (string, error) {
-		if dir == "internal/broken" {
-			return "", errors.New("go list broke")
-		}
-		return realList(ctx, r, dir)
-	}))
-	built, fresh, err := refreshTestMaps(context.Background(), root, MutantsConfig{}, []string{"internal/broken", "internal/p"}, 1, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "internal/broken") || built != 1 || fresh != 0 {
-		t.Errorf("refresh = built %d fresh %d err %v, want the broken package named and the other built", built, fresh, err)
 	}
 }
 
@@ -258,28 +229,6 @@ func TestCommitVerdict_NothingMeasuredIsNotRefusedAndSaysSo(t *testing.T) {
 	}
 }
 
-func TestRunMutantsTestMap_ANonGoRepoIsInert(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := makeCargoRepoForCommit(t)
-	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = true\n")
-	var out, errOut strings.Builder
-	if code := RunMutantsTestMap(root, []string{"x"}, &out, &errOut); code != 0 || out.Len() != 0 || errOut.Len() != 0 {
-		t.Errorf("exit %d stdout %q stderr %q, want a silent 0", code, out.String(), errOut.String())
-	}
-}
-
-func TestRunMutantsTestMap_APackageListFailureIsAnError(t *testing.T) {
-	tc := &fakeToolchain{}
-	root := testMapVerbFixture(t, true, tc)
-	prev := goTestedPackagesFn
-	goTestedPackagesFn = func(context.Context, string) (string, error) { return "", errors.New("go list broke") }
-	t.Cleanup(func() { goTestedPackagesFn = prev })
-	var out, errOut strings.Builder
-	if code := RunMutantsTestMap(root, nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "go list broke") {
-		t.Errorf("exit %d stderr %q, want 1 and the failure", code, errOut.String())
-	}
-}
-
 func TestRunMutantsCommit_ABrokenConfigIsExitOne(t *testing.T) {
 	_, root := commitStage(t, "")
 	write(t, root, "aphrollo.toml", "[aphrollo]\nmutation-receipt = true\n")
@@ -289,51 +238,12 @@ func TestRunMutantsCommit_ABrokenConfigIsExitOne(t *testing.T) {
 	}
 }
 
-func TestEditStage_ANonGoRepoIsInert(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root := makeCargoRepoForCommit(t)
-	write(t, root, "aphrollo.toml", "[aphrollo]\nmutants-at-commit = true\n")
-	s := scriptGo(t, func(goCall) (int, string) { return 0, "" })
-	if res := editStage(root, "src/lib.go"); res.Blocked || s.count() != 0 {
-		t.Errorf("stage = %+v after %d runs, want inert", res, s.count())
-	}
-}
+// ratchet: test_removed TestRunMutantsTestMap_ANonGoRepoIsInert: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
+// ratchet: test_removed TestRunMutantsTestMap_APackageListFailureIsAnError: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
 
-func TestEditAddedLines_AGitFailureIsAnError(t *testing.T) {
-	root := editRepo(t)
-	for name, failing := range map[string]string{"the diff": "diff", "the untracked listing": "ls-files"} {
-		real := gitDiffOutFn
-		restore := setGitDiffOutForTest(func(dir string, args ...string) (string, string, error) {
-			if slices.Contains(args, failing) {
-				return "", "fatal: broken", errors.New("exit status 128")
-			}
-			return real(dir, args...)
-		})
-		_, err := editAddedLines(root, "gate/never-tracked.go")
-		restore()
-		if err == nil {
-			t.Errorf("%s failed and editAddedLines said nothing", name)
-		}
-	}
-}
-
-func TestEditAddedLines_AnUnreadableNewFileIsAnError(t *testing.T) {
-	root := editRepo(t)
-	if err := os.Symlink(filepath.Join(root, "nowhere.go"), filepath.Join(root, "gate", "dangling.go")); err != nil {
-		// skip-ok: a box that cannot create symlinks cannot make the unreadable file this test needs
-		t.Skip("symlinks unavailable: " + err.Error())
-	}
-	if _, err := editAddedLines(root, "gate/dangling.go"); err == nil {
-		t.Error("an untracked file that cannot be read was measured as if it were empty")
-	}
-}
-
-func TestRunMutantsEdit_ACannotRecordFailsLoudly(t *testing.T) {
-	root := editRepo(t)
-	scriptGo(t, killsUnderTheMutant)
-	var errOut strings.Builder
-	done := filepath.Join(t.TempDir(), "missing-dir", "done")
-	if code := RunMutantsEdit(root, "gate/gate.go", done, &errOut); code != 1 || !strings.Contains(errOut.String(), "recording the result") {
-		t.Errorf("exit %d stderr %q, want 1 and the failure named", code, errOut.String())
-	}
-}
+// ratchet: test_removed TestRefreshTestMaps_APackageWithNoTestsIsNeitherBuiltNorCurrent: proved for the one-package ensure as TestEnsureTestMap_APackageWithNoTestsHasNoMapAndKeepsNone
+// ratchet: test_removed TestRefreshTestMaps_AFailureNamesItAndTheOthersAreStillDone: the stage measures each package in turn and names one that fails, proved by TestMeasureTestMaps_AFailedBuildIsNamedAndLeavesNoMap
+// ratchet: test_removed TestEditStage_ANonGoRepoIsInert: the edit-time mutation run (gate mutants edit) is gone; mutation runs at commit only
+// ratchet: test_removed TestRunMutantsEdit_ACannotRecordFailsLoudly: the edit-time mutation run (gate mutants edit) is gone
+// ratchet: test_removed TestEditAddedLines_AGitFailureIsAnError: the edit-time mutation run (gate mutants edit) is gone
+// ratchet: test_removed TestEditAddedLines_AnUnreadableNewFileIsAnError: the edit-time mutation run (gate mutants edit) is gone

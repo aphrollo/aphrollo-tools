@@ -132,7 +132,7 @@ func TestHandle_returnsTheEffectsAndDoesNotRunThem(t *testing.T) {
 	for _, f := range d.Effects {
 		kinds = append(kinds, f.Kind)
 	}
-	for _, want := range []kernel.EffectKind{kernel.EffectInstallDeps, kernel.EffectWarmBuild, kernel.EffectRequestRun} {
+	for _, want := range []kernel.EffectKind{kernel.EffectInstallDeps, kernel.EffectRequestRun} {
 		if !slices.Contains(kinds, want) {
 			t.Errorf("effects %v lack %q: the first edit opens the lane and asks for the unit's run", kinds, want)
 		}

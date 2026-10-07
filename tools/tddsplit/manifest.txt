@@ -314,7 +314,6 @@ e2e_zig_test.go                                    suite
 edit_ownership.go                                  suite
 edit_ownership_own_test.go                         suite
 editgit_spawns_test.go                             postedit
-edithook_detached_test.go                          postedit
 editledger.go                                      failfirst
 editledger_batch_test.go                           failfirst
 editledger_event_test.go                           failfirst
@@ -424,6 +423,8 @@ gateworktree_core.go                               core
 gateworktree_links_own_test.go                     core
 gateworktree_own_test.go                           core
 gc.go                                              gc
+gc_covermaps.go                                    gc
+gc_covermaps_test.go                               gc
 gc_deps.go                                         gc
 gc_deps_test.go                                    gc
 gc_gocache.go                                      gc
@@ -667,9 +668,8 @@ mutants_commit.go                                  mutation
 mutants_commit_cli.go                              mutation
 mutants_commit_cli_test.go                         mutation
 mutants_commit_clock_test.go                       mutation
+mutants_commit_coverage_test.go                    mutation
 mutants_commit_edges_test.go                       mutation
-mutants_commit_edit.go                             mutation
-mutants_commit_edit_test.go                        mutation
 mutants_commit_enum.go                             mutation
 mutants_commit_enum_test.go                        mutation
 mutants_commit_funcs.go                            mutation
@@ -739,6 +739,7 @@ mutants_measure_verdict_test.go                    mutation
 mutants_memcap_test.go                             mutation
 mutants_newlines.go                                mutation
 mutants_newlines_test.go                           mutation
+mutants_nodetach_test.go                           mutation
 mutants_notcovered_test.go                         mutation
 mutants_noverdict_test.go                          mutation
 mutants_outcomes.go                                mutation
@@ -803,11 +804,12 @@ mutants_testmap_build.go                           mutation
 mutants_testmap_build_test.go                      mutation
 mutants_testmap_decls.go                           mutation
 mutants_testmap_decls_test.go                      mutation
-mutants_testmap_once.go                            mutation
-mutants_testmap_once_test.go                       mutation
+mutants_testmap_ensure_test.go                     mutation
+mutants_testmap_review_test.go                     mutation
 mutants_testmap_store.go                           mutation
 mutants_testmap_store_test.go                      mutation
 mutants_testmap_test.go                            mutation
+mutants_testtags_test.go                           mutation
 mutants_tombstones_test.go                         tdd
 mutants_tool_batched_test.go                       mutation
 mutants_tool_tree_test.go                          mutation
@@ -819,9 +821,6 @@ mutants_verdict.go                                 mutation
 mutants_windows.go                                 lock
 mutants_windows_core.go                            core      # created by P2
 mutants_zerotested_test.go                         tdd
-mutantsedit.go                                     postedit
-mutantsedit_edges_test.go                          postedit
-mutantsedit_test.go                                postedit
 mutationhold.go                                    mutation
 mutationhold_test.go                               mutation
 nightlyflakehunt_workflow_pin_test.go              tdd
@@ -848,9 +847,6 @@ policy_test.go                                     smell
 postedit_fastfail_test.go                          precommit
 postmerge.go                                       merge
 postmerge_test.go                                  tdd       # prefix says merge; its test body reaches tdd
-postmerge_testmap.go                               merge
-postmerge_testmap_test.go                          merge
-postmerge_testmap_test.go                          tdd       # prefix says merge; its test body reaches tdd
 posttooluse.go                                     postedit
 posttooluse_advisory.go                            postedit
 posttooluse_advisory_test.go                       postedit
@@ -964,8 +960,6 @@ primarybash_test.go                                postedit
 primaryedits_cli.go                                postedit
 primaryedits_cli_core.go                           core      # created by P2
 primaryedits_cli_test.go                           postedit
-priority_other.go                                  mutation
-priority_windows.go                                mutation
 procidentity_unix_core.go                          core
 procidentity_unix_own_test.go                      core
 procidentity_windows_core.go                       core

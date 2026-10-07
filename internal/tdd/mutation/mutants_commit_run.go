@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -57,6 +58,9 @@ const (
 	gapBudget      = "budget"
 	gapRunner      = "runner"
 	gapUnconfirmed = "unconfirmed"
+	// gapNotCovered is a mutant on a line the package's own coverage run shows
+	// no test executes: no test could kill it, so it is named, not run.
+	gapNotCovered = "not-covered"
 )
 
 // forEachWorker calls do(worker, index) for every index, on at most workers
@@ -120,6 +124,7 @@ func runCommitMutants(ctx context.Context, root string, cfg MutantsConfig, plans
 		}}
 	}
 	known := &killChecks{}
+	tags := tagsFlag(cfg.TestTags)
 	step := func(confirm bool) func(w, i int) {
 		return func(w, i int) {
 			r := &runs[i]
@@ -133,7 +138,7 @@ func runCommitMutants(ctx context.Context, root string, cfg MutantsConfig, plans
 				return
 			}
 			runOneCommitMutant(ctx, boxRoot, env, plans[goMutantPackageDir(r.Mutant.File)], r, deadline,
-				filepath.Join(work, strconv.Itoa(w), strconv.Itoa(i)), known, confirm)
+				filepath.Join(work, strconv.Itoa(w), strconv.Itoa(i)), known, tags, confirm)
 		}
 	}
 	// Every mutant gets its cheap run first, so a slow confirmation never
@@ -265,19 +270,24 @@ func (b *commitBox) close() {
 // confirm it runs the tests the selection did not, which is the whole package
 // once the selection has passed.
 func runOneCommitMutant(ctx context.Context, root string, env []string, plan *commitPlan, run *commitRun,
-	deadline time.Time, work string, known *killChecks, confirm bool) {
+	deadline time.Time, work string, known *killChecks, tags []string, confirm bool) {
 	m := run.Mutant
-	names, whole := []string(nil), true
+	names, whole, exact := []string(nil), true, false
 	if plan != nil && !plan.Whole {
-		names, whole = selectTests(plan.Map, plan.Current, plan.Touched, m.Func)
+		sel := selectTests(plan.Map, plan.Current, plan.Touched, path.Base(m.File), m.Line)
+		if sel.Uncovered {
+			run.leave(commitGap{gapNotCovered, "no test of " + plan.Dir + " executes this line, so none could kill it"})
+			return
+		}
+		names, whole, exact = sel.Names, sel.Whole, sel.Exact
 	}
 	run.Selected, run.WholePackage = names, whole
 	if whole && !confirm {
 		run.pending = true
 		return
 	}
-	path := filepath.Join(root, filepath.FromSlash(m.File))
-	src, err := os.ReadFile(path)
+	srcPath := filepath.Join(root, filepath.FromSlash(m.File))
+	src, err := os.ReadFile(srcPath)
 	if err != nil {
 		run.leave(commitGap{gapRunner, fmt.Sprintf("the source could not be read (%v)", err)})
 		return
@@ -287,7 +297,7 @@ func runOneCommitMutant(ctx context.Context, root string, env []string, plan *co
 		run.leave(commitGap{gapRunner, err.Error()})
 		return
 	}
-	overlay, err := writeOverlay(work, path, mutated)
+	overlay, err := writeOverlay(work, srcPath, mutated)
 	if err != nil {
 		run.leave(commitGap{gapRunner, fmt.Sprintf("the overlay could not be written (%v)", err)})
 		return
@@ -305,9 +315,9 @@ func runOneCommitMutant(ctx context.Context, root string, env []string, plan *co
 		extra = []string{"-run", runPattern(names)}
 	}
 	began := commitNowFn()
-	status, gap := settleRun(ctx, root, env, overlay, packageArgs([]string{dir}), extra, deadline, known)
+	status, gap := settleRun(ctx, root, env, overlay, packageArgs([]string{dir}), slices.Concat(tags, extra), tags, deadline, known)
 	run.Took += commitNowFn().Sub(began)
-	if status == "missed" && !confirm {
+	if status == "missed" && !confirm && !exact {
 		run.pending = true
 		return
 	}
@@ -315,7 +325,9 @@ func runOneCommitMutant(ctx context.Context, root string, env []string, plan *co
 		return
 	}
 	run.Outcome.Status = status
-	if status == "missed" {
+	if status == "missed" && exact {
+		run.Outcome.Note = fmt.Sprintf("survived the %d test(s) of %s that execute its line, which are all that could kill it", len(names), dir)
+	} else if status == "missed" {
 		run.Outcome.Note = "survived the tests of " + dir + ", all of them, run against this one mutant"
 	}
 }
@@ -324,7 +336,7 @@ func runOneCommitMutant(ctx context.Context, root string, env []string, plan *co
 // "caught", "missed" or "unviable", or, in why, what stopped it from being
 // judged. A failure is credited as a kill only when the same run without the
 // mutant is green (issue #957).
-func settleRun(ctx context.Context, root string, env []string, overlay string, args, extra []string,
+func settleRun(ctx context.Context, root string, env []string, overlay string, args, extra, tags []string,
 	deadline time.Time, known *killChecks) (status string, gap commitGap) {
 	// A budget already spent is a run that is cut off at once, which is what
 	// runResolveTestsOut answers for a timeout of nothing.
@@ -342,7 +354,7 @@ func settleRun(ctx context.Context, root string, env []string, overlay string, a
 	// mutant is the whole question, and the rest of a selection can be most of
 	// a package.
 	if failing := failingTestNames(output); len(failing) > 0 {
-		extra = []string{"-run", runPattern(failing)}
+		extra = slices.Concat(tags, []string{"-run", runPattern(failing)})
 	}
 	verdict, detail = known.check(killers, extra, func() (resolveVerdict, string) {
 		return runResolveTestsWith(ctx, root, env, "", killers, extra, time.Until(deadline))

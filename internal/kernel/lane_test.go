@@ -63,7 +63,7 @@ func TestStep_lifecycleFromOpenToRemoved(t *testing.T) {
 	m := time.Minute
 	s := walk(t, State{}, []step{
 		{ev(KindLaneOpened, 0, func(e *Event) { e.Worktree, e.Base = "/w/fix", "abc" }), LifeOpen,
-			[]Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+			[]Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindEdit, 1*m), LifeOpen, nil},
 		{ev(KindCommitGated, 2*m, head("h1")), LifeCommitted, nil},
 		{ev(KindPROpened, 3*m, head("h1"), required("linux", "windows")), LifePR, nil},
@@ -83,7 +83,7 @@ func TestStep_lifecycleFromOpenToRemoved(t *testing.T) {
 func TestStep_newHeadPushedSendsCIStatesBackToPR(t *testing.T) {
 	m := time.Minute
 	walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindPROpened, 1*m, head("h1"), required("linux")), LifePR, nil},
 		{verdict(2*m, "linux", CIRed, "h1"), LifeCIRed, []Effect{eff(EffectLaneNews, "ci_red")}},
 		{ev(KindPush, 3*m, head("h1")), LifeCIRed, nil},
@@ -98,7 +98,7 @@ func TestStep_newHeadPushedSendsCIStatesBackToPR(t *testing.T) {
 func TestStep_ciOutcomeFollowsEveryDeclaredOS(t *testing.T) {
 	m := time.Minute
 	walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindPROpened, 1*m, head("h1"), required("linux", "windows")), LifePR, nil},
 		{verdict(2*m, "linux", CIGreen, "h1"), LifeCIPending, nil},
 		{verdict(3*m, "windows", CIUnavailable, "h1"), LifeCIUnavailable, []Effect{eff(EffectLaneNews, "ci_unavailable")}},
@@ -111,7 +111,7 @@ func TestStep_ciOutcomeFollowsEveryDeclaredOS(t *testing.T) {
 func TestStep_aRedOnOneOSWinsWhileAnotherIsStillMissing(t *testing.T) {
 	m := time.Minute
 	walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindPROpened, 1*m, head("h1"), required("linux", "windows")), LifePR, nil},
 		{verdict(2*m, "linux", CIRed, "h1"), LifeCIRed, []Effect{eff(EffectLaneNews, "ci_red")}},
 	})
@@ -121,7 +121,7 @@ func TestStep_verdictWithoutAnOpenedPRIsTakenAsEvidenceOfOne(t *testing.T) {
 	// A PR opened outside the verb still has CI: the lane must not stay
 	// "committed" while a green verdict names its head.
 	walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindCommitGated, time.Minute, head("h1")), LifeCommitted, nil},
 		{verdict(2*time.Minute, "linux", CIGreen, "h1"), LifeCIGreen, []Effect{eff(EffectLaneNews, "ci_green")}},
 	})
@@ -130,7 +130,7 @@ func TestStep_verdictWithoutAnOpenedPRIsTakenAsEvidenceOfOne(t *testing.T) {
 func TestStep_removalNeedsIdleCleanUnlockedLane(t *testing.T) {
 	m := time.Minute
 	merged := walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindLaneMerged, 1*m, by(""), source("github")), LifeMerged, []Effect{eff(EffectLaneNews, "merged")}},
 		{ev(KindEdit, 10*m), LifeMerged, nil},
 	})
@@ -173,7 +173,7 @@ func TestStep_openAndCommittedLanesAbandonAfterFourteenIdleDays(t *testing.T) {
 
 func TestStep_aLaneWithAPRIsNeverAbandoned(t *testing.T) {
 	s := walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindPROpened, time.Minute, head("h1")), LifePR, nil},
 	})
 	if got, _ := Step(s, ev(KindLaneTick, 60*24*time.Hour, tick(true, false))); got.Life != LifePR {
@@ -184,7 +184,7 @@ func TestStep_aLaneWithAPRIsNeverAbandoned(t *testing.T) {
 func TestStep_anAbandonedLaneRevivesOnActivity(t *testing.T) {
 	day := 24 * time.Hour
 	abandoned := walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindLaneTick, 15*day, tick(true, false)), LifeAbandoned, nil},
 	})
 	cases := []struct {
@@ -221,7 +221,7 @@ func TestStep_aMergeIsRecordedFromEveryLiveLife(t *testing.T) {
 
 func TestStep_theFirstRecordedMergeSourceStandsWhenPostMergeFindsTheMergeAgain(t *testing.T) {
 	s := walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindLaneMerged, time.Minute, by(""), source(SourceAPI)), LifeMerged, []Effect{eff(EffectLaneNews, "merged")}},
 		{ev(KindLaneMerged, 2*time.Minute, by(""), source(SourceAncestry)), LifeMerged, nil},
 	})
@@ -233,7 +233,7 @@ func TestStep_theFirstRecordedMergeSourceStandsWhenPostMergeFindsTheMergeAgain(t
 func TestStep_mergedLaneStaysMergedOnEveryEventButANewerLaneOpened(t *testing.T) {
 	m := time.Minute
 	merged := walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0, func(e *Event) { e.Base = "old" }), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0, func(e *Event) { e.Base = "old" }), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindLaneMerged, 60*m, by(""), source("api")), LifeMerged, []Effect{eff(EffectLaneNews, "merged")}},
 	})
 	for _, e := range []Event{
@@ -251,14 +251,14 @@ func TestStep_mergedLaneStaysMergedOnEveryEventButANewerLaneOpened(t *testing.T)
 	if got.Life != LifeOpen || got.Base != "new" || len(got.Actors) != 1 || got.MergedBy != "" {
 		t.Fatalf("a newer lane.opened: life %q base %q actors %v mergedBy %q, want a fresh open lane", got.Life, got.Base, got.Actors, got.MergedBy)
 	}
-	if want := []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}; !reflect.DeepEqual(fx, want) {
-		t.Fatalf("a newer lane.opened: effects = %v, want deps install and warm-up", fx)
+	if want := []Effect{eff(EffectInstallDeps, "")}; !reflect.DeepEqual(fx, want) {
+		t.Fatalf("a newer lane.opened: effects = %v, want the deps install alone", fx)
 	}
 }
 
 func TestStep_removedLaneOpensAgainOnlyThroughANewLaneOpened(t *testing.T) {
 	s := walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindLaneRemoved, time.Hour, by("")), LifeRemoved, nil},
 	})
 	if got, _ := Step(s, ev(KindEdit, 2*time.Hour)); got.Life != LifeRemoved {
@@ -275,8 +275,8 @@ func TestStep_firstHookOfAnUnknownLaneOpensIt(t *testing.T) {
 		if got.Life != LifeOpen || got.Branch != "fix" {
 			t.Errorf("none + %s: life %q branch %q, want open fix", k, got.Life, got.Branch)
 		}
-		if want := []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}; !reflect.DeepEqual(fx, want) {
-			t.Errorf("none + %s: effects = %v, want deps install and warm-up", k, fx)
+		if want := []Effect{eff(EffectInstallDeps, "")}; !reflect.DeepEqual(fx, want) {
+			t.Errorf("none + %s: effects = %v, want the deps install alone", k, fx)
 		}
 	}
 }
@@ -315,7 +315,7 @@ func TestAdvance_reportsNoRowForAnIgnoredEvent(t *testing.T) {
 func TestStep_aLaterPROpenedWithoutDeclaredOSesKeepsTheDeclaredSet(t *testing.T) {
 	m := time.Minute
 	s := walk(t, State{}, []step{
-		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, ""), eff(EffectWarmBuild, "")}},
+		{ev(KindLaneOpened, 0), LifeOpen, []Effect{eff(EffectInstallDeps, "")}},
 		{ev(KindPROpened, 1*m, head("h1"), required("linux", "windows")), LifePR, nil},
 		{ev(KindPROpened, 2*m, head("h2")), LifePR, nil},
 		{verdict(3*m, "linux", CIGreen, "h2"), LifeCIPending, nil},

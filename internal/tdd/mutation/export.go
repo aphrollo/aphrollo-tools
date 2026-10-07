@@ -22,8 +22,6 @@ func GoRanNoTests(p0 Runner, p1 SuiteResult) bool { return goRanNoTests(p0, p1) 
 
 func GoSelectedDirs(p0 Runner) ([]string, bool) { return goSelectedDirs(p0) }
 
-func IsCommitSource(p0 string) bool { return isCommitSource(p0) }
-
 func JudgeMutants(p0 MutantsConfig, p1 []MutantOutcome) Verdict { return judgeMutants(p0, p1) }
 
 func MeasureLogVerdict(p0 Verdict, p1 bool) string { return measureLogVerdict(p0, p1) }

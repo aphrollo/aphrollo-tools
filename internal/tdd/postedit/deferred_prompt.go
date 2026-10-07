@@ -51,7 +51,6 @@ func harvestSessionJobs(session string) []string {
 	// A finished run frees its slot: the runs that waited for it start now, and
 	// what became of each is a line of its own.
 	lines = append(lines, pumpSessionQueues(session)...)
-	lines = append(lines, harvestMutantsEdit(session)...)
 	// A lint that finished after its run was reported is a line of its own.
 	return append(lines, harvestLintNotices(session)...)
 }

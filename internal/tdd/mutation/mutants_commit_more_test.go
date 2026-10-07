@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,20 +22,6 @@ func listModule(t *testing.T) string {
 	mustWrite(t, filepath.Join(root, "a", "a_test.go"), "package a\n\nimport \"testing\"\n\nfunc Test_A(t *testing.T) {}\n")
 	mustWrite(t, filepath.Join(root, "b", "b.go"), "package b\n")
 	return root
-}
-
-func TestListTestedPackages_NamesOnlyThePackagesWithTests(t *testing.T) {
-	root := listModule(t)
-	out, err := listTestedPackages(context.Background(), root)
-	if err != nil {
-		t.Fatalf("listTestedPackages: %v", err)
-	}
-	if got, want := parseTestedDirs(root, out), []string{"a"}; !slices.Equal(got, want) {
-		t.Errorf("tested packages = %v, want %v", got, want)
-	}
-	if _, err := listTestedPackages(context.Background(), t.TempDir()); err == nil {
-		t.Error("a directory that is no module was listed without an error")
-	}
 }
 
 func TestListPackageInputs_NamesTheFilesTheTestBinaryIsBuiltFrom(t *testing.T) {
@@ -113,25 +98,5 @@ func TestRunCommitMutants_AFailureNamingNoTestIsConfirmedWithTheSameSelection(t 
 	}
 }
 
-// A file that ends on the edited line, with no newline after it, is measured
-// to its last line, and the line before the last is measured too.
-func TestEditAddedLines_ANewFileIsMeasuredToItsLastLine(t *testing.T) {
-	root := editRepo(t)
-	write(t, root, "gate/tail.go", "package gate\n\nfunc Big(n int) bool { return n > 10 }")
-	got, err := editAddedLines(root, "gate/tail.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	lines := got["gate/tail.go"]
-	if len(lines) != 3 || !lines[1] || !lines[2] || !lines[3] || lines[4] {
-		t.Errorf("lines = %v, want exactly 1, 2 and 3", lines)
-	}
-	write(t, root, "gate/tail2.go", "package gate\n\nfunc Big(n int) bool { return n > 10 }\n")
-	got, err = editAddedLines(root, "gate/tail2.go")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if lines := got["gate/tail2.go"]; !lines[3] || lines[5] {
-		t.Errorf("lines = %v, want the file measured to its last line and not past its end", lines)
-	}
-}
+// ratchet: test_removed TestListTestedPackages_NamesOnlyThePackagesWithTests: the gate mutants testmap verb is gone; the commit stage builds the coverage it needs
+// ratchet: test_removed TestEditAddedLines_ANewFileIsMeasuredToItsLastLine: the edit-time mutation run (gate mutants edit) is gone
