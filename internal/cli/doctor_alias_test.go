@@ -139,6 +139,9 @@ func healthyDoctorInput(t *testing.T) tdd.DoctorInput {
 	if _, err := tdd.WriteSDDSkill(cfg); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := tdd.WriteAphrolloSkill(cfg); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := tdd.WriteAgents(cfg); err != nil {
 		t.Fatal(err)
 	}

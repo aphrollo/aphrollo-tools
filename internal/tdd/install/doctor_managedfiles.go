@@ -20,12 +20,14 @@ func doctorManagedFiles(in DoctorInput) DoctorCheck {
 		dirs = append(dirs, project)
 	}
 	want := map[string]string{
-		"tdd/SKILL.md": TDDSkill(),
-		"sdd/SKILL.md": SDDSkill(),
+		"tdd/SKILL.md":      TDDSkill(),
+		"sdd/SKILL.md":      SDDSkill(),
+		"aphrollo/SKILL.md": AphrolloSkill(),
 	}
 	paths := map[string]func(string) string{
-		"tdd/SKILL.md": tddSkillPath,
-		"sdd/SKILL.md": sddSkillPath,
+		"tdd/SKILL.md":      tddSkillPath,
+		"sdd/SKILL.md":      sddSkillPath,
+		"aphrollo/SKILL.md": aphrolloSkillPath,
 	}
 	for _, name := range managedAgentNames {
 		body, ok := ManagedAgent(name)

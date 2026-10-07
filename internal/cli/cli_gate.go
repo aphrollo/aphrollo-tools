@@ -412,9 +412,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGateMergeHook(args[0], stderr)
 	}
 
-	switch args[0] {
-	case "sessionstart", "pretooluse", "posttooluse", "posttoolusefailure", "userpromptsubmit", "sessionend", "stop", "subagentstop", "taskcompleted":
-	default:
+	if _, ok := sessionHooks[args[0]]; !ok {
 		fmt.Fprintf(stderr, "aphrollo gate: unknown subcommand %q\n\n%s", args[0], gateUsage)
 		return 2
 	}
@@ -424,10 +422,18 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: reading hook input: %v\n", err)
 		return 1
 	}
+	// Who the hook serves, for every event it appends: set once, undone last.
+	defer bindHookActor(raw)()
 	defer recordHookTiming(args[0], raw, time.Now())
 	// Runs before the timing above: the records the hook queued are written after
 	// its answer, and the wait is left out of its time.
 	defer shadow.Flush()
+
+	// The one place a switched-off session is handled: every session hook is
+	// silent and decides nothing, but the walls that block every author.
+	if mode, off := offSession(args[0], raw); off {
+		return runWhenOff(mode, raw, stdout)
+	}
 
 	switch args[0] {
 	case "sessionstart":
@@ -443,26 +449,7 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		tdd.FoldBashRun(raw)
 		return 0
 	case "posttooluse":
-		// PostToolUse never blocks: it only ever emits advisory context. It is
-		// also the one hook allowed to leave work running past its budget — a
-		// cold Bevy build does not fit in 110s and killing it establishes
-		// nothing. A retro a merge in this session left pending rides after
-		// the hook's own text, once.
-		tdd.EnableDeferredPhases(true)
-		// A suite the agent ran itself is a run: folded after the answer (shadow.Flush).
-		tdd.FoldBashRun(raw)
-		if tdd.IsBashHook(raw) {
-			payload, code := tdd.RenderPostToolUse(tdd.WithPendingRetro(raw, tdd.PostBash(raw, tdd.RunSuite(postEditBudget()))))
-			if len(payload) > 0 {
-				stdout.Write(payload)
-			}
-			return code
-		}
-		payload, code := tdd.RenderPostToolUse(tdd.WithPendingRetro(raw, tdd.PostEdit(raw, tdd.RunSuite(postEditBudget()))))
-		if len(payload) > 0 {
-			stdout.Write(payload)
-		}
-		return code
+		return runPostToolUse(raw, stdout)
 	case "userpromptsubmit":
 		// Handles the /tdd command and the RED reminder; never errors the turn.
 		payload, code := tdd.RenderPrompt(tdd.HandlePrompt(raw))

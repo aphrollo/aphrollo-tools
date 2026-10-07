@@ -27,6 +27,10 @@ func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration)
 	core.AppendGateLog(p0, p1, p2, p3, p4)
 }
 
+func AppendGateLogDetail(p0 string, p1 string, p2 string, p3 string, p4 time.Duration, p5 map[string]string) {
+	core.AppendGateLogDetail(p0, p1, p2, p3, p4, p5)
+}
+
 func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }
 
 func LogToken(p0 string) string { return core.LogToken(p0) }

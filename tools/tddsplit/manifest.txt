@@ -57,6 +57,9 @@ agent_researcher.md                                install
 agent_reviewer.md                                  install
 agents.go                                          install
 agents_test.go                                     install
+aphrolloskill.go                                   install
+aphrolloskill.md                                   install
+aphrolloskill_test.go                              install
 armmode.go                                         postedit
 armmode_test.go                                    postedit
 autoescape.go                                      escape
@@ -248,6 +251,7 @@ deferred_session_test.go                           tdd       # prefix says poste
 deferred_status.go                                 postedit
 deferred_status_restart_test.go                    postedit
 deferred_status_test.go                            postedit
+deferred_supersede_test.go                         postedit
 deferred_sweep.go                                  postedit
 deferred_sweep_test.go                             gc        # prefix says postedit; its test body reaches gc
 deferred_test.go                                   postedit
@@ -352,11 +356,13 @@ escape_verify_suite_test.go                        suite
 escape_verify_test.go                              escape
 eventlog.go                                       core
 events.go                                          core
+events_actor_own_test.go                           core
 events_cmd_own_test.go                              core
 events_envmissing_own_test.go                      core
 events_gateline_own_test.go                         core
 events_hardening_own_test.go                       core
 events_own_test.go                                 core
+failfirst_display_test.go                          failfirst
 failfirst_env.go                                   failfirst
 failfirst_env_test.go                              failfirst
 failfirst_green.go                                 failfirst
@@ -647,6 +653,8 @@ mutants_canary_gitworld_test.go                    mutation
 mutants_canary_head_test.go                        mutation
 mutants_canary_main_test.go                        mutation
 mutants_canary_origin_test.go                      mutation
+mutants_canary_rebase.go                           mutation
+mutants_canary_rebase_test.go                      mutation
 mutants_canary_runners_test.go                     mutation
 mutants_canary_test.go                             mutation
 mutants_cancel_test.go                             mutation
@@ -820,6 +828,7 @@ nightlyflakehunt_workflow_pin_test.go              tdd
 nightlyfuzz_workflow_pin_test.go                   tdd
 nightlymutants_base_pin_test.go                    tdd
 nightlyproc_workflow_pin_test.go                   tdd
+notrun_collapse_test.go                            suite
 nowindow_windows_test.go                           postedit
 npmbin.go                                          suite
 npmbin_test.go                                     suite
@@ -1008,6 +1017,7 @@ readshared.go                                      core
 readshared_other.go                                core
 readshared_own_test.go                             core
 readshared_windows.go                              core
+redcap_test.go                                     postedit
 redgreenlive.go                                    postedit
 redgreenlive_test.go                               postedit
 redsnippet_test.go                                 postedit
@@ -1077,6 +1087,8 @@ session_allow_test.go                              tdd
 session_core.go                                    core      # created by P2
 session_identity.go                                tdd
 session_identity_test.go                           tdd
+session_styleonce_test.go                          tdd
+session_switch_test.go                             tdd
 session_test.go                                    tdd
 sessionactive.go                                   core
 sessionactive_own_test.go                          core

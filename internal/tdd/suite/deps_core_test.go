@@ -6,4 +6,8 @@ import (
 	core "github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
 
+type Event = core.Event
+
+func ReadEvents(p0 string) []Event { return core.ReadEvents(p0) }
+
 func parseGateLine(p0 string) (gateEntry, bool) { return core.ParseGateLine(p0) }

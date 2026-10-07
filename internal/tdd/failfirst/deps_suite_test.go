@@ -6,4 +6,6 @@ import (
 	suite "github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
 )
 
+func RetainedSuiteOutput(p0 string) (string, error) { return suite.RetainedSuiteOutput(p0) }
+
 func goRunFilter(p0 []string) string { return suite.GoRunFilter(p0) }

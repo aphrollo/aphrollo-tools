@@ -262,3 +262,32 @@ func TestPostBash_SrcAndTestTargetEditedTogether_RunsTheTestTarget(t *testing.T)
 		t.Fatalf("the untouched --test soak target must still be named NOT RUN, got: %s", got)
 	}
 }
+
+// A crate with many integration targets named every one on the gate line. Past
+// three the line is a count and one name, and the whole list is on the event.
+func TestLineWithNotRun_ManyTargetsAreACountAndOneNameAndTheListStaysOnTheEvent(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	gitInit(t, root)
+	names := []string{"--test alpha", "--test beta", "--test gamma", "--test integration", "--test soak"}
+	r := Runner{Cmd: "cargo", Args: []string{"nextest", "run", "--lib"}}
+
+	got := lineWithNotRun("gate: x → green", names, r, root)
+
+	if !strings.Contains(got, "NOT RUN — 5 crates not tested here (e.g. --test alpha;") || strings.Contains(got, "--test gamma") {
+		t.Fatalf("five untested targets must read as a count and one name, got: %s", got)
+	}
+	kept := ""
+	for _, e := range ReadEvents(root) {
+		if e.Kind == "not-run" {
+			kept = e.Detail["not_run"]
+		}
+	}
+	if kept != strings.Join(names, " ") {
+		t.Errorf("the event keeps %q, want every target", kept)
+	}
+	if short := lineWithNotRun("gate: x → green", names[:2], r, root); !strings.Contains(short, "NOT RUN — --test alpha, --test beta not tested here; a touched crate's suite runs at the merge gate") {
+		t.Errorf("a short list keeps naming every target, got: %s", short)
+	}
+}

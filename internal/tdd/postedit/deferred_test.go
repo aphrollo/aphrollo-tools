@@ -74,7 +74,7 @@ func TestDeferredJob_DirtyMarkSurvivesTheReload(t *testing.T) {
 	root := t.TempDir()
 	saveDeferredJob(DeferredJob{Project: root, Phase: "build", FileHash: "old"})
 
-	markDeferredDirty("", root, "new-hash")
+	markDeferredDirty("", root, "new-hash", "")
 
 	got, ok := loadDeferredJob("", root)
 	if !ok {

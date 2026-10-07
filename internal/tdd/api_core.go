@@ -55,6 +55,10 @@ func ReadEvents(p0 string) []Event { return core.ReadEvents(p0) }
 
 func SessionID() string { return core.SessionID() }
 
+func SessionOff(p0 string) bool { return core.SessionOff(p0) }
+
+func SetHookActor(p0 string, p1 string) { core.SetHookActor(p0, p1) }
+
 func StateDir() string { return core.StateDir() }
 
 func TryAcquireFileLock(p0 string) (func(), bool) { return core.TryAcquireFileLock(p0) }

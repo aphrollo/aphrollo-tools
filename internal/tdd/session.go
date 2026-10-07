@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -61,6 +60,10 @@ func HandlePrompt(raw []byte) PromptResult {
 			arg = strings.ToLower(f[2])
 		}
 		r = PromptResult{Block: true, Message: tddCommand(sub, arg, in.SessionID, in.Cwd)}
+	} else if SessionOff(in.SessionID) {
+		// An off session's prompt carries nothing of ours: no harvest, no red
+		// reminder, no retro, no style block. Only the switch above answers.
+		return PromptResult{}
 	} else if harvested := promptHarvest(in.SessionID); harvested != "" {
 		r = PromptResult{Message: harvested}
 	} else {
@@ -69,16 +72,23 @@ func HandlePrompt(raw []byte) PromptResult {
 	if !r.Block {
 		r.Message = joinRetro(r.Message, TakeSessionRetros(in.SessionID))
 	}
-	if replyStyleFor(in.SessionID) == "terse" {
-		r.Style = StyleBlock()
+	// A command's answer replaces the turn, so the block is not spent on it: the
+	// next ordinary prompt still carries it.
+	if !r.Block && replyStyleFor(in.SessionID) == "terse" {
+		r.Style = styleOnce(in.SessionID)
 	}
 	return r
 }
 
-// isGateCommand recognises the control command under both its new name and the
-// one sessions have in their fingers.
+// gateCommandNames are the slash commands that reach the session switch, each
+// the same command: the session's `/aphrollo`, the `/gate` the hooks are named
+// for, and the `/tdd` sessions have in their fingers. A `/trellis` alias is one
+// more entry here.
+var gateCommandNames = []string{"/aphrollo", "/" + CmdName, "/" + LegacyCmdName}
+
+// isGateCommand recognises the control command under any of its names.
 func isGateCommand(p string) bool {
-	for _, name := range []string{"/" + CmdName, "/" + LegacyCmdName} {
+	for _, name := range gateCommandNames {
 		if p == name || strings.HasPrefix(p, name+" ") {
 			return true
 		}
@@ -98,15 +108,15 @@ func tddCommand(sub, arg, session, cwd string) string {
 		if err := setOff(session, true); err != nil {
 			return "gate: could not persist the override (" + err.Error() + ")"
 		}
-		LogOverride("override-off", session, cwd)
-		return "TDD enforcement OFF for this session — edits are no longer gated. Run `/gate on` to re-enable."
+		LogOverrideDetail("override-off", session, cwd, map[string]string{"switch": "session-off"})
+		return "aphrollo OFF for this session — its hooks are silent and decide nothing; the git-side gates (commit, merge, push) stay on. Run `/aphrollo on` to turn it back on."
 	case "on", "reset":
 		// reset clears any override, which is identical to turning enforcement on.
 		if err := setOff(session, false); err != nil {
 			return "gate: could not persist the override (" + err.Error() + ")"
 		}
-		LogOverride("override-on", session, cwd)
-		return "TDD enforcement ON for this session."
+		LogOverrideDetail("override-on", session, cwd, map[string]string{"switch": "session-on"})
+		return "aphrollo ON for this session."
 	case "primary-edits":
 		// Pre-rename spelling, retiring next release: same wall, same
 		// storage as /tdd allow|revoke primary below.
@@ -157,33 +167,19 @@ func tddCommand(sub, arg, session, cwd string) string {
 	}
 }
 
-// tddStatus renders the current enforcement flag and the per-project outcomes,
-// sorted by root for a stable display.
+// tddStatus is the one line `/aphrollo status` prints: whether the session's
+// hooks are on, the reply style, and what stays on whatever the switch says.
 func tddStatus(session string) string {
 	s, _ := loadSession(session)
 	if s == nil {
-		return "TDD: no session id, enforcement state unavailable."
+		return "aphrollo: no session id, so no per-session switch to read; TRELLIS_OFF=1 is the whole-process one."
 	}
 	state := "ON"
 	if s.GateOff() {
 		state = "OFF"
 	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "TDD enforcement: %s", state)
-	fmt.Fprintf(&b, "\n  reply style: %s", effectiveReplyStyle(s))
-	if len(s.ByProject) == 0 {
-		b.WriteString("\n  no test outcomes observed yet this session")
-		return b.String()
-	}
-	roots := make([]string, 0, len(s.ByProject))
-	for r := range s.ByProject {
-		roots = append(roots, r)
-	}
-	sort.Strings(roots)
-	for _, r := range roots {
-		fmt.Fprintf(&b, "\n  %s: outcome=%s", r, s.ByProject[r].Outcome)
-	}
-	return b.String()
+	return fmt.Sprintf("aphrollo: enforcement %s for this session (reply style %s); the git-side gates (commit, merge, push) stay on. Switch: /aphrollo off|on.",
+		state, effectiveReplyStyle(s))
 }
 
 // reinforce returns a one-line reminder when the current project's last recorded
@@ -302,13 +298,12 @@ func skillNudge() string {
 	} else if path != "" {
 		invite += " — not installed yet; run `aphrollo install` to write it"
 	}
-	return "gate: before writing or changing any code this session, " + invite + ". " +
-		"The hooks run the tests, not you: " +
-		"after every Edit/Write, read the `gate:` line the PostToolUse hook prints (green with count / " +
-		"red-missing-impl / red / TIMEOUT / SKIPPED / QUEUED-SKIPPED) instead of running a suite by hand to " +
-		"check — the only manual runs are mutation proofs, soaks, or a targeted rerun after the hook said " +
-		"TIMEOUT or SKIPPED. Commit ONE mixed test+impl commit per task; the pre-commit gate re-proves RED " +
-		"and runs the touched crates' suites, and merges are gated by pre-merge-commit."
+	// One line: the session start is paid for by every session, and the rest
+	// (the verdict words, the commit gate, the merge gate) is in the skill and
+	// the managed block.
+	return "gate: before changing code, " + invite + ". The hooks run the tests, not you: read each `gate:` line after an edit " +
+		"(TIMEOUT/SKIPPED = not tested; BUILDING (deferred) = `aphrollo gate status --wait`), never re-run a suite by hand; " +
+		"one test+impl commit per task."
 }
 
 // HandleSessionStart returns the context injected at session start. It is silent
@@ -320,9 +315,15 @@ func HandleSessionStart(raw []byte) string {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return ""
 	}
-	s, _ := loadSession(in.SessionID)
+	s, statePath := loadSession(in.SessionID)
 	if s != nil && s.GateOff() {
 		return ""
+	}
+	// A session start (a resume, a compaction) may have dropped the style block
+	// from the context: the next prompt owes it again.
+	if s != nil && s.StyleSent {
+		s.StyleSent = false
+		_ = s.Save(statePath)
 	}
 	// Disk hygiene rides along here because session start is the only
 	// moment nobody is waiting on a build: the sweep itself is detached
@@ -339,9 +340,6 @@ func HandleSessionStart(raw []byte) string {
 	// it goes first, where it cannot scroll away.
 	if alarm := identityAlarmLine(in.Cwd); alarm != "" {
 		parts = append([]string{alarm}, parts...)
-	}
-	if effectiveReplyStyle(s) == "terse" {
-		parts = append(parts, StyleBlock())
 	}
 	if hint := ratchetHintLine(in.Cwd); hint != "" {
 		parts = append(parts, hint)
@@ -400,4 +398,21 @@ type sessionStartOutput struct {
 		HookEventName     string `json:"hookEventName"`
 		AdditionalContext string `json:"additionalContext"`
 	} `json:"hookSpecificOutput"`
+}
+
+// styleOnce is the reply-style block for a prompt of the session, "" once it
+// went out: the block is sent with the first prompt after a session start and
+// not again, where it used to ride on every prompt. A prompt with no session
+// has nowhere to remember it was sent, so it carries the block.
+func styleOnce(session string) string {
+	s, path := loadSession(session)
+	if s == nil {
+		return StyleBlock()
+	}
+	if s.StyleSent {
+		return ""
+	}
+	s.StyleSent = true
+	_ = s.Save(path)
+	return StyleBlock()
 }

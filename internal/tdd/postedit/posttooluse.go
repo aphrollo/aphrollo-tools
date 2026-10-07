@@ -384,12 +384,25 @@ func passAdvisory(r Runner, root string, outcome Outcome, output string, dur tim
 // gate's own wording: those binaries run at the merge gate, and this pass is
 // not a green for them.
 func withTargetsNotRun(line string, r Runner, root string) string {
-	names := cargoIntegrationTargetsNotRun(r, root)
+	return lineWithNotRun(line, cargoIntegrationTargetsNotRun(r, root), r, root)
+}
+
+// lineWithNotRun is line with the NOT RUN clause for names, unchanged when there
+// are none.
+func lineWithNotRun(line string, names []string, r Runner, root string) string {
 	if len(names) == 0 {
 		return line
 	}
+	if len(names) > targetsNotRunNamedMax {
+		// The line counts them and names one; the whole list is on the event.
+		AppendEvent(Event{Kind: "not-run", Root: root, Stage: "postedit", Cmd: cmdString(r), Detail: map[string]string{"not_run": strings.Join(names, " ")}})
+	}
 	return line + " — " + notRunClause(names, "crate")
 }
+
+// targetsNotRunNamedMax is the longest list of untested targets a gate line names one
+// by one; a longer one is a count and one example (the commit gate's rule).
+const targetsNotRunNamedMax = 3
 
 // noDeltaStillFailingLine names the still-failing test for a no-delta run:
 // the current run's own output normally already parses a name (that is what
@@ -427,10 +440,11 @@ func redSummary(r Runner, root string, outcome Outcome, output string) string {
 	if hint := staleArtifactHint(runnerDir(r, root), output); hint != "" {
 		fmt.Fprintf(&b, "\n%s", hint)
 	}
+	// The whole run stays readable, not repeated: `aphrollo gate output` serves
+	// it, and the red log file keeps the same bytes.
+	b.WriteString("\nfull output: `aphrollo gate output`")
 	if path := postEditRedLogPath(); path != "" {
-		if writePostEditRedLog(path, output) {
-			fmt.Fprintf(&b, "\nfull output: %s", path)
-		}
+		writePostEditRedLog(path, output)
 	}
 	// A real test FAILURE (ExtractFailingTests found a name) puts its detail
 	// at the END of the output — nextest's FAIL summary line and cargo
@@ -441,11 +455,17 @@ func redSummary(r Runner, root string, outcome Outcome, output string) string {
 	// truncates before naming the test". Anything else (a compile error,
 	// red-missing-impl, red-bogus) puts its actionable line at the START,
 	// so the head snippet is still correct there.
-	body := snippet(output)
-	if len(ExtractFailingTests(output)) > 0 {
-		body = tailSnippet(output)
+	//
+	// What is left of the line's 400-token cap goes to those words, so the
+	// line stays under it whatever the run printed.
+	fence := "\n```\n\n```"
+	if left := redLineBudget - b.Len() - len(fence); left > 0 {
+		body := headWithin(output, left)
+		if len(ExtractFailingTests(output)) > 0 {
+			body = tailWithin(output, left)
+		}
+		fmt.Fprintf(&b, "\n```\n%s\n```", body)
 	}
-	fmt.Fprintf(&b, "\n```\n%s\n```", body)
 	return b.String()
 }
 
@@ -498,15 +518,6 @@ func guidance(o Outcome) string {
 const DefaultPostEditTimeout = 110 * time.Second
 
 const maxSnippet = 2000
-
-// snippet bounds runner output so a huge failure dump doesn't flood context.
-func snippet(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= maxSnippet {
-		return s
-	}
-	return s[:maxSnippet] + "\n…[truncated]"
-}
 
 // firstFailingName returns the first failing test name in runner output, so a
 // RED summary can name the failure inline without the model scrolling output.

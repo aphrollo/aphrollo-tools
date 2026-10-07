@@ -75,9 +75,7 @@ func AppendEvent(e Event) {
 	if e.Stage == "" {
 		e.Root = ""
 	}
-	if e.Actor == "" {
-		e.Actor = SessionID()
-	}
+	e.Actor = eventActor(e.Actor)
 	dir := RepoStateDir(common)
 	if dir == "" {
 		return

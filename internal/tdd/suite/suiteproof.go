@@ -179,8 +179,41 @@ func provenCovers(have []runScope, want runScope) bool {
 // crate, and the wording must say so.
 func reportSuitesNotRun(gateName, root, noun string, runner Runner, touched []string) {
 	cmd := cmdString(runner)
-	fmt.Fprintf(rootseam.Stderr(root), "[mechanical] gate %s: %s in %s → %s\n", gateName, cmd, root, notRunClause(touched, noun))
-	AppendGateLog(gateName, root, cmd, "suites-not-run", 0)
+	shown, clause := cmd, notRunClause(touched, noun)
+	var detail map[string]string
+	if len(touched) > notRunNamedMax {
+		// A wide commit named every package twice, in the command and in the
+		// list. The line says how many and names one; the whole list stays on
+		// the event, where `aphrollo why` prints it, and in the command the
+		// event keeps.
+		shown = collapsedNotRunCmd(runner, touched)
+		detail = map[string]string{"not_run": strings.Join(touched, " ")}
+	}
+	fmt.Fprintf(rootseam.Stderr(root), "[mechanical] gate %s: %s in %s → %s\n", gateName, shown, root, clause)
+	AppendGateLogDetail(gateName, root, cmd, "suites-not-run", 0, detail)
+}
+
+// notRunNamedMax is the longest list of untested scopes a NOT RUN line names
+// one by one; a longer one is a count and one example.
+const notRunNamedMax = 3
+
+// collapsedNotRunCmd is the command of a list longer than notRunNamedMax as the
+// line shows it: it keeps its first scope and says how many more it names.
+func collapsedNotRunCmd(runner Runner, names []string) string {
+	listed := map[string]bool{}
+	for _, n := range names {
+		listed[n] = true
+	}
+	args := []string{runner.Cmd}
+	kept := false
+	for _, a := range runner.Args {
+		if !listed[a] {
+			args = append(args, a)
+		} else if !kept {
+			args, kept = append(args, a, fmt.Sprintf("…+%d", len(names)-1)), true
+		}
+	}
+	return strings.Join(args, " ")
 }
 
 // notRunClause is the one wording for "this pass did not test these": the
@@ -188,6 +221,10 @@ func reportSuitesNotRun(gateName, root, noun string, runner Runner, touched []st
 // hook's clause for the integration targets a scoped run left out, so a
 // reader learns one phrase for one fact wherever it appears.
 func notRunClause(names []string, noun string) string {
+	if len(names) > notRunNamedMax {
+		return fmt.Sprintf("NOT RUN — %d %ss not tested here (e.g. %s; every one is on the gate log's event, `aphrollo why`); a touched %s's suite runs at the merge gate, so this pass is not a green for it",
+			len(names), noun, names[0], noun)
+	}
 	return fmt.Sprintf("NOT RUN — %s not tested here; a touched %s's suite runs at the merge gate, so this pass is not a green for it",
 		strings.Join(names, ", "), noun)
 }

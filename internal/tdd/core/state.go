@@ -47,6 +47,9 @@ type fingerprint struct {
 type sessionState struct {
 	Schema    int                     `json:"schema"`
 	ByProject map[string]projectState `json:"by_project"`
+	// StyleSent says the reply-style block already went out in this session's
+	// context: it is sent once, with the first prompt after a session start.
+	StyleSent bool `json:"style_sent,omitempty"`
 	Overrides struct {
 		Off bool `json:"off"`
 		// Style is the session's `/tdd style` override ("terse" or "plain").
@@ -515,4 +518,12 @@ func everySessionID() []string {
 		ids = append(ids, id)
 	}
 	return ids
+}
+
+// SessionOff is the one predicate every session hook asks at its entry: the
+// session said `/aphrollo off` (or `/tdd off`), or TRELLIS_OFF switches the
+// whole process. A hook with no session id is off only by the environment.
+func SessionOff(session string) bool {
+	s, _ := loadSession(session)
+	return s.GateOff()
 }

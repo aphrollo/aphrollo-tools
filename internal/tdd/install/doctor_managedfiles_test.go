@@ -17,6 +17,9 @@ func writeManagedFiles(t *testing.T, dir string) {
 	if _, err := WriteSDDSkill(dir); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := WriteAphrolloSkill(dir); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := WriteAgents(dir); err != nil {
 		t.Fatal(err)
 	}

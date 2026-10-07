@@ -192,7 +192,7 @@ func TestEndSession_LeavesAnotherSessionsDeferredJobRunning(t *testing.T) {
 }
 
 // The reply-style block (internal/tdd/install/style.md) rides in the payload's
-// additionalContext on every ordinary prompt by default — the gate's
+// additionalContext of the first ordinary prompt of a session by default — the gate's
 // replacement for the third-party plugin that used to inject it.
 func TestHandlePrompt_StyleAppendedByDefault(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -249,16 +249,7 @@ func TestTddCommand_StyleRoundTripsThroughState(t *testing.T) {
 	}
 }
 
-// SessionStart includes the style block once, in the same payload as the
-// skill nudge, so it survives a later context compaction that would drop it
-// otherwise.
-func TestHandleSessionStart_IncludesStyleBlockOnce(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	msg := HandleSessionStart([]byte(`{"session_id":"ss-style"}`))
-	if strings.Count(msg, "Reply style: terse") != 1 {
-		t.Fatalf("session-start nudge should carry the style block exactly once:\n%s", msg)
-	}
-}
+// ratchet: test_removed TestHandleSessionStart_IncludesStyleBlockOnce: the style block now goes out once, with the first prompt after a session start (session_styleonce_test.go), and the session start is one line
 
 func mustJSON(t *testing.T, v any) []byte {
 	t.Helper()
