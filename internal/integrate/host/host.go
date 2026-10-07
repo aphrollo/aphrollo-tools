@@ -365,7 +365,9 @@ type Issue struct {
 	Body     string
 	State    string
 	ClosedAt time.Time // zero when the issue is open or the host gave no date
-	Labels   []string
+	// Author is the login that opened the issue, when the query asked for it.
+	Author string
+	Labels []string
 }
 
 // PRFacts is what a PR says it closes and the ends of its diff.
@@ -483,4 +485,17 @@ func RunID(c Check) int64 {
 		return 0
 	}
 	return n
+}
+
+// IssueCloser closes an issue with a comment. It is apart from Issues so a
+// caller that only opens issues is not made to implement it.
+type IssueCloser interface {
+	// CloseIssue comments on the issue and closes it; comment may be empty.
+	CloseIssue(number int, comment string) error
+}
+
+// Identity says which account the host acts as.
+type Identity interface {
+	// Whoami is the login the host's calls are made as.
+	Whoami() (string, error)
 }

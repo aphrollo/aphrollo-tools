@@ -39,6 +39,8 @@ type Fake struct {
 	JobLogFn          func(job int64) ([]byte, error)
 	RunLogFn          func(run int64) ([]byte, error)
 	OpenIssueFn       func(IssueRequest) (string, error)
+	CloseIssueFn      func(number int, comment string) error
+	WhoamiFn          func() (string, error)
 	EnsureLabelFn     func(name, colour, description string) error
 	ListIssuesFn      func(IssueQuery) ([]Issue, error)
 	IssueFn           func(number string) (*Issue, error)
@@ -379,3 +381,23 @@ func (f *Fake) Probe(bool) Probe { return f.ProbeValue }
 
 // Within answers the same fake: a fake has no clock to bound.
 func (f *Fake) Within(time.Duration) Host { return f }
+
+var _ IssueCloser = (*Fake)(nil)
+
+func (f *Fake) CloseIssue(number int, comment string) error {
+	f.note("CloseIssue")
+	if f.CloseIssueFn == nil {
+		return nil
+	}
+	return f.CloseIssueFn(number, comment)
+}
+
+var _ Identity = (*Fake)(nil)
+
+func (f *Fake) Whoami() (string, error) {
+	f.note("Whoami")
+	if f.WhoamiFn == nil {
+		return "", nil
+	}
+	return f.WhoamiFn()
+}

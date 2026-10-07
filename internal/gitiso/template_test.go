@@ -110,3 +110,20 @@ func TestBuildRepo_IgnoresTheGlobalConfigAndTheRepositoryVariablesOfTheCaller(t 
 		t.Errorf("log = %q, want the one init commit", got)
 	}
 }
+
+// A template's own config keeps git's post-commit auto maintenance off: its
+// build runs with the GIT_* variables stripped, so the process-wide switch
+// does not reach it, and a detached maintenance run would leave lock files
+// appearing and vanishing under CopyRepo's walk (CI, 2026-10-07:
+// "open .git/objects/maintenance.lock: no such file or directory").
+func TestBuildRepo_TemplateKeepsAutoMaintenanceOff(t *testing.T) {
+	tmpl := filepath.Join(t.TempDir(), "tmpl")
+	if err := BuildRepo(tmpl, map[string]string{"a.txt": "a\n"}); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{"maintenance.auto": "false", "gc.auto": "0"} {
+		if got := templateGit(t, tmpl, "config", "--local", "--get", key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
+	}
+}

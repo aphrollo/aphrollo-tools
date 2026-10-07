@@ -99,6 +99,10 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	if *quiet {
 		retainState(repos, false, io.Discard, stderr)
 		tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
+		if *known {
+			// The detached daily sweep also files the weekly report: no spawn of its own, silent on failure.
+			weeklyReport(*repo, time.Now())
+		}
 		return 0
 	}
 	tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))

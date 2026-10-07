@@ -75,3 +75,28 @@ func fit(s string, n int) string {
 	}
 	return string(r[:n]) + "…"
 }
+
+var _ host.IssueCloser = (*GitHub)(nil)
+
+// CloseIssue closes the issue, with the comment when there is one.
+func (g *GitHub) CloseIssue(number int, comment string) error {
+	args := []string{"issue", "close", fmt.Sprint(number)}
+	if comment != "" {
+		args = append(args, "--comment", comment)
+	}
+	if _, err := g.read(args...); err != nil {
+		return err
+	}
+	return nil
+}
+
+var _ host.Identity = (*GitHub)(nil)
+
+// Whoami is the login gh is authenticated as.
+func (g *GitHub) Whoami() (string, error) {
+	out, err := g.read("api", "user", "--jq", ".login")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}

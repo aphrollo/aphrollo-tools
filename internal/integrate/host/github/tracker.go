@@ -45,13 +45,16 @@ type issueDoc struct {
 	Body     string `json:"body"`
 	State    string `json:"state"`
 	ClosedAt string `json:"closedAt"`
-	Labels   []struct {
+	Author   struct {
+		Login string `json:"login"`
+	} `json:"author"`
+	Labels []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
 }
 
 func (d issueDoc) issue() host.Issue {
-	is := host.Issue{Number: d.Number, Title: d.Title, Body: d.Body, State: d.State}
+	is := host.Issue{Number: d.Number, Title: d.Title, Body: d.Body, State: d.State, Author: d.Author.Login}
 	if t, err := time.Parse(time.RFC3339, d.ClosedAt); err == nil {
 		is.ClosedAt = t
 	}

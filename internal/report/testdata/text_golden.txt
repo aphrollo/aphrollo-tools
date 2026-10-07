@@ -1,0 +1,68 @@
+Report 2026-W41: aphrollo-tools
+last 7d up to 2026-10-07T12:00:00Z, 1234 events. Replay any event with `aphrollo why <seq>`.
+
+1. Friction per rule (denies, overrides, refusals, not-tested runs, time lost)
+  ratchet:module_size                          denies 4  overrides 1  refusals 0  not tested 0  time lost 2.2m  seq 12,14 (+3 more)
+  gate:lint-blocked                            denies 0  overrides 0  refusals 3  not tested 0  time lost 40s  seq 30
+  run:deferred                                 denies 0  overrides 0  refusals 0  not tested 9  time lost 0s  seq 32
+
+2. Wrong-block candidates (override rate per rule, shadow would-be wrong blocks, stand-downs)
+  disabled-test                                3 of 5 denies waived (60%)  seq 12,14 (+3 more)
+  shadow red-green                             8 would-be blocks of 40 fires: 2 wrong, 1 caught, 5 open
+  stood down unknown-matcher-kind:tautology    25 times  seq 12,14 (+3 more)
+
+3. Escapes by class and the stage that should have caught them
+  product        2  should have been caught by: local test gate (CI job test caught it)  seq 12,14 (+3 more)
+  false positives (wrong denies): 1
+
+4. A/B and shadow, per arm and language
+  enforce  4 of 30 lanes (too few)
+    denies 3  warnings 0  overrides 0  dropped for the budget 2  held out 1
+    escapes 0 (escape records 0, CI red after a local green 0)
+    friction: denies 3 + overrides 0; time to green n 0  p50 0.0s  p90 0.0s
+  warn     6 of 30 lanes (too few)
+    denies 0  warnings 5  overrides 0  dropped for the budget 0  held out 0
+    escapes 0 (escape records 0, CI red after a local green 0)
+    friction: denies 0 + overrides 0; time to green n 0  p50 0.0s  p90 0.0s
+  pinned lanes (outside both arms) 0
+  not decidable yet: each arm needs 30 lanes
+  cumulative (whole log): enforce 12 of 30 lanes, warn 31 of 30 lanes; not decidable yet
+  shadow: 40 fires, 2 dropped for the budget
+    go           30 fires  agree 80%  held out 1  budget drops 2
+    python       4 fires  agree under 10 fires  held out 0  budget drops 0
+
+5. Token cost of what the harness injects, and the biggest gate lines
+  managed CLAUDE.md block   1463 bytes    366 tokens  cap 400
+  tdd skill                1700 bytes    425 tokens  cap 400  OVER
+  gate line commit_gate:precommit:mutants-passed     96 lines  900 tokens  seq 12,14 (+3 more)
+
+6. Proposals (the report proposes; nothing is applied)
+  disabled-test: 5 denies, 3 waived
+    propose: lower the rule from block to guide  seq 12,14 (+3 more)
+
+7. Session usage (aggregates only: no prompt, code, tool text or injected text is copied)
+  from the harness's local transcripts of aphrollo-tools: 3 sessions, 40 turns (a reply counted once), unreadable 0 lines, 0 files
+    total                             40 turns  input 92k (fresh 100, cache write 2000, cache read 90k)  output 5000  thinking 0  $12.50
+  notional list-price cost, computed now from the price table in code; 0 tokens of a model with no price are not costed
+  per role
+    coordinator                        0 turns  input 0 (fresh 0, cache write 0, cache read 0)  output 3000  thinking 0  $8.00
+    subagent                           0 turns  input 0 (fresh 0, cache write 0, cache read 0)  output 2000  thinking 0  $4.50
+  per day
+    2026-10-05                         0 turns  input 40k (fresh 10, cache write 0, cache read 40k)  output 2000  thinking 0  $5.00
+    2026-10-06                         0 turns  input 50k (fresh 20, cache write 0, cache read 50k)  output 3000  thinking 0  $7.50
+  per lane
+    (lane: joined from the event log and the worktree calls, since a record's cwd names the primary checkout; coordination: coordinator turns with no lane in reach; unattributed: no lane event for the actor)
+    lane/a                             0 turns  input 0 (fresh 0, cache write 0, cache read 0)  output 4000  thinking 0  $10.00
+    coordination                       0 turns  input 0 (fresh 0, cache write 0, cache read 0)  output 700  thinking 0  $1.50
+    unattributed                       0 turns  input 0 (fresh 0, cache write 0, cache read 0)  output 300  thinking 0  $1.00
+  per model
+    claude-opus-5                      0 turns  input 0 (fresh 0, cache write 0, cache read 0)  output 5000  thinking 0  $12.50
+  top sessions
+    s-1                               30 turns  input 0 (fresh 0, cache write 0, cache read 0)  output 4000  thinking 0  $9.00
+  aphrollo injected ~700 tokens (first injection; cache re-reads not counted), 0.760% of the fresh (non-cache-read) input
+    hook PostToolUse                     500 tokens  20 injections
+    kind green                           300 tokens
+    kind not-tested                      200 tokens
+  before and after 2026-10-05
+    before 5 days  $1.00 a day  output 200 a day  input 0 a day  injected share 1.0%
+    after  3 days  $2.50 a day  output 1333 a day  input 0 a day  injected share 0.5%

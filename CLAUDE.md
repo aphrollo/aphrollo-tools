@@ -25,7 +25,7 @@ build with `go build -o aphrollo ./cmd/aphrollo`. Usage lives in
 - `gate`: the hooks (`pretooluse`/`posttooluse`/`userpromptsubmit`/`sessionstart`/`sessionend`/`stop`/`subagentstop`/`precommit`/`premerge`/`prepush`) plus `allow`, `revoke`, `init`, `gc`, `stats`, `output`, `mutants`, `escape`; `tdd` is a silent alias.
 - `ratchet`: laws in `.ratchet/laws/*.toml` (`check`, `test`, `init`, `presets`); baselines only go down, `--adopt` is the one way to raise one.
 - `docs` (`check`), `sqlc` (`check`, `regen --scoped`), `ci` (`why`, `run`).
-- `stats`, `why`, `release`, `changelog`, `version`, `check`, `config`, `issue`, `install`, `update`.
+- `stats`, `report` (weekly improvement report; `--issue` files it), `why`, `release`, `changelog`, `version`, `check`, `config`, `issue`, `install`, `update`.
 
 ## Conventions
 

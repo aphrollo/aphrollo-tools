@@ -44,6 +44,7 @@ Commands:
   ci          Explain why a pipeline run is red: failed jobs, failing tests,
               mutation survivors, or the infrastructure cause (ci why [<pr>|<run-id>|--main])
   stats       Pipeline measures from the repo event log, and the brief-length check (--briefs)
+  report      The weekly improvement report from the event log: friction, wrong blocks, escapes, A/B, token cost, proposals (--issue files it)
   why         Replay one deny or run result of the event log by its seq, with its rule's counts
   check       Judge the tree: ratchet laws, docs, sqlc drift, the install doctor,
               and (if declared) the app trio — one line per guard
@@ -140,6 +141,8 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runCI(args[1:], stdout, stderr)
 	case "stats":
 		return runStats(args[1:], stdout, stderr)
+	case "report":
+		return runReport(args[1:], stdout, stderr)
 	case "why":
 		return runWhy(args[1:], stdout, stderr)
 	case "check":

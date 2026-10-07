@@ -408,3 +408,42 @@ func TestNormalizeURL_ReducesEachRemoteShapeToItsWebBase(t *testing.T) {
 		}
 	}
 }
+
+func TestCloseIssue_CommentsThenClosesTheNumberedIssueAndFailureCarriesGitHubsWords(t *testing.T) {
+	s := &scripted{t: t}
+	s.reply = func([]string) ([]byte, error) { return nil, nil }
+	if err := s.host(originURL).CloseIssue(12, "Superseded by #13"); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"issue", "close", "12", "--comment", "Superseded by #13"}; !slices.Equal(s.calls[0].args, want) {
+		t.Errorf("argv = %v, want %v", s.calls[0].args, want)
+	}
+	s.reply = func([]string) ([]byte, error) { return []byte("no such issue"), errors.New("exit 1") }
+	if err := s.host(originURL).CloseIssue(12, ""); err == nil || !strings.Contains(err.Error(), "no such issue") {
+		t.Errorf("err = %v, want gh's own words", err)
+	}
+	if want := []string{"issue", "close", "12"}; !slices.Equal(s.calls[1].args, want) {
+		t.Errorf("no comment: argv = %v, want %v", s.calls[1].args, want)
+	}
+}
+
+func TestWhoami_AsksGhForTheLoginAndListIssuesCarriesTheAuthor(t *testing.T) {
+	s := &scripted{t: t}
+	s.reply = func(args []string) ([]byte, error) {
+		if args[0] == "api" {
+			return []byte("octo\n"), nil
+		}
+		return []byte(`[{"number":3,"title":"t","state":"OPEN","author":{"login":"octo"},"labels":[{"name":"report"}]}]`), nil
+	}
+	who, err := s.host(originURL).Whoami()
+	if err != nil || who != "octo" {
+		t.Fatalf("Whoami = %q, %v", who, err)
+	}
+	if want := []string{"api", "user", "--jq", ".login"}; !slices.Equal(s.calls[0].args, want) {
+		t.Errorf("argv = %v, want %v", s.calls[0].args, want)
+	}
+	got, err := s.host(originURL).ListIssues(host.IssueQuery{State: "all", Fields: []string{"number", "author", "labels"}})
+	if err != nil || len(got) != 1 || got[0].Author != "octo" || !slices.Equal(got[0].Labels, []string{"report"}) {
+		t.Errorf("issues = %+v, %v", got, err)
+	}
+}
