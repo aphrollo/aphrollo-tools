@@ -91,3 +91,28 @@ func TestGateInit_WritesTheLauncherWithTheInstalledPathAsFallback(t *testing.T) 
 		t.Fatalf("launcher = %q, %v; want it to name %s", data, err, bin)
 	}
 }
+
+// The fallback a `gate init --fallback-bin` names is that init's own: once it
+// returns, a hook written later in the same process falls back to the
+// platform's installed path again, never to a path an earlier init named
+// (a test that ran init first left later doctor checks judging a deleted path).
+func TestGateInit_TheNamedFallbackEndsWithTheInit(t *testing.T) {
+	userspaceHome(t)
+	f := newGateInitFixture(t)
+	root, err := userbin.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := userbin.BinaryPath(root, "7.0.0")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFakeBin(t, bin)
+	old := fakeInstalledBin(t)
+	if code, _, errb := f.run(bin, "--fallback-bin", old); code != 0 {
+		t.Fatalf("init exit = %d\nstderr: %s", code, errb)
+	}
+	if _, fb := userbin.LaunchFor(bin); fb == old {
+		t.Fatalf("after init returned, LaunchFor still falls back to %s, the path that init named", old)
+	}
+}

@@ -35,8 +35,11 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	// Set on every run, the empty value included: the fallback is this init's own.
+	// Set on every run, the empty value included: the fallback is this init's
+	// own, and cleared when it returns, so nothing written later in the same
+	// process (an install, a doctor's expected command) inherits it.
 	userbin.SetFallbackBin(*fallbackBin)
+	defer userbin.SetFallbackBin("")
 	dir := *configDir
 	if dir == "" {
 		dir = defaultClaudeDir()
