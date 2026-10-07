@@ -16,8 +16,9 @@ import (
 
 const ciUsage = `usage: aphrollo ci run [--dry] [--ci-jobs N] [--ci-timeout DURATION]
        aphrollo ci why [<pr>|<run-id>|--main] [--workflow NAME] [--raw]
-       aphrollo ci reuse -repo O/R -sha SHA -tree TREE -workflow FILE -require JOB=STEP... [-event push|merge_group
-                    -head-ref REF -base-sha SHA -parent SHA]
+       aphrollo ci reuse -repo O/R -sha SHA -tree TREE -workflow FILE
+       [-require JOB=STEP]... [-event push|merge_group]
+       [-head-ref REF] [-base-sha SHA] [-parent SHA]
 
 ci run is the one CI entry point: it runs the repo's own GitHub workflow(s)
 that run on pull_request, in a throwaway worktree of this checkout's HEAD

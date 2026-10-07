@@ -104,3 +104,11 @@ func TestRun_RefusesAMergeGroupWithoutWhatItNeedsAndAnUnknownEvent(t *testing.T)
 		})
 	}
 }
+
+func TestRun_HelpIsNotARefusedCommandLine(t *testing.T) {
+	t.Parallel()
+	code, stdout, stderr := runCLI(t, greenSource(), "-h")
+	if code != 0 || stdout != "" || !strings.Contains(stderr, "-require") {
+		t.Errorf("code %d stdout %q stderr %q, want 0, no answer and the flag list", code, stdout, stderr)
+	}
+}

@@ -23,6 +23,8 @@ type fakeSource struct {
 	treeErr   error
 	asked     map[string]bool
 	jobsRunID int64
+	// jobsByRun answers Jobs for a run it lists; jobs answers for any other.
+	jobsByRun map[int64][]Job
 	// runsAsked lists each Runs lookup as "event:head sha", in order.
 	runsAsked []string
 }
@@ -47,6 +49,9 @@ func (f *fakeSource) Runs(event, headSHA string) ([]Run, error) {
 func (f *fakeSource) Jobs(runID int64) ([]Job, error) {
 	f.note("jobs")
 	f.jobsRunID = runID
+	if j, ok := f.jobsByRun[runID]; ok {
+		return j, f.jobsErr
+	}
 	return f.jobs, f.jobsErr
 }
 
@@ -330,5 +335,46 @@ func TestDecide_AMergeGroupRunWithAFailedLookupNeverReuses(t *testing.T) {
 	src.treeErr = errors.New("HTTP 404")
 	if got := decide(src); got.Reuse || !strings.Contains(got.Reason, "HTTP 404") {
 		t.Fatalf("verdict = %+v, want no, naming the lookup error", got)
+	}
+}
+
+// The queue's own run of a reused group stood its suites down, so it fails the
+// test-step rule; the push that lands the group still reuses, through the pull
+// request whose green run tested that very tree.
+func reusedGroupSource() *fakeSource {
+	src := queueSource()
+	src.trees = map[int64]string{950: pushTree, 900: pushTree}
+	skipped := []Job{
+		{Name: "test", Conclusion: "success", Steps: []Step{{Name: "Test (race + shuffle)", Conclusion: "skipped"}}},
+		{Name: "test-windows (cli)", Conclusion: "success", Steps: []Step{{Name: "Test (race + shuffle), shard cli", Conclusion: "skipped"}}},
+	}
+	src.jobsByRun = map[int64][]Job{950: skipped}
+	return src
+}
+
+func TestDecide_APushOfAReusedGroupFallsBackToThePullRequestRunOfTheSameTree(t *testing.T) {
+	t.Parallel()
+	src := reusedGroupSource()
+	got := decide(src)
+	if !got.Reuse {
+		t.Fatalf("reuse = false (%s), want true: the group ran nothing and the pull request tested this tree", got.Reason)
+	}
+	if !strings.Contains(got.Reason, "#42") || !strings.Contains(got.Reason, "runs/900") {
+		t.Errorf("reason %q does not name the pull request run that vouches", got.Reason)
+	}
+}
+
+func TestDecide_APushOfAReusedGroupStillNeedsAGreenPullRequestRun(t *testing.T) {
+	t.Parallel()
+	src := reusedGroupSource()
+	src.runs[0].Conclusion = "failure"
+	got := decide(src)
+	if got.Reuse {
+		t.Fatalf("reuse = true over a red pull request run: %s", got.Reason)
+	}
+	for _, want := range []string{"`test`", "not success"} {
+		if !strings.Contains(got.Reason, want) {
+			t.Errorf("reason %q lacks %q: both runs' reasons are kept", got.Reason, want)
+		}
 	}
 }

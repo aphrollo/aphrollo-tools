@@ -106,3 +106,25 @@ func TestRunCI_HelpDocumentsReuse(t *testing.T) {
 		}
 	}
 }
+
+func TestRunCIReuse_HelpExitsZeroAndPrintsTheFlags(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := runCI([]string{"reuse", "--help"}, &out, &errb); code != 0 {
+		t.Errorf("ci reuse --help exited %d, want 0; stderr %q", code, errb.String())
+	}
+	if out.Len() != 0 {
+		t.Errorf("stdout %q, want none: stdout is the reuse= answer only", out.String())
+	}
+	if !strings.Contains(errb.String(), "-head-ref") {
+		t.Errorf("help %q does not list the flags", errb.String())
+	}
+}
+
+func TestRunCI_SynopsisContinuationsAreIndentedLikeTheOtherVerbs(t *testing.T) {
+	var out, errb bytes.Buffer
+	runCI([]string{"--help"}, &out, &errb)
+	want := "       aphrollo ci reuse -repo O/R -sha SHA -tree TREE -workflow FILE\n       [-require JOB=STEP]... [-event push|merge_group]\n       [-head-ref REF] [-base-sha SHA] [-parent SHA]\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("ci help synopsis does not contain:\n%s", want)
+	}
+}

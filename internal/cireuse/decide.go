@@ -116,9 +116,26 @@ func Decide(src Source, c Commit, reqs []Requirement) Verdict {
 	if err != nil {
 		return no("the merge group runs of %s could not be read: %v", c.SHA, err)
 	}
+	groupWhy := ""
 	if run, ok := newestRun(runs, "merge_group", c.SHA, c); ok {
-		return judge(src, c, reqs, run, fmt.Sprintf("the merge group that landed %s", c.SHA))
+		v := judge(src, c, reqs, run, fmt.Sprintf("the merge group that landed %s", c.SHA))
+		if v.Reuse {
+			return v
+		}
+		// A group that itself reused a pull request's verdict ran none of the
+		// suites, so it fails the rules above; its tree is then the pull
+		// request's tested tree, and the pull request's run is held to the
+		// same rules below. Both reasons are kept when neither vouches.
+		groupWhy = v.Reason + "; falling back to the pull request: "
 	}
+	v := decidePull(src, c, reqs)
+	v.Reason = groupWhy + v.Reason
+	return v
+}
+
+// decidePull is the pull request path of Decide: the merged pull request's run
+// on its head.
+func decidePull(src Source, c Commit, reqs []Requirement) Verdict {
 	pulls, err := src.Pulls(c.SHA)
 	if err != nil {
 		return no("the pull requests of %s could not be read: %v", c.SHA, err)
@@ -127,7 +144,7 @@ func Decide(src Source, c Commit, reqs []Requirement) Verdict {
 	if !ok {
 		return no("no merge group run has %s as its head and no merged pull request has it as its merge commit", c.SHA)
 	}
-	runs, err = src.Runs("pull_request", pr.HeadSHA)
+	runs, err := src.Runs("pull_request", pr.HeadSHA)
 	if err != nil {
 		return no("the pipeline runs of pull request #%d could not be read: %v", pr.Number, err)
 	}

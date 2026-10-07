@@ -1,6 +1,7 @@
-// Package cireuse decides whether a push to trunk may skip the heavy test jobs
-// because the merged pull request's own pipeline run already tested the same
-// tree and passed. It prints `reuse=true` or `reuse=false` on stdout, ready
+// Package cireuse decides whether a push to trunk, or a merge queue run, may
+// skip the heavy test jobs because a pipeline run already tested the same tree
+// and passed: the merge group's or the pull request's on a push, the one pull
+// request's on a merge group. It prints `reuse=true` or `reuse=false` on stdout, ready
 // for $GITHUB_OUTPUT, and the reason on stderr. It exits 0 for either answer
 // and 2 for a command line it refuses, printing no answer then: the workflow
 // reads a missing answer as false, so every doubt runs the full suite.
@@ -10,6 +11,7 @@
 package cireuse
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -52,6 +54,9 @@ func run(args []string, stdout, stderr io.Writer, source func(repo, workflow str
 	var reqs requirements
 	fs.Var(&reqs, "require", "job=step-prefix: a job, and the step of it that must have run to success (repeatable)")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 2
 	}
 	if *repo == "" || *sha == "" || *tree == "" || *workflow == "" {
