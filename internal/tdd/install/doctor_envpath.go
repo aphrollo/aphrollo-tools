@@ -74,7 +74,11 @@ func doctorUserPath(in DoctorInput) (DoctorCheck, bool) {
 	if len(in.UserPathDirs) == 0 {
 		return c, false
 	}
-	problems := AuditUserPath(in.UserPathDirs, in.ShimDir, winDir(in.Bin))
+	binDir := in.LauncherDir
+	if binDir == "" {
+		binDir = winDir(in.Bin)
+	}
+	problems := AuditUserPath(in.UserPathDirs, in.ShimDir, binDir)
 	if len(problems) > 0 {
 		c.Warn = true
 		c.Detail = strings.Join(problems, "; ") + " — run `aphrollo install`"

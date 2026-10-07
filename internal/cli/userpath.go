@@ -3,7 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
-	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -41,8 +41,10 @@ func userPathEntries() []string {
 	return parts
 }
 
-// convergeUserPath makes the user PATH carry the shim dir and the binary dir
-// exactly once, shim first, ahead of Git. A read failure writes nothing.
+// convergeUserPath makes the user PATH carry the shim dir and the binary's
+// launcher dir exactly once, shim first, ahead of Git, and drops the version
+// directories of the user-space install an earlier install put there. A read
+// failure writes nothing.
 func convergeUserPath(shimDir, bin string, stdout, stderr io.Writer) {
 	s := userPathStoreFn()
 	if s == nil {
@@ -53,8 +55,12 @@ func convergeUserPath(shimDir, bin string, stdout, stderr io.Writer) {
 		fmt.Fprintf(stderr, "aphrollo: could not read the user PATH, left unchanged: %v\n", err)
 		return
 	}
-	next, changed := tdd.ConvergeUserPath(raw, []string{shimDir, filepath.Dir(bin)}, expandWindowsVars)
-	if !changed {
+	binDir := launcherDir(bin)
+	kept := slices.DeleteFunc(strings.Split(raw, ";"), func(e string) bool {
+		return staleUserBinDir(expandWindowsVars(e), shimDir, binDir)
+	})
+	next, _ := tdd.ConvergeUserPath(strings.Join(kept, ";"), []string{shimDir, binDir}, expandWindowsVars)
+	if next == raw {
 		fmt.Fprintln(stdout, "aphrollo gate: user PATH already up to date")
 		return
 	}
@@ -62,5 +68,5 @@ func convergeUserPath(shimDir, bin string, stdout, stderr io.Writer) {
 		fmt.Fprintf(stderr, "aphrollo: could not write the user PATH: %v\n", err)
 		return
 	}
-	fmt.Fprintln(stdout, "aphrollo gate: converged the user PATH (shim dir and binary dir once each, ahead of Git); open shells need a restart")
+	fmt.Fprintln(stdout, "aphrollo gate: converged the user PATH (shim dir and launcher dir once each, ahead of Git); open shells need a restart once")
 }

@@ -48,6 +48,10 @@ func InitSettingsEnvPath(p0 string, p1 string, p2 []string, p3 string, p4 bool) 
 	return install.InitSettingsEnvPath(p0, p1, p2, p3, p4)
 }
 
+func InitSettingsEnvPathLed(p0 string, p1 []string, p2 []string, p3 string, p4 func(string) bool) (bool, error) {
+	return install.InitSettingsEnvPathLed(p0, p1, p2, p3, p4)
+}
+
 func InstallCargoShim(p0 string, p1 string) (bool, error) { return install.InstallCargoShim(p0, p1) }
 
 func InstallGitShim(p0 string, p1 string) (bool, error) { return install.InstallGitShim(p0, p1) }

@@ -26,7 +26,10 @@ aphrollo update                       # build the newest release tag into ~/.aph
 
 A version comes from the release tag a binary is built at, never from a file in
 the source: `aphrollo update` stamps the tag it builds into the
-binary, and a build at no release tag reports `0.0.0-dev+<sha>`. A PR does not
+binary, and a build at no release tag reports `0.0.0-dev+<sha>`. PATH names
+no version: install puts the queue shim dir and the root (`~/.aphrollo/bin`,
+`%LOCALAPPDATA%\aphrollo\bin` on Windows) first, whose `aphrollo` launcher
+follows `current`, so an update reaches every open shell at once. A PR does not
 carry a number. It says `version: none|patch|minor|major` in its body and, when
 it is not `none`, adds one `changelog.d/<lane>.md` fragment (a first line
 `level: patch|minor|major`, then what a consumer will notice, in plain words;
