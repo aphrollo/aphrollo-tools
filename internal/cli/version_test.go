@@ -2,9 +2,13 @@ package cli
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
+	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
 // A binary built with -buildvcs=false otherwise has no way to say what it
@@ -17,7 +21,7 @@ func TestVersion_PrintsUnstampedWithoutALinkerStamp(t *testing.T) {
 	if code := runVersion(nil, &out, &errb); code != 0 {
 		t.Fatalf("runVersion exit = %d, want 0", code)
 	}
-	if got, want := out.String(), "aphrollo "+buildinfo.Version()+" (unstamped)\n"; got != want {
+	if got, want := versionHead(out.String()), "aphrollo "+buildinfo.Version()+" (unstamped)\n"; got != want {
 		t.Fatalf("runVersion output = %q, want %q", got, want)
 	}
 }
@@ -30,7 +34,7 @@ func TestVersion_PrintsShortShaAndBuildTime(t *testing.T) {
 	if code := runVersion(nil, &out, &errb); code != 0 {
 		t.Fatalf("runVersion exit = %d, want 0", code)
 	}
-	if got, want := out.String(), "aphrollo "+buildinfo.Version()+" (ca47dba built 2026-09-05T02:57:00Z)\n"; got != want {
+	if got, want := versionHead(out.String()), "aphrollo "+buildinfo.Version()+" (ca47dba built 2026-09-05T02:57:00Z)\n"; got != want {
 		t.Fatalf("runVersion output = %q, want %q", got, want)
 	}
 }
@@ -61,7 +65,7 @@ func TestVersion_AGoInstallAtATagNamesItsReleaseNotUnstamped(t *testing.T) {
 	if code := runVersion(nil, &out, &errb); code != 0 {
 		t.Fatalf("runVersion exit = %d, want 0", code)
 	}
-	if got, want := out.String(), "aphrollo 1.20.0 (module v1.20.0)\n"; got != want {
+	if got, want := versionHead(out.String()), "aphrollo 1.20.0 (module v1.20.0)\n"; got != want {
 		t.Fatalf("runVersion output = %q, want %q", got, want)
 	}
 }
@@ -72,7 +76,7 @@ func TestVersion_AModuleBuildSaysTheRevisionAndAnEditedTree(t *testing.T) {
 	var out, errb bytes.Buffer
 	runVersion(nil, &out, &errb)
 
-	if got, want := out.String(), "aphrollo 1.20.0 (module v1.20.0, revision 0123456, modified)\n"; got != want {
+	if got, want := versionHead(out.String()), "aphrollo 1.20.0 (module v1.20.0, revision 0123456, modified)\n"; got != want {
 		t.Fatalf("runVersion output = %q, want %q", got, want)
 	}
 }
@@ -83,7 +87,93 @@ func TestVersion_ADevelBuildStaysUnstamped(t *testing.T) {
 	var out, errb bytes.Buffer
 	runVersion(nil, &out, &errb)
 
-	if got, want := out.String(), "aphrollo 0.0.0-dev (unstamped)\n"; got != want {
+	if got, want := versionHead(out.String()), "aphrollo 0.0.0-dev (unstamped)\n"; got != want {
 		t.Fatalf("runVersion output = %q, want %q", got, want)
+	}
+}
+
+// versionHead is the line that names the build: the line the binary line
+// follows.
+func versionHead(out string) string {
+	head, _, _ := strings.Cut(out, "\n")
+	return head + "\n"
+}
+
+// versionRun runs `aphrollo version` as the binary at exe, with a user-space
+// root of the test's own.
+func versionRun(t *testing.T, exe string) string {
+	t.Helper()
+	userspaceHome(t)
+	prev := execPathFn
+	execPathFn = func() (string, error) { return exe, nil }
+	t.Cleanup(func() { execPathFn = prev })
+	var out, errb bytes.Buffer
+	if code := runVersion(nil, &out, &errb); code != 0 {
+		t.Fatalf("runVersion exit = %d, stderr %q", code, errb.String())
+	}
+	return out.String()
+}
+
+func versionBinaryLineOf(t *testing.T, out string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(out, "\n")
+	if !ok || !strings.HasPrefix(rest, "binary: ") {
+		t.Fatalf("output has no binary line:\n%s", out)
+	}
+	return strings.TrimSuffix(rest, "\n")
+}
+
+// A binary that is not in the user-space install says so, and says what is.
+func TestVersion_NamesTheRunningBinaryAndThatItIsNotTheUserSpaceCurrent(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "aphrollo")
+	got := versionBinaryLineOf(t, versionRun(t, exe))
+	if want := "binary: " + exe + " (not the user-space install; none installed)"; got != want {
+		t.Fatalf("binary line = %q, want %q", got, want)
+	}
+}
+
+func TestVersion_SaysWhenTheRunningBinaryIsTheUserSpaceCurrent(t *testing.T) {
+	userspaceHome(t)
+	root, _ := userbin.Root()
+	userspaceSeed(t, root, "3.0.0", "3.1.0")
+	if err := userbin.SetCurrent(root, "3.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	// The same environment the helper builds, so the root it reads is this one.
+	prev := execPathFn
+	t.Cleanup(func() { execPathFn = prev })
+	home := os.Getenv("HOME")
+	check := func(version, wantTail string) {
+		t.Helper()
+		execPathFn = func() (string, error) { return userbin.BinaryPath(root, version), nil }
+		var out, errb bytes.Buffer
+		if code := runVersion(nil, &out, &errb); code != 0 {
+			t.Fatalf("exit %d: %s", code, errb.String())
+		}
+		got := versionBinaryLineOf(t, out.String())
+		if want := "binary: " + userbin.BinaryPath(root, version) + " " + wantTail; got != want {
+			t.Fatalf("binary line = %q, want %q (home %s)", got, want, home)
+		}
+	}
+	check("3.1.0", "(the user-space current)")
+	check("3.0.0", "(user-space, not the current: current is v3.1.0)")
+}
+
+func TestVersion_NamesTheUserSpaceCurrentWhenTheRunningBinaryIsElsewhere(t *testing.T) {
+	userspaceHome(t)
+	root, _ := userbin.Root()
+	userspaceSeed(t, root, "3.1.0")
+	if err := userbin.SetCurrent(root, "3.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(t.TempDir(), "aphrollo")
+	prev := execPathFn
+	execPathFn = func() (string, error) { return exe, nil }
+	t.Cleanup(func() { execPathFn = prev })
+	var out, errb bytes.Buffer
+	runVersion(nil, &out, &errb)
+	want := "binary: " + exe + " (not the user-space install; the user-space current is v3.1.0)"
+	if got := versionBinaryLineOf(t, out.String()); got != want {
+		t.Fatalf("binary line = %q, want %q", got, want)
 	}
 }

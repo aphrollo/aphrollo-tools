@@ -24,17 +24,17 @@ func runVersion(args []string, stdout, stderr io.Writer) int {
 	commit, builtAt, stamped := buildinfo.Stamp()
 	if !stamped {
 		if m, ok := buildinfo.ModuleBuild(); ok {
-			fmt.Fprintf(stdout, "aphrollo %s (%s)\n", buildinfo.Version(), moduleNote(m))
+			fmt.Fprintf(stdout, "aphrollo %s (%s)\n%s", buildinfo.Version(), moduleNote(m), versionBinaryLine())
 			return 0
 		}
-		fmt.Fprintf(stdout, "aphrollo %s (unstamped)\n", buildinfo.Version())
+		fmt.Fprintf(stdout, "aphrollo %s (unstamped)\n%s", buildinfo.Version(), versionBinaryLine())
 		return 0
 	}
 	short := commit
 	if len(short) > 7 {
 		short = short[:7]
 	}
-	fmt.Fprintf(stdout, "aphrollo %s (%s built %s)\n", buildinfo.Version(), short, builtAt)
+	fmt.Fprintf(stdout, "aphrollo %s (%s built %s)\n%s", buildinfo.Version(), short, builtAt, versionBinaryLine())
 	return 0
 }
 
