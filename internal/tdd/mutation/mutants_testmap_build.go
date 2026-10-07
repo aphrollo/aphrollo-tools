@@ -3,16 +3,12 @@ package mutation
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/run"
@@ -32,16 +28,6 @@ import (
 // when its context ends. A seam so a test proves the build without a
 // toolchain.
 var testMapExecFn = runMutantsTool
-
-// goListFn answers the `go list -deps -test` listing hashPackage reads.
-var goListFn = listPackageInputs
-
-// setGoListForTest replaces the listing for one test and answers the restore.
-func setGoListForTest(fn func(ctx context.Context, root, dir string) (string, error)) (restore func()) {
-	prev := goListFn
-	goListFn = fn
-	return func() { goListFn = prev }
-}
 
 // perTestTimeout bounds one test's solo run, so one wedged test cannot hold
 // the whole build.
@@ -76,17 +62,6 @@ func tagsFlag(tags []string) []string {
 		return nil
 	}
 	return []string{"-tags=" + strings.Join(tags, ",")}
-}
-
-// listPackageInputs is the real listing: every package the test binary of dir
-// is built from, standard library left out, with the files each contributes.
-func listPackageInputs(ctx context.Context, root, dir string) (string, error) {
-	const format = `{{if not .Standard}}{{.Dir}}|{{join .GoFiles ","}}|{{join .TestGoFiles ","}}|{{join .XTestGoFiles ","}}|{{join .EmbedFiles ","}}|{{join .CgoFiles ","}}|{{join .SFiles ","}}{{end}}`
-	var out, errOut bytes.Buffer
-	if err := run.LightRunCtx(ctx, run.Spec{Name: "go", Args: slices.Concat([]string{"list"}, tagsFlag(testTags(ctx)), []string{"-deps", "-test", "-f", format, packagePattern(dir)}), Dir: root, Stdout: &out, Stderr: &errOut}); err != nil {
-		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(errOut.String()))
-	}
-	return out.String(), nil
 }
 
 // goEnvFn answers the Go version and the build settings the test binary of the
@@ -127,137 +102,6 @@ func modulePath(root string) string {
 	return ""
 }
 
-// packageTestHash is the key of dir's map: the hash of what its test binary is
-// built from (the files of the package and of every package it imports inside
-// the module, by content), the package's import path, and the Go version and
-// build settings it is compiled under. A map of any other key is not used.
-func packageTestHash(ctx context.Context, root, dir string, cfg MutantsConfig) (string, error) {
-	listing, err := goListFn(ctx, root, dir)
-	if err != nil {
-		return "", fmt.Errorf("go list %s: %w", dir, err)
-	}
-	env, err := goEnvFn(ctx, root)
-	if err != nil {
-		return "", fmt.Errorf("go env for %s: %w", dir, err)
-	}
-	h := sha256.New()
-	fmt.Fprintf(h, "files %s\nimport %s/%s\nenv %s\ntags %s\nmutants-env %s\n", hashPackage(root, listing), modulePath(root), dir, strings.TrimSpace(env), strings.Join(testTags(ctx), ","), strings.Join(cfg.Env, ";"))
-	for _, name := range []string{"go.mod", "go.sum", "go.work", "go.work.sum"} {
-		hashFile(h, filepath.Join(root, name), name)
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-// buildTestMap builds the map of dir. built is false, with no error, for a
-// package that has no test files. workers bounds how many tests run at once,
-// at least one. A test that fails alone still counts for what it executed (the
-// test binary writes its profile at exit, failure or not). A test that writes
-// no profile (it called os.Exit, log.Fatal or panicked, was killed or timed
-// out, or could not start) is recorded as Unknown, never as covering nothing:
-// the map cannot say what it executes, and a map with one is not kept.
-func buildTestMap(ctx context.Context, root string, cfg MutantsConfig, dir string, workers int, log io.Writer) (testMap, bool, error) {
-	workers = max(workers, 1)
-	ctx = withTestTags(ctx, cfg.TestTags)
-	start := commitNowFn()
-	hash, err := packageTestHash(ctx, root, dir, cfg)
-	if err != nil {
-		return testMap{}, false, err
-	}
-	area := measureTempDir(root)
-	if err := os.MkdirAll(area, 0o755); err != nil {
-		return testMap{}, false, err
-	}
-	work, err := os.MkdirTemp(area, "testmap-")
-	if err != nil {
-		return testMap{}, false, err
-	}
-	defer func() { _ = os.RemoveAll(work) }()
-	env := measureEnv(root, cfg)
-	// The compile is one process and takes the whole memory share; only the
-	// solo runs, which are many at once, divide it.
-	compileCtx := ctx
-	// The tests run in a copy of the checkout that has a git dir of its own,
-	// never in the checkout: a test binary started in the real tree finds the
-	// real repository from its working directory, and a fixture's bare git
-	// call then writes to it (#1043).
-	lane := RepoRoot(root)
-	if lane == "" {
-		return testMap{}, false, fmt.Errorf("%s is not inside a git repository to copy", root)
-	}
-	box, err := newProveSandbox(lane, root)
-	if err != nil {
-		return testMap{}, false, fmt.Errorf("a disposable copy of %s to build the test map of %s in could not be made: %v", lane, dir, err)
-	}
-	defer box.remove()
-	defer watchProveSignals(box.remove, log)()
-	boxRoot, err := box.path(lane, root)
-	if err != nil {
-		return testMap{}, false, err
-	}
-	absDir := filepath.Join(boxRoot, filepath.FromSlash(dir))
-
-	binary := filepath.Join(work, "pkg.test")
-	if mutantsGOOSFn() == "windows" {
-		binary += ".exe"
-	}
-	pattern := packagePattern(dir)
-	var out bytes.Buffer
-	code, err := testMapExecFn(compileCtx, boxRoot, env,
-		slices.Concat([]string{"go", "test", "-c"}, tagsFlag(cfg.TestTags), []string{"-covermode=set", "-coverpkg=" + pattern, "-o", binary, pattern}), &out)
-	if err != nil || code != 0 {
-		return testMap{}, false, fmt.Errorf("compiling the test binary of %s exited %d (%v): %s", dir, code, err, tail(out.String()))
-	}
-	if _, err := os.Stat(binary); err != nil {
-		return testMap{}, false, nil // go test -c wrote no binary: the package has no tests
-	}
-
-	ctx = withCapShare(ctx, workers)
-	out.Reset()
-	if code, err := testMapExecFn(ctx, absDir, env, []string{binary, "-test.list=."}, &out); err != nil || code != 0 {
-		return testMap{}, false, fmt.Errorf("listing the tests of %s exited %d (%v)", dir, code, err)
-	}
-	names := listedTests(out.String())
-
-	perTest := make(map[string]map[coverBlock]bool, len(names))
-	var unknown []string
-	var mu sync.Mutex
-	jobs := make(chan int)
-	var wg sync.WaitGroup
-	for range workers {
-		wg.Go(func() {
-			for i := range jobs {
-				covered, ok := soloCoverage(ctx, absDir, env, binary, filepath.Join(work, strconv.Itoa(i)+".out"), names[i])
-				mu.Lock()
-				if ok {
-					perTest[names[i]] = covered
-				} else {
-					unknown = append(unknown, names[i])
-				}
-				mu.Unlock()
-			}
-		})
-	}
-feed:
-	for i := range names {
-		select {
-		case jobs <- i:
-		case <-ctx.Done():
-			break feed
-		}
-	}
-	close(jobs)
-	wg.Wait()
-	if err := ctx.Err(); err != nil {
-		return testMap{}, false, err
-	}
-	m := assembleTestMap(dir, hash, perTest)
-	slices.Sort(unknown)
-	m.Unknown = unknown
-	logf(log, "mutants: coverage of %s: %d tests, %d blocks, measured in %s",
-		dir, len(m.Tests), len(m.Blocks), commitNowFn().Sub(start).Round(100*time.Millisecond))
-	return m, true, nil
-}
-
 // soloCoverage runs one test alone and answers the blocks its profile names,
 // true for the ones it executed. ok is false when the test wrote no profile:
 // nothing is known of what it executes.
@@ -293,34 +137,4 @@ func listedTests(output string) []string {
 func tail(output string) string {
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 	return strings.Join(lines[max(len(lines)-12, 0):], "\n")
-}
-
-// ensureTestMap answers the map of dir for the tree as it is: the kept one
-// when its key matches, else one measured now and kept for the next commit to
-// the same content. cached says it was kept. built is false, with no error,
-// for a package that has no test files. A map that cannot be kept is still
-// the answer; saving it is best effort, and what it could not do is said on
-// log.
-func ensureTestMap(ctx context.Context, root string, cfg MutantsConfig, dir string, workers int, log io.Writer) (m testMap, built, cached bool, err error) {
-	ctx = withTestTags(ctx, cfg.TestTags)
-	hash, err := packageTestHash(ctx, root, dir, cfg)
-	if err != nil {
-		return testMap{}, false, false, err
-	}
-	if kept, ok := loadTestMap(root, dir, hash); ok {
-		logf(log, "mutants: coverage of %s: reused, %d tests, %d blocks", dir, len(kept.Tests), len(kept.Blocks))
-		return *kept, true, true, nil
-	}
-	m, built, err = buildTestMap(ctx, root, cfg, dir, workers, log)
-	if err != nil || !built {
-		return testMap{}, false, false, err
-	}
-	if len(m.Unknown) > 0 {
-		logf(log, "mutants: coverage of %s not kept: %d test(s) wrote no profile (%s), so it is not known what they execute", dir, len(m.Unknown), strings.Join(m.Unknown[:min(len(m.Unknown), 3)], ", "))
-		return m, true, false, nil
-	}
-	if serr := saveTestMap(root, m); serr != nil {
-		logf(log, "mutants: coverage of %s not kept for the next commit: %v", dir, serr)
-	}
-	return m, true, false, nil
 }

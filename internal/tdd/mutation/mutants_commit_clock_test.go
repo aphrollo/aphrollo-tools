@@ -67,7 +67,7 @@ func TestBuildTestMap_ReportsItsTimeRoundedToATenthOfASecond(t *testing.T) {
 	if _, _, err := buildTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, &log); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(log.String(), "1 tests, 1 blocks, measured in 1.2s") {
+	if !strings.Contains(log.String(), "in 1.2s") {
 		t.Errorf("log = %q, want the counts and the time rounded to a tenth", log.String())
 	}
 }

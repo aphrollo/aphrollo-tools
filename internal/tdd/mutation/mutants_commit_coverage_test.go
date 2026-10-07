@@ -3,7 +3,6 @@ package mutation
 import (
 	"context"
 	"io"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -69,6 +68,9 @@ func TestCommitReport_NotCoveredMutantsAreCountedUnderTheirOwnName(t *testing.T)
 
 // coverFixture is a package the coverage build can run on the fake toolchain:
 // internal/p with Test_A executing line 4 and Test_B lines 4 and 8.
+// coverFixtureMutants are a mutant in each of the fixture's two functions.
+var coverFixtureMutants = []commitMutant{{File: "internal/p/p.go", Line: 4}, {File: "internal/p/p.go", Line: 8}}
+
 func coverFixture(t *testing.T) (string, *fakeToolchain) {
 	t.Helper()
 	tc := &fakeToolchain{
@@ -97,7 +99,7 @@ func TestMeasureTestMaps_OneCompileAndOneSoloRunPerTestFillsThePackagesMap(t *te
 	root, tc := coverFixture(t)
 	plans := map[string]*commitPlan{"internal/p": {Dir: "internal/p"}}
 
-	measureTestMaps(context.Background(), root, MutantsConfig{}, plans, 2, io.Discard)
+	measureTestMaps(context.Background(), root, MutantsConfig{}, plans, coverFixtureMutants, 2, nil, io.Discard)
 
 	m := plans["internal/p"].Map
 	if m == nil {
@@ -117,7 +119,7 @@ func TestMeasureTestMaps_APackageRunWholeAnywayIsNotMeasured(t *testing.T) {
 	root, tc := coverFixture(t)
 	plans := map[string]*commitPlan{"internal/p": {Dir: "internal/p", Whole: true}}
 
-	measureTestMaps(context.Background(), root, MutantsConfig{}, plans, 2, io.Discard)
+	measureTestMaps(context.Background(), root, MutantsConfig{}, plans, coverFixtureMutants, 2, nil, io.Discard)
 
 	if plans["internal/p"].Map != nil {
 		t.Error("a package run whole was given a map")
@@ -135,7 +137,7 @@ func TestMeasureTestMaps_AFailedBuildIsNamedAndLeavesNoMap(t *testing.T) {
 	plans := map[string]*commitPlan{"internal/p": {Dir: "internal/p"}}
 	var log strings.Builder
 
-	measureTestMaps(context.Background(), root, MutantsConfig{}, plans, 1, &log)
+	measureTestMaps(context.Background(), root, MutantsConfig{}, plans, coverFixtureMutants, 1, nil, &log)
 
 	if plans["internal/p"].Map != nil {
 		t.Error("a failed build left a map")
@@ -157,9 +159,6 @@ func TestMutantsAtCommitStage_RunsEachMutantAgainstTheTestsThatExecuteItsLine(t 
 	prevExec := testMapExecFn
 	testMapExecFn = tc.exec
 	t.Cleanup(func() { testMapExecFn = prevExec })
-	t.Cleanup(setGoListForTest(func(context.Context, string, string) (string, error) {
-		return filepath.Join(root, "gate") + "|gate.go|gate_test.go||\n", nil
-	}))
 	s := scriptGo(t, func(goCall) (int, string) { return 0, "ok\tgate\n" })
 
 	stderr := captureStderr(t, func() { mutantsAtCommitStage("precommit", root) })

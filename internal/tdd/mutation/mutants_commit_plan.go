@@ -170,17 +170,25 @@ func SetCommitExecForTest(fn func(ctx context.Context, dir string, env, argv []s
 	return func() { resolveExecFn, testMapExecFn = prev, prevMap }
 }
 
+// coverageShare is the part of what is left of the commit's budget the
+// coverage phase may spend; the mutant runs keep the rest, so a package whose
+// coverage is slow cannot leave its mutants no time.
+const coverageShare = 2
+
+// fillShare is the part of a package's coverage share the tests beyond the
+// ones its mutants need may start in.
+const fillShare = 2
+
 // measureTestMaps gives each plan the map of its package, each package within
-// an equal share of the time left: the kept one when the
-// package's content and toolchain are those it was measured at, else one
-// coverage run of the package's tests, in the foreground, within ctx's
-// deadline, which is what is left of the commit's budget, kept for the next
-// commit to the same content. A package whose tests are run whole anyway
-// has no use for one. A package whose coverage cannot be measured, or not in
-// the time left, is named on log and keeps no map: its mutants run the commit's
-// touched tests and then the whole package, and what the budget does not reach
-// is NOT MEASURED.
-func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans map[string]*commitPlan, workers int, log io.Writer) {
+// an equal share of the coverage phase: what the store holds and still holds,
+// plus the tests measured now for the functions the mutants sit in, in the
+// foreground, within ctx's deadline, and kept for the next commit. A package
+// whose tests are run whole anyway has no use for one. A package whose
+// coverage cannot be measured is named on log and keeps no map: its mutants
+// run the commit's touched tests and then the whole package, and what the
+// budget does not reach is NOT MEASURED. The build runs in boxes[0], the copy
+// the mutant runs use, when there is one.
+func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans map[string]*commitPlan, mutants []commitMutant, workers int, boxes []*commitBox, log io.Writer) {
 	dirs := make([]string, 0, len(plans))
 	for dir, plan := range plans {
 		if !plan.Whole {
@@ -188,21 +196,42 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 		}
 	}
 	sort.Strings(dirs)
+	phase, endPhase := ctx, context.CancelFunc(func() {})
+	if deadline, ok := ctx.Deadline(); ok {
+		phase, endPhase = context.WithTimeout(ctx, time.Until(deadline)/coverageShare)
+	}
+	defer endPhase()
 	for i, dir := range dirs {
-		// Each package gets an equal share of what is left, so the first one
-		// cannot spend the whole budget and leave the rest no time at all.
-		pctx, cancel := ctx, context.CancelFunc(func() {})
-		if deadline, ok := ctx.Deadline(); ok {
-			pctx, cancel = context.WithTimeout(ctx, time.Until(deadline)/time.Duration(len(dirs)-i))
+		// Each package gets an equal share of what is left of the phase, so the
+		// first one cannot spend it all and leave the rest no time.
+		pctx, cancel := phase, context.CancelFunc(func() {})
+		if deadline, ok := phase.Deadline(); ok {
+			pctx, cancel = context.WithTimeout(phase, time.Until(deadline)/time.Duration(len(dirs)-i))
 		}
-		m, ok, _, err := ensureTestMap(pctx, root, cfg, dir, workers, log)
+		req := covRequest{Dir: dir, Workers: workers}
+		if deadline, ok := pctx.Deadline(); ok {
+			// The tests the mutants need come first and may use the package's whole
+			// share; the rest of the package is measured only in the first half of
+			// it, so a commit that has to compile anyway also builds toward a
+			// complete map without spending its whole budget on one.
+			req.FillBy = time.Now().Add(time.Until(deadline) / fillShare)
+		}
+		if len(boxes) > 0 {
+			req.Box = boxes[0]
+		}
+		for _, m := range mutants {
+			if goMutantPackageDir(m.File) == dir {
+				req.Mutants = append(req.Mutants, m)
+			}
+		}
+		res, err := ensureCoverage(pctx, root, cfg, req, log)
 		cancel()
 		if err != nil {
 			logf(log, "mutants: coverage of %s NOT MEASURED — %v", dir, err)
 			continue
 		}
-		if ok {
-			plans[dir].Map = &m
+		if res.Built {
+			plans[dir].Map = &res.Map
 		}
 	}
 }

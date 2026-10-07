@@ -110,13 +110,11 @@ func TestBuildTestMap_EveryCommandRunsWithItsGitSealed(t *testing.T) {
 func TestBuildTestMap_ATreeThatIsNoRepositoryIsRefused(t *testing.T) {
 	tc := &fakeToolchain{list: "Test_A\n", profiles: map[string]string{"Test_A": profileF}}
 	root := t.TempDir()
-	mustWrite(t, filepath.Join(root, "internal", "p", "p.go"), "package p\n")
+	mustWrite(t, filepath.Join(root, "internal", "p", "p.go"), "package p\n\nfunc f() int {\n\treturn 1\n}\n")
+	mustWrite(t, filepath.Join(root, "internal", "p", "p_test.go"), "package p\n\nimport \"testing\"\n\nfunc Test_A(t *testing.T) { _ = f() }\n")
 	prevTestMapExec := testMapExecFn
 	t.Cleanup(func() { testMapExecFn = prevTestMapExec })
 	testMapExecFn = tc.exec
-	t.Cleanup(setGoListForTest(func(context.Context, string, string) (string, error) {
-		return filepath.Join(root, "internal", "p") + "|p.go|||\n", nil
-	}))
 
 	_, built, err := buildTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, io.Discard)
 

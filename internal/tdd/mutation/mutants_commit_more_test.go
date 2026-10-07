@@ -3,7 +3,6 @@ package mutation
 import (
 	"bytes"
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,39 +12,7 @@ import (
 // module, the Windows binary name, what a run logs, a confirmation that has no
 // failing test to name, and a file whose last line is the edit.
 
-// listModule is a Go module with one tested package and one untested one.
-func listModule(t *testing.T) string {
-	t.Helper()
-	root := t.TempDir()
-	mustWrite(t, filepath.Join(root, "go.mod"), "module example.com/m\n\ngo 1.26\n")
-	mustWrite(t, filepath.Join(root, "a", "a.go"), "package a\n\nfunc A() int { return 1 }\n")
-	mustWrite(t, filepath.Join(root, "a", "a_test.go"), "package a\n\nimport \"testing\"\n\nfunc Test_A(t *testing.T) {}\n")
-	mustWrite(t, filepath.Join(root, "b", "b.go"), "package b\n")
-	return root
-}
-
-func TestListPackageInputs_NamesTheFilesTheTestBinaryIsBuiltFrom(t *testing.T) {
-	root := listModule(t)
-	out, err := listPackageInputs(context.Background(), root, "a")
-	if err != nil {
-		t.Fatalf("listPackageInputs: %v", err)
-	}
-	want := filepath.Join(root, "a") + "|a.go|a_test.go||"
-	if !strings.Contains(out, want) {
-		t.Errorf("listing = %q, want a line %q", out, want)
-	}
-	for line := range strings.SplitSeq(out, "\n") {
-		if line != "" && !strings.HasPrefix(line, root) {
-			t.Errorf("listing carries a package outside the module (the standard library is left out): %q", line)
-		}
-	}
-	if _, err := listPackageInputs(context.Background(), root, "nowhere"); err == nil {
-		t.Error("a package that does not exist was listed without an error")
-	}
-	if hashPackage(root, out) == "" {
-		t.Error("the real listing hashes to nothing")
-	}
-}
+// ratchet: test_removed TestListPackageInputs_NamesTheFilesTheTestBinaryIsBuiltFrom: the coverage store keys no source content, so there is no go list of the files to read
 
 // The test binary of a Windows box is named .exe, and elsewhere is not.
 func TestBuildTestMap_TheBinaryIsNamedForThePlatform(t *testing.T) {

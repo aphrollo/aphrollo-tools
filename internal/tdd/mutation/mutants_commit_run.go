@@ -61,6 +61,9 @@ const (
 	// gapNotCovered is a mutant on a line the package's own coverage run shows
 	// no test executes: no test could kill it, so it is named, not run.
 	gapNotCovered = "not-covered"
+	// gapPartial is a mutant the tests measured for its line did not kill,
+	// while the coverage map is partial: a test not measured yet may.
+	gapPartial = "partial"
 )
 
 // forEachWorker calls do(worker, index) for every index, on at most workers
@@ -97,6 +100,33 @@ func (r *commitRun) leave(gap commitGap) bool {
 // after budget has passed since the call began.
 func runCommitMutants(ctx context.Context, root string, cfg MutantsConfig, plans map[string]*commitPlan,
 	mutants []commitMutant, workers int, budget time.Duration, log io.Writer) []commitRun {
+	boxes := newCommitBoxes(root, workers, len(mutants))
+	defer closeCommitBoxes(boxes)
+	return runCommitMutantsIn(ctx, root, cfg, plans, mutants, workers, budget, boxes, log)
+}
+
+// newCommitBoxes makes one worker box (not yet copied) for each of the workers
+// a run of mutants will use. The coverage build and the mutant runs share them,
+// so the lane is copied once.
+func newCommitBoxes(root string, workers, mutants int) []*commitBox {
+	boxes := make([]*commitBox, min(max(workers, 1), max(mutants, 1)))
+	for w := range boxes {
+		boxes[w] = &commitBox{root: root, worker: w}
+	}
+	return boxes
+}
+
+// closeCommitBoxes removes every copy the boxes made.
+func closeCommitBoxes(boxes []*commitBox) {
+	for _, b := range boxes {
+		b.close()
+	}
+}
+
+// runCommitMutantsIn is runCommitMutants in boxes the caller made and closes,
+// at least one per worker it will use.
+func runCommitMutantsIn(ctx context.Context, root string, cfg MutantsConfig, plans map[string]*commitPlan,
+	mutants []commitMutant, workers int, budget time.Duration, boxes []*commitBox, log io.Writer) []commitRun {
 	runs := make([]commitRun, len(mutants))
 	if len(mutants) == 0 {
 		return runs
@@ -104,17 +134,12 @@ func runCommitMutants(ctx context.Context, root string, cfg MutantsConfig, plans
 	deadline := time.Now().Add(budget)
 	ctx, cancel := context.WithDeadline(ctx, deadline)
 	defer cancel()
-	workers = min(max(workers, 1), len(mutants))
+	workers = min(max(workers, 1), len(mutants), len(boxes))
 	ctx = withCapShare(ctx, workers)
 	env := measureEnv(root, cfg)
 	work := filepath.Join(measureTempDir(root), "commit")
 	defer func() { _ = os.RemoveAll(work) }()
 
-	boxes := make([]*commitBox, workers)
-	for w := range boxes {
-		boxes[w] = &commitBox{root: root, worker: w}
-		defer boxes[w].close()
-	}
 	all := make([]int, len(mutants))
 	for i, m := range mutants {
 		all[i] = i
@@ -272,14 +297,18 @@ func (b *commitBox) close() {
 func runOneCommitMutant(ctx context.Context, root string, env []string, plan *commitPlan, run *commitRun,
 	deadline time.Time, work string, known *killChecks, tags []string, confirm bool) {
 	m := run.Mutant
-	names, whole, exact := []string(nil), true, false
+	names, whole, exact, partial := []string(nil), true, false, false
 	if plan != nil && !plan.Whole {
 		sel := selectTests(plan.Map, plan.Current, plan.Touched, path.Base(m.File), m.Line)
 		if sel.Uncovered {
 			run.leave(commitGap{gapNotCovered, "no test of " + plan.Dir + " executes this line, so none could kill it"})
 			return
 		}
-		names, whole, exact = sel.Names, sel.Whole, sel.Exact
+		names, whole, exact, partial = sel.Names, sel.Whole, sel.Exact, sel.Partial
+		if partial && len(names) == 0 {
+			run.leave(commitGap{gapPartial, "no test measured so far executes this line of " + plan.Dir + ", and the coverage is partial, so a test not measured may"})
+			return
+		}
 	}
 	run.Selected, run.WholePackage = names, whole
 	if whole && !confirm {
@@ -317,6 +346,10 @@ func runOneCommitMutant(ctx context.Context, root string, env []string, plan *co
 	began := commitNowFn()
 	status, gap := settleRun(ctx, root, env, overlay, packageArgs([]string{dir}), slices.Concat(tags, extra), tags, deadline, known)
 	run.Took += commitNowFn().Sub(began)
+	if status == "missed" && partial && gap.Why == "" {
+		run.leave(commitGap{gapPartial, fmt.Sprintf("survived the %d test(s) of %s measured for its line, and the coverage is partial, so a test not measured yet may kill it", len(names), dir)})
+		return
+	}
 	if status == "missed" && !confirm && !exact {
 		run.pending = true
 		return

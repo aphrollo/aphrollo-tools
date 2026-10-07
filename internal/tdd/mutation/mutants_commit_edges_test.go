@@ -89,15 +89,7 @@ func TestBuildTestMap_ACompileThatCannotRunIsAnError(t *testing.T) {
 	}
 }
 
-func TestBuildTestMap_AListingFailureIsAnError(t *testing.T) {
-	tc := &fakeToolchain{list: "Test_A\n"}
-	root := buildFixture(t, tc)
-	t.Cleanup(setGoListForTest(func(context.Context, string, string) (string, error) { return "", errors.New("go list broke") }))
-	_, built, err := buildTestMap(context.Background(), root, MutantsConfig{}, "internal/p", 1, io.Discard)
-	if err == nil || built || len(tc.calls) != 0 {
-		t.Errorf("buildTestMap = built %v, err %v after %d commands, want an error before any command", built, err, len(tc.calls))
-	}
-}
+// ratchet: test_removed TestBuildTestMap_AListingFailureIsAnError: there is no go list of the package's files to fail any more; a go env failure is proved by TestEnsureCoverage_AToolchainFailureNamesThePackageAndRunsNothing
 
 // At most the worker count run at once, and a count below one is one.
 func TestRunCommitMutants_WorkerCountsBelowOneRunOneWorker(t *testing.T) {

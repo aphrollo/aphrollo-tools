@@ -122,9 +122,6 @@ func TestMutantsAtCommitStage_ALeakingCoverageBuildBlocksTheCommitAndKeepsNoMap(
 	prevExec := testMapExecFn
 	testMapExecFn = tc.exec
 	t.Cleanup(func() { testMapExecFn = prevExec })
-	t.Cleanup(setGoListForTest(func(context.Context, string, string) (string, error) {
-		return filepath.Join(root, "gate") + "|gate.go|gate_test.go||\n", nil
-	}))
 	scriptGo(t, func(goCall) (int, string) { return 0, "ok\tgate\n" })
 
 	var res GateResult
