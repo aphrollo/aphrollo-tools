@@ -189,7 +189,10 @@ func namesOwnBinary(n ast.Node) bool {
 func (s pkgScan) reexecTests() []string {
 	var seed []string
 	for key, f := range s.Funcs {
-		if f.Reexec {
+		// Only a test file starts the test binary again; production code that
+		// finds its own path (a lock file, a self-update) does not make every
+		// test that reaches it one.
+		if f.Reexec && f.Test {
 			seed = append(seed, key)
 		}
 	}

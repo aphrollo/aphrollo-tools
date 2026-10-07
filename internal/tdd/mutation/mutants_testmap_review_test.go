@@ -63,10 +63,10 @@ func TestScanPackage_TestsThatStartTheirOwnBinaryAreFoundThroughHelpers(t *testi
 func TestScanPackage_NonTestCodeThatReadsItsArgsIsNoReexecTest(t *testing.T) {
 	t.Parallel()
 	src := "package p\n\nimport \"os\"\n\nfunc name() string { return os.Args[0] }\n"
-	tests := "package p\n\nimport \"testing\"\n\nfunc Test_Plain(t *testing.T) { _ = 1 }\n"
+	tests := "package p\n\nimport \"testing\"\n\nfunc Test_Plain(t *testing.T) { _ = name() }\n"
 	scan, _ := scanPackage(covscanWrite(t, map[string]string{"p.go": src, "p_test.go": tests}), nil)
 	if got := scan.reexecTests(); len(got) != 0 {
-		t.Fatalf("reexec tests = %v, want none: no test reaches the code that reads its args", got)
+		t.Fatalf("reexec tests = %v, want none: only a test file starts the test binary again; code that reads its args is not that", got)
 	}
 }
 
