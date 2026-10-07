@@ -74,12 +74,79 @@ no edit to a released changelog section or a merged fragment.
 | `aphrollo stats` | the pipeline measures folded from the repo event log: lane speed, first-run CI by cause, gate wall time, not-tested runs, edit-to-verdict latency, denies, overrides, wrong blocks, escapes (`--repo`, `--lane`, `--week`, `--since`, `--json`); `--briefs` measures the managed block, the skill and each agent brief against the token caps; `--shadow` prints what the trellis kernel would have decided beside the live hooks, per rule ; `--ab` prints the red-to-green A/B per arm and language: lanes, denies, warnings, overrides, escapes, friction and whether each arm has 30 lanes |
 | `aphrollo report` | the weekly improvement report from the event log: friction per rule (time the agent waited apart from time the gate ran in the background), wrong-block candidates, escapes with the stage that should have caught them, the A/B and shadow per arm and language, token cost, and proposals, each with the event seqs behind it and the session usage from the harness's local transcripts, aggregates only (`--repo`, `--since 7d`, `--compare-at <date|sha>`, `--json`); `--issue` opens one `Report <ISO week>` issue and closes last week's, and once, the first time both arms hold 30 lanes, an `A/B ready: <repo>` issue (`--dry` previews); the daily gc sweep files it weekly unless `report = false`; `report web [--out <path>] [--no-open]` writes the same report as one self-contained HTML page (a summary against the week before, proposals grouped by change, inline CSS charts, light and dark, readable at phone width, no script, nothing fetched) to `<git common dir>/aphrollo-report/report-<ISO week>.html`, prints the path and opens it in the browser (no server) |
 | `aphrollo why` | replays one deny or run result of the repo event log by its seq: the rule, cause, override offered, whether an override followed within 10 minutes, this rule's denies, overrides and wrong blocks, and for a run the verdict, cause and edit-to-verdict latency (`<seq>`, `--repo`, `--json`) |
-| `aphrollo ci` | `ci run`: the one CI entry point; runs the repo's own pull_request workflow(s) on this HEAD merged into trunk in a throwaway worktree (run: steps under bash, uses: steps listed and skipped, first matrix combination only, no mutation; installs land in a scratch venv, npm, go, cargo, pipx, uv and rustup directory of the run's own, and a step that would change the box outside them (sudo, a system package manager, pip --user) is listed as skipped by name, which leaves the run inconclusive rather than green); jobs run one at a time in needs order at below-normal priority (`--ci-jobs N`, or `ci-jobs`, runs N at once) and a step is stopped after `--ci-timeout` (`ci-timeout`, 30m by default), naming the step; a green is stored per tree and reused; `ci why [<pr>\|<run-id>\|--main]`: why a pipeline run is red |
+| `aphrollo ci` | `ci run`: the one CI entry point; runs the repo's own pull_request workflow(s) on this HEAD merged into trunk in a throwaway worktree (run: steps under bash, uses: steps listed and skipped, first matrix combination only, no mutation; installs land in a scratch venv, npm, go, cargo, pipx, uv and rustup directory of the run's own, and a step that would change the box outside them (sudo, a system package manager, pip --user) is listed as skipped by name, which leaves the run inconclusive rather than green); jobs run one at a time in needs order at below-normal priority (`--ci-jobs N`, or `ci-jobs`, runs N at once) and a step is stopped after `--ci-timeout` (`ci-timeout`, 30m by default), naming the step; a green is stored per tree and reused; `ci why [<pr>\|<run-id>\|--main]`: why a pipeline run is red; `ci reuse`: for a workflow's changes job, whether a push or merge queue run may skip the heavy jobs because a green run already tested the same tree (see below) |
 | `aphrollo issue` | open an issue against this repo |
 | `aphrollo release` | `release plan`: the release tag a push to main owes, from the changelog.d fragments not yet in the newest tag (read-only) |
 | `aphrollo changelog` | the full changelog assembled from the fragments each release tag first contains, newest first, above the frozen CHANGELOG.md (read-only); `--tag vX.Y.Z` prints one release's notes |
 | `aphrollo feedback` | file gate feedback with the upstream tracker |
 | `aphrollo status` | one-line gate state for this checkout |
+
+## Test once in CI: `aphrollo ci reuse`
+
+A pull request is tested on its branch, then again on the merge queue's group,
+and a push to main tests the same tree a third time. `aphrollo ci reuse` lets
+the later run take the earlier green run's verdict when it tested the very same
+tree (a pull request based on the current main), so the heavy jobs stand down.
+It is for any repo that uses a GitHub merge queue; the changes job of your
+workflow computes the answer and each heavy job reads it:
+
+```yaml
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+jobs:
+  changes:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, actions: read, pull-requests: read }
+    outputs:
+      reuse: ${{ steps.reuse.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      # ... build or download the binary and put it on PATH here ...
+      - name: Record the tree this run tested
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        run: mkdir -p tested-tree && git rev-parse HEAD^{tree} > tested-tree/tree
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        with: { name: tested-tree, path: tested-tree/tree }
+      - name: Reuse a green run
+        id: reuse
+        if: github.event_name == 'push' || github.event_name == 'merge_group'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          GROUP_BASE: ${{ github.event.merge_group.base_sha }}
+        run: |
+          PARENT=$(git rev-parse --verify --quiet HEAD^1 || true)
+          aphrollo ci reuse -repo "$GITHUB_REPOSITORY" -sha "$GITHUB_SHA" \
+            -tree "$(git rev-parse HEAD^{tree})" -workflow .github/workflows/ci.yml \
+            -event "$EVENT" -head-ref "$HEAD_REF" -base-sha "$GROUP_BASE" -parent "$PARENT" \
+            -require 'test=Run the tests' >> "$GITHUB_OUTPUT" || echo reuse=false >> "$GITHUB_OUTPUT"
+  test:
+    needs: changes
+    if: needs.changes.outputs.reuse != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the tests
+        run: go test ./...
+```
+
+`-require job=step-prefix` names a job and the step of it that must have run to
+success in the earlier run; repeat it for every job that stands down. The
+answer is `reuse=true` only for a first-attempt, green run from this repo whose
+recorded tree equals this commit's; on a merge group, only when the group holds
+the one pull request (its head commit's first parent is the group's base). Any
+doubt, a failed lookup included, prints `reuse=false` and the full suite runs.
+The reason is on stderr. A required check whose job is skipped counts as passing;
+a matrix job skipped at job level does not report its expanded names, so keep
+such a job running on `merge_group` and skip its steps instead.
+`aphrollo check` warns when a workflow listens on `merge_group` and never calls
+`aphrollo ci reuse`.
 
 ## The gate in one screen
 
