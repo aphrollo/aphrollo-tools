@@ -41,6 +41,12 @@ func BuildRepo(dir string, files map[string]string) error {
 		{"config", "user.name", "t"},
 		{"config", "commit.gpgsign", "false"},
 		{"config", "core.autocrlf", "false"},
+		// buildEnv strips the GIT_* variables that switch auto maintenance off
+		// process-wide, so the template says it itself: a detached maintenance
+		// run after the commit would create and remove lock files while
+		// CopyRepo walks the tree.
+		{"config", "maintenance.auto", "false"},
+		{"config", "gc.auto", "0"},
 	} {
 		if err := git(args...); err != nil {
 			return err
