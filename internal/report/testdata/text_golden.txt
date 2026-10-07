@@ -51,7 +51,7 @@ last 7d up to 2026-10-07T12:00:00Z, 1234 events. Replay any event with `aphrollo
     2026-10-05                         0 turns  input 40k (fresh 10, cache write 0, cache read 40k)  output 2000  thinking 0  $5.00
     2026-10-06                         0 turns  input 50k (fresh 20, cache write 0, cache read 50k)  output 3000  thinking 0  $7.50
   per lane
-    (lane: joined from the event log and the worktree calls, since a record's cwd names the primary checkout; coordination: coordinator turns with no lane in reach; unattributed: no lane event for the actor)
+    (lane: joined from the event log and the worktree calls, since a record's cwd names the primary checkout; coordination: coordinator turns with no lane in reach; unattributed: a subagent turn with no lane event)
     lane/a                             0 turns  input 0 (fresh 0, cache write 0, cache read 0)  output 4000  thinking 0  $10.00
     coordination                       0 turns  input 0 (fresh 0, cache write 0, cache read 0)  output 700  thinking 0  $1.50
     unattributed                       0 turns  input 0 (fresh 0, cache write 0, cache read 0)  output 300  thinking 0  $1.00

@@ -71,6 +71,8 @@ type Friction struct {
 	SecsLost       float64 `json:"secs_lost"`
 	SecsBackground float64 `json:"secs_background"`
 	Refs           Refs    `json:"refs"`
+	// Prev is the rule's total in the window before, when the report has one.
+	Prev int `json:"prev_total"`
 }
 
 func (f Friction) total() int { return f.Denies + f.Overrides + f.Refusals + f.NotTested }
@@ -175,6 +177,8 @@ type Report struct {
 	// ByVersion is each version read on its own, only when asked for.
 	Versions  []measure.VersionCount `json:"versions,omitempty"`
 	ByVersion []VersionSlice         `json:"by_version,omitempty"`
+	// Previous is the window before, for the change since; nil on a whole-log report.
+	Previous *Previous `json:"previous,omitempty"`
 	// Usage is the session usage section; nil when no transcripts were read.
 	Usage *Usage `json:"usage,omitempty"`
 	// withheld is set on the published form whose usage section the undercover check refused.
@@ -210,6 +214,9 @@ func Build(in Input) Report {
 		}
 	}
 	r.Friction, r.WrongBlocks, r.Standdowns, r.Escapes = f.results()
+	if in.Window > 0 {
+		r.Friction, r.Previous = previous(evs, in.Repo, r.Window, since.Add(-in.Window), since, r.Friction)
+	}
 
 	o := measure.Options{Window: in.Window}
 	raw := make([]tdd.Event, len(evs))
