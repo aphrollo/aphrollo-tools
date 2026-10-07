@@ -118,3 +118,18 @@ func TestDecide_APushIsUnchangedByTheQueueFields(t *testing.T) {
 		t.Errorf("verdict with Event push = %+v, want the same as with no event: %+v", got, want)
 	}
 }
+
+// Pull request numbers start at 1: #1 is a real pull request and #0 is no one.
+func TestDecideQueue_ReadsTheSmallestPullRequestNumberAndRefusesZero(t *testing.T) {
+	t.Parallel()
+	src := queuedPRSource()
+	got := decideGroup(src, func(c *Commit) { c.HeadRef = "gh-readonly-queue/main/pr-1-" + headSHA })
+	if !got.Reuse || src.pullAsked != 1 {
+		t.Errorf("pr-1: reuse %v (%s), pull #%d asked, want reuse of pull #1", got.Reuse, got.Reason, src.pullAsked)
+	}
+	zero := queuedPRSource()
+	got = decideGroup(zero, func(c *Commit) { c.HeadRef = "gh-readonly-queue/main/pr-0-" + headSHA })
+	if got.Reuse || zero.asked["pull"] {
+		t.Errorf("pr-0: reuse %v, pull looked up %v, want a refusal before any lookup", got.Reuse, zero.asked["pull"])
+	}
+}
