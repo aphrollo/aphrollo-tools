@@ -26,7 +26,7 @@ func RenderHTML(r Report) ([]byte, error) {
 
 var pageTmpl = template.Must(template.New("page").Funcs(template.FuncMap{
 	"refs": refsHTML, "dur": dur, "tok": tok, "usd": usd, "num": numAny,
-	"delta": deltaCell, "short": shortKey, "frictionRow": frictionRowOf,
+	"delta": deltaCell, "speedDelta": speedDeltaCell, "secs": secsText, "short": shortKey, "frictionRow": frictionRowOf,
 }).Parse(pageTemplate))
 
 // pageRows is how many rows a long table shows before the rest is folded.
@@ -394,4 +394,21 @@ type frictionLine struct {
 
 func frictionRowOf(p webPage, f Friction) frictionLine {
 	return frictionLine{F: f, Total: f.total(), Prev: p.R.Previous != nil}
+}
+
+// speedDeltaCell is a stage's p50 change against the window before as a table
+// cell: a slower p50 reads as worse, a faster one as better, no comparison as a dash.
+func speedDeltaCell(r SpeedRow) template.HTML {
+	if r.Change == nil {
+		return template.HTML(`<td class="n muted">–</td>`)
+	}
+	class := "n"
+	switch {
+	case *r.Change > 0:
+		class += " up"
+	case *r.Change < 0:
+		class += " down"
+	}
+	text := strings.Replace(signedSecs(*r.Change), "-", "−", 1)
+	return template.HTML(fmt.Sprintf(`<td class="%s" title="%s the window before">%s</td>`, class, html.EscapeString(secsText(r.PrevP50)), html.EscapeString(text)))
 }

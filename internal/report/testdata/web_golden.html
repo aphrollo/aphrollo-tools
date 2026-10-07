@@ -95,8 +95,19 @@ figcaption { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
 <div><dt>Session cost</dt><dd>$12.50</dd></div>
 </dl>
 
-<nav aria-label="sections"><a href="#proposals">Proposals</a><a href="#friction">Friction</a><a href="#wrong">Wrong blocks</a><a href="#escapes">Escapes</a><a href="#ab">A/B and shadow</a><a href="#tokens">Injected tokens</a><a href="#usage">Session usage</a></nav>
+<nav aria-label="sections"><a href="#speed">Speed</a><a href="#proposals">Proposals</a><a href="#friction">Friction</a><a href="#wrong">Wrong blocks</a><a href="#escapes">Escapes</a><a href="#ab">A/B and shadow</a><a href="#tokens">Injected tokens</a><a href="#usage">Session usage</a></nav>
 </header>
+
+<section id="speed">
+<h2>Speed</h2>
+<p class="note">Seconds per run, green or not, over the window. Change is the p50 against the window before; a slower p50 is worse.</p>
+<div class="scroll"><table><tr><th>Stage</th><th class="n">Runs</th><th class="n">p50</th><th class="n">p90</th><th class="n">Max</th><th class="n">Change</th></tr>
+<tr><td>edit suite</td><td class="n">120</td><td class="n">4s</td><td class="n">18s</td><td class="n">1.5m</td><td class="n down" title="10s the window before">−6s</td></tr>
+<tr><td>commit gate: go test ./...</td><td class="n">14</td><td class="n">1.6m</td><td class="n">3.5m</td><td class="n">4.0m</td><td class="n up" title="1.5m the window before">+5s</td></tr>
+<tr><td>PR lead time</td><td class="n">3</td><td class="n">1.5h</td><td class="n">2.0h</td><td class="n">2.0h</td><td class="n muted">–</td></tr>
+</table></div>
+<p class="note">not derivable: CI pipeline: a ci event carries no run duration</p>
+</section>
 
 <section id="proposals">
 <h2>Proposals</h2>

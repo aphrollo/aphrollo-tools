@@ -27,6 +27,9 @@ func (r Report) Text() string {
 	b.WriteString(measure.VersionsText(r.Versions))
 
 	p("")
+	r.Speed.text(p, more)
+
+	p("")
 	p("1. Friction per rule (denies, overrides, refusals, not-tested runs, time lost)")
 	for _, f := range r.Friction[:min(len(r.Friction), textRows)] {
 		p("  %-44s denies %d  overrides %d  refusals %d  not tested %d  time lost %s  %s",

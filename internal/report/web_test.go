@@ -38,6 +38,7 @@ func webFixture() Report {
 			Briefs:  []measure.BriefLine{{Name: "managed CLAUDE.md block", Bytes: 1463, Tokens: 366, Cap: 400}, {Name: "tdd skill", Bytes: 1700, Tokens: 425, Cap: 400, Over: true}},
 			Biggest: []GateLine{{Name: "commit_gate:precommit:mutants-passed", N: 96, Tokens: 900, Refs: refs}},
 		},
+		Speed:     webSpeed(),
 		Proposals: []Proposal{{Rule: "disabled-test", Numbers: "5 denies, 3 waived", Change: "lower the rule from block to guide", Refs: refs}},
 		Usage: &Usage{
 			Repo: "aphrollo-tools", Sessions: 3,
@@ -294,5 +295,41 @@ func TestRenderHTML_AnInjectedTextIsDrawnAgainstItsOwnCap(t *testing.T) {
 		if !strings.Contains(briefs, want) {
 			t.Errorf("the brief chart lacks %q: a bar is its text's share of its own cap, not of the biggest text:\n%s", want, briefs)
 		}
+	}
+}
+
+func webSpeed() Speed {
+	slower, faster := 5.0, -6.0
+	return Speed{
+		Rows: []SpeedRow{
+			{Stage: "edit suite", N: 120, P50: 4, P90: 18, Max: 90, PrevN: 100, PrevP50: 10, Change: &faster},
+			{Stage: "commit gate: go test ./...", N: 14, P50: 95, P90: 210, Max: 240, PrevN: 9, PrevP50: 90, Change: &slower},
+			{Stage: "PR lead time", N: 3, P50: 5400, P90: 7200, Max: 7200},
+		},
+		Gaps: []string{"CI pipeline: a ci event carries no run duration"},
+	}
+}
+
+func TestRenderHTML_SpeedSectionReadsASlowerP50AsWorse(t *testing.T) {
+	page := render(t, webFixture())
+	i := strings.Index(page, `id="speed"`)
+	if i < 0 {
+		t.Fatal("the page has no speed section")
+	}
+	if i > strings.Index(page, `id="proposals"`) {
+		t.Error("the speed section is not near the top summary")
+	}
+	sec := page[i:]
+	sec = sec[:strings.Index(sec, "</section>")]
+	for _, want := range []string{"commit gate: go test ./...", `<td class="n up" title="1.5m the window before">+5s</td>`, `<td class="n down" title="10s the window before">−6s</td>`, "not derivable", `href="#speed"`} {
+		if !strings.Contains(sec+page[:strings.Index(page, "</header>")], want) {
+			t.Errorf("the speed section lacks %q", want)
+		}
+	}
+}
+
+func TestRenderHTML_SpeedSectionWithoutRunsSaysSo(t *testing.T) {
+	if page := render(t, Report{Title: "T", Repo: "r"}); !strings.Contains(page, "no runs timed") {
+		t.Error("an empty speed section does not say no runs")
 	}
 }
