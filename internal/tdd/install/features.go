@@ -69,6 +69,12 @@ var features = []Feature{
 		Enable: "mutants-integration-packages = [\"<package dir>\"]",
 	},
 	{
+		Key: "mutants-test-tags", Default: "none",
+		Effect: "build tags the repo's tests need (an integration tier), passed to the commit-time run's coverage build and every mutant run; a tagged suite that cannot run leaves its mutants NOT MEASURED, never survivors",
+		Cost:   "the tagged suites run for every mutant they cover, so a slow suite spends the commit budget sooner",
+		Enable: "mutants-test-tags = [\"integration\"]",
+	},
+	{
 		Key: "mutants-shards", Default: "derived",
 		Effect: "the most shards one measurement splits into; only ever lowers the box's own count",
 		Cost:   "fewer shards: less CPU at once, longer wall-clock",
@@ -171,7 +177,7 @@ func featureValues(repoRoot string) map[string]string {
 	cfg, err := ReadMutantsConfig(repoRoot)
 	if err != nil {
 		for _, key := range []string{"mutants-at-merge", "mutants-before-pr", "mutants-shards", "mutants-integration-packages",
-			"mutants-at-commit", "mutants-commit-budget", "mutants-at-merge-level"} {
+			"mutants-at-commit", "mutants-commit-budget", "mutants-at-merge-level", "mutants-test-tags"} {
 			values[key] = "unreadable"
 		}
 	} else {
@@ -184,6 +190,9 @@ func featureValues(repoRoot string) map[string]string {
 		values["mutants-commit-budget"] = strconv.Itoa(int(cfg.CommitBudget().Seconds()))
 		if n := len(cfg.IntegrationPackages); n > 0 {
 			values["mutants-integration-packages"] = strconv.Itoa(n)
+		}
+		if n := len(cfg.TestTags); n > 0 {
+			values["mutants-test-tags"] = strconv.Itoa(n)
 		}
 	}
 	if cfg.Shards > 0 {

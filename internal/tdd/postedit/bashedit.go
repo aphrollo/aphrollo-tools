@@ -282,8 +282,9 @@ func PostBash(raw []byte, run SuiteRunner) string {
 		return ""
 	}
 	text, after := postBashChanges(in, run)
-	// The harvest first, then the detached runs, as the Edit hook orders them:
-	// a finished run is reported before the next one starts over its tree.
+	// The harvest first, then the one detached run a shell write can start (the
+	// suite build), as the Edit hook orders them: a finished run is reported
+	// before the next one starts over its tree.
 	out := withSessionHarvest(text, in.SessionID)
 	if after != nil {
 		after()
