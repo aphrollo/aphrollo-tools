@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -196,8 +197,8 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 			// Every check that exists passed, but a workflow run of this head that
 			// is still queued (behind another run of its concurrency group) has made
 			// none of its checks yet: the required one is coming, not missing.
-			if open := unfinishedRuns(t.Worktree, t.Branch, head); open > 0 {
-				line, done = fmt.Sprintf("%d workflow run(s) of this head still queued or running; their checks have not all appeared", open), false
+			if open := requiredRunsOpen(t.Worktree, t.Branch, head, checks); open > 0 {
+				line, done = fmt.Sprintf("required check not on this head yet: %d run(s) of the workflow that makes it still queued or running", open), false
 			}
 		}
 		state := fmt.Sprintf("  [wait] PR #%d %s: %s", head.Number, short(head.HeadSHA), line)
@@ -228,20 +229,30 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 // unfinishedRuns counts the PR's workflow runs on head that have not concluded.
 // A run list that cannot be read counts none: the gate then judges the checks
 // there are, as it did before the runs were looked at.
-func unfinishedRuns(wt, branch string, head *PRHead) int {
+// requiredRunsOpen counts the PR's runs on head that have not concluded, of the
+// workflow that makes the required check, when that check has not appeared among
+// checks. A run of any other workflow says nothing about the required check, so
+// it is never waited for here: its own checks are already in the poll. A run list
+// that cannot be read counts none, and the gate then judges the checks there are.
+func requiredRunsOpen(wt, branch string, head *PRHead, checks []CheckRun) int {
+	check, workflow := tdd.CIBinding(wt)
+	for _, c := range checks {
+		if c.SHA == head.HeadSHA && (c.Name == check || strings.HasPrefix(c.Name, check+" (")) {
+			return 0
+		}
+	}
 	runs, err := ghPRRuns(wt, branch, head.Number)
 	if err != nil {
 		return 0
 	}
 	open := 0
 	for _, r := range runs {
-		if r.SHA == head.HeadSHA && !strings.EqualFold(r.Status, "completed") {
+		if r.SHA == head.HeadSHA && !strings.EqualFold(r.Status, "completed") && path.Base(r.Path) == workflow {
 			open++
 		}
 	}
 	return open
 }
-
 func failedChecksError(branch string, head *PRHead, failed []CheckRun) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "refusing to merge %s: %d check(s) failed on %s:", branch, len(failed), short(head.HeadSHA))

@@ -210,6 +210,8 @@ type PRRun struct {
 	Conclusion string `json:"conclusion"`
 	CreatedAt  string `json:"createdAt"`
 	Attempt    int    `json:"attempt"`
+	// Path is the workflow file the run is of, such as .github/workflows/pipeline.yml.
+	Path string `json:"path"`
 }
 
 // OpenRequest is the PR to open.

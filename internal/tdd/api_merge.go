@@ -37,6 +37,8 @@ type StaleCIVerdictError = merge.StaleCIVerdictError
 
 func AsStaleCIVerdict(p0 error) (*StaleCIVerdictError, bool) { return merge.AsStaleCIVerdict(p0) }
 
+func CIBinding(p0 string) (string, string) { return merge.CIBinding(p0) }
+
 func CommitMsg(p0 string, p1 string) GateResult { return merge.CommitMsg(p0, p1) }
 
 func GatePRMerge(p0 string, p1 string, p2 SuiteRunner, p3 io.Writer) error {
