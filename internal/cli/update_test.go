@@ -438,8 +438,9 @@ func TestUpdate_RefusesToBuildWhenTheInstallIsNotWritable(t *testing.T) {
 	if !strings.Contains(errb.String(), "not writable") {
 		t.Fatalf("stderr does not say the install is not writable: %q", errb.String())
 	}
-	if !strings.Contains(errb.String(), "deployed by the repo pipeline on merge") {
-		t.Fatalf("stderr does not point the operator at the deploy pipeline: %q", errb.String())
+	if !strings.Contains(errb.String(), "without --bin") {
+		t.Fatalf("stderr does not point the operator at the user-space install: %q", errb.String())
+
 	}
 	got, err := os.ReadFile(bin)
 	if err != nil || string(got) != "OLD" {
