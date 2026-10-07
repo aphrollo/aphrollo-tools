@@ -36,6 +36,10 @@ var netFailureMarks = []string{
 	"unexpected eof",
 	"timed out after",
 	"context deadline exceeded",
+	"http 500",
+	// gh's own words for a 500 from the paginated check-runs read: the error
+	// page is not JSON, so gh fails parsing it (GitHub, 2026-10-07).
+	"unexpected end of json input",
 	"http 502",
 	"http 503",
 	"http 504",
