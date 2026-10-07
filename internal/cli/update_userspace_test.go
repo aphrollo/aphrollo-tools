@@ -184,7 +184,9 @@ func TestUpdate_WritesTheLauncherAndSaysOnceWhenPathResolvesElsewhere(t *testing
 	root, _ := userbin.Root()
 	other := t.TempDir()
 	writeFakeBin(t, filepath.Join(other, "aphrollo"+userbin.ExeSuffix))
-	t.Setenv("PATH", other)
+	// The other aphrollo goes first on PATH rather than alone: the update still
+	// needs git and whatever git itself loads from PATH.
+	t.Setenv("PATH", other+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	var out, errb bytes.Buffer
 	if code := runUpdate([]string{"--repo", clone, "--no-init"}, &out, &errb); code != 0 {
