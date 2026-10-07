@@ -186,7 +186,7 @@ func reportSuitesNotRun(gateName, root, noun string, runner Runner, touched []st
 		// list. The line says how many and names one; the whole list stays on
 		// the event, where `aphrollo why` prints it, and in the command the
 		// event keeps.
-		shown, clause = collapsedNotRun(runner, touched, noun)
+		shown = collapsedNotRunCmd(runner, touched)
 		detail = map[string]string{"not_run": strings.Join(touched, " ")}
 	}
 	fmt.Fprintf(rootseam.Stderr(root), "[mechanical] gate %s: %s in %s → %s\n", gateName, shown, root, clause)
@@ -197,10 +197,9 @@ func reportSuitesNotRun(gateName, root, noun string, runner Runner, touched []st
 // one by one; a longer one is a count and one example.
 const notRunNamedMax = 3
 
-// collapsedNotRun is the command and the NOT RUN clause of a list longer than
-// notRunNamedMax: the command keeps its first scope and says how many more it
-// names, and the clause counts the scopes and names one.
-func collapsedNotRun(runner Runner, names []string, noun string) (cmd, clause string) {
+// collapsedNotRunCmd is the command of a list longer than notRunNamedMax as the
+// line shows it: it keeps its first scope and says how many more it names.
+func collapsedNotRunCmd(runner Runner, names []string) string {
 	listed := map[string]bool{}
 	for _, n := range names {
 		listed[n] = true
@@ -214,8 +213,7 @@ func collapsedNotRun(runner Runner, names []string, noun string) (cmd, clause st
 			args, kept = append(args, a, fmt.Sprintf("…+%d", len(names)-1)), true
 		}
 	}
-	return strings.Join(args, " "), fmt.Sprintf("NOT RUN — %d %ss not tested here (e.g. %s; every one is on the gate log's event, `aphrollo why`); a touched %s's suite runs at the merge gate, so this pass is not a green for it",
-		len(names), noun, names[0], noun)
+	return strings.Join(args, " ")
 }
 
 // notRunClause is the one wording for "this pass did not test these": the
@@ -223,6 +221,10 @@ func collapsedNotRun(runner Runner, names []string, noun string) (cmd, clause st
 // hook's clause for the integration targets a scoped run left out, so a
 // reader learns one phrase for one fact wherever it appears.
 func notRunClause(names []string, noun string) string {
+	if len(names) > notRunNamedMax {
+		return fmt.Sprintf("NOT RUN — %d %ss not tested here (e.g. %s; every one is on the gate log's event, `aphrollo why`); a touched %s's suite runs at the merge gate, so this pass is not a green for it",
+			len(names), noun, names[0], noun)
+	}
 	return fmt.Sprintf("NOT RUN — %s not tested here; a touched %s's suite runs at the merge gate, so this pass is not a green for it",
 		strings.Join(names, ", "), noun)
 }

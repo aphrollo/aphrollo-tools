@@ -384,12 +384,25 @@ func passAdvisory(r Runner, root string, outcome Outcome, output string, dur tim
 // gate's own wording: those binaries run at the merge gate, and this pass is
 // not a green for them.
 func withTargetsNotRun(line string, r Runner, root string) string {
-	names := cargoIntegrationTargetsNotRun(r, root)
+	return lineWithNotRun(line, cargoIntegrationTargetsNotRun(r, root), r, root)
+}
+
+// lineWithNotRun is line with the NOT RUN clause for names, unchanged when there
+// are none.
+func lineWithNotRun(line string, names []string, r Runner, root string) string {
 	if len(names) == 0 {
 		return line
 	}
+	if len(names) > targetsNotRunNamedMax {
+		// The line counts them and names one; the whole list is on the event.
+		AppendEvent(Event{Kind: "not-run", Root: root, Stage: "postedit", Cmd: cmdString(r), Detail: map[string]string{"not_run": strings.Join(names, " ")}})
+	}
 	return line + " — " + notRunClause(names, "crate")
 }
+
+// targetsNotRunNamedMax is the longest list of untested targets a gate line names one
+// by one; a longer one is a count and one example (the commit gate's rule).
+const targetsNotRunNamedMax = 3
 
 // noDeltaStillFailingLine names the still-failing test for a no-delta run:
 // the current run's own output normally already parses a name (that is what
