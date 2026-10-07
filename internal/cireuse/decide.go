@@ -2,6 +2,8 @@ package cireuse
 
 import (
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -50,12 +52,21 @@ type Requirement struct {
 	StepPrefix string
 }
 
-// Commit is the pushed commit the verdict is about.
+// Commit is the commit the verdict is about: the one pushed to trunk, or the
+// head of a merge group.
 type Commit struct {
 	Repo     string
 	SHA      string
 	Tree     string
 	Workflow string
+	// Event is "push" (or empty, the same) or "merge_group". The rest is read
+	// only for a merge group: its head ref, the base it was built on, and the
+	// head commit's first parent, which is that base exactly when the group
+	// holds one pull request.
+	Event   string
+	HeadRef string
+	BaseSHA string
+	Parent  string
 }
 
 // Verdict is whether the push may take the pull request's CI verdict for its
@@ -69,6 +80,8 @@ type Verdict struct {
 type Source interface {
 	// Pulls lists the pull requests associated with a commit.
 	Pulls(sha string) ([]Pull, error)
+	// Pull reads one pull request by number.
+	Pull(number int) (Pull, error)
 	// Runs lists the pipeline runs of one event (pull_request or merge_group)
 	// whose head commit is headSHA.
 	Runs(event, headSHA string) ([]Run, error)
@@ -90,6 +103,9 @@ func no(format string, args ...any) Verdict {
 func Decide(src Source, c Commit, reqs []Requirement) Verdict {
 	if len(reqs) == 0 {
 		return no("no check is required of the run")
+	}
+	if c.Event == "merge_group" {
+		return decideQueue(src, c, reqs)
 	}
 	// The queue fast-forwards main to the group's head, so the pushed commit is
 	// the head sha of the group's run. A group of several pull requests lands
@@ -120,6 +136,45 @@ func Decide(src Source, c Commit, reqs []Requirement) Verdict {
 		return no("no pipeline run of pull request #%d head %s on this repository's %s", pr.Number, pr.HeadSHA, c.Workflow)
 	}
 	return judge(src, c, reqs, run, fmt.Sprintf("pull request #%d", pr.Number))
+}
+
+// queueRefRe is the head ref the merge queue gives a group:
+// gh-readonly-queue/<base branch>/pr-<number>-<head sha of the last pull request>.
+var queueRefRe = regexp.MustCompile(`^(?:refs/heads/)?gh-readonly-queue/.+/pr-([0-9]+)-([0-9a-f]+)$`)
+
+// decideQueue answers whether a merge group's run may skip the suites because
+// the one pull request in it already ran them green on this very tree, which
+// is so when the pull request was based on the current trunk. A group of
+// several pull requests builds a tree no single pull request run tested, so it
+// is never reused; so is any group whose shape cannot be read.
+func decideQueue(src Source, c Commit, reqs []Requirement) Verdict {
+	if c.BaseSHA == "" || c.Parent == "" || c.Parent != c.BaseSHA {
+		return no("the merge group may hold more than one pull request (its head's parent %q is not its base %q), and no single run tested its tree", c.Parent, c.BaseSHA)
+	}
+	m := queueRefRe.FindStringSubmatch(c.HeadRef)
+	if m == nil {
+		return no("the merge group head ref %q does not name one pull request", c.HeadRef)
+	}
+	number, err := strconv.Atoi(m[1])
+	if err != nil || number < 1 {
+		return no("the merge group head ref %q does not name one pull request", c.HeadRef)
+	}
+	pr, err := src.Pull(number)
+	if err != nil {
+		return no("pull request #%d could not be read: %v", number, err)
+	}
+	if pr.HeadSHA == "" || pr.HeadSHA != m[2] {
+		return no("pull request #%d head is %q, not the %s it was queued at: it moved", number, pr.HeadSHA, m[2])
+	}
+	runs, err := src.Runs("pull_request", pr.HeadSHA)
+	if err != nil {
+		return no("the pipeline runs of pull request #%d could not be read: %v", number, err)
+	}
+	run, ok := newestRun(runs, "pull_request", pr.HeadSHA, c)
+	if !ok {
+		return no("no pipeline run of pull request #%d head %s on this repository's %s", number, pr.HeadSHA, c.Workflow)
+	}
+	return judge(src, c, reqs, run, fmt.Sprintf("pull request #%d, the only one in the merge group,", number))
 }
 
 // judge holds one run to the rules every reused verdict meets: a first

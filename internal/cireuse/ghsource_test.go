@@ -178,3 +178,20 @@ func TestGHSource_UnparsableJSONIsAnError(t *testing.T) {
 		t.Error("Pulls accepted a body that is not JSON")
 	}
 }
+
+func TestGHSource_PullReadsOnePullRequestsHead(t *testing.T) {
+	t.Parallel()
+	src, _ := newStub(map[string]string{
+		"api repos/o/r/pulls/42": `{"number": 42, "state": "open", "merged_at": null, "merge_commit_sha": "zzz", "head": {"sha": "def", "ref": "lane/x"}}`,
+	})
+	got, err := src.Pull(42)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Pull{Number: 42, MergeCommitSHA: "zzz", HeadSHA: "def"}); got != want {
+		t.Errorf("pull = %+v, want %+v", got, want)
+	}
+	if _, err := src.Pull(43); err == nil {
+		t.Error("Pull swallowed the gh failure")
+	}
+}

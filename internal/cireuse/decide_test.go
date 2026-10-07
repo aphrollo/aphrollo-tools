@@ -10,6 +10,9 @@ import (
 // fakeSource answers what GitHub would, from fields a test sets.
 type fakeSource struct {
 	pulls     []Pull
+	pull      Pull // the one Pull(number) answers with
+	pullErr   error
+	pullAsked int
 	runs      []Run
 	jobs      []Job
 	tree      string
@@ -27,6 +30,12 @@ type fakeSource struct {
 func (f *fakeSource) Pulls(sha string) ([]Pull, error) {
 	f.note("pulls")
 	return f.pulls, f.pullsErr
+}
+
+func (f *fakeSource) Pull(number int) (Pull, error) {
+	f.note("pull")
+	f.pullAsked = number
+	return f.pull, f.pullErr
 }
 
 func (f *fakeSource) Runs(event, headSHA string) ([]Run, error) {

@@ -45,6 +45,10 @@ func run(args []string, stdout, stderr io.Writer, source func(repo, workflow str
 	sha := fs.String("sha", "", "the pushed commit")
 	tree := fs.String("tree", "", "the tree of the pushed commit")
 	workflow := fs.String("workflow", "", "path of the pipeline workflow file")
+	event := fs.String("event", "push", "push (a commit landed on trunk) or merge_group (the merge queue's run)")
+	headRef := fs.String("head-ref", "", "merge_group: the group's head ref, github.event.merge_group.head_ref")
+	baseSHA := fs.String("base-sha", "", "merge_group: the group's base, github.event.merge_group.base_sha")
+	parent := fs.String("parent", "", "merge_group: the first parent of the group's head commit")
 	var reqs requirements
 	fs.Var(&reqs, "require", "job=step-prefix: a job, and the step of it that must have run to success (repeatable)")
 	if err := fs.Parse(args); err != nil {
@@ -54,8 +58,20 @@ func run(args []string, stdout, stderr io.Writer, source func(repo, workflow str
 		fmt.Fprintln(stderr, "aphrollo ci reuse: -repo, -sha, -tree and -workflow are all required")
 		return 2
 	}
-	v := Decide(source(*repo, *workflow), Commit{Repo: *repo, SHA: *sha, Tree: *tree, Workflow: *workflow}, reqs)
-	fmt.Fprintf(stderr, "cireuse: %s\n", v.Reason)
+	switch *event {
+	case "push":
+	case "merge_group":
+		if *headRef == "" || *baseSHA == "" || *parent == "" {
+			fmt.Fprintln(stderr, "aphrollo ci reuse: -event merge_group needs -head-ref, -base-sha and -parent")
+			return 2
+		}
+	default:
+		fmt.Fprintf(stderr, "aphrollo ci reuse: -event %q is neither push nor merge_group\n", *event)
+		return 2
+	}
+	c := Commit{Repo: *repo, SHA: *sha, Tree: *tree, Workflow: *workflow, Event: *event, HeadRef: *headRef, BaseSHA: *baseSHA, Parent: *parent}
+	v := Decide(source(*repo, *workflow), c, reqs)
+	fmt.Fprintf(stderr, "aphrollo ci reuse: %s\n", v.Reason)
 	fmt.Fprintf(stdout, "reuse=%t\n", v.Reuse)
 	return 0
 }

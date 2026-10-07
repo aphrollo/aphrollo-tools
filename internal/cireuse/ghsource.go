@@ -73,6 +73,21 @@ func (g *ghSource) Pulls(sha string) ([]Pull, error) {
 	return pulls, nil
 }
 
+func (g *ghSource) Pull(number int) (Pull, error) {
+	var raw struct {
+		Number         int    `json:"number"`
+		MergedAt       string `json:"merged_at"`
+		MergeCommitSHA string `json:"merge_commit_sha"`
+		Head           struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	}
+	if err := g.get(&raw, "repos/%s/pulls/%d", g.Repo, number); err != nil {
+		return Pull{}, err
+	}
+	return Pull{Number: raw.Number, MergedAt: raw.MergedAt, MergeCommitSHA: raw.MergeCommitSHA, HeadSHA: raw.Head.SHA}, nil
+}
+
 func (g *ghSource) Runs(event, headSHA string) ([]Run, error) {
 	var raw struct {
 		Runs []struct {

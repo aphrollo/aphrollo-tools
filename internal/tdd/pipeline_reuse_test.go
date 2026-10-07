@@ -73,7 +73,8 @@ func TestPipeline_ReleaseRunsWhenReuseSkippedTheTests(t *testing.T) {
 	}
 }
 
-func TestPipeline_ChangesJobDecidesReuseOnAPushOnly(t *testing.T) {
+// ratchet: test_removed TestPipeline_ChangesJobDecidesReuseOnAPushOnly: renamed TestPipeline_ChangesJobDecidesReuseOnAPushAndAMergeGroup, which keeps every assertion and adds the merge group ones
+func TestPipeline_ChangesJobDecidesReuseOnAPushAndAMergeGroup(t *testing.T) {
 	t.Parallel()
 	job := pipelineJobBlock(t, repoFile(t, ".github", "workflows", "pipeline.yml"), "changes")
 	for _, want := range []string{
@@ -84,6 +85,13 @@ func TestPipeline_ChangesJobDecidesReuseOnAPushOnly(t *testing.T) {
 		"GH_TOKEN: ${{ github.token }}",
 		"./bin/aphrollo ci reuse",
 		"-tree \"$(git rev-parse HEAD^{tree})\"",
+		"-event \"$EVENT\"",
+		"-head-ref \"$HEAD_REF\"",
+		"-base-sha \"$GROUP_BASE\"",
+		"-parent \"$PARENT\"",
+		"HEAD_REF: ${{ github.event.merge_group.head_ref }}",
+		"GROUP_BASE: ${{ github.event.merge_group.base_sha }}",
+		"EVENT: ${{ github.event_name }}",
 	} {
 		if !strings.Contains(job, want) {
 			t.Errorf("changes job lacks %q", want)
@@ -97,8 +105,8 @@ func TestPipeline_ChangesJobDecidesReuseOnAPushOnly(t *testing.T) {
 	if next := strings.Index(step[1:], "\n      - "); next >= 0 {
 		step = step[:next+1]
 	}
-	if !strings.Contains(step, "if: github.event_name == 'push'") {
-		t.Errorf("the reuse step runs on events other than a push:\n%s", step)
+	if !strings.Contains(step, "if: (github.event_name == 'push' || github.event_name == 'merge_group')") {
+		t.Errorf("the reuse step does not run on exactly a push and a merge group:\n%s", step)
 	}
 	if !strings.Contains(step, "steps.filter.outputs.class") || !strings.Contains(step, "code") {
 		t.Errorf("the reuse step does not require the code class, so a docs-only push would change behaviour:\n%s", step)
@@ -154,6 +162,36 @@ func TestPipeline_ReuseRequirementsNameRealJobsAndStepsAndCoverTheSkippedJobs(t 
 	}
 	if len(required) == 0 {
 		t.Fatal("no -require in the changes job, so this test proves nothing")
+	}
+}
+
+// The merge queue requires the checks of the branch protection to report, and
+// GitHub names a matrix job skipped at job level without expanding its matrix,
+// so a required `test-windows (cli)` would stay pending and stall the queue. A
+// heavy job with a matrix therefore runs on a merge group even when reuse
+// stands the suites down, and each of its steps stands down instead, so every
+// expanded check reports success without a test being run. The jobs named are
+// the matrix jobs whose shards the branch protection requires.
+func TestPipeline_ReusedMatrixJobsStillReportEachShardOnAMergeGroup(t *testing.T) {
+	t.Parallel()
+	wf := repoFile(t, ".github", "workflows", "pipeline.yml")
+	for _, name := range []string{"test-windows"} {
+		block := pipelineJobBlock(t, wf, name)
+		if !strings.Contains(block, "    strategy:") {
+			t.Fatalf("job %q has no matrix, so this test proves nothing", name)
+		}
+		if line := jobIfLine(t, block); !strings.Contains(line, "github.event_name == 'merge_group'") {
+			t.Errorf("matrix job %q is skipped at job level on a merge group, which leaves its expanded checks pending: %s", name, line)
+		}
+		_, steps, ok := strings.Cut(block, "\n    steps:\n")
+		if !ok {
+			t.Fatalf("job %q has no steps", name)
+		}
+		for _, step := range strings.Split("\n"+steps, "\n      - ")[1:] {
+			if !strings.Contains(step, reuseGuard) {
+				t.Errorf("job %q has a step that still runs when the suites are reused:\n%s", name, step)
+			}
+		}
 	}
 }
 

@@ -62,3 +62,45 @@ func TestRun_RefusesAnIncompleteCommandLineWithoutAnAnswer(t *testing.T) {
 		})
 	}
 }
+
+var queueArgs = []string{"-repo", "o/r", "-sha", pushSHA, "-tree", pushTree, "-workflow", wfPath,
+	"-require", "test=Test (race", "-require", "test-windows=Test (race",
+	"-event", "merge_group", "-head-ref", "gh-readonly-queue/main/pr-42-" + headSHA, "-base-sha", baseSHA, "-parent", baseSHA}
+
+func TestRun_AMergeGroupReadsItsHeadRefBaseAndParentFromTheCommandLine(t *testing.T) {
+	t.Parallel()
+	code, stdout, stderr := runCLI(t, queuedPRSource(), queueArgs...)
+	if code != 0 || stdout != "reuse=true\n" {
+		t.Errorf("code %d stdout %q stderr %q, want 0 and reuse=true", code, stdout, stderr)
+	}
+}
+
+func TestRun_RefusesAMergeGroupWithoutWhatItNeedsAndAnUnknownEvent(t *testing.T) {
+	t.Parallel()
+	without := func(flag string) []string {
+		var out []string
+		for i := 0; i < len(queueArgs); i++ {
+			if queueArgs[i] == flag {
+				i++
+				continue
+			}
+			out = append(out, queueArgs[i])
+		}
+		return out
+	}
+	cases := map[string][]string{
+		"no head ref":   without("-head-ref"),
+		"no base sha":   without("-base-sha"),
+		"no parent":     without("-parent"),
+		"unknown event": append(without("-event"), "-event", "schedule"),
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			code, stdout, _ := runCLI(t, queuedPRSource(), args...)
+			if code != 2 || stdout != "" {
+				t.Errorf("code %d stdout %q, want 2 and no answer on stdout", code, stdout)
+			}
+		})
+	}
+}

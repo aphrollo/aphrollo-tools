@@ -100,7 +100,7 @@ func TestRunCI_HelpDocumentsReuse(t *testing.T) {
 	if code := runCI([]string{"--help"}, &out, &errb); code != 0 {
 		t.Fatalf("code %d", code)
 	}
-	for _, want := range []string{"aphrollo ci reuse", "reuse=true"} {
+	for _, want := range []string{"aphrollo ci reuse", "reuse=true", "-event merge_group", "-head-ref", "-parent"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("ci help lacks %q", want)
 		}

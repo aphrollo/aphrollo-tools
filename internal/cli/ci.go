@@ -16,7 +16,8 @@ import (
 
 const ciUsage = `usage: aphrollo ci run [--dry] [--ci-jobs N] [--ci-timeout DURATION]
        aphrollo ci why [<pr>|<run-id>|--main] [--workflow NAME] [--raw]
-       aphrollo ci reuse -repo O/R -sha SHA -tree TREE -workflow FILE -require JOB=STEP...
+       aphrollo ci reuse -repo O/R -sha SHA -tree TREE -workflow FILE -require JOB=STEP... [-event push|merge_group
+                    -head-ref REF -base-sha SHA -parent SHA]
 
 ci run is the one CI entry point: it runs the repo's own GitHub workflow(s)
 that run on pull_request, in a throwaway worktree of this checkout's HEAD
@@ -60,10 +61,15 @@ or a merge queue run may skip the heavy jobs because a green pipeline run of the
 same tree already passed. It prints reuse=true or reuse=false on stdout, ready
 for $GITHUB_OUTPUT, and the reason on stderr; it exits 0 for either answer and 2
 for a command line it refuses, printing no answer then, which a workflow reads as
-false. It reuses the merge queue's run of the pushed head, else the merged pull
-request's run, and the run must be a first attempt that succeeded, with each -require
-JOB=STEP-PREFIX job having run that step to success. Every doubt, including a
-lookup that failed, is false. README.md has a workflow to paste.
+false. On a push (the default -event) it reuses the merge queue's run of the
+pushed head, else the merged pull request's run. With -event merge_group it
+reuses the run of the one pull request in the group, named by -head-ref
+(github.event.merge_group.head_ref), when the group's tree equals the tree
+that run tested; -parent, the first parent of the group's head commit, must
+equal -base-sha (github.event.merge_group.base_sha), or the group holds
+several pull requests and is never reused. The run must be a first attempt
+that succeeded, with each -require JOB=STEP-PREFIX job having run that step
+to success. Every doubt, including a lookup that failed, is false. README.md has a workflow to paste.
 `
 
 // runIDFloor splits a bare number into a PR or a run id: GitHub run ids are
