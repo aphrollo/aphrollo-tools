@@ -267,3 +267,19 @@ func TestRenderFeatures_ThePinnedLevels(t *testing.T) {
 		}
 	}
 }
+
+// The test-tags row shows how many tags the repo declares, and none where it
+// declares none.
+func TestRenderFeatures_ShowsTheTestTagCount(t *testing.T) {
+	t.Parallel()
+	declared := t.TempDir()
+	mustWrite(t, filepath.Join(declared, "aphrollo.toml"), "[aphrollo]\nmutants-test-tags = [\"integration\", \"e2e\"]\n")
+	if f := strings.Fields(featureLine(RenderFeatures(declared), "mutants-test-tags")); len(f) < 2 || f[1] != "2" {
+		t.Errorf("declared: row %q, want the value 2", featureLine(RenderFeatures(declared), "mutants-test-tags"))
+	}
+	none := t.TempDir()
+	mustWrite(t, filepath.Join(none, "aphrollo.toml"), "[aphrollo]\nundercover = true\n")
+	if f := strings.Fields(featureLine(RenderFeatures(none), "mutants-test-tags")); len(f) < 2 || f[1] != "none" {
+		t.Errorf("none: row %q, want the value none", featureLine(RenderFeatures(none), "mutants-test-tags"))
+	}
+}
