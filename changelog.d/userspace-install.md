@@ -1,0 +1,12 @@
+level: minor
+
+`aphrollo update` now installs without root, into your own space, and hooks follow it: a fix reaches a session as soon as the update runs, with no root-owned swap. Nothing deploys on merge any more; a box moves to a release tag by running `aphrollo update`.
+
+### What you will notice
+
+- `aphrollo update` builds the newest release tag into `~/.aphrollo/bin/<version>/` (`%LOCALAPPDATA%\aphrollo\bin\<version>\` on Windows) and moves a `current` pointer to it last, so a failed update changes nothing and a running binary is never replaced. It keeps the newest three versions. `aphrollo update --to <version>` switches back to a kept one with no fetch and no build. `--bin <path>` still replaces that one file in place.
+- The session hooks, the statusline, the global git-hook shims and the queue shims run the user-space `current` first and the previously installed path second. A session hook whose binary is missing, or that runs past its budget, is a no-op that exits 0 with one line on stderr, never a failed hook; a deny from the binary still passes through. Hooks never download. Run `aphrollo update` once (or `aphrollo install`) to rewrite an existing install; a second run changes nothing, and the doctor check in `aphrollo check` judges the binary the hooks would run.
+- `aphrollo gate init` takes `--fallback-bin <path>`, the installed path the hooks try second; `aphrollo update` passes the binary it replaced.
+- Every event now records `binver`, the version of the binary that wrote it. `aphrollo stats`, `stats --ab`, `stats --shadow` and `report` name the versions their window spans and take `--by-version` to read each version on its own (a lane goes with the version that opened it). The A/B readout notes when an arm's lanes ran under different versions. The event log, gate state and caches stay in the one state directory, so an update or a prune of old versions loses none of them.
+- `aphrollo version` says which binary is running and whether it is the user-space current.
+- The deploy workflow and `deploy/deploy-prod.sh` are gone; the release job only tags.
