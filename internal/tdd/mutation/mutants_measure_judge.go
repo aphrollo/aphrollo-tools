@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
@@ -21,14 +22,18 @@ import (
 // paperwork checks ahead of the question "did a mutant survive", and over
 // three weeks it refused 150 merges without naming a survivor once.
 
+// measureNowFn is the clock a measurement's duration is read from, a seam so a
+// test can say how long one took without waiting.
+var measureNowFn = time.Now
+
 // finishMeasure judges the run's outcomes, records the verdict in the gate
 // log and gives the repo's own after-hook the result. It is the one place a
 // measurement becomes a verdict, so a Cargo run and a Go run cannot disagree
 // about what a survivor means.
-func finishMeasure(root string, cfg MutantsConfig, mutants []MutantOutcome, log io.Writer) Verdict {
+func finishMeasure(root string, cfg MutantsConfig, mutants []MutantOutcome, log io.Writer, began time.Time) Verdict {
 	v := judgeMutants(cfg, mutants)
 	logf(log, "%s", v.Message)
-	AppendGateLog("mutants", measureLogRoot(root), "mutants", measureLogVerdict(v, cfg.AtMergeBlock), 0)
+	AppendGateLog("mutants", measureLogRoot(root), "mutants", measureLogVerdict(v, cfg.AtMergeBlock), measureNowFn().Sub(began))
 	runMutantsAfter(root, cfg, v, log)
 	return v
 }

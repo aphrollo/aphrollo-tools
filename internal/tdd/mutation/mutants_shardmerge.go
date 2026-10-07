@@ -86,6 +86,7 @@ func shardReportsProblem(tree string, reports []RunnerReport, shards int) string
 // set. A shard set that is not the whole measurement is refused, never
 // judged partially.
 func JudgeShardReports(root string, cfg MutantsConfig, paths []string, shards int, reportOut string, log io.Writer) (Verdict, error) {
+	began := measureNowFn()
 	tree, why := mutantsTreeID(root)
 	if tree == "" {
 		return Verdict{}, fmt.Errorf("the tree being judged could not be identified: %s", why)
@@ -107,7 +108,7 @@ func JudgeShardReports(root string, cfg MutantsConfig, paths []string, shards in
 	}
 	sortOutcomes(merged)
 	writeRunnerReport(root, reportOut, reports[0].Base, merged, log)
-	return finishMeasure(root, cfg, merged, log), nil
+	return finishMeasure(root, cfg, merged, log, began), nil
 }
 
 // refusedShards is the verdict for a shard set that cannot be judged.
