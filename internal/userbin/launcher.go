@@ -61,22 +61,51 @@ func LegacyFallback() string { return legacyFallback }
 // lookPathFn indirects exec.LookPath so a test can say what PATH resolves.
 var lookPathFn = exec.LookPath
 
-// PathCheck is one line when typing `aphrollo` would not run the user-space
-// install, and "" when it would or when no version is installed to compare with.
+// PathCheck is one line when typing `aphrollo` in this process would not run
+// the user-space install, and "" when it would or when no version is
+// installed to compare with. A process keeps the PATH it started with, so
+// this judges this shell; PathCheckIn judges the next one.
 func PathCheck(root string) string {
+	resolved, err := lookPathFn("aphrollo")
+	return pathVerdict(root, resolved, err == nil)
+}
+
+// PathCheckIn is PathCheck for the PATH a new shell gets, dirs in order:
+// what install converged, wherever the platform keeps it.
+func PathCheckIn(root string, dirs []string) string {
+	resolved, found := lookIn(dirs, "aphrollo")
+	return pathVerdict(root, resolved, found)
+}
+
+func pathVerdict(root, resolved string, found bool) string {
 	cur, haveCur := Current(root)
 	if !haveCur {
 		return ""
 	}
 	fix := "put " + root + " first on PATH"
-	resolved, err := lookPathFn("aphrollo")
-	if err != nil {
+	if !found {
 		return "aphrollo is not on PATH; " + fix
 	}
-	if sameFile(resolved, LauncherPath(root)) || (haveCur && sameFile(resolved, BinaryPath(root, cur))) {
+	if sameFile(resolved, LauncherPath(root)) || sameFile(resolved, BinaryPath(root, cur)) {
 		return ""
 	}
 	return fmt.Sprintf("aphrollo on PATH resolves to %s, not the user-space install; %s", resolved, fix)
+}
+
+// lookIn is the file a shell runs for name with dirs as its PATH: the first
+// dir holding one of the names the platform tries.
+func lookIn(dirs []string, name string) (string, bool) {
+	for _, dir := range dirs {
+		if dir == "" {
+			continue
+		}
+		for _, n := range commandNames(name) {
+			if p := filepath.Join(dir, n); isFile(p) {
+				return p, true
+			}
+		}
+	}
+	return "", false
 }
 
 func sameFile(a, b string) bool {

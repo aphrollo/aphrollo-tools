@@ -187,6 +187,7 @@ func TestUpdate_WritesTheLauncherAndSaysOnceWhenPathResolvesElsewhere(t *testing
 	// The other aphrollo goes first on PATH rather than alone: the update still
 	// needs git and whatever git itself loads from PATH.
 	t.Setenv("PATH", other+string(os.PathListSeparator)+os.Getenv("PATH"))
+	stubNewShellPath(t, other, root)
 
 	var out, errb bytes.Buffer
 	if code := runUpdate([]string{"--repo", clone, "--no-init"}, &out, &errb); code != 0 {
@@ -258,4 +259,37 @@ func TestUpdate_ToWithNoInitOnWindowsSaysTheSameAndStaleStageDirsGoAtTheNextUpda
 	if _, err := os.Stat(fresh); err != nil {
 		t.Errorf("a fresh stage dir, maybe another update's, was removed: %v", err)
 	}
+}
+
+// The PATH line judges the PATH a new shell gets, not this process's: a shell
+// opened before install converged the PATH is behind, and the line says to
+// open a new one instead of blaming a PATH that is already right.
+func TestUpdate_AShellOpenedBeforeThePathChangeIsARestartNotAPathToFix(t *testing.T) {
+	userspaceHome(t)
+	_, clone, _ := updateFixture(t)
+	userspaceBuild(t, "NEW")
+	root, _ := userbin.Root()
+	other := t.TempDir()
+	writeFakeBin(t, filepath.Join(other, "aphrollo"+userbin.ExeSuffix))
+	t.Setenv("PATH", other+string(os.PathListSeparator)+os.Getenv("PATH"))
+	stubNewShellPath(t, root, other)
+
+	var out, errb bytes.Buffer
+	if code := runUpdate([]string{"--repo", clone, "--no-init"}, &out, &errb); code != 0 {
+		t.Fatalf("exit = %d\n%s", code, errb.String())
+	}
+	if strings.Contains(out.String(), "first on PATH") {
+		t.Errorf("the next shell runs the launcher, yet the update asks for a PATH fix:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "new shell") {
+		t.Errorf("the update does not say this shell is behind:\n%s", out.String())
+	}
+}
+
+// stubNewShellPath makes dirs the PATH a new shell gets.
+func stubNewShellPath(t *testing.T, dirs ...string) {
+	t.Helper()
+	orig := userPathDirsFn
+	userPathDirsFn = func() []string { return dirs }
+	t.Cleanup(func() { userPathDirsFn = orig })
 }
