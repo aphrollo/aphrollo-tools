@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,12 +55,35 @@ func packagePattern(dir string) string {
 	return "./" + dir
 }
 
+// testTagsKey carries the repo's declared test tags down to the go commands
+// that must see them, as capShareKey carries the pool share.
+type testTagsKey struct{}
+
+// withTestTags marks ctx with the build tags the tests are run under.
+func withTestTags(ctx context.Context, tags []string) context.Context {
+	return context.WithValue(ctx, testTagsKey{}, slices.Clone(tags))
+}
+
+// testTags is the tags ctx carries, none for a lone untagged run.
+func testTags(ctx context.Context) []string {
+	tags, _ := ctx.Value(testTagsKey{}).([]string)
+	return tags
+}
+
+// tagsFlag is the one `-tags=` argument the tags make, none when empty.
+func tagsFlag(tags []string) []string {
+	if len(tags) == 0 {
+		return nil
+	}
+	return []string{"-tags=" + strings.Join(tags, ",")}
+}
+
 // listPackageInputs is the real listing: every package the test binary of dir
 // is built from, standard library left out, with the files each contributes.
 func listPackageInputs(ctx context.Context, root, dir string) (string, error) {
 	const format = `{{if not .Standard}}{{.Dir}}|{{join .GoFiles ","}}|{{join .TestGoFiles ","}}|{{join .XTestGoFiles ","}}|{{join .EmbedFiles ","}}{{end}}`
 	var out, errOut bytes.Buffer
-	if err := run.LightRunCtx(ctx, run.Spec{Name: "go", Args: []string{"list", "-deps", "-test", "-f", format, packagePattern(dir)}, Dir: root, Stdout: &out, Stderr: &errOut}); err != nil {
+	if err := run.LightRunCtx(ctx, run.Spec{Name: "go", Args: slices.Concat([]string{"list"}, tagsFlag(testTags(ctx)), []string{"-deps", "-test", "-f", format, packagePattern(dir)}), Dir: root, Stdout: &out, Stderr: &errOut}); err != nil {
 		return "", fmt.Errorf("%v: %s", err, strings.TrimSpace(errOut.String()))
 	}
 	return out.String(), nil
@@ -117,7 +141,7 @@ func packageTestHash(ctx context.Context, root, dir string) (string, error) {
 		return "", fmt.Errorf("go env for %s: %w", dir, err)
 	}
 	h := sha256.New()
-	fmt.Fprintf(h, "files %s\nimport %s/%s\nenv %s\n", hashPackage(root, listing), modulePath(root), dir, strings.TrimSpace(env))
+	fmt.Fprintf(h, "files %s\nimport %s/%s\nenv %s\ntags %s\n", hashPackage(root, listing), modulePath(root), dir, strings.TrimSpace(env), strings.Join(testTags(ctx), ","))
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
@@ -128,6 +152,7 @@ func packageTestHash(ctx context.Context, root, dir string) (string, error) {
 // failing test covered what it ran up to the failure.
 func buildTestMap(ctx context.Context, root string, cfg MutantsConfig, dir string, workers int, log io.Writer) (testMap, bool, error) {
 	workers = max(workers, 1)
+	ctx = withTestTags(ctx, cfg.TestTags)
 	start := commitNowFn()
 	hash, err := packageTestHash(ctx, root, dir)
 	if err != nil {
@@ -171,7 +196,7 @@ func buildTestMap(ctx context.Context, root string, cfg MutantsConfig, dir strin
 	pattern := packagePattern(dir)
 	var out bytes.Buffer
 	code, err := testMapExecFn(ctx, boxRoot, env,
-		[]string{"go", "test", "-c", "-covermode=set", "-coverpkg=" + pattern, "-o", binary, pattern}, &out)
+		slices.Concat([]string{"go", "test", "-c"}, tagsFlag(cfg.TestTags), []string{"-covermode=set", "-coverpkg=" + pattern, "-o", binary, pattern}), &out)
 	if err != nil || code != 0 {
 		return testMap{}, false, fmt.Errorf("compiling the test binary of %s exited %d (%v): %s", dir, code, err, tail(out.String()))
 	}
@@ -260,6 +285,7 @@ func tail(output string) string {
 // the answer; saving it is best effort, and what it could not do is said on
 // log.
 func ensureTestMap(ctx context.Context, root string, cfg MutantsConfig, dir string, workers int, log io.Writer) (m testMap, built, cached bool, err error) {
+	ctx = withTestTags(ctx, cfg.TestTags)
 	hash, err := packageTestHash(ctx, root, dir)
 	if err != nil {
 		return testMap{}, false, false, err

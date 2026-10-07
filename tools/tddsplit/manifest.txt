@@ -808,6 +808,7 @@ mutants_testmap_ensure_test.go                     mutation
 mutants_testmap_store.go                           mutation
 mutants_testmap_store_test.go                      mutation
 mutants_testmap_test.go                            mutation
+mutants_testtags_test.go                           mutation
 mutants_tombstones_test.go                         tdd
 mutants_tool_batched_test.go                       mutation
 mutants_tool_tree_test.go                          mutation

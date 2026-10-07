@@ -68,6 +68,11 @@ type MutantsConfig struct {
 	// survivor the merge measurement finds refuses the merge. Without it the
 	// measurement reports what it found and the merge goes on.
 	AtMergeBlock bool
+	// TestTags is mutants-test-tags: the build tags the repo's tests need
+	// (an integration tier behind `//go:build integration`), passed to the
+	// commit-time run's coverage build and to every `go test` it makes, so a
+	// line only a tagged suite executes is measured against that suite.
+	TestTags []string
 }
 
 // defaultCommitBudget is how long the commit-time mutation run may take when
@@ -99,6 +104,8 @@ const (
 	mutantsAtCommitKey     = "mutants-at-commit"
 	mutantsMergeLevelKey   = "mutants-at-merge-level"
 	mutantsCommitBudgetKey = "mutants-commit-budget"
+	// mutantsTestTagsKey names the build tags the repo's tests are run with.
+	mutantsTestTagsKey = "mutants-test-tags"
 	// mutantsCIMode is the value of mutants-at-merge and mutants-before-pr
 	// that hands the measurement to CI's mutants-verdict check.
 	mutantsCIMode = "ci"
@@ -139,6 +146,7 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 	}
 	cfg.IntegrationPackages = firstDeclaredList(tables, mutantsIntegrationKey)
 	cfg.Env = firstDeclaredList(tables, mutantsEnvKey)
+	cfg.TestTags = firstDeclaredList(tables, mutantsTestTagsKey)
 	cfg.BaselineExclude = firstDeclaredList(tables, mutationBaselineExcludeKey)
 	cfg.Accept = firstDeclaredList(tables, mutantsAcceptKey)
 	// An accept-list nobody had to justify is a list of survivors somebody
