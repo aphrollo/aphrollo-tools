@@ -139,18 +139,30 @@ func launchedBinary(root, fallback string) string {
 	return filepath.ToSlash(filepath.Join(root, "current", userbin.BinName+userbin.ExeSuffix))
 }
 
-// doctorAphrolloOnPath checks that typing `aphrollo` runs the user-space
-// install: its launcher or its current binary. With no user-space install
-// there is nothing to compare, and the check is silent.
-func doctorAphrolloOnPath(DoctorInput) DoctorCheck {
+// doctorAphrolloOnPath checks that typing `aphrollo` in a new shell runs the
+// user-space install: its launcher or its current binary. It judges the PATH a
+// new shell gets (in.PathDirs), since this process keeps the one it started
+// with; when only this one is behind, that is a restart to mention, not a
+// finding. With no user-space install there is nothing to compare, and the
+// check is silent.
+func doctorAphrolloOnPath(in DoctorInput) DoctorCheck {
 	c := DoctorCheck{Name: "aphrollo on PATH", OK: true}
 	root, err := userbin.Root()
 	if err != nil {
 		return c
 	}
-	if line := userbin.PathCheck(root); line != "" {
+	line := userbin.PathCheck(root)
+	if len(in.PathDirs) > 0 {
+		if next := userbin.PathCheckIn(root, in.PathDirs); next != "" {
+			line = next
+		} else if line != "" {
+			c.Detail = "this shell started before the PATH change and runs another aphrollo; a new shell runs the install"
+			return c
+		}
+	}
+	if line != "" {
 		c.OK = false
-		c.Detail = line + " (aphrollo update writes the launcher there; PATH is yours to change)"
+		c.Detail = line + " (aphrollo install puts it there)"
 	}
 	return c
 }

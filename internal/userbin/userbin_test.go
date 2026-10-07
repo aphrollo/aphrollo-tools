@@ -438,3 +438,37 @@ func TestWriteLauncher_TheRootCarriesAnShLauncherForGitBash(t *testing.T) {
 		}
 	}
 }
+
+// PathCheckIn judges the PATH a new shell gets, read from where the platform
+// keeps it, not this process's: a shell started before install converged the
+// PATH still has the old one, and judging that blamed a PATH already fixed.
+func TestPathCheckIn_ResolvesAgainstTheGivenDirsInOrder(t *testing.T) {
+	root := filepath.Join(userbinTempHome(t), "bin")
+	if _, err := Install(root, "2.0.0", userbinStage(t, "x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetCurrent(root, "2.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := WriteLauncher(root, ""); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	stray := filepath.Join(other, BinName+ExeSuffix)
+	if err := os.WriteFile(stray, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := lookPathFn
+	lookPathFn = func(string) (string, error) { return "", errors.New("this process's PATH must not be read") }
+	t.Cleanup(func() { lookPathFn = old })
+
+	if line := PathCheckIn(root, []string{t.TempDir(), root, other}); line != "" {
+		t.Errorf("the launcher comes first, yet: %q", line)
+	}
+	if line := PathCheckIn(root, []string{other, root}); !strings.Contains(line, stray) {
+		t.Errorf("PathCheckIn = %q; want it to name %s, which comes first", line, stray)
+	}
+	if line := PathCheckIn(root, []string{t.TempDir()}); !strings.Contains(line, "not on PATH") {
+		t.Errorf("PathCheckIn = %q; want it to say aphrollo is not on PATH", line)
+	}
+}

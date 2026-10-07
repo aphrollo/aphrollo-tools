@@ -26,3 +26,6 @@ const launcherName = BinName
 
 // launcherBody is the sh launcher.
 func launcherBody(root, fallback string) string { return shLauncherBody(root, fallback) }
+
+// commandNames are the files a shell tries for a bare command name.
+func commandNames(name string) []string { return []string{name} }

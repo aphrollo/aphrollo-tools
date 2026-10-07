@@ -43,3 +43,19 @@ func launcherBody(_, fallback string) string {
 	lines = append(lines, `echo aphrollo: no binary found (run: aphrollo update) 1>&2`, `exit /b 127`)
 	return strings.Join(lines, "\r\n") + "\r\n"
 }
+
+// commandNames are the files a shell tries for a bare command name: one per
+// PATHEXT extension, the bare name never.
+func commandNames(name string) []string {
+	exts := os.Getenv("PATHEXT")
+	if exts == "" {
+		exts = ".COM;.EXE;.BAT;.CMD"
+	}
+	var out []string
+	for _, e := range strings.Split(exts, ";") {
+		if e != "" {
+			out = append(out, name+strings.ToLower(e))
+		}
+	}
+	return out
+}

@@ -152,3 +152,33 @@ func TestDoctor_AphrolloOnPathMustResolveToTheUserSpaceInstall(t *testing.T) {
 		t.Fatalf("PATH resolves elsewhere: ok=%v detail=%q", c.OK, c.Detail)
 	}
 }
+
+// Doctor judges the PATH a new shell gets (DoctorInput.PathDirs, read from
+// where the platform keeps it), not the PATH this process started with: a
+// shell opened before install converged the PATH still has the old one, and
+// that is a restart to mention, never a PATH to fix.
+func TestDoctor_AphrolloOnPathJudgesTheNextShellAndNamesAStaleOne(t *testing.T) {
+	userlaunchHome(t)
+	in := healthyInstall(t)
+	root, _ := userbin.Root()
+	userlaunchFakeBin(t, userbin.BinaryPath(root, "6.0.0"), "user")
+	if err := userbin.SetCurrent(root, "6.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := userbin.WriteLauncher(root, ""); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	userlaunchFakeBin(t, filepath.Join(other, "aphrollo"+userbin.ExeSuffix), "other")
+	t.Setenv("PATH", other)
+
+	in.PathDirs = []string{root, other}
+	c := check(t, Doctor(in), "aphrollo on PATH")
+	if !c.OK || !strings.Contains(c.Detail, "new shell") {
+		t.Errorf("the next shell runs the launcher, this one does not: ok=%v detail=%q; want ok and a word about a new shell", c.OK, c.Detail)
+	}
+	in.PathDirs = []string{other, root}
+	if c := check(t, Doctor(in), "aphrollo on PATH"); c.OK || !strings.Contains(c.Detail, "first on PATH") {
+		t.Errorf("the next shell runs another binary: ok=%v detail=%q", c.OK, c.Detail)
+	}
+}
