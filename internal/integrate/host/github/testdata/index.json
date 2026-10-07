@@ -97,7 +97,7 @@
       "--paginate",
       "repos/{owner}/{repo}/actions/runs?event=pull_request\u0026per_page=100\u0026branch=lane/measure-fixes",
       "--jq",
-      ".workflow_runs[] | select(any(.pull_requests[]?; .number == 1202)) | {databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at, attempt: .run_attempt}"
+      ".workflow_runs[] | select(any(.pull_requests[]?; .number == 1202)) | {databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at, attempt: .run_attempt, path: .path}"
     ],
     "file": "09.out"
   },
@@ -251,7 +251,7 @@
       "--paginate",
       "repos/{owner}/{repo}/actions/runs?event=pull_request\u0026per_page=100\u0026branch=lane/f21-host-port",
       "--jq",
-      ".workflow_runs[] | select(any(.pull_requests[]?; .number == 1204)) | {databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at, attempt: .run_attempt}"
+      ".workflow_runs[] | select(any(.pull_requests[]?; .number == 1204)) | {databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at, attempt: .run_attempt, path: .path}"
     ],
     "file": "23.out"
   },

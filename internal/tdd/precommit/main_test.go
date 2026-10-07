@@ -17,6 +17,9 @@ import (
 // busy-CI-runner probe, which the gates here reach through the mutants stage.
 // It also states the linter absent for the run (see the Run closure).
 func TestMain(m *testing.M) {
+	if code, ran := secretscanFakeMain(); ran {
+		os.Exit(code)
+	}
 	os.Exit(tddtest.Main(m, tddtest.Seams{
 		Run: func() int {
 			// golangci-lint is absent for the whole run: the answer a box

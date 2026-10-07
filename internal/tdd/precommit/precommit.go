@@ -138,6 +138,15 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 		return Mechanical(repoRoot, run)
 	}
 
+	// The secret scan answers for every non-merge commit, prose and comment-only
+	// ones included: a key in a markdown file is as leaked as one in code.
+	var notes []string
+	if res := secretScanStage("precommit", repoRoot); res.Blocked {
+		return res
+	} else if res.Message != "" {
+		notes = append(notes, res.Message)
+	}
+
 	// A change with no code, or whose code changed only in comments, answers
 	// to the tree guards and nothing else; see docsonly.go and
 	// commentonly.go. StagedFastPath is also what the agreement test holds
@@ -150,7 +159,6 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 		return commentOnlyFastPath("precommit", repoRoot)
 	}
 
-	var notes []string
 	collect := func(res GateResult) (blocked bool) {
 		if res.Message != "" {
 			notes = append(notes, res.Message)

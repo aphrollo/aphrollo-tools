@@ -619,6 +619,7 @@ memcap_run_unix_own_test.go                        lock
 memcap_run_windows.go                              lock
 memcap_run_windows_own_test.go                      lock
 mergeaware_test.go                                 precommit
+mergelongpaths_test.go                             precommit
 mergeprune.go                                      merge
 mergeprune_squash.go                               merge
 mergeprune_squash_test.go                          merge
@@ -1087,6 +1088,8 @@ sddskill.go                                        install
 sddskill.md                                        install
 sddskill_test.go                                   install
 seams.go                                           tddtest
+secretscan.go                                      precommit
+secretscan_test.go                                 precommit
 session.go                                         tdd
 session_allow_test.go                              tdd
 session_core.go                                    core      # created by P2

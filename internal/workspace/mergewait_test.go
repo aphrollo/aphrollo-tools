@@ -23,6 +23,7 @@ import (
 type ciStep struct {
 	head   string
 	checks []CheckRun
+	runs   []prRun // the PR's workflow runs as Actions lists them at this poll
 }
 
 // fakePR is one PR's scripted history.
@@ -76,9 +77,11 @@ func install(t *testing.T, f *fakeCI) {
 		f.now = time.Date(2026, 9, 24, 12, 0, 0, 0, time.UTC)
 	}
 	oHead, oChecks, oLane, oLanes, oAt := ghPRHead, ghChecksAt, laneHeadSHA, listLanes, laneAtHead
+	oRuns := ghPRRuns
 	oNow, oSleep := waitNow, waitSleep
 	t.Cleanup(func() {
 		ghPRHead, ghChecksAt, laneHeadSHA, listLanes, laneAtHead = oHead, oChecks, oLane, oLanes, oAt
+		ghPRRuns = oRuns
 		waitNow, waitSleep = oNow, oSleep
 	})
 	ghPRHead = func(dir, ref string) (*PRHead, error) {
@@ -101,6 +104,12 @@ func install(t *testing.T, f *fakeCI) {
 	}
 	ghChecksAt = func(dir, sha string) ([]CheckRun, error) {
 		return f.cur.at(f.cur.cursor - 1).checks, nil
+	}
+	ghPRRuns = func(wt, branch string, pr int) ([]prRun, error) {
+		if f.cur == nil {
+			return nil, nil
+		}
+		return f.cur.at(f.cur.cursor - 1).runs, nil
 	}
 	laneHeadSHA = func(wt string) (string, error) { return f.laneHead[wt], nil }
 	listLanes = func(repo string) ([]worktreeEntry, error) { return f.lanes, nil }
@@ -214,6 +223,74 @@ func TestMergeWait_EmptySetAfterPushIsPendingUntilTheFirstCheckAppears(t *testin
 	}
 	if waitLines != 3 {
 		t.Errorf("printed %d wait lines, want 3 (one per state change, not one per poll):\n%s", waitLines, out.String())
+	}
+}
+
+// After a force-push the new head's pipeline run can sit queued behind the old
+// head's run in the same concurrency group: its jobs, and so its required check,
+// do not exist yet, while another workflow's check on the head is already green.
+// That green is not "every check passed"; the queued run's checks are still to
+// come, so the wait keeps going (#1254) instead of letting the gate read the
+// required check as missing.
+func TestMergeWait_AQueuedWorkflowRunOnTheHeadIsWaitedFor(t *testing.T) {
+	scan := run("scan", newSHA, "completed", "success")
+	queued := []prRun{{ID: 5, SHA: newSHA, Status: "queued", Path: ".github/workflows/pipeline.yml"}}
+	pr := &fakePR{number: 14, branch: "lane/q", steps: []ciStep{
+		{head: newSHA, checks: []CheckRun{scan}, runs: queued},
+		{head: newSHA, checks: []CheckRun{scan}, runs: queued},
+		{head: newSHA, checks: []CheckRun{scan, run("test", newSHA, "completed", "success")}, runs: []prRun{{ID: 5, SHA: newSHA, Status: "completed", Conclusion: "success"}}},
+	}}
+	f := &fakeCI{prs: []*fakePR{pr}, laneHead: map[string]string{"/w/q": newSHA}}
+	install(t, f)
+
+	var out, errb bytes.Buffer
+	if err := MergeWait(&Target{Worktree: "/w/q", Branch: "lane/q", MainRepo: "/r", RepoName: "r"}, "squash", true, testWait, &out, &errb); err != nil {
+		t.Fatalf("MergeWait: %v\n%s", err, out.String())
+	}
+	if pr.cursor != 3 {
+		t.Errorf("merged after %d polls, want 3: the queued run's check had not appeared on the first two\n%s", pr.cursor, out.String())
+	}
+	if !strings.Contains(out.String(), "still queued") {
+		t.Errorf("the wait must say a workflow run is still queued:\n%s", out.String())
+	}
+}
+
+// A queued run of ANOTHER workflow does not make the required check: the wait
+// must not hold the merge for it until --timeout (a docs or release workflow
+// stuck behind its own concurrency group).
+func TestMergeWait_AQueuedRunOfAnotherWorkflowIsNotWaitedFor(t *testing.T) {
+	scan := run("scan", newSHA, "completed", "success")
+	other := []prRun{{ID: 9, SHA: newSHA, Status: "queued", Path: ".github/workflows/release.yml"}}
+	pr := &fakePR{number: 16, branch: "lane/o", steps: []ciStep{{head: newSHA, checks: []CheckRun{scan}, runs: other}}}
+	f := &fakeCI{prs: []*fakePR{pr}, laneHead: map[string]string{"/w/o": newSHA}}
+	install(t, f)
+
+	var out, errb bytes.Buffer
+	if err := MergeWait(&Target{Worktree: "/w/o", Branch: "lane/o", MainRepo: "/r", RepoName: "r"}, "squash", true, testWait, &out, &errb); err != nil {
+		t.Fatalf("MergeWait: %v\n%s", err, out.String())
+	}
+	if f.slept != 0 {
+		t.Errorf("slept %v for a run of another workflow", f.slept)
+	}
+}
+
+// Once every workflow run of the head has concluded and the required check never
+// appeared, there is nothing left to wait for: the wait hands over to the gate,
+// which names the check as missing.
+func TestMergeWait_ConcludedRunsThatMadeNoCheckAreNotWaitedFor(t *testing.T) {
+	scan := run("scan", newSHA, "completed", "success")
+	pr := &fakePR{number: 15, branch: "lane/m", steps: []ciStep{
+		{head: newSHA, checks: []CheckRun{scan}, runs: []prRun{{ID: 5, SHA: newSHA, Status: "completed", Conclusion: "success"}}},
+	}}
+	f := &fakeCI{prs: []*fakePR{pr}, laneHead: map[string]string{"/w/m": newSHA}}
+	install(t, f)
+
+	var out, errb bytes.Buffer
+	if err := MergeWait(&Target{Worktree: "/w/m", Branch: "lane/m", MainRepo: "/r", RepoName: "r"}, "squash", true, testWait, &out, &errb); err != nil {
+		t.Fatalf("MergeWait: %v\n%s", err, out.String())
+	}
+	if f.slept != 0 {
+		t.Errorf("slept %v with every run concluded", f.slept)
 	}
 }
 

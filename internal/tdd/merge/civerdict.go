@@ -339,3 +339,11 @@ func laneChangesOnlyMarkdown(laneWorktree string, tips prGateTips) bool {
 	}
 	return true
 }
+
+// CIBinding is the check a repo's merge reads as required and the workflow file
+// that makes it (pipeline.yml and `test` unless aphrollo.toml says otherwise): a
+// caller waiting for CI waits on that workflow's runs, no other's.
+func CIBinding(root string) (check, workflow string) {
+	spec := readCISpec(root)
+	return spec.names[0], spec.workflow
+}
