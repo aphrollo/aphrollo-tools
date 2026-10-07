@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/aphrollo/aphrollo-tools/internal/argvbatch"
 )
 
 // #996: a conflict-free merge commit stages every file the merge brings, and the
@@ -29,9 +27,30 @@ func TestMechanical_MergeOfFourHundredLongPathsBuildsNoOverlongCommandLine(t *te
 	if len(runs) == 0 {
 		t.Fatal("a merge bringing 400 packages ran nothing")
 	}
+	// cmd.exe refuses a command line past 8191 characters; the literal is the
+	// OS's limit, not the gate's own budget, so a budget raised past it fails here.
+	const cmdExeLimit = 8191
+	covered := map[string]bool{}
+	whole := false
 	for _, r := range runs {
-		if line := r.Cmd + " " + strings.Join(r.Args, " "); len(line) > argvbatch.Budget {
-			t.Errorf("a command line of %d chars, past the %d-char budget: %.100s…", len(line), argvbatch.Budget, line)
+		line := r.Cmd + " " + strings.Join(r.Args, " ")
+		if len(line) > cmdExeLimit {
+			t.Errorf("a command line of %d chars, past cmd.exe's %d: %.100s…", len(line), cmdExeLimit, line)
+		}
+		for _, a := range r.Args {
+			if a == "./..." {
+				whole = true
+			}
+			covered[a] = true
+		}
+	}
+	// What the merge brings is judged either by the whole-module fallback or by
+	// batches that between them name every package: never a dropped tail.
+	if !whole {
+		for i := range 400 {
+			if p := fmt.Sprintf("./internal/storefront-checkout/components/payment-methods/widget%03d", i); !covered[p] {
+				t.Fatalf("package %s was dropped by the batching (%d runs)", p, len(runs))
+			}
 		}
 	}
 }
