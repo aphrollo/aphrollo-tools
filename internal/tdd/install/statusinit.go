@@ -32,7 +32,7 @@ var retiredHookGlobs = []string{"tdd-*.js", "tdd-*.sh"}
 // slash-normalized exactly like the hook commands: these run through a shell,
 // where a raw Windows path's backslashes are escapes.
 func statusLineCommandFor(bin string) string {
-	return fmt.Sprintf("%q %s %s", shellPath(bin), CmdName, statusLineSub)
+	return hookCommandFor(bin, statusLineSub, 0)
 }
 
 // isManagedStatusLine reports whether a statusLine command is one this tool

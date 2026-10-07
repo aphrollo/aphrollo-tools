@@ -253,3 +253,81 @@ func TestHookCommand_ABinaryOverItsBudgetIsANoOp(t *testing.T) {
 		t.Fatalf("code %d, stderr %q; want exit 0 and a budget line", code, errs)
 	}
 }
+
+func TestLaunchFor_ABinaryOutsideTheRootIsTheFallback(t *testing.T) {
+	home := userbinTempHome(t)
+	root, fb := LaunchFor(filepath.Join(home, "elsewhere", "aphrollo"))
+	if root != userbinWantRoot(home) || fb != filepath.Join(home, "elsewhere", "aphrollo") {
+		t.Fatalf("LaunchFor = %q, %q", root, fb)
+	}
+}
+
+func TestLaunchFor_AVersionedBinaryIsNeverTheFallback(t *testing.T) {
+	home := userbinTempHome(t)
+	root, _ := Root()
+	_, fb := LaunchFor(BinaryPath(root, "1.0.0"))
+	if fb != legacyFallback {
+		t.Fatalf("fallback = %q, want the legacy install path %q: a versioned dir is pruned", fb, legacyFallback)
+	}
+	t.Cleanup(func() { SetFallbackBin("") })
+	SetFallbackBin(filepath.Join(home, "old", "aphrollo"))
+	_, fb = LaunchFor(BinaryPath(root, "1.0.0"))
+	if fb != filepath.Join(home, "old", "aphrollo") {
+		t.Fatalf("fallback = %q, want the one named with SetFallbackBin", fb)
+	}
+}
+
+func TestUnder_IsAboutPathContainmentOnly(t *testing.T) {
+	root := filepath.Join(userbinTempHome(t), "bin")
+	for path, want := range map[string]bool{
+		filepath.Join(root, "1.0.0", "aphrollo"): true,
+		root:                                     false,
+		root + "-other":                          false,
+		filepath.Join(root, "..", "x"):           false,
+		"":                                       false,
+	} {
+		if got := Under(root, path); got != want {
+			t.Errorf("Under(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
+func TestInstall_RefusesAVersionThatIsNotADirectoryName(t *testing.T) {
+	root := filepath.Join(userbinTempHome(t), "bin")
+	for _, v := range []string{"", "..", "a/b", `a\b`} {
+		if _, err := Install(root, v, userbinStage(t, "x")); err == nil {
+			t.Errorf("Install accepted version %q", v)
+		}
+	}
+}
+
+func TestVersions_IgnoresStagingDirsAndDirsWithoutABinary(t *testing.T) {
+	root := filepath.Join(userbinTempHome(t), "bin")
+	if _, err := Install(root, "1.0.0", userbinStage(t, "x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "1.1.0"), 0o755); err != nil { // no binary inside
+		t.Fatal(err)
+	}
+	stage := filepath.Join(root, ".stage-1")
+	userbinScript(t, BinaryPath(stage, ""), "")
+	if got := strings.Join(Versions(root), " "); got != "1.0.0" {
+		t.Fatalf("Versions = %q, want only 1.0.0", got)
+	}
+}
+
+func TestLaunch_ReadsBackWhatACommandAndAShimCarry(t *testing.T) {
+	for name, text := range map[string]string{
+		"hook command":    HookCommand("/r/bin", "/it's/aphrollo", 9, "gate stop"),
+		"hook, no budget": HookCommand("/r/bin", "/it's/aphrollo", 0, "gate stop"),
+		"shim":            "#!/bin/sh\n" + Prelude("/r/bin", "/it's/aphrollo") + `exec "$x" gate stop` + "\n",
+	} {
+		root, fb, ok := Launch(text)
+		if !ok || root != "/r/bin" || fb != "/it's/aphrollo" {
+			t.Errorf("%s: Launch = %q, %q, %v", name, root, fb, ok)
+		}
+	}
+	if _, _, ok := Launch(`"/usr/bin/aphrollo" gate stop`); ok {
+		t.Error("Launch accepted an old-style command")
+	}
+}

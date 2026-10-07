@@ -91,7 +91,7 @@ func BuildInstallPlan(repoRoot, bin string) (InstallPlan, error) {
 		path := filepath.Join(hooksDir, h.Name)
 		plan.Hooks = append(plan.Hooks, HookFile{
 			Path:     path,
-			Content:  shim(bin, h.Sub),
+			Content:  launchShim(bin, h.Sub, ""),
 			Conflict: foreignHookExists(path),
 		})
 	}

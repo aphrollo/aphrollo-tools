@@ -22,7 +22,7 @@ func TestInitSettings_CreatesFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings.json not written: %v", err)
 	}
-	if !strings.Contains(string(data), `aphrollo\" gate pretooluse`) {
+	if !strings.Contains(string(data), `$x\" gate pretooluse`) {
 		t.Errorf("settings.json missing aphrollo hooks:\n%s", data)
 	}
 }

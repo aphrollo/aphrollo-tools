@@ -35,7 +35,7 @@ func TestInstallPlan_ShimUsesResolvedBinPath(t *testing.T) {
 	for _, h := range plan.Hooks {
 		// Quoted since the Windows-path fix: the exec line always wraps the
 		// (slash-normalized) resolved path in double quotes.
-		if !strings.Contains(h.Content, "exec \""+testBin+"\" gate ") {
+		if !strings.Contains(h.Content, "aphrollo_fallback='"+testBin+"'") || !strings.Contains(h.Content, "exec \"$x\" gate ") {
 			t.Fatalf("shim does not exec the resolved bin %q:\n%s", testBin, h.Content)
 		}
 	}
@@ -98,7 +98,7 @@ func TestInstallPlan_ApplyWritesExecutableShims(t *testing.T) {
 			t.Fatalf("%s is not executable (%v)", name, fi.Mode())
 		}
 		data, _ := os.ReadFile(p)
-		if !strings.Contains(string(data), "aphrollo\" gate "+sub) {
+		if !strings.Contains(string(data), "\"$x\" gate "+sub) {
 			t.Fatalf("%s does not invoke the subcommand:\n%s", name, data)
 		}
 	}
@@ -131,7 +131,7 @@ func TestInstallPlan_RewritesAnOlderManagedPrePushShim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the managed pre-push shim is gone: %v", err)
 	}
-	if string(got) != shim(testBin, "prepush") {
+	if string(got) != launchShim(testBin, "prepush", "") {
 		t.Fatalf("pre-push = %q, want the current shim", got)
 	}
 }

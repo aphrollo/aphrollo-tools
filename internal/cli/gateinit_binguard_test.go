@@ -122,7 +122,7 @@ func TestGateInit_ResolvesAnExtensionlessBinToTheExeBesideIt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("pre-commit shim not installed: %v", err)
 	}
-	if !strings.Contains(string(shim), `"`+filepath.ToSlash(real)+`"`) {
+	if !strings.Contains(string(shim), `aphrollo_fallback='`+filepath.ToSlash(real)+`'`) {
 		t.Errorf("the hook must exec the resolved .exe, got:\n%s", shim)
 	}
 }

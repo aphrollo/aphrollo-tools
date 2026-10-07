@@ -137,7 +137,7 @@ func Versions(root string) []string {
 	}
 	var out []string
 	for _, e := range entries {
-		if !e.IsDir() {
+		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		if _, err := os.Stat(BinaryPath(root, e.Name())); err != nil {
@@ -213,4 +213,31 @@ func Under(root, path string) bool {
 	}
 	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(path))
 	return err == nil && rel != "." && !strings.HasPrefix(rel, "..")
+}
+
+// fallbackOverride is the installed path a caller named with SetFallbackBin.
+var fallbackOverride string
+
+// SetFallbackBin names the installed path hooks try after the user-space
+// current, for the one process that is writing them: `aphrollo update` runs
+// `gate init --fallback-bin <the binary it replaced>`.
+func SetFallbackBin(path string) { fallbackOverride = path }
+
+// LaunchFor is what a hook written for bin carries: the user-space root to
+// resolve first, and the installed path to try second. A bin inside the root
+// is a version directory the next prune removes, so it is never the fallback:
+// the named override, else the platform's legacy install path. With no
+// user-space root on this account the hook is bin alone (root "").
+func LaunchFor(bin string) (root, fallback string) {
+	root, err := Root()
+	if err != nil {
+		return "", bin
+	}
+	switch {
+	case fallbackOverride != "":
+		return root, fallbackOverride
+	case Under(root, bin):
+		return root, legacyFallback
+	}
+	return root, bin
 }

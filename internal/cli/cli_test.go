@@ -39,7 +39,7 @@ func TestRun_TDDInit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("settings.json not written: %v", err)
 	}
-	if !strings.Contains(string(data), bin+`\" gate pretooluse`) {
+	if !strings.Contains(string(data), "aphrollo_fallback='"+filepath.ToSlash(bin)+"'") || !strings.Contains(string(data), `$x\" gate pretooluse`) {
 		t.Errorf("settings.json missing wired hook:\n%s", data)
 	}
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/internal/tddtest"
 )
@@ -382,5 +383,59 @@ func TestGitGate_InstallsTheCommitMsgHook(t *testing.T) {
 	}
 	if !strings.Contains(shim("/bin/aphrollo", "commitmsg"), `"$@"`) {
 		t.Fatal("the per-repo shim must forward git's arguments too")
+	}
+}
+
+// The git shims follow the same resolution as the session hooks: the
+// user-space current first, the installed path second, and the real tool
+// when neither is there.
+func TestLaunchShim_RunsTheUserSpaceBinaryThenFallsBackToTheRealTool(t *testing.T) {
+	userlaunchHome(t)
+	root, err := userbin.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	real := filepath.Join(dir, "realgit")
+	if err := proc.WriteExecutable(real, []byte("#!/bin/sh\necho REAL \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	shim := filepath.Join(dir, "git")
+	body := launchShim(filepath.Join(dir, "no-such-aphrollo"), "git", real)
+	if err := proc.WriteExecutable(shim, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := exec.Command("sh", shim, "status").CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "REAL status") || !strings.Contains(string(out), "aphrollo update") {
+		t.Fatalf("no binary anywhere: %v\n%s\nwant the real tool and a line naming `aphrollo update`", err, out)
+	}
+
+	userlaunchFakeBin(t, userbin.BinaryPath(root, "5.0.0"), "user")
+	if err := userbin.SetCurrent(root, "5.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = exec.Command("sh", shim, "status").CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "user "+CmdName+" git status" {
+		t.Fatalf("with a user-space current: %v\n%s\nwant the user-space binary", err, out)
+	}
+}
+
+func TestLaunchShim_TheDoctorReadsBackWhatTheShimRuns(t *testing.T) {
+	userlaunchHome(t)
+	root, _ := userbin.Root()
+	fallback := filepath.Join(t.TempDir(), "aphrollo"+userbin.ExeSuffix)
+	userlaunchFakeBin(t, fallback, "installed")
+	body := launchShim(fallback, "precommit", "")
+	if got, want := hookShimBin(body), filepath.ToSlash(fallback); got != want {
+		t.Fatalf("hookShimBin = %q, want the fallback %q while no user-space binary exists", got, want)
+	}
+	user := userbin.BinaryPath(root, "5.1.0")
+	userlaunchFakeBin(t, user, "user")
+	if err := userbin.SetCurrent(root, "5.1.0"); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := hookShimBin(body), filepath.ToSlash(user); got != want {
+		t.Fatalf("hookShimBin = %q, want the user-space binary %q", got, want)
 	}
 }
