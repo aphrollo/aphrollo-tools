@@ -320,7 +320,7 @@ func (u Usage) Text() string {
 	}{{"per role", u.ByRole, 0}, {"per day", u.ByDay, 0}, {"per lane", u.ByLane, textRows}, {"per model", u.ByModel, textRows}, {"top sessions", u.TopSessions, 0}} {
 		p("  %s", t.name)
 		if t.name == "per lane" {
-			p("    (lane: joined from the event log and the worktree calls, since a record's cwd names the primary checkout; coordination: coordinator turns with no lane in reach; unattributed: no lane event for the actor)")
+			p("    (lane: joined from the event log and the worktree calls, since a record's cwd names the primary checkout; coordination: coordinator turns with no lane in reach; unattributed: a subagent turn with no lane event)")
 		}
 		for i, g := range t.gs {
 			if t.cap > 0 && i == t.cap {

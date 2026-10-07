@@ -1,6 +1,7 @@
 package report
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -124,7 +125,7 @@ func TestRenderHTML_ARuleNameIsEscapedEverywhereItAppears(t *testing.T) {
 
 func TestRenderHTML_EvidenceIsCopyableWhyCommandText(t *testing.T) {
 	page := render(t, webFixture())
-	for _, want := range []string{"aphrollo why 12", "+3 more", `name="viewport"`, "prefers-color-scheme: dark", "<svg"} {
+	for _, want := range []string{"aphrollo why 12", "+4 more", `name="viewport"`, "prefers-color-scheme: dark", "<svg"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the page lacks %q", want)
 		}
@@ -155,5 +156,143 @@ func TestText_MatchesTheGoldenTextByteForByte(t *testing.T) {
 	}
 	if got != string(want) {
 		t.Errorf("the text differs from testdata/text_golden.txt; UPDATE_GOLDEN=1 rewrites it after a reviewed change:\n%s", got)
+	}
+}
+
+func TestRenderHTML_ProposalsSharingAChangeAreOneGroupHeadedByIt(t *testing.T) {
+	r := webFixture()
+	cheaper := "make the stage cheaper or move the check earlier, to the edit"
+	r.Proposals = []Proposal{
+		{Rule: "gate:still-red", Numbers: "2626s lost", Change: cheaper},
+		{Rule: "gate:timeout-rejected", Numbers: "3000s lost", Change: cheaper},
+		{Rule: "disabled-test", Numbers: "5 denies, 3 waived", Change: "lower the rule from block to guide"},
+	}
+	page := render(t, r)
+	if n := strings.Count(page, cheaper); n != 1 {
+		t.Errorf("the shared change is printed %d times, want once as its group's heading", n)
+	}
+	if strings.Index(page, cheaper) > strings.Index(page, "lower the rule from block to guide") {
+		t.Error("the group of two rules is not before the group of one")
+	}
+	for _, rule := range []string{"gate:still-red", "gate:timeout-rejected", "disabled-test"} {
+		if !strings.Contains(page, rule) {
+			t.Errorf("rule %q is missing from its group", rule)
+		}
+	}
+}
+
+func TestRenderHTML_BarChartTextIsPageTextNotScaledSVG(t *testing.T) {
+	page := render(t, webFixture())
+	if strings.Contains(page, `class="lbl"`) && strings.Contains(page, "<text") {
+		t.Error("a bar chart draws its labels as SVG text, which shrinks to about 6px on a phone")
+	}
+	if !strings.Contains(page, `<span class="bar" style="width:100.0%">`) {
+		t.Error("the longest bar is not drawn as a full-width page element")
+	}
+}
+
+func TestRenderHTML_TheLaneChartScalesOnLanesAndTheSplitShowsWhatNoLaneHolds(t *testing.T) {
+	page := render(t, webFixture())
+	lanes := between(page, `aria-label="cost per lane"`, "</figure>")
+	if strings.Contains(lanes, "coordination") || strings.Contains(lanes, "unattributed") {
+		t.Errorf("the lane chart carries coordination or unattributed, which dwarf the lanes:\n%s", lanes)
+	}
+	split := between(page, `class="split"`, "</figure>")
+	for _, want := range []string{"lanes 80%", "coordination 12%", "unattributed 8%"} {
+		if !strings.Contains(split, want) {
+			t.Errorf("the attribution split lacks %q:\n%s", want, split)
+		}
+	}
+}
+
+func TestRenderHTML_LongTablesFoldTheirTailAndDropNoRow(t *testing.T) {
+	r := webFixture()
+	for i := range 20 {
+		r.Usage.ByLane = append(r.Usage.ByLane, UsageGroup{Key: fmt.Sprintf("lane/extra-%02d", i), CostUSD: 0.5})
+		r.Friction = append(r.Friction, Friction{Rule: fmt.Sprintf("rule-%02d", i), Denies: 1})
+	}
+	page := render(t, r)
+	for i := range 20 {
+		for _, want := range []string{fmt.Sprintf("lane/extra-%02d", i), fmt.Sprintf("rule-%02d", i)} {
+			if !strings.Contains(page, want) {
+				t.Errorf("row %q was dropped", want)
+			}
+		}
+	}
+	for _, want := range []string{"<summary>8 more lanes</summary>", "<summary>8 more rules</summary>"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page lacks the fold %q", want)
+		}
+	}
+	if strings.Contains(page, "more rows in the JSON") {
+		t.Error("the page still sends the reader to the JSON for rows it could fold")
+	}
+}
+
+func TestRenderHTML_ABProgressIsDrawnAgainstTheThirtyLanesNotTheBiggerArm(t *testing.T) {
+	page := render(t, webFixture())
+	ab := between(page, `aria-label="lanes per A/B arm`, "</figure>")
+	for _, want := range []string{`style="width:40.0%"`, "12 of 30", `style="width:100.0%"`, "31 of 30"} {
+		if !strings.Contains(ab, want) {
+			t.Errorf("the A/B chart lacks %q:\n%s", want, ab)
+		}
+	}
+}
+
+func TestRenderHTML_BigNumbersCarryThousandsSeparators(t *testing.T) {
+	r := webFixture()
+	r.Events = 52199
+	r.Usage.Total.CostUSD = 1099.32
+	page := render(t, r)
+	for _, want := range []string{"52,199 events", "$1,099.32"} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the page lacks %q", want)
+		}
+	}
+}
+
+func TestRenderHTML_TheChangeSinceTheWeekBeforeIsShown(t *testing.T) {
+	r := webFixture()
+	r.Friction[0].Prev = 2
+	r.Previous = &Previous{Window: "last 7d", NotTested: 4, Denies: 9}
+	page := render(t, r)
+	if !strings.Contains(between(page, `id="friction"`, "</section>"), `title="2 the window before">+3</td>`) {
+		t.Error("a rule's change against the window before is not in its row")
+	}
+	summary := between(page, `class="facts"`, "</dl>")
+	for _, want := range []string{"<dt>Not tested</dt><dd>9 <span class=\"chg up\">(&#43;5)</span>", "<dt>Denies</dt><dd>4 <span class=\"chg down\">(−5)</span>"} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("the summary lacks %q:\n%s", want, summary)
+		}
+	}
+}
+
+func TestRenderHTML_EvidenceShowsOneCommandAndFoldsTheOtherSeqs(t *testing.T) {
+	page := render(t, webFixture())
+	want := `<code>aphrollo why 12</code><details><summary>+4 more</summary>14 (+3 in the JSON)</details>`
+	if !strings.Contains(page, want) {
+		t.Errorf("the evidence is not one command and a fold; want %q", want)
+	}
+}
+
+// between is the text of page from the first from up to the next to.
+func between(page, from, to string) string {
+	i := strings.Index(page, from)
+	if i < 0 {
+		return ""
+	}
+	rest := page[i:]
+	if j := strings.Index(rest, to); j >= 0 {
+		return rest[:j]
+	}
+	return rest
+}
+
+func TestRenderHTML_AnInjectedTextIsDrawnAgainstItsOwnCap(t *testing.T) {
+	briefs := between(render(t, webFixture()), `aria-label="injected text tokens against its cap"`, "</figure>")
+	for _, want := range []string{`style="width:91.5%"></span></span><span class="val">366 / 400`, `style="width:100.0%"></span></span><span class="val">425 / 400`} {
+		if !strings.Contains(briefs, want) {
+			t.Errorf("the brief chart lacks %q: a bar is its text's share of its own cap, not of the biggest text:\n%s", want, briefs)
+		}
 	}
 }

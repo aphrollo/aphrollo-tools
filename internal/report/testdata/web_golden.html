@@ -5,140 +5,210 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Report 2026-W41: aphrollo-tools</title>
 <style>
-:root { color-scheme: light dark; --bg:#fbfbfa; --fg:#1d1f21; --muted:#6b7075; --card:#ffffff; --line:#dcdedf; --bar:#3b6fb6; --bar2:#c0762b; --warn:#b3261e; --code:#eef0f2; }
-@media (prefers-color-scheme: dark) { :root { --bg:#14161a; --fg:#e6e8ea; --muted:#9aa0a6; --card:#1c1f24; --line:#30343a; --bar:#6aa0e8; --bar2:#e0a35c; --warn:#ff8a80; --code:#262a30; } }
+:root { color-scheme: light dark;
+  --bg:#f6f5f1; --fg:#1b1d20; --muted:#5f646b; --line:#d9d7d0; --soft:#ecebe5; --code:#e9e7df;
+  --ink:#24578a; --s1:#24578a; --s2:#a8641f; --s3:#8a8f96; --up:#a3311f; --down:#2b7344; --sel:#c9dcf0; }
+@media (prefers-color-scheme: dark) { :root {
+  --bg:#121417; --fg:#e4e6e8; --muted:#a0a6ad; --line:#2d3137; --soft:#1b1e22; --code:#23272d;
+  --ink:#7fb0e6; --s1:#7fb0e6; --s2:#e0a35c; --s3:#80868e; --up:#ff9a8a; --down:#7fd39a; --sel:#2c4766; } }
 * { box-sizing: border-box; }
-body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
-main { max-width: 860px; margin: 0 auto; padding: 16px; }
-h1 { font-size: 1.4rem; margin: 8px 0 2px; } h2 { font-size: 1.1rem; margin: 0 0 8px; }
-.sub { color:var(--muted); margin:0 0 16px; }
-section { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin:14px 0; overflow-x:auto; }
-table { border-collapse: collapse; width:100%; font-size: 0.92rem; }
-th, td { text-align:left; padding:4px 8px 4px 0; border-bottom:1px solid var(--line); vertical-align: top; }
-th { color:var(--muted); font-weight:600; }
-td.n, th.n { text-align:right; font-variant-numeric: tabular-nums; }
-code { background:var(--code); border-radius:4px; padding:1px 5px; font:0.85rem ui-monospace, monospace; user-select: all; }
-.refs { color:var(--muted); font-size:0.85rem; }
-.none, .note { color:var(--muted); }
-.over { color:var(--warn); font-weight:600; }
-.chart { width:100%; height:auto; display:block; margin:8px 0; }
-.chart .lbl, .chart .val { font:11px system-ui, sans-serif; fill:var(--fg); }
-.chart .bar { fill:var(--bar); }
-.chart .axis { stroke:var(--line); }
-.chart .line { stroke-width:2; } .chart .l1 { stroke:var(--bar); } .chart .l2 { stroke:var(--bar2); }
-.chart .key.l1 { fill:var(--bar); } .chart .key.l2 { fill:var(--bar2); }
-@media (max-width: 520px) { main { padding: 8px; } section { padding: 10px; } }
+html { scrollbar-color: var(--line) var(--bg); }
+body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+::selection { background:var(--sel); }
+a { color:var(--ink); text-underline-offset:0.2em; }
+:focus-visible { outline:2px solid var(--ink); outline-offset:2px; border-radius:2px; }
+main { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+header { margin-bottom: 8px; }
+h1 { font-size: 1.75rem; line-height:1.2; letter-spacing:-0.02em; margin: 0 0 4px; }
+h2 { font-size: 1.3rem; line-height:1.25; letter-spacing:-0.01em; margin: 0 0 12px; }
+h3 { font-size: 1rem; margin: 24px 0 8px; }
+p { margin: 0 0 12px; max-width: 72ch; }
+.sub, .muted, .note, .none { color:var(--muted); }
+.note { font-size: 0.9rem; }
+.lede { font-size: 1.15rem; margin: 16px 0; }
+.facts { display:grid; grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)); gap: 12px 24px; margin: 0 0 8px; padding: 16px 0; border-top:1px solid var(--line); border-bottom:1px solid var(--line); }
+.facts dt { color:var(--muted); font-size:0.85rem; }
+.facts dd { margin:0; font-size:1.2rem; font-weight:600; }
+.chg { font-size:0.85rem; font-weight:500; }
+.up { color:var(--up); } .down { color:var(--down); }
+nav { display:flex; flex-wrap:wrap; gap: 4px 16px; margin: 12px 0 0; font-size:0.9rem; }
+section { padding: 32px 0 8px; border-top: 1px solid var(--line); margin-top: 24px; }
+.scroll { overflow-x:auto; margin: 0 0 12px; }
+table { border-collapse: collapse; width:100%; font-size: 0.9rem; }
+th, td { text-align:left; padding:6px 12px 6px 0; border-bottom:1px solid var(--line); vertical-align: top; }
+th { color:var(--muted); font-weight:600; font-size:0.8rem; }
+td:first-child { overflow-wrap:anywhere; min-width: 9rem; }
+td.n, th.n { text-align:right; white-space:nowrap; }
+code { background:var(--code); border-radius:4px; padding:1px 5px; font:0.82rem ui-monospace, "Cascadia Mono", Menlo, monospace; user-select: all; white-space:nowrap; }
+.refs { display:block; color:var(--muted); font-size:0.82rem; margin-top:2px; }
+details { margin: 4px 0; }
+summary { cursor:pointer; color:var(--ink); width:max-content; max-width:100%; }
+.refs details { font-family: ui-monospace, "Cascadia Mono", Menlo, monospace; overflow-wrap:anywhere; }
+.over { color:var(--up); font-weight:600; }
+.group { margin: 0 0 20px; }
+.group h3 { margin: 0 0 6px; }
+.group ul { list-style:none; margin:0; padding:0; }
+.group li { padding: 6px 0; border-bottom:1px solid var(--line); }
+.group li:last-child { border-bottom:0; }
+.rule { font-weight:600; overflow-wrap:anywhere; }
+figure { margin: 0 0 20px; }
+figcaption { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
+.bars .row { display:grid; grid-template-columns: minmax(7rem, 16rem) 1fr minmax(4rem, auto); gap: 4px 12px; align-items:center; padding: 3px 0; font-size:0.85rem; }
+.bars .lbl { text-align:right; overflow-wrap:anywhere; line-height:1.3; }
+.bars .val { white-space:nowrap; }
+.track { display:block; height:12px; background:var(--soft); border-radius:3px; }
+.bar { display:block; height:100%; min-width:1px; background:var(--ink); border-radius:3px; }
+.stack { display:flex; height:16px; border-radius:3px; overflow:hidden; background:var(--soft); }
+.seg { display:block; height:100%; }
+.s1 { background:var(--s1); } .s2 { background:var(--s2); } .s3 { background:var(--s3); }
+.legend { list-style:none; display:flex; flex-wrap:wrap; gap: 4px 20px; padding:0; margin: 8px 0 0; font-size:0.85rem; }
+.key { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; }
+.trend svg { display:block; width:100%; height:96px; }
+.trend .line { fill:none; stroke-width:2; vector-effect:non-scaling-stroke; }
+.trend .area { stroke:none; opacity:0.12; }
+.trend .l1 { stroke:var(--s1); } .trend .area.l1 { fill:var(--s1); }
+.trend .l2 { stroke:var(--s2); stroke-dasharray:6 3; } .trend .area.l2 { fill:var(--s2); }
+.trend .axis { stroke:var(--line); vector-effect:non-scaling-stroke; }
+.xs { display:flex; justify-content:space-between; font-size:0.8rem; color:var(--muted); }
+@media (max-width: 560px) {
+  main { padding: 20px 16px 48px; }
+  h1 { font-size: 1.45rem; }
+  .bars .row { grid-template-columns: 1fr auto; }
+  .bars .lbl { grid-column: 1 / -1; text-align:left; }
+  td:first-child { min-width: 7rem; }
+}
 </style>
 </head>
 <body>
 <main>
+<header>
 <h1>Report 2026-W41</h1>
-<p class="sub">aphrollo-tools · last 7d up to 2026-10-07T12:00:00Z · 1234 events. Replay an event by running its <code>aphrollo why &lt;seq&gt;</code> text in the repo.</p>
+<p class="sub">aphrollo-tools · last 7d up to 2026-10-07T12:00:00Z · 1,234 events. Replay an event by running its <code>aphrollo why &lt;seq&gt;</code> text in the repo.</p>
+<p class="lede">The A/B is not decidable yet: enforce 12 of 30 lanes, warn 31 of 30 lanes. One proposal.</p>
+<dl class="facts">
+<div><dt>Not tested</dt><dd>9</dd></div>
+<div><dt>Denies</dt><dd>4</dd></div>
+<div><dt>Overrides</dt><dd>1</dd></div>
+<div><dt>Refusals</dt><dd>3</dd></div>
+<div><dt>Escapes</dt><dd>2</dd></div>
+<div><dt>Waited on the gate</dt><dd>2.8m</dd></div>
+<div><dt>Session cost</dt><dd>$12.50</dd></div>
+</dl>
+
+<nav aria-label="sections"><a href="#proposals">Proposals</a><a href="#friction">Friction</a><a href="#wrong">Wrong blocks</a><a href="#escapes">Escapes</a><a href="#ab">A/B and shadow</a><a href="#tokens">Injected tokens</a><a href="#usage">Session usage</a></nav>
+</header>
 
 <section id="proposals">
 <h2>Proposals</h2>
-<p class="note">The report proposes; nothing here is applied.</p>
-<table><tr><th>Rule</th><th>Evidence</th><th>Proposed change</th></tr>
-<tr><td>disabled-test</td><td>5 denies, 3 waived<br><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td><td>lower the rule from block to guide</td></tr>
-</table>
+<p class="note">The report proposes; nothing here is applied. Rules are grouped by the change they call for.</p>
+<div class="group"><h3>lower the rule from block to guide</h3><ul>
+<li><span class="rule">disabled-test</span> <span class="muted">· 5 denies, 3 waived</span><span class="refs"><code>aphrollo why 12</code><details><summary>+4 more</summary>14 (+3 in the JSON)</details></span></li>
+</ul></div>
+
 </section>
 
 <section id="friction">
-<h2>1. Friction per rule</h2>
-<svg class="chart" viewBox="0 0 640 80" role="img" aria-label="friction per rule"><g><title>ratchet:module_size: 5</title><text class="lbl" x="222" y="19" text-anchor="end">ratchet:module_size</text><rect class="bar" x="230" y="7" width="166.7" height="16" rx="2"/><text class="val" x="402.7" y="19">5</text></g><g><title>gate:lint-blocked: 3</title><text class="lbl" x="222" y="43" text-anchor="end">gate:lint-blocked</text><rect class="bar" x="230" y="31" width="100.0" height="16" rx="2"/><text class="val" x="336.0" y="43">3</text></g><g><title>run:deferred: 9</title><text class="lbl" x="222" y="67" text-anchor="end">run:deferred</text><rect class="bar" x="230" y="55" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="67">9</text></g></svg>
-<table><tr><th>Rule</th><th class="n">Denies</th><th class="n">Overrides</th><th class="n">Refusals</th><th class="n">Not tested</th><th class="n">Waited</th><th class="n">Background</th><th>Evidence</th></tr>
-<tr><td>ratchet:module_size</td><td class="n">4</td><td class="n">1</td><td class="n">0</td><td class="n">0</td><td class="n">2.2m</td><td class="n">0s</td><td><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td></tr>
-<tr><td>gate:lint-blocked</td><td class="n">0</td><td class="n">0</td><td class="n">3</td><td class="n">0</td><td class="n">40s</td><td class="n">15s</td><td><span class="refs"><code>aphrollo why 30</code></span></td></tr>
-<tr><td>run:deferred</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">9</td><td class="n">0s</td><td class="n">0s</td><td><span class="refs"><code>aphrollo why 32</code></span></td></tr>
-</table>
+<h2>Friction per rule</h2>
+<figure class="bars" aria-label="friction per rule"><figcaption>friction per rule</figcaption><div class="row"><span class="lbl">ratchet:module_size</span><span class="track"><span class="bar" style="width:55.6%"></span></span><span class="val">5</span></div><div class="row"><span class="lbl">gate:lint-blocked</span><span class="track"><span class="bar" style="width:33.3%"></span></span><span class="val">3</span></div><div class="row"><span class="lbl">run:deferred</span><span class="track"><span class="bar" style="width:100.0%"></span></span><span class="val">9</span></div></figure>
+<div class="scroll"><table><tr><th>Rule</th><th class="n">Denies</th><th class="n">Overrides</th><th class="n">Refusals</th><th class="n">Not tested</th><th class="n">Waited</th><th class="n">Background</th></tr>
+<tr><td>ratchet:module_size<span class="refs"><code>aphrollo why 12</code><details><summary>+4 more</summary>14 (+3 in the JSON)</details></span></td><td class="n">4</td><td class="n">1</td><td class="n">0</td><td class="n">0</td><td class="n">2.2m</td><td class="n">0s</td></tr>
+<tr><td>gate:lint-blocked<span class="refs"><code>aphrollo why 30</code></span></td><td class="n">0</td><td class="n">0</td><td class="n">3</td><td class="n">0</td><td class="n">40s</td><td class="n">15s</td></tr>
+<tr><td>run:deferred<span class="refs"><code>aphrollo why 32</code></span></td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">9</td><td class="n">0s</td><td class="n">0s</td></tr>
+</table></div>
+
+
+
 <p class="note">Waited is gate time the agent stood waiting on; background is gate time that ran while it kept working.</p>
 </section>
 
 <section id="wrong">
-<h2>2. Wrong-block candidates</h2>
-<svg class="chart" viewBox="0 0 640 32" role="img" aria-label="share of denies waived per rule"><g><title>disabled-test: 60%</title><text class="lbl" x="222" y="19" text-anchor="end">disabled-test</text><rect class="bar" x="230" y="7" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="19">60%</text></g></svg>
-<table><tr><th>Rule</th><th class="n">Denies</th><th class="n">Waived</th><th class="n">Rate</th><th>Evidence</th></tr>
-<tr><td>disabled-test</td><td class="n">5</td><td class="n">3</td><td class="n">60%</td><td><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td></tr>
-</table>
-<h3>Shadow would-be blocks</h3><table><tr><th>Rule</th><th class="n">Fires</th><th class="n">Would-be blocks</th><th class="n">Wrong</th><th class="n">Caught</th><th class="n">Open</th></tr>
+<h2>Wrong-block candidates</h2>
+<figure class="bars" aria-label="share of denies waived per rule"><figcaption>share of denies waived per rule</figcaption><div class="row"><span class="lbl">disabled-test</span><span class="track"><span class="bar" style="width:60.0%"></span></span><span class="val">60%</span></div></figure>
+<div class="scroll"><table><tr><th>Rule</th><th class="n">Denies</th><th class="n">Waived</th><th class="n">Rate</th></tr>
+<tr><td>disabled-test<span class="refs"><code>aphrollo why 12</code><details><summary>+4 more</summary>14 (+3 in the JSON)</details></span></td><td class="n">5</td><td class="n">3</td><td class="n">60%</td></tr>
+</table></div>
+<h3>Shadow would-be blocks</h3><p class="note">Blocks the kernel would have made where aphrollo did not, and how the log judged them afterwards.</p><div class="scroll"><table><tr><th>Rule</th><th class="n">Fires</th><th class="n">Would-be blocks</th><th class="n">Wrong</th><th class="n">Caught</th><th class="n">Open</th></tr>
 <tr><td>red-green</td><td class="n">40</td><td class="n">8</td><td class="n">2</td><td class="n">1</td><td class="n">5</td></tr>
-</table>
-<h3>Stand-downs</h3><table><tr><th>Matcher</th><th class="n">Times</th><th>Evidence</th></tr>
-<tr><td>unknown-matcher-kind:tautology</td><td class="n">25</td><td><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td></tr>
-</table>
+</table></div>
+<details><summary>1 matchers made a rule stand down</summary><p class="note">A stand-down is a rule that let the edit through because the kernel cannot run its matcher yet.</p><div class="scroll"><table><tr><th>Matcher</th><th class="n">Times</th></tr>
+<tr><td>unknown-matcher-kind:tautology<span class="refs"><code>aphrollo why 12</code><details><summary>+4 more</summary>14 (+3 in the JSON)</details></span></td><td class="n">25</td></tr>
+</table></div></details>
 </section>
 
 <section id="escapes">
-<h2>3. Escapes by class and the stage that should have caught them</h2>
-<svg class="chart" viewBox="0 0 640 32" role="img" aria-label="escapes by class"><g><title>product: local test gate (CI job test caught it): 2</title><text class="lbl" x="222" y="19" text-anchor="end">product: local test gate (CI job …</text><rect class="bar" x="230" y="7" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="19">2</text></g></svg>
-<table><tr><th>Class</th><th class="n">N</th><th>Should have been caught by</th><th>Evidence</th></tr>
-<tr><td>product</td><td class="n">2</td><td>local test gate (CI job test caught it)</td><td><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td></tr>
-</table>
+<h2>Escapes and the stage that should have caught them</h2>
+<figure class="bars" aria-label="escapes by class"><figcaption>escapes by class</figcaption><div class="row"><span class="lbl">product: local test gate (CI job test caught it)</span><span class="track"><span class="bar" style="width:100.0%"></span></span><span class="val">2</span></div></figure>
+<div class="scroll"><table><tr><th>Class</th><th class="n">N</th><th>Should have been caught by</th></tr>
+<tr><td>product<span class="refs"><code>aphrollo why 12</code><details><summary>+4 more</summary>14 (+3 in the JSON)</details></span></td><td class="n">2</td><td>local test gate (CI job test caught it)</td></tr>
+</table></div>
 <p class="note">False positives (wrong denies): 1</p>
 </section>
 
 <section id="ab">
-<h2>4. A/B and shadow, per arm and language</h2>
-<svg class="chart" viewBox="0 0 640 56" role="img" aria-label="lanes per A/B arm"><g><title>enforce lanes (whole log, 30 needed): 12 of 30</title><text class="lbl" x="222" y="19" text-anchor="end">enforce lanes (whole log, 30 need…</text><rect class="bar" x="230" y="7" width="116.1" height="16" rx="2"/><text class="val" x="352.1" y="19">12 of 30</text></g><g><title>warn lanes (whole log, 30 needed): 31 of 30</title><text class="lbl" x="222" y="43" text-anchor="end">warn lanes (whole log, 30 needed)</text><rect class="bar" x="230" y="31" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="43">31 of 30</text></g></svg>
-<table><tr><th>Arm</th><th class="n">Lanes</th><th class="n">Denies</th><th class="n">Warnings</th><th class="n">Overrides</th><th class="n">Escapes</th><th class="n">Held out</th><th class="n">Budget drops</th></tr>
+<h2>A/B and shadow, per arm and language</h2>
+<figure class="bars" aria-label="lanes per A/B arm in the whole log, 30 needed"><figcaption>lanes per A/B arm in the whole log, 30 needed</figcaption><div class="row"><span class="lbl">enforce</span><span class="track"><span class="bar" style="width:40.0%"></span></span><span class="val">12 of 30</span></div><div class="row"><span class="lbl">warn</span><span class="track"><span class="bar" style="width:100.0%"></span></span><span class="val">31 of 30</span></div></figure>
+<p class="note">Not decidable yet: each arm needs 30 lanes in the whole log.</p>
+<h3>This window</h3><div class="scroll"><table><tr><th>Arm</th><th class="n">Lanes</th><th class="n">Denies</th><th class="n">Warnings</th><th class="n">Overrides</th><th class="n">Escapes</th><th class="n">Held out</th><th class="n">Budget drops</th></tr>
 <tr><td>enforce</td><td class="n">4</td><td class="n">3</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">1</td><td class="n">2</td></tr>
 <tr><td>warn</td><td class="n">6</td><td class="n">0</td><td class="n">5</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td></tr>
-</table>
-<p class="note">Lanes in the whole log: enforce 12 of 30 · warn 31 of 30 · not decidable yet</p>
+</table></div>
 
 <h3>Shadow</h3>
-<p class="note">40 fires, 2 dropped for the budget.</p>
-<table><tr><th>Language</th><th class="n">Fires</th><th class="n">Agree</th><th class="n">Held out</th><th class="n">Budget drops</th></tr>
+<p class="note">40 fires, 2 dropped for the budget. Held out: lanes kept out of the comparison; budget drops: checks skipped to stay inside the hook's time budget.</p>
+<div class="scroll"><table><tr><th>Language</th><th class="n">Fires</th><th class="n">Agree</th><th class="n">Held out</th><th class="n">Budget drops</th></tr>
 <tr><td>go</td><td class="n">30</td><td class="n">80%</td><td class="n">1</td><td class="n">2</td></tr>
 <tr><td>python</td><td class="n">4</td><td class="n">under 10 fires</td><td class="n">0</td><td class="n">0</td></tr>
-</table>
+</table></div>
 </section>
 
 <section id="tokens">
-<h2>5. Token cost of what the harness injects</h2>
-<svg class="chart" viewBox="0 0 640 56" role="img" aria-label="injected text tokens against its cap"><g><title>managed CLAUDE.md block: 366 / 400</title><text class="lbl" x="222" y="19" text-anchor="end">managed CLAUDE.md block</text><rect class="bar" x="230" y="7" width="258.4" height="16" rx="2"/><text class="val" x="494.4" y="19">366 / 400</text></g><g><title>tdd skill: 425 / 400</title><text class="lbl" x="222" y="43" text-anchor="end">tdd skill</text><rect class="bar" x="230" y="31" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="43">425 / 400</text></g></svg>
-<table><tr><th>Text</th><th class="n">Tokens</th><th class="n">Cap</th></tr>
+<h2>Token cost of what the harness injects</h2>
+<figure class="bars" aria-label="injected text tokens against its cap"><figcaption>injected text tokens against its cap</figcaption><div class="row"><span class="lbl">managed CLAUDE.md block</span><span class="track"><span class="bar" style="width:91.5%"></span></span><span class="val">366 / 400</span></div><div class="row"><span class="lbl">tdd skill</span><span class="track"><span class="bar" style="width:100.0%"></span></span><span class="val">425 / 400</span></div></figure>
+<div class="scroll"><table><tr><th>Text</th><th class="n">Tokens</th><th class="n">Cap</th></tr>
 <tr><td>managed CLAUDE.md block</td><td class="n">366</td><td class="n">400</td></tr>
 <tr><td>tdd skill</td><td class="n over">425</td><td class="n">400</td></tr>
-</table>
-<h3>Biggest gate lines</h3><table><tr><th>Line</th><th class="n">Times</th><th class="n">Tokens</th><th>Evidence</th></tr>
-<tr><td>commit_gate:precommit:mutants-passed</td><td class="n">96</td><td class="n">900</td><td><span class="refs"><code>aphrollo why 12</code> 14 (+3 more)</span></td></tr>
-</table>
+</table></div>
+<h3>Biggest gate lines</h3><div class="scroll"><table><tr><th>Line</th><th class="n">Times</th><th class="n">Tokens</th></tr>
+<tr><td>commit_gate:precommit:mutants-passed<span class="refs"><code>aphrollo why 12</code><details><summary>+4 more</summary>14 (+3 in the JSON)</details></span></td><td class="n">96</td><td class="n">900</td></tr>
+</table></div>
 </section>
 
 <section id="usage">
-<h2>7. Session usage</h2>
-
+<h2>Session usage</h2>
 <p class="note">From the harness's local transcripts of aphrollo-tools: 3 sessions, 40 turns (a reply counted once), unreadable 0 lines and 0 files. Aggregates only: no prompt, code, tool text or injected text is on this page. Cost is a notional list price computed when the report is read.</p>
 <p>Total: input 92k (fresh 100, cache write 2000, cache read 90k), output 5000, $12.50.</p>
-<svg class="chart" viewBox="0 0 640 190" role="img" aria-label="tokens per day"><line class="axis" x1="8" y1="156" x2="632" y2="156"/><polyline class="line l1" fill="none" points="8.0,40.8 632.0,12.0"><title>input submitted</title></polyline><polyline class="line l2" fill="none" points="8.0,150.2 632.0,147.4"><title>output</title></polyline><text class="lbl" x="8" y="172">2026-10-05</text><text class="lbl" x="632" y="172" text-anchor="end">2026-10-06</text><text class="lbl key l1" x="8" y="184">— input submitted</text><text class="lbl key l2" x="198" y="184">— output</text><text class="lbl" x="632" y="12" text-anchor="end">peak 50020</text></svg>
-<svg class="chart" viewBox="0 0 640 80" role="img" aria-label="cost per lane"><g><title>lane/a: $10.00</title><text class="lbl" x="222" y="19" text-anchor="end">lane/a</text><rect class="bar" x="230" y="7" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="19">$10.00</text></g><g><title>coordination: $1.50</title><text class="lbl" x="222" y="43" text-anchor="end">coordination</text><rect class="bar" x="230" y="31" width="45.0" height="16" rx="2"/><text class="val" x="281.0" y="43">$1.50</text></g><g><title>unattributed: $1.00</title><text class="lbl" x="222" y="67" text-anchor="end">unattributed</text><rect class="bar" x="230" y="55" width="30.0" height="16" rx="2"/><text class="val" x="266.0" y="67">$1.00</text></g></svg>
-<table><tr><th>Lane</th><th class="n">Turns</th><th class="n">Output</th><th class="n">Cost</th></tr>
+<figure class="trend" aria-label="input submitted per day"><figcaption>input submitted per day <span class="muted">peak 50k</span></figcaption><svg viewBox="0 0 640 120" preserveAspectRatio="none" role="img" aria-label="input submitted per day"><polygon class="area l1" points="0,114 0.0,27.6 640.0,6.0 640,114"/><polyline class="line l1" points="0.0,27.6 640.0,6.0"/><line class="axis" x1="0" y1="114" x2="640" y2="114"/></svg><div class="xs"><span>2026-10-05</span><span>2026-10-06</span></div></figure><figure class="trend" aria-label="output per day"><figcaption>output per day <span class="muted">peak 3000</span></figcaption><svg viewBox="0 0 640 120" preserveAspectRatio="none" role="img" aria-label="output per day"><polygon class="area l2" points="0,114 0.0,42.0 640.0,6.0 640,114"/><polyline class="line l2" points="0.0,42.0 640.0,6.0"/><line class="axis" x1="0" y1="114" x2="640" y2="114"/></svg><div class="xs"><span>2026-10-05</span><span>2026-10-06</span></div></figure>
+<figure class="split" aria-label="where the session cost went"><figcaption>where the session cost went</figcaption><div class="stack"><span class="seg s1" style="width:80.0%" title="lanes 80%"></span><span class="seg s2" style="width:12.0%" title="coordination 12%"></span><span class="seg s3" style="width:8.0%" title="unattributed 8%"></span></div><ul class="legend"><li><span class="key s1"></span>lanes 80% <span class="muted">$10.00</span></li><li><span class="key s2"></span>coordination 12% <span class="muted">$1.50</span></li><li><span class="key s3"></span>unattributed 8% <span class="muted">$1.00</span></li></ul></figure>
+<p class="note">A record's working directory names the primary checkout, so a lane is joined from the event log and the worktree calls. Coordination: coordinator turns with no lane in reach. Unattributed: subagent turns with no lane event.</p>
+<figure class="bars" aria-label="cost per lane"><figcaption>cost per lane</figcaption><div class="row"><span class="lbl">lane/a</span><span class="track"><span class="bar" style="width:100.0%"></span></span><span class="val">$10.00</span></div></figure>
+<div class="scroll"><table><tr><th>Lane</th><th class="n">Turns</th><th class="n">Output</th><th class="n">Cost</th></tr>
 <tr><td>lane/a</td><td class="n">0</td><td class="n">4000</td><td class="n">$10.00</td></tr>
 <tr><td>coordination</td><td class="n">0</td><td class="n">700</td><td class="n">$1.50</td></tr>
 <tr><td>unattributed</td><td class="n">0</td><td class="n">300</td><td class="n">$1.00</td></tr>
-</table>
-<p class="note">A record's working directory names the primary checkout, so a lane is joined from the event log and the worktree calls. Coordination: coordinator turns with no lane in reach. Unattributed: no lane event for the actor.</p>
-<svg class="chart" viewBox="0 0 640 32" role="img" aria-label="cost per model"><g><title>claude-opus-5: $12.50</title><text class="lbl" x="222" y="19" text-anchor="end">claude-opus-5</text><rect class="bar" x="230" y="7" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="19">$12.50</text></g></svg>
-<table><tr><th>Role</th><th class="n">Turns</th><th class="n">Output</th><th class="n">Cost</th></tr>
+</table></div>
+
+<figure class="bars" aria-label="cost per model"><figcaption>cost per model</figcaption><div class="row"><span class="lbl">claude-opus-5</span><span class="track"><span class="bar" style="width:100.0%"></span></span><span class="val">$12.50</span></div></figure>
+<div class="scroll"><table><tr><th>Role</th><th class="n">Turns</th><th class="n">Output</th><th class="n">Cost</th></tr>
 <tr><td>coordinator</td><td class="n">0</td><td class="n">3000</td><td class="n">$8.00</td></tr>
 <tr><td>subagent</td><td class="n">0</td><td class="n">2000</td><td class="n">$4.50</td></tr>
-</table>
+</table></div>
 <h3>Top sessions</h3>
-<table><tr><th>Session</th><th class="n">Turns</th><th class="n">Output</th><th class="n">Cost</th></tr>
-<tr><td>s-1</td><td class="n">30</td><td class="n">4000</td><td class="n">$9.00</td></tr>
-</table>
+<div class="scroll"><table><tr><th>Session</th><th class="n">Turns</th><th class="n">Output</th><th class="n">Cost</th></tr>
+<tr><td title="s-1">s-1</td><td class="n">30</td><td class="n">4000</td><td class="n">$9.00</td></tr>
+</table></div>
 <h3>aphrollo's injected text</h3>
 <p>aphrollo injected about 700 tokens (first injection; cache re-reads are not counted), 0.760% of the fresh (non-cache-read) input.</p>
-<svg class="chart" viewBox="0 0 640 56" role="img" aria-label="injected tokens by gate-line kind"><g><title>green: 300</title><text class="lbl" x="222" y="19" text-anchor="end">green</text><rect class="bar" x="230" y="7" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="19">300</text></g><g><title>not-tested: 200</title><text class="lbl" x="222" y="43" text-anchor="end">not-tested</text><rect class="bar" x="230" y="31" width="200.0" height="16" rx="2"/><text class="val" x="436.0" y="43">200</text></g></svg>
+<figure class="bars" aria-label="injected tokens by gate-line kind"><figcaption>injected tokens by gate-line kind</figcaption><div class="row"><span class="lbl">green</span><span class="track"><span class="bar" style="width:100.0%"></span></span><span class="val">300</span></div><div class="row"><span class="lbl">not-tested</span><span class="track"><span class="bar" style="width:66.7%"></span></span><span class="val">200</span></div></figure>
 <h3>Before and after 2026-10-05</h3>
-<svg class="chart" viewBox="0 0 640 56" role="img" aria-label="cost a day before and after"><g><title>before 2026-10-05: $1.00</title><text class="lbl" x="222" y="19" text-anchor="end">before 2026-10-05</text><rect class="bar" x="230" y="7" width="120.0" height="16" rx="2"/><text class="val" x="356.0" y="19">$1.00</text></g><g><title>after 2026-10-05: $2.50</title><text class="lbl" x="222" y="43" text-anchor="end">after 2026-10-05</text><rect class="bar" x="230" y="31" width="300.0" height="16" rx="2"/><text class="val" x="536.0" y="43">$2.50</text></g></svg>
-<table><tr><th></th><th class="n">Days</th><th class="n">Cost a day</th><th class="n">Output a day</th><th class="n">Injected share</th></tr>
+<figure class="bars" aria-label="cost a day before and after"><figcaption>cost a day before and after</figcaption><div class="row"><span class="lbl">before 2026-10-05</span><span class="track"><span class="bar" style="width:40.0%"></span></span><span class="val">$1.00</span></div><div class="row"><span class="lbl">after 2026-10-05</span><span class="track"><span class="bar" style="width:100.0%"></span></span><span class="val">$2.50</span></div></figure>
+<div class="scroll"><table><tr><th></th><th class="n">Days</th><th class="n">Cost a day</th><th class="n">Output a day</th><th class="n">Injected share</th></tr>
 <tr><td>before</td><td class="n">5</td><td class="n">$1.00</td><td class="n">200</td><td class="n">1.0%</td></tr>
 <tr><td>after</td><td class="n">3</td><td class="n">$2.50</td><td class="n">1333</td><td class="n">0.5%</td></tr>
-</table>
-
+</table></div>
 </section>
 </main>
 </body>
 </html>
+
+
+

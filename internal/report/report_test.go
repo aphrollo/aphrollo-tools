@@ -283,3 +283,45 @@ func TestBuild_ALogWithNoVersionsSaysNothingOfVersions(t *testing.T) {
 		t.Fatalf("the text names versions for a log that carries none:\n%s", r.Text())
 	}
 }
+
+func TestBuild_ThePreviousWindowIsCountedBesideThisOneForTheChangeSinceLastWeek(t *testing.T) {
+	const day = 24 * 60
+	prevGate := evAt(40, 8*day, "commit_gate", "lane/a", "lint-blocked")
+	prevGate.Secs = 30
+	evs := []tdd.Event{
+		evAt(10, 100, "run.result", "lane/a", "not-tested", "result", "not-tested", "cause", "deferred"),
+		evAt(11, 8*day, "run.result", "lane/a", "not-tested", "result", "not-tested", "cause", "deferred"),
+		evAt(12, 9*day, "run.result", "lane/a", "not-tested", "result", "not-tested", "cause", "deferred"),
+		evAt(13, 15*day, "run.result", "lane/a", "not-tested", "result", "not-tested", "cause", "deferred"), // two windows back: in neither
+		prevGate,
+		evAt(41, 9*day, "escape", "lane/a", "escape", "class", "product"),
+	}
+	r := build(evs)
+	if got := frictionRow(t, r, "run:deferred").Prev; got != 2 {
+		t.Errorf("run:deferred prev = %d, want 2 (the two runs of the week before, not the one two weeks back)", got)
+	}
+	p := r.Previous
+	if p == nil {
+		t.Fatal("no previous window on a windowed report")
+	}
+	if p.NotTested != 2 || p.Refusals != 1 || p.SecsLost != 30 || p.Escapes != 1 || p.Events != 4 {
+		t.Errorf("previous = %+v, want 2 not tested, 1 refusal, 30s waited, 1 escape, 4 events", *p)
+	}
+	if len(p.Gone) != 1 || p.Gone[0] != (RuleCount{Rule: "gate:lint-blocked", N: 1}) {
+		t.Errorf("gone = %+v, want gate:lint-blocked 1: a rule seen only the week before is named, so its drop to zero shows", p.Gone)
+	}
+	whole := Build(Input{Events: evs, Now: now, Repo: "aphrollo-tools"})
+	if whole.Previous != nil {
+		t.Errorf("the whole-log report has a previous window: %+v", *whole.Previous)
+	}
+}
+
+func TestBuild_AnEmptyWindowBeforeIsNoComparison(t *testing.T) {
+	r := build([]tdd.Event{evAt(10, 100, "run.result", "lane/a", "not-tested", "result", "not-tested", "cause", "deferred")})
+	if r.Previous != nil {
+		t.Errorf("previous = %+v, want none: a window before the log began would read every number as all new", *r.Previous)
+	}
+	if got := frictionRow(t, r, "run:deferred").Prev; got != 0 {
+		t.Errorf("prev = %d, want 0", got)
+	}
+}

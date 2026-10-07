@@ -110,13 +110,17 @@ func TestLane_ASubagentOnSeveralLanesFollowsItsLatestLaneEventThenTheNextOne(t *
 	}
 }
 
-func TestLane_NoEventsAtAllIsUnattributedAndNeverGuessed(t *testing.T) {
+// ratchet: test_removed TestLane_NoEventsAtAllIsUnattributedAndNeverGuessed: renamed; a coordinator with no lane event is now coordination
+func TestLane_ACoordinatorWithNoLaneEventIsCoordinationAndASubagentUnattributed(t *testing.T) {
 	f := newUsageFixture(t)
 	f.transcript("p", "s9.jsonl", turnRec("s9", "", "r1", laneAt(10, 0), f.repo, 7, ""))
 	f.transcript("p", filepath.Join("s9", "subagents", "agent-agZ.jsonl"), turnRec("s9", "agZ", "r2", laneAt(10, 0), f.repo, 9, ""))
 	u := usage(t, f.scanWith([]tdd.Event{logEv("merge", "lane/a", "other-session", laneAt(10, 0))}))
-	if got := laneOut(u, "unattributed"); got != 16 {
-		t.Errorf("unattributed output = %d, want 16 (the coordinator's and the subagent's); lanes %+v", got, u.ByLane)
+	if got := laneOut(u, "coordination"); got != 7 {
+		t.Errorf("coordination output = %d, want 7 (a coordinator's turn with no lane in reach is coordination, events or not); lanes %+v", got, u.ByLane)
+	}
+	if got := laneOut(u, "unattributed"); got != 9 {
+		t.Errorf("unattributed output = %d, want 9 (the subagent's, never guessed); lanes %+v", got, u.ByLane)
 	}
 	if got := laneOut(u, "lane/a"); got != 0 {
 		t.Errorf("another session's merge took %d tokens", got)

@@ -111,9 +111,9 @@ func (s *scan) worktreeCalls(rec transcriptLine, actor actorKey, at time.Time) {
 // one lane gives all its usage to it. Otherwise a turn is on the lane of its
 // actor's latest lane event at or before it (a worktree left ends it), else the
 // next one after it; a coordinator's turn only within laneReach of one. A
-// coordinator with lane events but none in reach is coordination; an actor with
-// no lane events at all, or a subagent none of whose events reach the turn, is
-// unattributed.
+// coordinator's turn with no lane in reach is coordination, whether or not it
+// has lane events; a subagent with no lane events, or none that reach the turn,
+// is unattributed.
 func (s *scan) laneOf(t turn) string {
 	evs := s.sorted(t.actor)
 	sub := t.actor.agent != ""
@@ -139,7 +139,7 @@ func (s *scan) laneOf(t turn) string {
 			break
 		}
 	}
-	if !sub && len(evs) > 0 {
+	if !sub {
 		return laneCoordination
 	}
 	return laneUnattributed
