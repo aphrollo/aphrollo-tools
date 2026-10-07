@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,20 +57,26 @@ func TestUpdate_DryPrintsThePlanAndFetchesBuildsAndSwapsNothing(t *testing.T) {
 }
 
 // A "--" in first place carries no update flag before it: everything after it
-// is init's, so the verb goes on to its own checks. The install refusal is how
-// the test sees it got that far, without a fetch, build or swap.
+// is init's, so the verb goes on to install and hands it on to gate init.
 func TestUpdate_ADoubleDashFirstForwardsEverythingAfterIt(t *testing.T) {
+	userspaceHome(t)
 	_, clone, _ := updateFixture(t)
 	t.Chdir(clone)
-	prevWritable := installWritable
-	installWritable = func(string) bool { return false }
-	t.Cleanup(func() { installWritable = prevWritable })
+	userspaceBuild(t, "NEW")
+	var gotArgs []string
+	prev := runInstalledInitFn
+	runInstalledInitFn = func(_ string, args []string, _, _ io.Writer) (int, error) {
+		gotArgs = args
+		return 0, nil
+	}
+	t.Cleanup(func() { runInstalledInitFn = prev })
 
 	var out, errb bytes.Buffer
-	code := runUpdate([]string{"--", "--git-hooks-dir", t.TempDir()}, &out, &errb)
+	dir := t.TempDir()
+	code := runUpdate([]string{"--", "--git-hooks-dir", dir}, &out, &errb)
 
-	if code != 1 || !strings.Contains(errb.String(), "not writable") {
-		t.Fatalf("exit %d, stderr %q; want the install refusal (exit 1)", code, errb.String())
+	if code != 0 || !strings.HasSuffix(strings.Join(gotArgs, " "), "--git-hooks-dir "+dir) {
+		t.Fatalf("exit %d, init args %q, stderr %q; want the arguments after -- passed to gate init", code, gotArgs, errb.String())
 	}
 }
 

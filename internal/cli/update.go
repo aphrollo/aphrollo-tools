@@ -13,6 +13,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
 // aphrollo update is the ONLY way the box binary moves. It follows the newest
@@ -25,14 +26,20 @@ import (
 // tag, never the working tree, which may be behind or carrying an edit of its
 // own. `gate self-install`, which built from an arbitrary checkout, was
 // retired with the bootstrap that needed it (#659, #673).
-const updateUsage = `usage: aphrollo update [--repo DIR] [--bin PATH] [--remote NAME] [--no-init] [--dry]
+const updateUsage = `usage: aphrollo update [--repo DIR] [--to VERSION] [--bin PATH] [--remote NAME] [--no-init] [--dry]
 
 Fetches <remote>'s tags, finds the newest release tag (v<MAJOR.MINOR.PATCH>),
 builds ./cmd/aphrollo from a detached temporary worktree at that tag (never
-the working tree, which may be behind or dirty), swaps it in for --bin,
-sweeps stale copies beside it, then runs gate init UNDER THE NEW BINARY (so
-the managed files come from its templates, not the outgoing build's) unless
---no-init. It prints the version it moved from and to, or "[skip] already at
+the working tree, which may be behind or dirty) and installs it WITHOUT root
+into a versioned user-space directory (~/.aphrollo/bin/<version>/, or
+%LOCALAPPDATA%\aphrollo\bin\<version>\ on Windows), moves the "current"
+pointer the hooks follow to it and keeps the newest three versions. It then
+runs gate init UNDER THE NEW BINARY (so the managed files come from its
+templates, not the outgoing build's) unless --no-init.
+
+--to VERSION switches "current" back to an installed version: no fetch, no
+build. --bin PATH keeps the old behavior: replace that one file in place,
+sweeping stale copies beside it. It prints the version it moved from and to, or "[skip] already at
 vX". --dry prints what it would fetch, build and swap, and stops before the
 fetch.
 
@@ -64,6 +71,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		binPath = fs.String("bin", "", "binary to replace (default: this executable)")
 		noInit  = fs.Bool("no-init", false, "replace the binary only; skip `gate init`")
 		remote  = fs.String("remote", "origin", "remote to fetch and build from")
+		to      = fs.String("to", "", "switch the user-space current to this installed version (no fetch, no build)")
 		dry     = fs.Bool("dry", false, "print the tag source, build target and swap path and stop before the fetch")
 	)
 	// Everything after a bare "--" is forwarded to `gate init` untouched; what
@@ -83,24 +91,47 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	bin := resolveBinPath(*binPath, "aphrollo update", stdout)
+	if *to != "" && *binPath != "" {
+		fmt.Fprintln(stderr, "aphrollo update: --to switches the user-space install and cannot be combined with --bin")
+		return 2
+	}
+	if *to != "" {
+		return switchUserSpace(strings.TrimPrefix(*to, "v"), *noInit, forwarded, stdout, stderr)
+	}
+	userSpace := *binPath == ""
+	var bin, root string
+	if userSpace {
+		r, err := userbin.Root()
+		if err != nil {
+			fmt.Fprintf(stderr, "aphrollo update: no user-space install dir: %v; pass --bin to replace one file in place\n", err)
+			return 1
+		}
+		root = r
+	} else {
+		bin = resolveBinPath(*binPath, "aphrollo update", stdout)
+	}
 
 	// Checked before the fetch and build run at all: os.Executable (what
 	// resolveBinPath falls back to) resolves every symlink, so on the box
-	// that deploys via CI (deploy/deploy-prod.sh) this lands on
-	// /opt/aphrollo-cli/releases/<ts>-<sha>/aphrollo, a directory only the
-	// deploy pipeline's own account owns. Finding that out here means
+	// whose binary is a root-owned symlink chain this lands on
+	// /opt/aphrollo-cli/releases/<ts>-<sha>/aphrollo, a directory only root
+	// owns. Finding that out here means
 	// "permission denied" never comes out of `go build` after a wasted
 	// fetch and worktree checkout.
-	if !installWritable(filepath.Dir(bin)) {
+	if !userSpace && !installWritable(filepath.Dir(bin)) {
 		if owner := tdd.InstallOwner(filepath.Dir(bin)); owner != "" {
-			fmt.Fprintf(stderr, "aphrollo update: %s is not writable by this account — it is owned by %s and is deployed by the repo pipeline on merge, not by aphrollo update here\n", bin, owner)
+			fmt.Fprintf(stderr, "aphrollo update: %s is not writable by this account — it is owned by %s; run aphrollo update without --bin to install into your user space\n", bin, owner)
 		} else {
-			fmt.Fprintf(stderr, "aphrollo update: %s is not writable by this account — it is deployed by the repo pipeline on merge, not by aphrollo update here\n", bin)
+			fmt.Fprintf(stderr, "aphrollo update: %s is not writable by this account; run aphrollo update without --bin to install into your user space\n", bin)
 		}
 		return 1
 	}
 
+	if *dry && userSpace {
+		fmt.Fprintf(stdout, "aphrollo update (dry run): nothing fetched, built or installed\n  fetch: %s tags, newest v<MAJOR.MINOR.PATCH> in %s\n  build: ./cmd/aphrollo from a detached worktree at that tag\n  install: %s/<version>/, then point current at it and keep the newest %d\n",
+			*remote, *repo, root, userbin.DefaultKeep)
+		return 0
+	}
 	if *dry {
 		fmt.Fprintf(stdout, "aphrollo update (dry run): nothing fetched, built or swapped\n  fetch: %s tags, newest v<MAJOR.MINOR.PATCH> in %s\n  build: ./cmd/aphrollo from a detached worktree at that tag\n  swap:  %s\n",
 			*remote, *repo, bin)
@@ -148,9 +179,19 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	version := strings.TrimPrefix(tag, "v")
+	if userSpace {
+		if cur, ok := userbin.Current(root); ok && cur == version {
+			if _, err := os.Stat(userbin.BinaryPath(root, version)); err == nil {
+				fmt.Fprintf(stdout, "aphrollo update: [skip] already at %s\n", tag)
+				return 0
+			}
+		}
+	}
+
 	// Only a release build at the tag's commit is done: an older update builds
 	// the tag with no version flag, and that dev build must be replaced, not kept.
-	if commit, _, stamped := buildinfo.Stamp(); stamped && buildinfo.Released() && commit == head {
+	if commit, _, stamped := buildinfo.Stamp(); !userSpace && stamped && buildinfo.Released() && commit == head {
 		fmt.Fprintf(stdout, "aphrollo update: [skip] already at %s\n", tag)
 		return 0
 	}
@@ -170,6 +211,9 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		_ = os.RemoveAll(tmp)
 	}()
 
+	if userSpace {
+		return installUserSpace(root, version, tag, tmp, *noInit, forwarded, stdout, stderr)
+	}
 	staged := siblingPath(bin, ".new")
 	_ = os.Remove(staged)
 	desc, err := buildAphrollo(tmp, staged)

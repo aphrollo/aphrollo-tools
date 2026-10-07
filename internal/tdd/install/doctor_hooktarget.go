@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
 // A managed hook is two things: a shim in the dir core.hooksPath names, and
@@ -84,6 +86,9 @@ func hookShimBin(text string) string {
 	if !strings.Contains(text, installMarker) {
 		return ""
 	}
+	if root, fallback, ok := userbin.Launch(text); ok {
+		return launchedBinary(root, fallback)
+	}
 	bin := ""
 	for line := range strings.Lines(text) {
 		rest, ok := strings.CutPrefix(strings.TrimSpace(line), `exec "`)
@@ -117,4 +122,35 @@ func BinIsRunnable(path string) error {
 		return err
 	}
 	return nil
+}
+
+// launchedBinary is the binary a launcher-form hook or shim would run right
+// now: the user-space current when its file is there, else the installed
+// path. With neither there it names the installed path (or the user-space
+// current's expected place when no installed path was written), so the
+// doctor's finding points at something the operator can look at.
+func launchedBinary(root, fallback string) string {
+	if path, _ := userbin.Resolve(root, fromShellPath(fallback)); path != "" {
+		return filepath.ToSlash(path)
+	}
+	if fallback != "" {
+		return fallback
+	}
+	return filepath.ToSlash(filepath.Join(root, "current", userbin.BinName+userbin.ExeSuffix))
+}
+
+// doctorAphrolloOnPath checks that typing `aphrollo` runs the user-space
+// install: its launcher or its current binary. With no user-space install
+// there is nothing to compare, and the check is silent.
+func doctorAphrolloOnPath(DoctorInput) DoctorCheck {
+	c := DoctorCheck{Name: "aphrollo on PATH", OK: true}
+	root, err := userbin.Root()
+	if err != nil {
+		return c
+	}
+	if line := userbin.PathCheck(root); line != "" {
+		c.OK = false
+		c.Detail = line + " (aphrollo update writes the launcher there; PATH is yours to change)"
+	}
+	return c
 }

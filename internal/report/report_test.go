@@ -241,3 +241,45 @@ func TestBuild_AnEventWithNoSeqIsCountedButNamesNoReplayCommand(t *testing.T) {
 		t.Errorf("denies %d, seqs %v, want 2 denies and only the replayable seq 9", f.Denies, f.Refs.Seqs)
 	}
 }
+
+func versioned(ver string, e tdd.Event) tdd.Event {
+	e.BinVer = ver
+	return e
+}
+
+// An update moves the binary under the log, so the report says which versions
+// its window spans, and with ByVersion reads each one on its own.
+func TestBuild_NamesTheVersionsTheWindowSpansAndSplitsThemOnRequest(t *testing.T) {
+	evs := []tdd.Event{
+		versioned("1.0.0", evAt(1, 300, "deny", "lane/a", "pretooluse-denied:r", "rule", "r")),
+		versioned("1.1.0", evAt(2, 200, "deny", "lane/b", "pretooluse-denied:r", "rule", "r")),
+		versioned("1.1.0", evAt(3, 100, "deny", "lane/b", "pretooluse-denied:r", "rule", "r")),
+	}
+	r := build(evs)
+	if len(r.Versions) != 2 || r.Versions[0].Version != "1.0.0" || r.Versions[1].Events != 2 {
+		t.Fatalf("Versions = %+v, want 1.0.0 (1) and 1.1.0 (2)", r.Versions)
+	}
+	if want := "versions in this window: 1.0.0 (1 event), 1.1.0 (2 events)"; !strings.Contains(r.Text(), want) {
+		t.Fatalf("the text lacks %q:\n%s", want, r.Text())
+	}
+	if len(r.ByVersion) != 0 {
+		t.Fatalf("ByVersion = %+v without being asked", r.ByVersion)
+	}
+
+	r = Build(Input{Events: evs, Now: now, Window: week, Repo: "aphrollo-tools", ByVersion: true})
+	if len(r.ByVersion) != 2 || r.ByVersion[0].Version != "1.0.0" || r.ByVersion[0].Denies != 1 || r.ByVersion[1].Denies != 2 {
+		t.Fatalf("ByVersion = %+v, want denies 1 for 1.0.0 and 2 for 1.1.0", r.ByVersion)
+	}
+	if !strings.Contains(r.Text(), "8. By version") {
+		t.Fatalf("the text has no by-version section:\n%s", r.Text())
+	}
+}
+
+// A log of events written before they carried a version names none, so the
+// report reads exactly as it did.
+func TestBuild_ALogWithNoVersionsSaysNothingOfVersions(t *testing.T) {
+	r := build([]tdd.Event{evAt(1, 100, "deny", "lane/a", "pretooluse-denied:r", "rule", "r")})
+	if strings.Contains(r.Text(), "versions in this window") {
+		t.Fatalf("the text names versions for a log that carries none:\n%s", r.Text())
+	}
+}

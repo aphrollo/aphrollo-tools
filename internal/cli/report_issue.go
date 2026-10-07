@@ -95,7 +95,7 @@ func deliverReport(root string, dry bool, stdout, stderr io.Writer) int {
 	}
 	now := time.Now().UTC()
 	lines, err := report.Deliver(tr, func(abReady bool) report.Report {
-		return buildReport(root, reportDefaultWindow, now, time.Time{}, abReady)
+		return buildReport(root, reportDefaultWindow, now, time.Time{}, abReady, false)
 	}, deliverOptions(root, name, tr, now, dry))
 	for _, l := range lines {
 		fmt.Fprintln(stdout, l)
@@ -172,7 +172,7 @@ func weeklyReport(root string, now time.Time) bool {
 		return false
 	}
 	_, err := report.Deliver(tr, func(abReady bool) report.Report {
-		return buildReport(root, reportDefaultWindow, now.UTC(), time.Time{}, abReady)
+		return buildReport(root, reportDefaultWindow, now.UTC(), time.Time{}, abReady, false)
 	}, deliverOptions(root, name, tr, now, false))
 	if err != nil {
 		touch(commonFile(root, reportBackoffFile), now.UTC().Format(time.RFC3339), now)

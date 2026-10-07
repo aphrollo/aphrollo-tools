@@ -35,6 +35,8 @@ type Input struct {
 	CompareAt time.Time
 	// ABReadyIssued is whether the A/B ready issue was already opened.
 	ABReadyIssued bool
+	// ByVersion adds a section that reads each binary version of the window on its own.
+	ByVersion bool
 }
 
 // Refs are the event seqs behind a number, so `aphrollo why <seq>` can replay
@@ -139,6 +141,16 @@ type Proposal struct {
 	Refs    Refs   `json:"refs"`
 }
 
+// VersionSlice is what one binary version wrote: the lanes it opened, read on
+// their own.
+type VersionSlice struct {
+	Version   string     `json:"version"`
+	Events    int        `json:"events"`
+	Denies    int        `json:"denies"`
+	Overrides int        `json:"overrides"`
+	AB        measure.AB `json:"ab"`
+}
+
 // Report is the weekly report.
 type Report struct {
 	Title    string     `json:"title"`
@@ -159,6 +171,10 @@ type Report struct {
 	Shadow    measure.Shadow `json:"shadow"`
 	Tokens    Tokens         `json:"tokens"`
 	Proposals []Proposal     `json:"proposals"`
+	// Versions are the binary versions the window spans, listed when a record names one;
+	// ByVersion is each version read on its own, only when asked for.
+	Versions  []measure.VersionCount `json:"versions,omitempty"`
+	ByVersion []VersionSlice         `json:"by_version,omitempty"`
 	// Usage is the session usage section; nil when no transcripts were read.
 	Usage *Usage `json:"usage,omitempty"`
 	// withheld is set on the published form whose usage section the undercover check refused.
@@ -212,6 +228,14 @@ func Build(in Input) Report {
 	r.Tokens = Tokens{Briefs: in.Briefs, Biggest: f.biggestLines()}
 	r.abReadyIssued = in.ABReadyIssued
 	r.Proposals = propose(r)
+	r.Versions = namedVersions(measure.Versions(raw, in.Now, o))
+	if in.ByVersion {
+		for _, sp := range measure.SplitByVersion(raw) {
+			m := measure.Compute(sp.Events, in.Now, o)
+			r.ByVersion = append(r.ByVersion, VersionSlice{Version: sp.Version, Events: m.Events,
+				Denies: m.Denies.Denies, Overrides: m.Denies.Overrides, AB: measure.ComputeAB(sp.Events, in.Now, o)})
+		}
+	}
 	if in.Usage != nil {
 		u := BuildUsage(*in.Usage, in.Now, in.Window, in.CompareAt)
 		r.Usage = &u
@@ -253,4 +277,15 @@ func windowText(d time.Duration) string {
 		return fmt.Sprintf("last %dd", d/(24*time.Hour))
 	}
 	return "last " + d.String()
+}
+
+// namedVersions is the versions of the window when at least one record names its
+// binary: a log from before records carried a version has nothing to say of it.
+func namedVersions(vs []measure.VersionCount) []measure.VersionCount {
+	for _, v := range vs {
+		if v.Version != measure.UnknownVersion {
+			return vs
+		}
+	}
+	return nil
 }

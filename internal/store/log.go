@@ -9,6 +9,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
 	"github.com/aphrollo/aphrollo-tools/internal/kernel"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
@@ -20,14 +21,15 @@ import (
 // commit that logged it produced. A record without Ev is another writer's, and
 // the fold skips it.
 type logLine struct {
-	V     int           `json:"v"`
-	Seq   int64         `json:"seq,omitempty"`
-	At    string        `json:"at"`
-	Lane  string        `json:"lane,omitempty"`
-	Actor string        `json:"actor,omitempty"`
-	Kind  string        `json:"kind"`
-	Ver   uint64        `json:"ver,omitempty"`
-	Ev    *kernel.Event `json:"ev,omitempty"`
+	V      int           `json:"v"`
+	Seq    int64         `json:"seq,omitempty"`
+	At     string        `json:"at"`
+	Lane   string        `json:"lane,omitempty"`
+	Actor  string        `json:"actor,omitempty"`
+	Kind   string        `json:"kind"`
+	Ver    uint64        `json:"ver,omitempty"`
+	BinVer string        `json:"binver,omitempty"`
+	Ev     *kernel.Event `json:"ev,omitempty"`
 }
 
 // logPos is a place in the log: the file and the byte offset the next unread
@@ -51,7 +53,7 @@ func (s *Store) appendEvent(lane string, ver uint64, ev kernel.Event) error {
 	return core.AppendEventLine(s.dir, now, func(seq int64) ([]byte, error) {
 		return json.Marshal(logLine{
 			V: core.EventSchema, Seq: seq, At: now.Format("2006-01-02T15:04:05.000Z07:00"),
-			Lane: lane, Actor: ev.Actor, Kind: string(ev.Kind), Ver: ver, Ev: &ev,
+			Lane: lane, Actor: ev.Actor, Kind: string(ev.Kind), Ver: ver, BinVer: buildinfo.Version(), Ev: &ev,
 		})
 	})
 }

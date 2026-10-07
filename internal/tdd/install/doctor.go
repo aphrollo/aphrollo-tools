@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
+	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
 // Every check here exists because the state it names was reached on a real box
@@ -38,6 +39,7 @@ func Doctor(in DoctorInput) []DoctorCheck {
 		doctorGitHookBinary(in),
 		doctorHookBinary(in),
 		doctorHookTargetStable(in),
+		doctorAphrolloOnPath(in),
 		doctorHookTimeouts(in),
 		doctorOneLiveGate(in),
 		doctorShimPath(in),
@@ -170,14 +172,20 @@ func doctorHookBinary(in DoctorInput) DoctorCheck {
 		return c
 	}
 	installed := paths[0]
+	have, err := os.Stat(fromShellPath(installed))
+	if err != nil {
+		c.Detail = fmt.Sprintf("the hooks run %s, which does not exist — run `aphrollo update` to install a user-space binary, or `aphrollo install` to repoint the hooks", installed)
+		return c
+	}
+	// A user-space current is the binary the hooks follow across updates, so
+	// it is judged by existing, never by matching whichever copy runs this check.
+	if root, rerr := userbin.Root(); rerr == nil && userbin.Under(root, fromShellPath(installed)) {
+		c.OK = true
+		return c
+	}
 	want, err := os.Stat(in.Bin)
 	if err != nil {
 		c.Detail = fmt.Sprintf("cannot read this executable %s (%v)", in.Bin, err)
-		return c
-	}
-	have, err := os.Stat(fromShellPath(installed))
-	if err != nil {
-		c.Detail = fmt.Sprintf("the hooks run %s, which does not exist — run `aphrollo install`", installed)
 		return c
 	}
 	if have.Size() != want.Size() || !have.ModTime().Equal(want.ModTime()) {
@@ -509,6 +517,9 @@ func managedHookEntries(groups any) []map[string]any {
 // quotedBinary is the path a hook command runs: the first double-quoted run,
 // which is how every command this tool writes is spelled.
 func quotedBinary(cmd string) string {
+	if root, fallback, ok := userbin.Launch(cmd); ok {
+		return launchedBinary(root, fallback)
+	}
 	open := strings.IndexByte(cmd, '"')
 	if open < 0 {
 		return ""

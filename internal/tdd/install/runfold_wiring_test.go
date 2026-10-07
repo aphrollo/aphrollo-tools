@@ -28,7 +28,7 @@ func TestPatchSettings_WiresTheResultOfAHandRunSuiteForBashAndPowerShell(t *test
 	has := func(event, matcher, verb string) bool {
 		for _, g := range doc.Hooks[event] {
 			for _, h := range g.Hooks {
-				if g.Matcher == matcher && strings.HasSuffix(h.Command, " "+verb) {
+				if g.Matcher == matcher && strings.Contains(h.Command+";", " "+verb+";") {
 					return true
 				}
 			}

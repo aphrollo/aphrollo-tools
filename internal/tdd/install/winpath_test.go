@@ -58,9 +58,8 @@ func TestPatchSettings_WindowsBinPathIsShellSafe(t *testing.T) {
 	if len(cmds) != 1 {
 		t.Fatalf("want exactly one UserPromptSubmit command, got %v", cmds)
 	}
-	want := `"C:/Users/me/bin/aphrollo.exe" gate userpromptsubmit`
-	if cmds[0] != want {
-		t.Fatalf("hook command:\n got: %q\nwant: %q", cmds[0], want)
+	if !strings.Contains(cmds[0], "aphrollo_fallback='C:/Users/me/bin/aphrollo.exe'") || strings.Contains(cmds[0], `C:\Users`) {
+		t.Fatalf("the Windows path must be slash-normalized and quoted in the hook command, got: %q", cmds[0])
 	}
 }
 

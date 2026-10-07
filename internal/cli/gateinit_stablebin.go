@@ -7,9 +7,10 @@ import (
 	"strings"
 )
 
-// releaseDirComponent is the path component this box's own deploy
-// convention (deploy/deploy-prod.sh) — and every other CI-deployed aphrollo
-// service, which follows the same shape — uses for a build directory the
+// releaseDirComponent is the path component a box deployed the old way
+// (deploy-on-merge, since removed: an update now installs into the user
+// space) uses, as does every other CI-deployed aphrollo service following the
+// same shape, for a build directory the
 // very NEXT deploy prunes: OPT_BASE/releases/<ts>-<sha>/, promoted only by
 // flipping OPT_BASE/current to point at it. A path carrying this literal
 // component is one a shim or hook must never be pinned to by default, no

@@ -36,9 +36,9 @@ func TestPatchSettings_WiresTheStatusLineAtTheBinary(t *testing.T) {
 	if !changed {
 		t.Fatal("a fresh settings.json must be changed")
 	}
-	want := `"C:/bin/aphrollo.exe" gate statusline`
-	if got := statusLineCommand(t, out); got != want {
-		t.Fatalf("statusLine command = %q, want %q", got, want)
+	got := statusLineCommand(t, out)
+	if !strings.Contains(got, "aphrollo_fallback='C:/bin/aphrollo.exe'") || !strings.HasSuffix(got, `exec "$x" gate statusline`) {
+		t.Fatalf("statusLine command = %q, want the launcher running gate statusline with C:/bin/aphrollo.exe as the installed path", got)
 	}
 	// Idempotent: a second patch over its own output changes nothing.
 	_, changed2, err := PatchSettings(out, `C:\bin\aphrollo.exe`)
@@ -61,9 +61,8 @@ func TestPatchSettings_ReplacesARetiredStatusLineScript(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := `"/bin/aphrollo" gate statusline`
-		if got := statusLineCommand(t, out); got != want {
-			t.Errorf("with %s installed, statusLine = %q, want %q", script, got, want)
+		if got := statusLineCommand(t, out); !strings.HasSuffix(got, `exec "$x" gate statusline`) {
+			t.Errorf("with %s installed, statusLine = %q, want the managed launcher command", script, got)
 		}
 		if !strings.Contains(string(out), `"padding"`) {
 			t.Errorf("with %s installed, the surrounding statusLine settings were dropped:\n%s", script, out)

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
 // managedEvent is one Claude Code hook event aphrollo tdd installs into
@@ -266,7 +267,7 @@ func (me managedEvent) group(bin string) any {
 			// Slash-normalized + quoted like the git shims: hook commands run
 			// through a shell, where a raw Windows path's backslashes are
 			// escapes — the session hooks died "command not found" live.
-			"command": fmt.Sprintf("%q %s %s", shellPath(bin), CmdName, me.sub),
+			"command": hookCommandFor(bin, me.sub, hookBudgetSecs(me.timeout)),
 			"timeout": me.timeout,
 		}},
 	}
@@ -334,4 +335,27 @@ func childMap(root map[string]any, key string) map[string]any {
 func toGroups(v any) []any {
 	g, _ := v.([]any)
 	return g
+}
+
+// hookCommandFor is the command a managed settings.json entry runs: the
+// user-space current when one is installed, the installed path when not, and
+// a no-op that exits 0 with one stderr line when neither is there or the
+// binary outruns budgetSecs. Hooks never download; only `aphrollo update`
+// does. An account with no user-space root gets the plain command.
+func hookCommandFor(bin, sub string, budgetSecs int) string {
+	root, installed := userbin.LaunchFor(bin)
+	if root == "" {
+		return fmt.Sprintf("%q %s %s", shellPath(bin), CmdName, sub)
+	}
+	return userbin.HookCommand(root, installed, budgetSecs, CmdName+" "+sub)
+}
+
+// hookBudgetSecs is how long a managed hook may run before its launcher gives
+// up: one second short of the harness's own timeout, so the hook ends as a
+// no-op the launcher reports instead of a kill the harness reports.
+func hookBudgetSecs(timeout int) int {
+	if timeout < 3 {
+		return 0
+	}
+	return timeout - 1
 }

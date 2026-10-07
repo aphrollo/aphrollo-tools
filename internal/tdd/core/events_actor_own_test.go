@@ -3,6 +3,8 @@ package core
 import (
 	"encoding/json"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
 )
 
 func actorOfLastEvent(t *testing.T, root string) string {
@@ -85,5 +87,34 @@ func TestAppendEvent_AnAgentWithNoSessionIsNotAnActor(t *testing.T) {
 
 	if got := actorOfLastEvent(t, main); got != "" {
 		t.Errorf("actor = %q, want none", got)
+	}
+}
+
+// An update moves the binary under a log that keeps its history, so each record
+// says which binary wrote it: that is what lets the measures be read per version.
+// The version rides under "binver", because the store's lines already use "ver"
+// for the commit version of a lane and a reader of either must not choke on the other.
+func TestAppendEvent_RecordsTheVersionOfTheBinaryThatWroteIt(t *testing.T) {
+	isolateEvents(t)
+	main, _ := laneRoot(t, "lane/x")
+	buildinfo.SetVersionForTest("7.8.9")
+	t.Cleanup(func() { buildinfo.SetVersionForTest("") })
+
+	AppendEvent(Event{Kind: "edit", Root: main})
+	AppendEvent(Event{Kind: "edit", Root: main, BinVer: "1.0.0"})
+
+	lines := eventsLines(t, main)
+	var got []string
+	for _, l := range lines[len(lines)-2:] {
+		var e struct {
+			BinVer string `json:"binver"`
+		}
+		if err := json.Unmarshal([]byte(l), &e); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, e.BinVer)
+	}
+	if got[0] != "7.8.9" || got[1] != "1.0.0" {
+		t.Fatalf("binver of the last two events = %v, want [7.8.9 1.0.0]: the running binary's, unless the caller named one", got)
 	}
 }

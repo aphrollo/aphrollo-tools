@@ -137,7 +137,7 @@ func TestMergeGuardrail_TheStrongerWinsAndBothReasonsShow(t *testing.T) {
 	}
 }
 
-var settingsHookCmd = regexp.MustCompile(`^"[^"]*"\s+(.+)$`)
+var settingsHookCmd = regexp.MustCompile(`"\$x"\s+(gate [a-z]+)`)
 
 // Every PreToolUse hook the installer writes for a shell call must be a verb
 // that evaluates the guardrail rules: feed each one a command a rule refuses
@@ -174,7 +174,7 @@ func TestInstalledPreToolUseHooks_EvaluateTheGuardrailRules(t *testing.T) {
 		for _, h := range group.Hooks {
 			m := settingsHookCmd.FindStringSubmatch(h.Command)
 			if m == nil {
-				t.Fatalf("hook command %q is not a quoted binary and its arguments", h.Command)
+				t.Fatalf("hook command %q does not run the resolved binary with a gate verb", h.Command)
 			}
 			var out, errb bytes.Buffer
 			code := Run(strings.Fields(m[1]), strings.NewReader(recordedBashPayload(t, dir, "sleep 30")), &out, &errb)

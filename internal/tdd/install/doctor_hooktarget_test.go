@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
+	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
 // repointHooks rewrites the managed shims in the fixture's hooks dir at a
@@ -100,5 +101,54 @@ func TestDoctor_GitHookBinaryIsSilentWithNoHooksDirToRead(t *testing.T) {
 				t.Errorf("%s hooks dir: want ok, got %s", name, c.Detail)
 			}
 		})
+	}
+}
+
+// The hooks resolve the user-space current first, so that is the binary the
+// "hook binary" check has to judge: a current that is there passes, and a
+// box with neither it nor the installed path says how to get one.
+func TestDoctor_HookBinaryJudgesWhatTheLauncherWouldRun(t *testing.T) {
+	userlaunchHome(t)
+	in := healthyInstall(t)
+	root, err := userbin.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(in.Bin); err != nil {
+		t.Fatal(err)
+	}
+	c := check(t, Doctor(in), "hook binary")
+	if c.OK || !strings.Contains(c.Detail, "aphrollo update") {
+		t.Fatalf("no binary anywhere: ok=%v detail=%q; want a finding naming `aphrollo update`", c.OK, c.Detail)
+	}
+
+	userlaunchFakeBin(t, userbin.BinaryPath(root, "6.0.0"), "user")
+	if err := userbin.SetCurrent(root, "6.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if c := check(t, Doctor(in), "hook binary"); !c.OK {
+		t.Fatalf("a user-space current is what the hooks run, so it must pass: %s", c.Detail)
+	}
+}
+
+// Typing `aphrollo` is part of the install: when PATH would run some other
+// binary than the user-space one, doctor says so, with the fix.
+func TestDoctor_AphrolloOnPathMustResolveToTheUserSpaceInstall(t *testing.T) {
+	userlaunchHome(t)
+	in := healthyInstall(t)
+	root, _ := userbin.Root()
+	if c := check(t, Doctor(in), "aphrollo on PATH"); !c.OK {
+		t.Fatalf("no user-space install, nothing to compare: %s", c.Detail)
+	}
+	userlaunchFakeBin(t, userbin.BinaryPath(root, "6.0.0"), "user")
+	if err := userbin.SetCurrent(root, "6.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	userlaunchFakeBin(t, filepath.Join(other, "aphrollo"+userbin.ExeSuffix), "other")
+	t.Setenv("PATH", other)
+	c := check(t, Doctor(in), "aphrollo on PATH")
+	if c.OK || !strings.Contains(c.Detail, "first on PATH") {
+		t.Fatalf("PATH resolves elsewhere: ok=%v detail=%q", c.OK, c.Detail)
 	}
 }

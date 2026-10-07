@@ -1,10 +1,16 @@
 package install
 
 import (
+	"context"
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
 // TestManagedEvents_PostToolUseHarnessTimeout_ExceedsGoDeadline pins a real
@@ -87,11 +93,11 @@ func TestPatchSettings_InstallsAllEvents(t *testing.T) {
 		t.Fatal("expected changed=true installing into empty settings")
 	}
 	for _, want := range []struct{ event, sub string }{
-		{"SessionStart", "aphrollo\" gate sessionstart"},
-		{"PreToolUse", "aphrollo\" gate pretooluse"},
-		{"PostToolUse", "aphrollo\" gate posttooluse"},
-		{"SessionEnd", "aphrollo\" gate sessionend"},
-		{"UserPromptSubmit", "aphrollo\" gate userpromptsubmit"},
+		{"SessionStart", "$x\" gate sessionstart"},
+		{"PreToolUse", "$x\" gate pretooluse"},
+		{"PostToolUse", "$x\" gate posttooluse"},
+		{"SessionEnd", "$x\" gate sessionend"},
+		{"UserPromptSubmit", "$x\" gate userpromptsubmit"},
 	} {
 		if !hasCommandContaining(t, out, want.event, want.sub) {
 			t.Errorf("%s: missing command %q\n%s", want.event, want.sub, out)
@@ -140,7 +146,7 @@ func TestPatchSettings_PreservesForeignHooks(t *testing.T) {
 	if !hasCommandContaining(t, out, "UserPromptSubmit", "caveman-mode-tracker.js") {
 		t.Errorf("dropped foreign caveman hook\n%s", out)
 	}
-	if !hasCommandContaining(t, out, "UserPromptSubmit", "aphrollo\" gate userpromptsubmit") {
+	if !hasCommandContaining(t, out, "UserPromptSubmit", "$x\" gate userpromptsubmit") {
 		t.Errorf("missing aphrollo userpromptsubmit\n%s", out)
 	}
 	var m map[string]any
@@ -169,7 +175,7 @@ func TestPatchSettings_MigratesNodeHooks(t *testing.T) {
 	if hasCommandContaining(t, out, "PreToolUse", "tdd-pre-edit.js") {
 		t.Errorf("old node tdd hook not migrated out\n%s", out)
 	}
-	if !hasCommandContaining(t, out, "PreToolUse", "aphrollo\" gate pretooluse") {
+	if !hasCommandContaining(t, out, "PreToolUse", "$x\" gate pretooluse") {
 		t.Errorf("missing aphrollo pretooluse after migration\n%s", out)
 	}
 }
@@ -283,9 +289,9 @@ func TestPatchSettings_WiresTheTurnEndHooksWithAShortTimeout(t *testing.T) {
 		t.Fatalf("PatchSettings: %v", err)
 	}
 	for _, want := range []struct{ event, sub string }{
-		{"Stop", "aphrollo\" gate stop"},
-		{"SubagentStop", "aphrollo\" gate subagentstop"},
-		{"TaskCompleted", "aphrollo\" gate taskcompleted"},
+		{"Stop", "$x\" gate stop"},
+		{"SubagentStop", "$x\" gate subagentstop"},
+		{"TaskCompleted", "$x\" gate taskcompleted"},
 	} {
 		if !hasCommandContaining(t, out, want.event, want.sub) {
 			t.Errorf("%s: missing command %q\n%s", want.event, want.sub, out)
@@ -317,7 +323,7 @@ func TestPatchSettings_AddsTheTurnEndHooksToAnOlderInstallAndSkipsThemOnceThere(
 		t.Fatal("expected changed=true: the older install lacks the turn-end hooks")
 	}
 	for _, event := range []string{"Stop", "SubagentStop", "TaskCompleted"} {
-		if !hasCommandContaining(t, out, event, "aphrollo\" gate ") {
+		if !hasCommandContaining(t, out, event, "$x\" gate ") {
 			t.Errorf("%s: aphrollo hook not added\n%s", event, out)
 		}
 	}
@@ -351,11 +357,128 @@ func TestStripSettings_RemovesTheTurnEndHooksAndKeepsAForeignStopHook(t *testing
 		t.Fatal("expected changed=true stripping installed settings")
 	}
 	for _, event := range []string{"Stop", "SubagentStop", "TaskCompleted"} {
-		if hasCommandContaining(t, out, event, "aphrollo\" gate ") {
+		if hasCommandContaining(t, out, event, "$x\" gate ") {
 			t.Errorf("%s: aphrollo entry survived strip\n%s", event, out)
 		}
 	}
 	if !hasCommandContaining(t, out, "Stop", "stop-notifier.js") {
 		t.Errorf("strip removed the foreign Stop hook\n%s", out)
 	}
+}
+
+// userlaunchFakeBin writes a sh script standing in for the aphrollo binary:
+// it prints who it is and its arguments.
+func userlaunchFakeBin(t *testing.T, path, who string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho \""+who+" $*\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// userlaunchRun runs a hook command the way the harness does, through sh.
+func userlaunchRun(t *testing.T, command string) (code int, stdout, stderr string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd.WaitDelay = 2 * time.Second
+	var out, errb strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errb
+	err := cmd.Run()
+	if ee, ok := err.(*exec.ExitError); ok {
+		return ee.ExitCode(), out.String(), errb.String()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	return 0, out.String(), errb.String()
+}
+
+// The session hooks must pick up the user-space binary an `aphrollo update`
+// installed without anyone rewriting settings.json again, and must still run
+// the installed path when no user-space binary exists yet.
+func TestPatchSettings_HooksRunTheUserSpaceBinaryFirstThenTheInstalledOne(t *testing.T) {
+	userlaunchHome(t)
+	root, err := userbin.Root()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fallback := filepath.Join(t.TempDir(), "aphrollo"+userbin.ExeSuffix)
+	userlaunchFakeBin(t, fallback, "installed")
+	out, _, err := PatchSettings(nil, fallback)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmds := commandStrings(t, out, "Stop")
+	if len(cmds) != 1 {
+		t.Fatalf("Stop commands = %v", cmds)
+	}
+	if code, so, _ := userlaunchRun(t, cmds[0]); code != 0 || strings.TrimSpace(so) != "installed "+CmdName+" stop" {
+		t.Fatalf("before any user-space install: code %d, %q; want the installed binary", code, so)
+	}
+	userlaunchFakeBin(t, userbin.BinaryPath(root, "4.0.0"), "user")
+	if err := userbin.SetCurrent(root, "4.0.0"); err != nil {
+		t.Fatal(err)
+	}
+	if code, so, _ := userlaunchRun(t, cmds[0]); code != 0 || strings.TrimSpace(so) != "user "+CmdName+" stop" {
+		t.Fatalf("after: code %d, %q; want the user-space binary", code, so)
+	}
+}
+
+func TestPatchSettings_AHookWithNoBinaryAnywhereExitsZero(t *testing.T) {
+	userlaunchHome(t)
+	out, _, err := PatchSettings(nil, filepath.Join(t.TempDir(), "gone"+userbin.ExeSuffix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, me := range managedEvents {
+		for _, c := range commandStrings(t, out, me.event) {
+			if code, so, se := userlaunchRun(t, c); code != 0 || so != "" || !strings.Contains(se, "skipped") {
+				t.Fatalf("%s: code %d, stdout %q, stderr %q; want a one-line no-op", me.event, code, so, se)
+			}
+		}
+	}
+}
+
+// An install written before the user-space binary existed is rewritten in
+// place: the old command goes, a foreign hook stays, and a second pass is a
+// no-op.
+func TestPatchSettings_RewritesAnOldStyleInstallOnceAndKeepsForeignHooks(t *testing.T) {
+	old := `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"\"/old/aphrollo\" ` + CmdName + ` stop","timeout":10}]},` +
+		`{"hooks":[{"type":"command","command":"echo foreign"}]}]}}`
+	out, changed, err := PatchSettings([]byte(old), "/new/aphrollo")
+	if err != nil || !changed {
+		t.Fatalf("changed = %v, err = %v; want the old command rewritten", changed, err)
+	}
+	cmds := commandStrings(t, out, "Stop")
+	if len(cmds) != 2 || cmds[0] != "echo foreign" || !strings.Contains(cmds[1], "aphrollo_root=") || strings.Contains(cmds[1], "/old/aphrollo") {
+		t.Fatalf("Stop commands = %q; want the foreign hook kept and one launcher command", cmds)
+	}
+	if _, again, err := PatchSettings(out, "/new/aphrollo"); err != nil || again {
+		t.Fatalf("second patch changed = %v, err = %v; want a no-op", again, err)
+	}
+}
+
+// userlaunchHome gives the test its own account home, so a user-space current
+// another test installed is never seen here.
+func userlaunchHome(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppData", "Local"))
+}
+
+// userlaunchShOut runs a shim under sh with a deadline, so a shim that never
+// returns fails the test instead of holding the job.
+func userlaunchShOut(t *testing.T, shim string, args ...string) ([]byte, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "sh", append([]string{shim}, args...)...)
+	cmd.WaitDelay = 2 * time.Second
+	return cmd.CombinedOutput()
 }

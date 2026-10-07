@@ -10,6 +10,7 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/proc"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
+	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
 // gitGateHooks are the git hooks the gate manages, paired with the `aphrollo
@@ -222,7 +223,7 @@ func installGitGate(hooksDir, bin string) (bool, error) {
 		// A git HOOK has no "real tool" to fall through to: it IS the gate. With
 		// the binary gone it says so and stops, which git reports as a failed
 		// hook rather than a silently ungated commit.
-		want := binShim(bin, h.Sub, "")
+		want := launchShim(bin, h.Sub, "")
 		if cur, err := os.ReadFile(path); err == nil && string(cur) == want {
 			continue
 		}
@@ -373,4 +374,33 @@ func gitConfigUnset(key string) error {
 		return fmt.Errorf("git config --unset %s: %v: %s", key, err, out)
 	}
 	return nil
+}
+
+// launchShim is binShim for a box with a user-space install: the shim runs the
+// user-space current when it is there and the installed path when it is not,
+// and a box with neither degrades exactly as binShim does, to the real tool
+// UNGATED (or, for a hook with no real tool, refusing) with one line naming `aphrollo update`. The two paths are baked at
+// install time and read back by doctor. An account with no user-space root
+// gets the plain binShim.
+func launchShim(bin, sub, fallback string) string {
+	root, installed := userbin.LaunchFor(bin)
+	if root == "" {
+		return binShim(bin, sub, fallback)
+	}
+	missing := "gate: no aphrollo binary in " + shellPath(root) + " or at " + shellPath(installed)
+	if fallback == "" {
+		missing += " — refusing " + sub + "; fix with: aphrollo update"
+	} else {
+		missing += " — running " + sub + " UNGATED; fix with: aphrollo update"
+	}
+	guard := "if [ ! -x \"$x\" ]; then\n" +
+		"  echo \"" + missing + "\" >&2\n"
+	if fallback == "" {
+		guard += "  exit 127\n"
+	} else {
+		guard += "  exec \"" + shellPath(fallback) + "\" \"$@\"\n"
+	}
+	guard += "fi\n"
+	return "#!/bin/sh\n" + installMarker + "\n" + userbin.Prelude(root, installed) + guard +
+		"exec \"$x\" " + CmdName + " " + sub + " \"$@\"\n"
 }

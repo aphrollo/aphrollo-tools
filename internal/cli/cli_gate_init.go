@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
 // runGateInit wires (or, with --uninstall, removes) the aphrollo tdd session
@@ -21,6 +22,7 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 	var (
 		configDir    = fs.String("config-dir", "", "Claude config dir (default: $CLAUDE_CONFIG_DIR or ~/.claude)")
 		binPath      = fs.String("bin", "", "aphrollo binary the hooks invoke (default: this executable)")
+		fallbackBin  = fs.String("fallback-bin", "", "installed binary the hooks run when there is no user-space current (default: --bin, unless it lies in the user-space dir)")
 		cargoShimDir = fs.String("cargo-shim-dir", "", "dir for the cargo-queue shim (default: ~/.local/share/aphrollo/cargo-queue on Linux/macOS, alongside --bin on Windows)")
 		gitHooksDir  = fs.String("git-hooks-dir", "", "git hooks dir for the global gate (default: $XDG_CONFIG_HOME/git/hooks or ~/.config/git/hooks)")
 		noGit        = fs.Bool("no-git", false, "skip the global git gate and the queue shims; still wire session hooks, skills, agents and the repo's CLAUDE.md block")
@@ -33,6 +35,11 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
+	// Set on every run, the empty value included: the fallback is this init's
+	// own, and cleared when it returns, so nothing written later in the same
+	// process (an install, a doctor's expected command) inherits it.
+	userbin.SetFallbackBin(*fallbackBin)
+	defer userbin.SetFallbackBin("")
 	dir := *configDir
 	if dir == "" {
 		dir = defaultClaudeDir()
@@ -59,6 +66,13 @@ func runGateInit(args []string, stdout, stderr io.Writer) int {
 		binName = resolved
 	}
 
+	if !*uninstall {
+		if root, fb := userbin.LaunchFor(binName); root != "" {
+			if _, lerr := userbin.WriteLauncher(root, fb); lerr != nil {
+				fmt.Fprintf(stderr, "aphrollo gate: could not write the launcher in %s: %v\n", root, lerr)
+			}
+		}
+	}
 	changed, err := tdd.InitSettings(dir, binName, *uninstall)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo: %v\n", err)

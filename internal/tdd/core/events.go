@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
 )
 
 // EventSchema is the version every record of the event logs carries. The logs
@@ -56,6 +58,10 @@ type Event struct {
 	// is what the readers of a worktree's own stages match on (a worktree is a
 	// project of its own, the repo is not); every other event drops it.
 	Root string `json:"root,omitempty"`
+	// BinVer is the version of the binary that wrote the record (internal/buildinfo),
+	// stamped where an event is appended, so the measures can be read per version
+	// across an update. Not "ver": the store's lines carry the commit version there.
+	BinVer string `json:"binver,omitempty"`
 }
 
 // AppendEvent writes one record to the log of the repository Root belongs to.
@@ -64,6 +70,9 @@ type Event struct {
 // decision, but it is said once.
 func AppendEvent(e Event) {
 	e.V = EventSchema
+	if e.BinVer == "" {
+		e.BinVer = buildinfo.Version()
+	}
 	if e.At == "" {
 		e.At = time.Now().UTC().Format(eventTimeFormat)
 	}

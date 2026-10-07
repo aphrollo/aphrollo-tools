@@ -1,33 +1,51 @@
-# Deploy — aphrollo dev-env CLI
+# Release — aphrollo dev-env CLI
 
-`/usr/local/bin/aphrollo` deploys **on merge to `main`**, the same way the Go
-services do, but what it ships is the newest release **tag** (`v<MAJOR.MINOR.PATCH>`),
-not the tip of `main`: no PR carries a version, so the `release` job asks
-`aphrollo release plan` (built from that very commit) which tag the merge
-earns from the `changelog.d` fragments the newest tag does not yet contain,
-tags it and creates a GitHub Release whose notes are those fragments
-(`deploy/tag-release.sh`; a tag already present is `[skip]`, and no commit is
-made to `main`). The binary learns its version from that tag: the build stamps
-`-X .../internal/buildinfo.version=<tag>` (the `Build` step of
-`.github/workflows/deploy.yml`, and `aphrollo update`, which builds a detached
-worktree at the tag), and a test pins that the deploy build carries the stamp.
-A build at no release tag reports `0.0.0-dev+<sha>`. The `deploy`
-job of its own workflow (`.github/workflows/deploy.yml`)
-checks out the newest tag (`deploy/newest-tag.sh`), builds the binary on the self-hosted runner and runs
-`deploy/deploy-prod.sh`, which stages the build and hands it to the root-owned
-installer (`aphrollo-install-release`): it verifies it, installs a release,
-smoke-tests it, and atomically swaps a `current` symlink. No manual
-`deploy-infra` step, no stale-operator-clone footgun.
+Nothing deploys on merge. A merge to `main` is **tagged**, and every box moves
+to a tag by running `aphrollo update` itself, so the binary we test is the one
+we ship.
 
-The deploy is not a job of the pipeline run. It waits for the one self-hosted
-runner, and a pipeline run held open by a down host queues every later push to
-`main`, where GitHub cancels all but the newest, so those releases would never be
-tagged. Instead the pipeline's `release` job, after tagging and only once test,
-lint, scan and workflow-pins passed for the commit, runs
-`gh workflow run deploy.yml --ref main` (a tag pushed with `GITHUB_TOKEN` starts no
-workflow; a dispatch made with it does). `deploy.yml` has its own concurrency
-group `deploy` with `cancel-in-progress: true`, so a newer release supersedes a
-queued deploy, and a down host delays only the deploy, never a release tag.
+No PR carries a version, so the `release` job asks `aphrollo release plan`
+(built from that very commit) which tag the merge earns from the `changelog.d`
+fragments the newest tag does not yet contain, tags it and creates a GitHub
+Release whose notes are those fragments (`deploy/tag-release.sh`; a tag already
+present is `[skip]`, and no commit is made to `main`). `deploy/newest-tag.sh`
+names the newest tag. The binary learns its version from that tag: `aphrollo
+update` builds a detached worktree at the tag and stamps
+`-X .../internal/buildinfo.version=<tag>`. A build at no release tag reports
+`0.0.0-dev+<sha>`.
+
+## Installing and switching versions
+
+`aphrollo update` needs no root. It installs the newest tag into a versioned
+directory under the account's own space and points `current` at it:
+
+```
+~/.aphrollo/bin/                          (Windows: %LOCALAPPDATA%\aphrollo\bin\)
+  1.14.0/aphrollo
+  1.15.0/aphrollo
+  current                                 # a file holding the version the hooks run
+```
+
+- The newest three versions are kept; the one `current` names is always kept.
+- `aphrollo update --to 1.14.0` switches back, with no fetch and no build.
+- The pointer moves last, after the build and its smoke check, so a failed
+  update changes nothing. A new version is a new directory, so a running binary
+  is never replaced: Windows, which cannot replace one, installs the same way.
+- Hooks (session hooks, git-hook shims, queue shims) run the user-space
+  `current` first and the previously installed path second, and a hook whose
+  binary is missing or over its budget is a no-op that exits 0 with one stderr
+  line. Hooks never download; only `aphrollo update` does.
+- The event log, gate state and caches live in the one version-independent
+  state dir, never inside a version directory, so an update or a prune loses
+  none of them. Every event records the version that wrote it (`binver`), and
+  `stats`, `stats --ab`, `stats --shadow` and `report` take `--by-version`.
+- `aphrollo version` says which binary is running and whether it is the
+  user-space current.
+
+`aphrollo update` and `gate init` also write a launcher, `~/.aphrollo/bin/aphrollo` (`aphrollo.cmd` on Windows), that runs the pointed binary like a hook does. Put that directory first on PATH so typing `aphrollo` follows updates; update prints one line when PATH resolves elsewhere and never edits PATH or rc files.
+
+A root-owned `/usr/local/bin/aphrollo` from the old deploy keeps working as the
+fallback and is never written by anything here.
 
 ## What a push to `main` re-runs
 
@@ -50,52 +68,3 @@ another workflow, a lookup that failed, or a `cireuse` that did not build.
 `scan` is not reused: `govulncheck` reads a vulnerability database that moves
 without the tree. A docs-only or comment-only push is unchanged.
 
-## Release layout
-
-```
-/opt/aphrollo-cli/
-  releases/
-    20260617-1a2b3c4/aphrollo   # one dir per deploy: <ts>-<sha7>
-    ...
-  current  ->  releases/<ts>-<sha7>     # atomically swapped by the installer
-/usr/local/bin/aphrollo  ->  /opt/aphrollo-cli/current/aphrollo
-```
-
-Every coder/devops/operator session — and the TDD git gate / Bash guardrail
-hook — execs `/usr/local/bin/aphrollo` fresh per call, so a swapped `current` is
-picked up on the next exec. There is **no daemon to restart**. `/opt/aphrollo-cli`
-is **root-owned**: every session runs this binary, so the runner never writes it.
-The deploy stages its build in `/var/lib/aphrollo-release-staging/aphrollo-cli`
-and runs `sudo aphrollo-install-release aphrollo-cli`, the one sudoers grant it
-holds for this.
-
-## Safety
-
-The new binary is **smoke-tested before the swap** (`aphrollo tdd --help`,
-`aphrollo --help`), so a non-runnable build never becomes `current` — the last
-good release keeps serving. Rollback is therefore implicit; to force one, point
-`current` back at a prior `releases/<…>` dir:
-
-```
-ln -sfn /opt/aphrollo-cli/releases/<prev> /opt/aphrollo-cli/current.new
-mv -Tf  /opt/aphrollo-cli/current.new      /opt/aphrollo-cli/current
-```
-
-## Server prerequisites (one-time, provisioned by aphrollo-infra)
-
-`aphrollo-infra` (its `site.yml` playbook) owns these — the app's deploy owns
-only `current`:
-
-- `/opt/aphrollo-cli` and `/opt/aphrollo-cli/releases` — `root`-owned, `0755`
-  (only the installer writes releases and swaps `current` here).
-- `/var/lib/aphrollo-release-staging/aphrollo-cli` — `github-runner`-owned
-  staging dir the deploy copies its build into.
-- `/usr/local/bin/aphrollo` — a **symlink** → `/opt/aphrollo-cli/current/aphrollo`
-  (created by root once; `/usr/local/bin` is not runner-writable).
-- A one-time bootstrap that seeds `current` from the operator clone **only if it
-  is absent**, so `/usr/local/bin/aphrollo` resolves immediately after the infra
-  apply and before the first on-merge deploy — and so routine infra applies never
-  clobber a newer on-merge release.
-
-Until the infra prereqs land, the deploy job fails fast at the
-`$RELEASES missing` guard rather than writing anywhere unexpected.
