@@ -71,3 +71,19 @@ func TestAppendEvent_AGitHookWithNoSessionStaysUnattributed(t *testing.T) {
 		t.Errorf("actor = %q, want none", got)
 	}
 }
+
+// An agent id with no session id names no actor: "/agent" would be a lie.
+func TestAppendEvent_AnAgentWithNoSessionIsNotAnActor(t *testing.T) {
+	isolateEvents(t)
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
+	main, _ := laneRoot(t, "lane/x")
+	SetHookActor("", "aid-3")
+	t.Cleanup(func() { SetHookActor("", "") })
+
+	AppendEvent(Event{Kind: "commit_gate", Root: main, Stage: "precommit"})
+
+	if got := actorOfLastEvent(t, main); got != "" {
+		t.Errorf("actor = %q, want none", got)
+	}
+}

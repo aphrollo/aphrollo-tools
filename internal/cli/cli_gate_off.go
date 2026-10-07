@@ -45,9 +45,9 @@ var sessionHooks = map[string]whenOff{
 }
 
 // alwaysOnWalls are judged on a PreToolUse payload even while the session is
-// off: a wall that blocks every author, human included. The secrets wall is
-// this list's entry once the live hook has one (docs/trellis-architecture.md
-// §5, C14); nothing in the live hook detects a secret yet, so it is empty.
+// off: a wall that blocks every author, human included. It is empty: nothing
+// in the live hook is such a wall yet, and a wall that is added (the planned
+// secrets one, docs/trellis-architecture.md §5, C14) is one entry here.
 var alwaysOnWalls []func(raw []byte) tdd.Decision
 
 // offSession reports whether the hook that read raw belongs to a session that

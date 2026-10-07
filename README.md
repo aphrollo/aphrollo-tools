@@ -91,8 +91,8 @@ no edit to a released changelog section or a merged fragment.
 - **Session switch:** the `/aphrollo` command with `off`, `on` or `status` (`/tdd` is the same switch)
   silences every session hook for the session: edit-time guidance and denies,
   test runs, gate lines, turn-end checks, injected context and the reply style,
-  and the statusline shows `off`. The git-side gates (commit, merge, push) and
-  the secrets wall stay on. Each flip is an event (`override-off` / `override-on`
+  and the statusline shows `off`. The git-side gates (commit, merge, push)
+  stay on. Each flip is an event (`override-off` / `override-on`
   with `switch=session-off|session-on`), counted as a wrong-block signal.
   `aphrollo install` writes the `aphrollo` skill the command needs.
 - **Commit:** staged-baseline guard → ratchet laws → docs → vet/lint →

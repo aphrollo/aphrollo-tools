@@ -42,19 +42,23 @@ func TestHandlePrompt_ASessionStartHasTheNextPromptCarryTheStyleAgain(t *testing
 	}
 }
 
-// `/tdd style terse` after plain turns the block back on: it goes out with that
-// command's own answer, and once.
+// `/tdd style terse` after plain turns the block back on. The command's answer
+// replaces the turn and does not spend it: the next ordinary prompt carries it,
+// and once.
 func TestHandlePrompt_TurningTerseBackOnSendsTheStyleAgainOnce(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const sess = "sess-style-reenable"
 	HandlePrompt(promptJSON("one", sess, ""))
 	HandlePrompt(promptJSON("/tdd style plain", sess, ""))
 
-	if !styleonceCarriesStyle(t, HandlePrompt(promptJSON("/tdd style terse", sess, ""))) {
-		t.Error("the answer to /tdd style terse must carry the style block")
+	if cmd := HandlePrompt(promptJSON("/tdd style terse", sess, "")); cmd.Style != "" {
+		t.Errorf("the answer to a command must not spend the block, got %q", cmd.Style)
 	}
-	if next := HandlePrompt(promptJSON("two", sess, "")); next.Style != "" {
-		t.Errorf("the prompt after it must not repeat the block, got %q", next.Style)
+	if !styleonceCarriesStyle(t, HandlePrompt(promptJSON("two", sess, ""))) {
+		t.Error("the next ordinary prompt must carry the style block")
+	}
+	if again := HandlePrompt(promptJSON("three", sess, "")); again.Style != "" {
+		t.Errorf("the prompt after that must not repeat the block, got %q", again.Style)
 	}
 }
 
@@ -84,5 +88,18 @@ func TestHandleSessionStart_IsOneLineWithNoStyleBlock(t *testing.T) {
 	}
 	if !strings.Contains(msg, "`tdd` skill") {
 		t.Errorf("the one line must still send the session to the tdd skill:\n%s", msg)
+	}
+}
+
+// A session whose first prompt is a command still owes the block to its next
+// ordinary prompt.
+func TestHandlePrompt_ACommandAsTheFirstPromptDoesNotSpendTheStyle(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	const sess = "sess-style-cmd-first"
+	HandlePrompt(promptJSON("/aphrollo status", sess, ""))
+
+	if !styleonceCarriesStyle(t, HandlePrompt(promptJSON("go", sess, ""))) {
+		t.Error("the first ordinary prompt must carry the style block")
 	}
 }

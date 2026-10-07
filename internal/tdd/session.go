@@ -72,7 +72,9 @@ func HandlePrompt(raw []byte) PromptResult {
 	if !r.Block {
 		r.Message = joinRetro(r.Message, TakeSessionRetros(in.SessionID))
 	}
-	if replyStyleFor(in.SessionID) == "terse" {
+	// A command's answer replaces the turn, so the block is not spent on it: the
+	// next ordinary prompt still carries it.
+	if !r.Block && replyStyleFor(in.SessionID) == "terse" {
 		r.Style = styleOnce(in.SessionID)
 	}
 	return r
@@ -107,7 +109,7 @@ func tddCommand(sub, arg, session, cwd string) string {
 			return "gate: could not persist the override (" + err.Error() + ")"
 		}
 		LogOverrideDetail("override-off", session, cwd, map[string]string{"switch": "session-off"})
-		return "aphrollo OFF for this session — its hooks are silent and decide nothing; the git-side gates and the secrets wall stay on. Run `/aphrollo on` to turn it back on."
+		return "aphrollo OFF for this session — its hooks are silent and decide nothing; the git-side gates (commit, merge, push) stay on. Run `/aphrollo on` to turn it back on."
 	case "on", "reset":
 		// reset clears any override, which is identical to turning enforcement on.
 		if err := setOff(session, false); err != nil {
@@ -176,7 +178,7 @@ func tddStatus(session string) string {
 	if s.GateOff() {
 		state = "OFF"
 	}
-	return fmt.Sprintf("aphrollo: enforcement %s for this session (reply style %s); stays on always: the secrets wall and the git-side gates (commit, merge, push). Switch: /aphrollo off|on.",
+	return fmt.Sprintf("aphrollo: enforcement %s for this session (reply style %s); the git-side gates (commit, merge, push) stay on. Switch: /aphrollo off|on.",
 		state, effectiveReplyStyle(s))
 }
 

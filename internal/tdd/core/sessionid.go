@@ -49,7 +49,7 @@ func eventActor(actor string) string {
 	if actor == "" {
 		actor = SessionID()
 	}
-	if hookAgent != "" && actor == hookSession {
+	if hookAgent != "" && hookSession != "" && actor == hookSession {
 		return hookSession + "/" + hookAgent
 	}
 	return actor

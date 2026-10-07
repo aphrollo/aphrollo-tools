@@ -251,7 +251,7 @@ deferred_session_test.go                           tdd       # prefix says poste
 deferred_status.go                                 postedit
 deferred_status_restart_test.go                    postedit
 deferred_status_test.go                            postedit
-deferred_supersede_test.go                          postedit
+deferred_supersede_test.go                         postedit
 deferred_sweep.go                                  postedit
 deferred_sweep_test.go                             gc        # prefix says postedit; its test body reaches gc
 deferred_test.go                                   postedit

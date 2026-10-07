@@ -43,7 +43,7 @@ func TestHandlePrompt_AphrolloStatusIsOneLineNamingWhatStaysOn(t *testing.T) {
 		if strings.Contains(msg, "\n") || !strings.Contains(msg, state) {
 			t.Errorf("status with the switch %s is not one line naming it: %q", state, msg)
 		}
-		for _, stays := range []string{"secrets", "git-side gates"} {
+		for _, stays := range []string{"git-side gates"} {
 			if !strings.Contains(msg, stays) {
 				t.Errorf("status must say %q stays on: %q", stays, msg)
 			}
