@@ -13,7 +13,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const measureStatsUsage = `usage: aphrollo stats [--repo <path>] [--lane <name>] [--week | --since <dur>] [--json] [--briefs | --shadow | --ab]
+const measureStatsUsage = `usage: aphrollo stats [--repo <path>] [--lane <name>] [--week | --since <dur>] [--json] [--by-version] [--briefs | --shadow | --ab]
 
 Prints the pipeline measures folded from the repo's event log (the current
 repo by default): lane speed (first event to merge, p50/p90), first-run CI
@@ -28,6 +28,9 @@ named earlier, over the window (the one to trend to 0). Read-only.
   --week           only the last 7 days
   --since <dur>    only the last <dur> (7d, 12h)
   --json           the report as JSON
+  --by-version     read each binary version on its own, under a heading per version: a lane
+                   goes with the version that opened it (every readout names the versions
+                   its window spans)
   --shadow         instead: what the trellis kernel would have decided beside the
                    live hooks, per rule: fires, agreement, would-be blocks and, of
                    those, catches, wrong blocks and passes from what followed on
@@ -57,6 +60,7 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 	briefs := fs.Bool("briefs", false, "measure the managed block, skill and agent briefs against the token caps")
 	shadowSection := fs.Bool("shadow", false, "print the shadow section: trellis beside aphrollo's live hooks")
 	abSection := fs.Bool("ab", false, "print the red-to-green A/B readout per arm")
+	byVersion := fs.Bool("by-version", false, "read each binary version of the window on its own")
 	pos, err := parseFlagsAnywhere(fs, args)
 	if err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -84,36 +88,62 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	note := horizonNote(*repo)
-	if *abSection {
-		ab := measure.ComputeAB(tdd.ReadEvents(*repo), time.Now().UTC(), measure.Options{Lane: *lane, Window: window})
-		if *asJSON {
-			return printJSON(ab, stdout, stderr)
+	events := tdd.ReadEvents(*repo)
+	opts := measure.Options{Lane: *lane, Window: window}
+	section := func(evs []tdd.Event) (string, any) {
+		now := time.Now().UTC()
+		switch {
+		case *abSection:
+			ab := measure.ComputeAB(evs, now, opts)
+			return ab.Text(), ab
+		case *shadowSection:
+			s := measure.ComputeShadow(evs, now, opts)
+			return s.Text(), s
 		}
-		fmt.Fprint(stdout, ab.Text())
-		return 0
+		r := measure.Compute(evs, now, opts)
+		return r.Text(), r
 	}
-	if *shadowSection {
-		s := measure.ComputeShadow(tdd.ReadEvents(*repo), time.Now().UTC(), measure.Options{Lane: *lane, Window: window})
-		if *asJSON {
-			if note != "" {
-				fmt.Fprintln(stderr, note)
-			}
-			return printJSON(s, stdout, stderr)
-		}
-		fmt.Fprint(stdout, s.Text())
-		if note != "" {
-			fmt.Fprintln(stdout, note)
-		}
-		return 0
+	versions := measure.VersionsText(measure.Versions(events, time.Now().UTC(), opts))
+	if *byVersion {
+		return printByVersion(events, section, versions, note, *asJSON, stdout, stderr)
 	}
-	r := measure.Compute(tdd.ReadEvents(*repo), time.Now().UTC(), measure.Options{Lane: *lane, Window: window})
+	text, value := section(events)
 	if *asJSON {
-		if note != "" {
+		if note != "" && !*abSection {
 			fmt.Fprintln(stderr, note)
 		}
-		return printJSON(r, stdout, stderr)
+		fmt.Fprint(stderr, versions)
+		return printJSON(value, stdout, stderr)
 	}
-	fmt.Fprint(stdout, r.Text())
+	fmt.Fprint(stdout, text)
+	fmt.Fprint(stdout, versions)
+	if note != "" && !*abSection {
+		fmt.Fprintln(stdout, note)
+	}
+	return 0
+}
+
+// printByVersion prints the section once per binary version, oldest first,
+// each lane under the version that opened it.
+func printByVersion(events []tdd.Event, section func([]tdd.Event) (string, any), versions, note string, asJSON bool, stdout, stderr io.Writer) int {
+	type slice struct {
+		Version string `json:"version"`
+		Report  any    `json:"report"`
+	}
+	var all []slice
+	for _, sp := range measure.SplitByVersion(events) {
+		text, value := section(sp.Events)
+		if asJSON {
+			all = append(all, slice{sp.Version, value})
+			continue
+		}
+		fmt.Fprintf(stdout, "== version %s ==\n%s", sp.Version, text)
+	}
+	if asJSON {
+		fmt.Fprint(stderr, versions)
+		return printJSON(all, stdout, stderr)
+	}
+	fmt.Fprint(stdout, versions)
 	if note != "" {
 		fmt.Fprintln(stdout, note)
 	}

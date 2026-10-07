@@ -24,6 +24,7 @@ func (r Report) Text() string {
 	}
 	p("%s: %s", r.Title, r.Repo)
 	p("%s up to %s, %d events. Replay any event with `aphrollo why <seq>`.", r.Window, r.Until, r.Events)
+	b.WriteString(measure.VersionsText(r.Versions))
 
 	p("")
 	p("1. Friction per rule (denies, overrides, refusals, not-tested runs, time lost)")
@@ -106,6 +107,14 @@ func (r Report) Text() string {
 	} else if r.withheld {
 		p("")
 		p("7. Session usage: withheld, because the undercover check refused it")
+	}
+	if len(r.ByVersion) > 0 {
+		p("")
+		p("8. By version (each lane with the version that opened it)")
+		for _, v := range r.ByVersion {
+			p("  %-12s %d events  denies %d  overrides %d", v.Version, v.Events, v.Denies, v.Overrides)
+			b.WriteString(indent(indent(v.AB.Text())))
+		}
 	}
 	return b.String()
 }

@@ -180,3 +180,46 @@ func TestStats_ShadowSectionCountsTheFiresAndSaysWhenThereAreTooFewForARate(t *t
 		t.Errorf("--shadow --json --week = code %d, err %v, %+v; want 3 fires over the last 7d", code, err, s)
 	}
 }
+
+func versionedDeny(lane, rule, ver string) tdd.Event {
+	e := denyEvent(lane, rule)
+	e.BinVer = ver
+	return e
+}
+
+// An update moves the binary under the same log, so every readout says which
+// versions its window spans, and --by-version reads each version on its own.
+func TestStats_NamesTheVersionsAWindowSpansAndSplitsThemWithByVersion(t *testing.T) {
+	repo := statsRepo(t, map[time.Duration]tdd.Event{
+		3 * time.Hour: versionedDeny("lane/a", "r1", "1.0.0"),
+		2 * time.Hour: versionedDeny("lane/b", "r2", "1.1.0"),
+		time.Hour:     versionedDeny("lane/b", "r3", "1.1.0"),
+	})
+	code, out, errOut := runStatsCmd(t, "--repo", repo)
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr: %s", code, errOut)
+	}
+	if want := "versions in this window: 1.0.0 (1 event), 1.1.0 (2 events)"; !strings.Contains(out, want) {
+		t.Fatalf("output lacks %q:\n%s", want, out)
+	}
+
+	code, out, errOut = runStatsCmd(t, "--repo", repo, "--by-version", "--json")
+	if code != 0 {
+		t.Fatalf("--by-version exit = %d, stderr: %s", code, errOut)
+	}
+	var split []struct {
+		Version string         `json:"version"`
+		Report  measure.Report `json:"report"`
+	}
+	if err := json.Unmarshal([]byte(out), &split); err != nil {
+		t.Fatalf("--by-version --json is not a list of per-version reports: %v\n%s", err, out)
+	}
+	if len(split) != 2 || split[0].Version != "1.0.0" || split[0].Report.Denies.Denies != 1 || split[1].Version != "1.1.0" || split[1].Report.Denies.Denies != 2 {
+		t.Fatalf("per-version denies = %+v, want 1.0.0 with 1 and 1.1.0 with 2", split)
+	}
+
+	code, out, _ = runStatsCmd(t, "--repo", repo, "--by-version", "--ab")
+	if code != 0 || !strings.Contains(out, "== version 1.0.0 ==") || !strings.Contains(out, "== version 1.1.0 ==") {
+		t.Fatalf("--ab --by-version exit %d, output lacks a heading per version:\n%s", code, out)
+	}
+}

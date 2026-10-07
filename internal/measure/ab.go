@@ -30,6 +30,9 @@ type ABArm struct {
 	HeldOut         int    `json:"held_out"`
 	TimeToGreen     Dist   `json:"time_to_green_secs"`
 	Reached         bool   `json:"reached_min_lanes"`
+	// Versions are the binary versions the arm's lanes ran under, listed only when
+	// there is more than one: a mixed arm is a comparison to read with care.
+	Versions []string `json:"versions,omitempty"`
 }
 
 // ABLang is an arm's lanes and decisions in one language.
@@ -62,6 +65,7 @@ type abLaneFacts struct {
 	greenSeen          bool
 	ciCounted          bool
 	langs              map[string][2]int // lang -> denies, warnings
+	versions           versionSet
 }
 
 // ComputeAB folds the event log into the A/B readout. A lane is in the arm its first
@@ -74,7 +78,7 @@ func ComputeAB(events []tdd.Event, now time.Time, o Options) AB {
 	get := func(lane string) *abLaneFacts {
 		f := lanes[lane]
 		if f == nil {
-			f = &abLaneFacts{langs: map[string][2]int{}}
+			f = &abLaneFacts{langs: map[string][2]int{}, versions: versionSet{}}
 			lanes[lane] = f
 		}
 		return f
@@ -83,6 +87,7 @@ func ComputeAB(events []tdd.Event, now time.Time, o Options) AB {
 		if e.Lane == "" || !s.in(e.at) {
 			continue
 		}
+		get(e.Lane).versions[binVersion(e.Event)] = true
 		foldABEvent(get(e.Lane), e)
 	}
 	return summariseAB(lanes)
@@ -166,6 +171,7 @@ func foldABDecision(f *abLaneFacts, e stamped) {
 
 func summariseAB(lanes map[string]*abLaneFacts) AB {
 	arms := map[string]*ABArm{}
+	armVersions := map[string]versionSet{}
 	samples := map[string][]float64{}
 	langs := map[string]*ABLang{}
 	for _, name := range abArms {
@@ -182,6 +188,12 @@ func summariseAB(lanes map[string]*abLaneFacts) AB {
 			continue
 		}
 		a.Lanes++
+		if armVersions[f.arm] == nil {
+			armVersions[f.arm] = versionSet{}
+		}
+		for v := range f.versions {
+			armVersions[f.arm][v] = true
+		}
 		a.Denies += f.denies
 		a.Warnings += f.warnings
 		a.Overrides += f.overrides
@@ -209,6 +221,9 @@ func summariseAB(lanes map[string]*abLaneFacts) AB {
 	for _, name := range abArms {
 		a := arms[name]
 		a.TimeToGreen = dist(samples[name])
+		if vs := armVersions[name].list(); len(vs) > 1 {
+			a.Versions = vs
+		}
 		a.Reached = a.Lanes >= MinABLanes
 		out.Decidable = out.Decidable && a.Reached
 		out.Arms = append(out.Arms, *a)
@@ -236,6 +251,9 @@ func (ab AB) Text() string {
 		p("  escapes %d (escape records %d, CI red after a local green %d)", a.Escapes, a.EscapeRecords, a.CIRedAfterGreen)
 		p("  friction: denies %d + overrides %d; time to green n %d  p50 %s  p90 %s",
 			a.Denies, a.Overrides, a.TimeToGreen.N, secs(a.TimeToGreen.P50), secs(a.TimeToGreen.P90))
+		if len(a.Versions) > 1 {
+			p("  note: %s lanes ran under different versions: %s", a.Arm, strings.Join(a.Versions, ", "))
+		}
 	}
 	for _, l := range ab.Languages {
 		p("  %-8s %-10s %d lanes  denies %d  warnings %d", l.Arm, l.Lang, l.Lanes, l.Denies, l.Warnings)

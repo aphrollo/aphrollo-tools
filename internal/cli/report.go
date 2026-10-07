@@ -13,7 +13,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
-const reportUsage = `usage: aphrollo report [--repo <path>] [--since <dur>] [--compare-at <date|sha>] [--json] [--issue [--dry]]
+const reportUsage = `usage: aphrollo report [--repo <path>] [--since <dur>] [--compare-at <date|sha>] [--json] [--by-version] [--issue [--dry]]
        aphrollo report web [--out <path>] [--no-open] [--repo <path>] [--since <dur>] [--compare-at <date|sha>]
 
 The weekly continuous-improvement report, folded from the repo's event log (the
@@ -78,6 +78,7 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 		repo      = fs.String("repo", ".", "repository path")
 		since     = fs.String("since", "7d", "the window the report covers (7d, 12h)")
 		asJSON    = fs.Bool("json", false, "print the report model as JSON")
+		byVersion = fs.Bool("by-version", false, "add a section that reads each binary version of the window on its own")
 		issue     = fs.Bool("issue", false, "open the week's report issue")
 		compareAt = fs.String("compare-at", "", "compare session usage before and after a date or commit")
 		out       = fs.String("out", "", "report web: where to write the page")
@@ -138,7 +139,7 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 	if *issue {
 		return deliverReport(root, !mutFlag.execute(), stdout, stderr)
 	}
-	rep := buildReport(root, window, now, cmpAt, false)
+	rep := buildReport(root, window, now, cmpAt, false, *byVersion)
 	if web {
 		return writeReportPage(root, rep, *out, !*noOpen, !mutFlag.execute(), stdout, stderr)
 	}
@@ -150,7 +151,7 @@ func runReport(args []string, stdout, stderr io.Writer) int {
 }
 
 // buildReport folds the repo's event log and measures its injected texts.
-func buildReport(root string, window time.Duration, now, compareAt time.Time, abReady bool) report.Report {
+func buildReport(root string, window time.Duration, now, compareAt time.Time, abReady, byVersion bool) report.Report {
 	var briefs []measure.Brief
 	for _, b := range tdd.Briefs(tdd.RepoRoot(root)) {
 		briefs = append(briefs, measure.Brief{Name: b.Name, Subagent: b.Subagent, Bytes: len(b.Text)})
@@ -159,6 +160,6 @@ func buildReport(root string, window time.Duration, now, compareAt time.Time, ab
 	return report.Build(report.Input{
 		Events: events, Now: now, Window: window,
 		Repo: repoName(root), Briefs: measure.CheckBriefs(briefs),
-		Usage: scanUsage(root, window, now, events), CompareAt: compareAt, ABReadyIssued: abReady,
+		Usage: scanUsage(root, window, now, events), CompareAt: compareAt, ABReadyIssued: abReady, ByVersion: byVersion,
 	})
 }

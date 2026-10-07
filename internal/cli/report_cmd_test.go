@@ -369,3 +369,23 @@ func TestReportWeb_DryNamesThePathAndWritesNothingAndNoCommonDirIsRefused(t *tes
 		t.Errorf("the page was written into the directory itself: %v", entries)
 	}
 }
+
+func TestReport_ByVersionAddsASectionPerBinaryVersion(t *testing.T) {
+	repo := statsRepo(t, map[time.Duration]tdd.Event{
+		3 * time.Hour: versionedDeny("lane/a", "r1", "1.0.0"),
+		time.Hour:     versionedDeny("lane/b", "r1", "1.1.0"),
+	})
+	code, out, errOut := runReportCmd(t, "--repo", repo, "--by-version")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr: %s", code, errOut)
+	}
+	for _, want := range []string{"versions in this window: 1.0.0 (1 event), 1.1.0 (1 event)", "8. By version", "1.0.0", "1.1.0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("report lacks %q:\n%s", want, out)
+		}
+	}
+	_, plain, _ := runReportCmd(t, "--repo", repo)
+	if strings.Contains(plain, "8. By version") {
+		t.Errorf("a report without --by-version carries the section:\n%s", plain)
+	}
+}
