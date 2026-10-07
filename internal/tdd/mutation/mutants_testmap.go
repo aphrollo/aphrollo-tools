@@ -51,6 +51,11 @@ type testMap struct {
 	Hash    string     `json:"hash"`
 	Tests   []string   `json:"tests"`
 	Blocks  []mapBlock `json:"blocks"`
+	// Unknown lists tests that wrote no profile, so nothing is known of what
+	// they execute. A map with any is used for this commit only, never kept,
+	// and never exact: those tests are added to every selection and a mutant
+	// is never called not covered on its word.
+	Unknown []string `json:"unknown,omitempty"`
 }
 
 // testsAt is the tests that executed a block holding the line of the named
@@ -166,6 +171,18 @@ type selection struct {
 func selectTests(m *testMap, current, touched []string, file string, line int) selection {
 	if m != nil {
 		if mapped, listed := m.testsAt(file, line); listed {
+			if len(m.Unknown) > 0 {
+				// What the tests with no profile execute is not known: they join
+				// the selection, and a mutant they all miss still goes on to the
+				// rest of the package.
+				names := slices.Concat(mapped, m.Unknown)
+				slices.Sort(names)
+				names = slices.Compact(names)
+				if len(runPattern(names)) > maxRunPatternLen {
+					return selection{Whole: true}
+				}
+				return selection{Names: names}
+			}
 			// The map is exact for the content it was built from and its tests
 			// are the ones the test binary listed, so each of them exists.
 			switch {

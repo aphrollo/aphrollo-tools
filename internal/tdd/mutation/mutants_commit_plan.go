@@ -104,6 +104,10 @@ func commitPlans(root string, mutants []commitMutant, added map[string]map[int]b
 		}
 		decls := scanTestDecls(filepath.Join(root, filepath.FromSlash(dir)), dir)
 		touched, whole := testChanges(decls, added)
+		// A test that starts its own binary again (the helper-process pattern) runs
+		// the code under test in a child whose coverage the parent's profile does
+		// not hold, so no map can say which tests execute a line: run it whole.
+		whole = whole || reexecsTestBinary(filepath.Join(root, filepath.FromSlash(dir)))
 		plans[dir] = &commitPlan{Dir: dir, Current: testNames(decls), Touched: touched, Whole: whole}
 	}
 	return plans
@@ -166,7 +170,8 @@ func SetCommitExecForTest(fn func(ctx context.Context, dir string, env, argv []s
 	return func() { resolveExecFn, testMapExecFn = prev, prevMap }
 }
 
-// measureTestMaps gives each plan the map of its package: the kept one when the
+// measureTestMaps gives each plan the map of its package, each package within
+// an equal share of the time left: the kept one when the
 // package's content and toolchain are those it was measured at, else one
 // coverage run of the package's tests, in the foreground, within ctx's
 // deadline, which is what is left of the commit's budget, kept for the next
@@ -183,8 +188,15 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 		}
 	}
 	sort.Strings(dirs)
-	for _, dir := range dirs {
-		m, ok, _, err := ensureTestMap(ctx, root, cfg, dir, workers, log)
+	for i, dir := range dirs {
+		// Each package gets an equal share of what is left, so the first one
+		// cannot spend the whole budget and leave the rest no time at all.
+		pctx, cancel := ctx, context.CancelFunc(func() {})
+		if deadline, ok := ctx.Deadline(); ok {
+			pctx, cancel = context.WithTimeout(ctx, time.Until(deadline)/time.Duration(len(dirs)-i))
+		}
+		m, ok, _, err := ensureTestMap(pctx, root, cfg, dir, workers, log)
+		cancel()
 		if err != nil {
 			logf(log, "mutants: coverage of %s NOT MEASURED — %v", dir, err)
 			continue
@@ -193,4 +205,29 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 			plans[dir].Map = &m
 		}
 	}
+}
+
+// reexecsTestBinary reports whether a test file of the package in dir starts
+// the test binary again, by naming os.Args[0] or os.Executable, which is how a
+// helper-process test runs the code under test in a child. The profile of the
+// parent holds nothing of what the child executed.
+func reexecsTestBinary(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		src := string(data)
+		if strings.Contains(src, "os.Args[0]") || strings.Contains(src, "os.Executable(") {
+			return true
+		}
+	}
+	return false
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -186,7 +187,13 @@ func hashPackage(root, listing string) string {
 		dir := parts[0]
 		fmt.Fprintf(h, "package %s\n", dir)
 		if rel, err := filepath.Rel(root, dir); err != nil || !filepath.IsLocal(rel) {
-			continue
+			// A dependency outside the module is one of two things: a module
+			// the module cache holds, whose directory names its version and
+			// never changes, or a replacement directory on disk, which does
+			// change and is read by content like the module's own.
+			if inModuleCache(dir) {
+				continue
+			}
 		}
 		for _, group := range parts[1:] {
 			for _, name := range strings.Split(group, ",") {
@@ -195,6 +202,8 @@ func hashPackage(root, listing string) string {
 				}
 			}
 		}
+		// A test reads its fixtures from testdata, which `go list` does not name.
+		hashTree(h, filepath.Join(dir, "testdata"))
 	}
 	return hex.EncodeToString(h.Sum(nil))
 }
@@ -209,4 +218,27 @@ func hashFile(h io.Writer, path, name string) {
 	}
 	fmt.Fprintf(h, "file %s %d\n", name, len(data))
 	_, _ = h.Write(data)
+}
+
+// inModuleCache reports whether dir is inside the Go module cache, which holds
+// each module version in a directory that is never edited.
+func inModuleCache(dir string) bool {
+	return strings.Contains(filepath.ToSlash(dir), "/pkg/mod/")
+}
+
+// hashTree adds every file below dir, by relative path and content, in path
+// order; a dir that is not there adds nothing.
+func hashTree(h io.Writer, dir string) {
+	var files []string
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			files = append(files, path)
+		}
+		return nil
+	})
+	slices.Sort(files)
+	for _, path := range files {
+		rel, _ := filepath.Rel(dir, path)
+		hashFile(h, path, "testdata/"+filepath.ToSlash(rel))
+	}
 }

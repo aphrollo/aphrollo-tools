@@ -189,8 +189,9 @@ func TestBuildTestMap_ACompileFailureIsAnError(t *testing.T) {
 	}
 }
 
-// A test that fails alone still executed what it executed up to the failure,
-// and one that wrote no profile at all covers nothing without failing the map.
+// A test that fails alone still executed what it executed up to the failure.
+// One that wrote no profile at all (os.Exit, log.Fatal, a panic, a kill) is not
+// a test that covers nothing: it is Unknown, and the build is not failed by it.
 func TestBuildTestMap_AFailingOrSilentTestDoesNotFailTheMap(t *testing.T) {
 	tc := &fakeToolchain{
 		list:     "Test_A\nTest_Silent\n",
@@ -204,8 +205,8 @@ func TestBuildTestMap_AFailingOrSilentTestDoesNotFailTheMap(t *testing.T) {
 	if got, _ := m.testsAt("p.go", 4); !slices.Equal(got, []string{"Test_A"}) {
 		t.Errorf("testsAt(p.go, 4) = %v, want [Test_A]", got)
 	}
-	if !slices.Contains(m.Tests, "Test_Silent") {
-		t.Errorf("Tests = %v, want the silent test listed so it is known", m.Tests)
+	if !slices.Equal(m.Unknown, []string{"Test_Silent"}) || slices.Contains(m.Tests, "Test_Silent") {
+		t.Errorf("Unknown = %v, Tests = %v, want the silent test unknown and not a test that covers nothing", m.Unknown, m.Tests)
 	}
 }
 

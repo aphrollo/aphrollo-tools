@@ -769,14 +769,24 @@ whole suite writes one profile that cannot say which test ran a block, so the
 cost is one compile plus one pass over the tests, with a process start for
 each. Each profile's blocks (file, first line, last line) are folded into one
 list with the tests that executed each; a block no test executed is kept with
-no tests, which is how a line is known to be uncovered. A package whose
-coverage cannot be measured, or not in the time the budget leaves, is named
-`NOT MEASURED` and its mutants fall back as above.
+no tests, which is how a line is known to be uncovered. A test that
+writes no profile (it called `os.Exit` or `log.Fatal`, panicked, was killed or
+timed out, or could not start) is recorded as unknown, not as covering nothing:
+the map is used for that commit only and never kept, the unknown tests join
+every selection, and no mutant is called not covered. A package whose tests
+start their own binary again (`os.Args[0]` or `os.Executable` in a test file,
+the helper-process pattern) is run whole, since the parent's profile holds
+nothing of what the child executed. A package whose coverage cannot be
+measured, or not in the time the budget leaves, is named `NOT MEASURED` and its
+mutants fall back as above. Each package gets an equal share of the time left,
+and the compile takes the whole memory share, since it is one process.
 
 **The cache.** What a commit measures is kept for the next commit to the same
 package. The key is the package's import path, the hash of everything its test
-binary is built from (the content of its own Go files, tests included, and of
-every package it imports inside the module) and the Go version and build
+binary is built from (the content of its own Go files, tests included, cgo and
+assembly files, `testdata/`, and the same for every package it imports inside
+the module or from a replacement directory outside it; `go.mod`, `go.sum` and
+`go.work`; `mutants-env`) and the Go version and build
 settings (`go env GOVERSION GOFLAGS GOOS GOARCH CGO_ENABLED GOEXPERIMENT`). A
 map is kept in the repository's shared git directory
 (`aphrollo-mutcover/`, one file per package and key), so every lane of the

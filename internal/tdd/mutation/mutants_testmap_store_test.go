@@ -70,11 +70,11 @@ func TestHashPackage_ListingOrderDoesNotMatter(t *testing.T) {
 func TestHashPackage_ExternalDependenciesAreNamedNotRead(t *testing.T) {
 	t.Parallel()
 	root, listing := hashFixture(t)
-	external := listing + "/elsewhere/mod@v1.0.0|x.go|||\n"
+	external := listing + "/elsewhere/pkg/mod/mod@v1.0.0|x.go|||\n"
 	if hashPackage(root, external) == hashPackage(root, listing) {
 		t.Error("adding an external dependency left the hash unchanged")
 	}
-	bumped := listing + "/elsewhere/mod@v1.0.1|x.go|||\n"
+	bumped := listing + "/elsewhere/pkg/mod/mod@v1.0.1|x.go|||\n"
 	if hashPackage(root, external) == hashPackage(root, bumped) {
 		t.Error("a new dependency version left the hash unchanged")
 	}
