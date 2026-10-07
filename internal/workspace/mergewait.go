@@ -192,6 +192,14 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 		}
 		reads.reached()
 		line, done, failed, notStarted := pollState(head, laneSHA, checks)
+		if done {
+			// Every check that exists passed, but a workflow run of this head that
+			// is still queued (behind another run of its concurrency group) has made
+			// none of its checks yet: the required one is coming, not missing.
+			if open := unfinishedRuns(t.Worktree, t.Branch, head); open > 0 {
+				line, done = fmt.Sprintf("%d workflow run(s) of this head still queued or running; their checks have not all appeared", open), false
+			}
+		}
 		state := fmt.Sprintf("  [wait] PR #%d %s: %s", head.Number, short(head.HeadSHA), line)
 		if state != last {
 			fmt.Fprintln(stdout, state)
@@ -215,6 +223,23 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 		}
 		waitSleep(o.Interval)
 	}
+}
+
+// unfinishedRuns counts the PR's workflow runs on head that have not concluded.
+// A run list that cannot be read counts none: the gate then judges the checks
+// there are, as it did before the runs were looked at.
+func unfinishedRuns(wt, branch string, head *PRHead) int {
+	runs, err := ghPRRuns(wt, branch, head.Number)
+	if err != nil {
+		return 0
+	}
+	open := 0
+	for _, r := range runs {
+		if r.SHA == head.HeadSHA && !strings.EqualFold(r.Status, "completed") {
+			open++
+		}
+	}
+	return open
 }
 
 func failedChecksError(branch string, head *PRHead, failed []CheckRun) error {

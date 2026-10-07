@@ -21,6 +21,7 @@ func TestMergeExitCode_AStaleCIVerdictIsTwoAndAnyOtherRefusalIsOne(t *testing.T)
 		{"stale verdict wrapped", errors.Join(errors.New("queue stopped"), &tdd.StaleCIVerdictError{TrunkName: "main"}), 2},
 		{"lane not at the PR head", &workspace.JudgedHeadError{Msg: "lane HEAD 63b3e94 is not the PR head 6e6bdda"}, 2},
 		{"lane not at the PR head, wrapped by a queue", errors.Join(errors.New("queue stopped"), &workspace.JudgedHeadError{Msg: "x"}), 2},
+		{"queue stopped by a plain refusal (#1254: never exit 0 after printing it)", errors.Join(errors.New("queue stopped at PR #1253"), errors.New("gate premerge: CI's verdict does not stand")), 1},
 		{"any other refusal", errors.New("refusing to merge lane/x: checks failed"), 1},
 	}
 	for _, tc := range cases {
