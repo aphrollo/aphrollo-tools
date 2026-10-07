@@ -197,3 +197,36 @@ func TestSpeed_JSONKeyIsSpeedAndPublishedTextCarriesTheBlock(t *testing.T) {
 		t.Error("the issue text lacks the speed block")
 	}
 }
+
+func TestSpeed_OnlyTheStageLinesOfATimedKindCount(t *testing.T) {
+	evs := []tdd.Event{
+		timed(evAt(1, 50, "gate", "l", "green"), "postedit", "", 5),
+		timed(evAt(2, 49, "queue", "l", "queue-waiting"), "postedit", "", 7),
+		timed(evAt(3, 48, "ci", "l", "green"), "ci", "", 0),
+	}
+	evs[2].Detail = map[string]string{"secs": "600"}
+	r := build(evs)
+	if len(r.Speed.Rows) != 1 || r.Speed.Rows[0].Stage != "CI pipeline" || r.Speed.Rows[0].P50 != 600 {
+		t.Errorf("rows = %+v, want only the CI pipeline of 600s (a gate or queue line is no suite run)", r.Speed.Rows)
+	}
+}
+
+func TestSecsText_AndSignedSecsReadLiteralValues(t *testing.T) {
+	for _, c := range []struct {
+		got, want string
+	}{
+		{secsText(9.5), "9.5s"}, {secsText(10), "10s"}, {secsText(90), "1.5m"},
+		{signedSecs(0), "0s"}, {signedSecs(3), "+3s"}, {signedSecs(-3), "-3s"},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %q, want %q", c.got, c.want)
+		}
+	}
+}
+
+func TestSpeedDeltaCell_NoChangeIsNeitherBetterNorWorse(t *testing.T) {
+	zero := 0.0
+	if got, want := string(speedDeltaCell(SpeedRow{Change: &zero, PrevP50: 4})), `<td class="n" title="4s the window before">0s</td>`; got != want {
+		t.Errorf("cell = %s, want %s", got, want)
+	}
+}
