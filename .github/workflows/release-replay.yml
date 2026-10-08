@@ -42,6 +42,7 @@ on:
       - "internal/gitenv/**"
       - "internal/git/**"
       - "internal/tomlsubset/**"
+      - "internal/testcost/**"
       - "internal/config/**"
       - "internal/compat/**"
       - "internal/buildinfo/**"
