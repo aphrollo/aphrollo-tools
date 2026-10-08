@@ -48,7 +48,14 @@ type Speed struct {
 	Rows []SpeedRow `json:"rows"`
 	// Gaps are the durations the log cannot give yet, each with the smallest event change that would.
 	Gaps []string `json:"gaps,omitempty"`
+	// Dropped counts the samples longer than maxSpeedSecs: a duration no run can
+	// have (a clock read against a zero start), counted so none is dropped unseen.
+	Dropped int `json:"dropped,omitempty"`
 }
+
+// maxSpeedSecs is the longest duration a sample may record: 30 days, longer than
+// any gate run, CI run or PR the report reads.
+const maxSpeedSecs = 30 * 24 * 3600
 
 // speedClass is a duration the report reads. Classes are data: a new one is a
 // row here and a case in speedOf, never a new fold.
@@ -65,9 +72,9 @@ var speedClasses = []speedClass{
 	{name: "commit gate total"},
 	{name: "merge gate"},
 	{name: "merge gate total"},
-	{name: "mutation (commit)", gap: "mutation at commit: the mutants stage line is written with 0 seconds; pass the measured duration at the AppendGateLog call in internal/tdd/mutation/mutants_measure_judge.go"},
-	{name: "merge queue"},
-	{name: "CI pipeline"},
+	{name: "mutation (commit)", gap: "mutation at commit: no mutation run in the window carries its seconds (recorded from v1.34.0 on)"},
+	{name: "merge queue", gap: "merge queue: no PR in the window has both its enqueue and its merge recorded"},
+	{name: "CI pipeline", gap: "CI pipeline: no ci event in the window carries its run's seconds"},
 	{name: "PR lead time"},
 }
 
@@ -123,13 +130,39 @@ func speedOf(e stamped) (speedSample, bool) {
 	}
 	key := class
 	if speedCmdClasses[class] {
-		cmd := e.Cmd
-		if cmd == "" {
-			cmd = "(unnamed)"
-		}
-		key = class + ": " + cmd
+		key = class + ": " + gateStage(e.Verdict, e.Cmd)
 	}
 	return speedSample{key: key, at: e.at, secs: secs, ver: e.BinVer}, true
+}
+
+// gateVerdictStages names the gate stage a verdict prefix belongs to, where the
+// command alone does not tell it: every guard and the fail-first run are a go test.
+var gateVerdictStages = map[string]string{
+	"red": "fail-first", "green": "fail-first", "still": "fail-first",
+	"tddsplit": "tddsplit", "callsites": "callsites", "lint": "lint", "vet": "vet",
+	"docs": "docs", "mechanical": "mechanical", "ratchet": "ratchet check", "mutants": "mutants",
+}
+
+// gateStage is the row a gate's stage line belongs to: the stage its verdict
+// names, else the tool its command runs ("go test", "golangci-lint"), so the
+// rows are a gate's stages and not one per command line.
+func gateStage(verdict, cmd string) string {
+	prefix, _, _ := strings.Cut(verdict, "-")
+	prefix, _, _ = strings.Cut(prefix, ":")
+	// A bare green or red is any stage's verdict; only red-proven and
+	// green-proven name the fail-first run.
+	plain := (prefix == "green" || prefix == "red") && !strings.HasSuffix(verdict, "-proven")
+	if s, ok := gateVerdictStages[prefix]; ok && !plain {
+		return s
+	}
+	f := strings.Fields(cmd)
+	switch {
+	case len(f) == 0:
+		return "(unnamed)"
+	case f[0] == "go" && len(f) > 1:
+		return "go " + f[1]
+	}
+	return f[0]
 }
 
 // pairedSpeed is the durations that span two events of a PR: open to merge, and
@@ -150,7 +183,7 @@ func pairedSpeed(evs []stamped) []speedSample {
 			if _, ok := opened[pr]; !ok {
 				opened[pr] = e.at
 			}
-		case e.Kind == "merge" && e.Verdict == "queued":
+		case e.Kind == "merge" && (e.Verdict == "queued" || e.Verdict == "enqueued"):
 			queued[pr] = e.at // the last enqueue is the one the merge waited on
 		case e.Kind == "merge" && e.Verdict == "ok" && !done[pr]:
 			done[pr] = true
@@ -192,8 +225,13 @@ func buildSpeed(evs []stamped, since, from time.Time, hasPrev bool) Speed {
 	}
 	cur, prev := map[string][]float64{}, map[string][]float64{}
 	curSamples := map[string][]speedSample{}
+	dropped := 0
 	for _, s := range all {
 		switch {
+		case s.secs > maxSpeedSecs:
+			if since.IsZero() || !s.at.Before(since) {
+				dropped++
+			}
 		case since.IsZero() || !s.at.Before(since):
 			cur[s.key] = append(cur[s.key], s.secs)
 			curSamples[s.key] = append(curSamples[s.key], s)
@@ -234,6 +272,14 @@ func buildSpeed(evs []stamped, since, from time.Time, hasPrev bool) Speed {
 		if c.gap != "" && !seen[i] {
 			sp.Gaps = append(sp.Gaps, c.gap)
 		}
+	}
+	if dropped > 0 {
+		sp.Dropped = dropped
+		noun := "durations"
+		if dropped == 1 {
+			noun = "duration"
+		}
+		sp.Gaps = append(sp.Gaps, fmt.Sprintf("%d %s longer than 30 days left out: no run lasts that long, so the start it was measured from was never recorded", dropped, noun))
 	}
 	return sp
 }
