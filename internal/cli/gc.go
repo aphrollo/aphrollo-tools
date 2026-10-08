@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -24,6 +25,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		quiet     = fs.Bool("quiet", false, "print nothing (the detached session-start sweep)")
 		lockAge   = fs.String("lock-age", "1d", "reclaim unheld aphrollo lock files idle longer than this")
 		known     = fs.Bool("known", false, "also sweep every repo the gate has worked in lately (the detached session-start sweep)")
+		only      = fs.String("only", "", "sweep only these kinds, comma-separated: "+strings.Join(tdd.GCOnlyNames(), ", "))
 		mut       = addMutFlags(fs)
 	)
 	pos, err := mut.parse(fs, "gate gc", args, stderr)
@@ -31,6 +33,16 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	apply := mut.execute()
+	var onlyKinds map[string]bool
+	if *only != "" {
+		if onlyKinds, err = tdd.ParseGCOnly(*only); err != nil {
+			fmt.Fprintf(stderr, "aphrollo gate gc: %v\n", err)
+			return 2
+		}
+	}
+	// Everything outside the candidate list (state retention, the listings)
+	// is part of a full sweep only.
+	full := onlyKinds == nil
 	age, err := tdd.ParseGCAge(*olderThan)
 	if err != nil {
 		fmt.Fprintf(stderr, "aphrollo gate gc: %v\n", err)
@@ -69,7 +81,7 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		skipped int
 	)
 	sweep := func(r string, sc tdd.GCScope) {
-		found := tdd.ScanGC(r, age, sc)
+		found := tdd.FilterGCOnly(tdd.ScanGC(r, age, sc), onlyKinds)
 		cands = append(cands, found...)
 		if !apply {
 			return
@@ -83,21 +95,28 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 	for _, r := range repos {
 		sweep(r, scope)
 	}
-	cacheLine := sweepGoCache(cacheSettings, apply, *known, *quiet)
+	cacheLine := ""
+	if full || onlyKinds[tdd.GCOnlyGoCache] {
+		cacheLine = sweepGoCache(cacheSettings, apply, *known, *quiet)
+	}
 	if !apply {
 		if !*quiet {
 			fmt.Fprint(stdout, tdd.RenderGC(cands, false, 0))
 			fmt.Fprint(stdout, cacheLine)
-			retainState(repos, true, stdout, stderr)
-			writeMutantsInUse(stdout)
-			writeProbeBackups(stdout)
-			writeLegacyJobsLeftAlone(stdout)
+			if full {
+				retainState(repos, true, stdout, stderr)
+				writeMutantsInUse(stdout)
+				writeProbeBackups(stdout)
+				writeLegacyJobsLeftAlone(stdout)
+			}
 		}
 		return 0
 	}
 
 	if *quiet {
-		retainState(repos, false, io.Discard, stderr)
+		if full {
+			retainState(repos, false, io.Discard, stderr)
+		}
 		tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
 		if *known {
 			// The detached daily sweep also files the weekly report: no spawn of its own, silent on failure.
@@ -106,11 +125,15 @@ func runGateGC(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	tdd.RecordGCSweep(freed, len(cands)-skipped-len(refused))
-	retainState(repos, false, stdout, stderr)
+	if full {
+		retainState(repos, false, stdout, stderr)
+	}
 	fmt.Fprint(stdout, tdd.RenderGC(cands, true, freed))
 	fmt.Fprint(stdout, cacheLine)
-	writeMutantsInUse(stdout)
-	writeProbeBackups(stdout)
+	if full {
+		writeMutantsInUse(stdout)
+		writeProbeBackups(stdout)
+	}
 	if skipped > 0 {
 		fmt.Fprintf(stdout, "%d candidate(s) inside the target dir left for next time — a build holds every slot for this target dir\n", skipped)
 	}

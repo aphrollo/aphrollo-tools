@@ -29,6 +29,8 @@ const GCKindMutantsTemp = mutation.GCKindMutantsTemp
 
 const GCKindOrphanWorktree = mutation.GCKindOrphanWorktree
 
+const GCKindOther = mutation.GCKindOther
+
 const GCKindStrayTarget = mutation.GCKindStrayTarget
 
 const GCKindTempLitter = mutation.GCKindTempLitter
