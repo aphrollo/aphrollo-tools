@@ -15,7 +15,6 @@ const (
 	missNoRecord = "no recorded verdict for this tree"
 	missRed      = "the recorded verdict was red"
 	missStore    = "the store could not be read"
-	missBaseline = "baseline commands never reuse"
 	missOutside  = "a glob leaves the root"
 	missUnhashed = "the inputs could not be hashed (%v)"
 	missNoTool   = "the tool could not be found (%s)"

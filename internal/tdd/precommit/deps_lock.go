@@ -19,6 +19,8 @@ func AcquireLintLock(p0 string, p1 string, p2 time.Duration) (func(), time.Durat
 
 func ReadBuildSlotOwner(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildSlotOwner(p0) }
 
+func boxHeavyCapacity() int { return lock.BoxHeavyCapacity() }
+
 func cargoWorkspaceRoot(p0 string) string { return lock.CargoWorkspaceRoot(p0) }
 
 func foreignLoadReport(p0 int) string { return lock.ForeignLoadReport(p0) }

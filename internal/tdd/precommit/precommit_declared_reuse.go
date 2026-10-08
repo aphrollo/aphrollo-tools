@@ -31,8 +31,8 @@ import (
 // command would read what it read when it passed, so the merge does not run
 // it again. Anything else runs it: no inputs, no entry, a red entry, an
 // unreadable store, a hash that could not be taken, a tool that changed.
-// Commands that judge a failure against HEAD (baseline = "lines") never
-// reuse: their pass is not a plain green.
+// Commands that judge a failure against HEAD (baseline = "lines") keep no
+// record: they are skipped when their tree equals HEAD's (precommit_declared_lines.go).
 
 const (
 	declaredVerdictsName = "declared-verdicts.json"
@@ -176,9 +176,11 @@ type declaredKeyed struct {
 	parts             declaredParts
 	takes             bool
 	// baselined marks a command with inputs that is judged against HEAD and so
-	// never reuses.
+	// keeps no record.
 	baselined bool
-	err       error
+	// cmd is the command, kept for the comparison a baselined one is judged by.
+	cmd declaredCommand
+	err error
 }
 
 // declaredKeying keys c run in root.
@@ -187,7 +189,7 @@ func declaredKeying(root string, c declaredCommand) declaredKeyed {
 		return declaredKeyed{}
 	}
 	if c.Baseline != "" && c.Baseline != baselineNone {
-		return declaredKeyed{baselined: true}
+		return declaredKeyed{baselined: true, cmd: c}
 	}
 	k := declaredKeyed{takes: true}
 	r := Runner{Cmd: c.Argv[0], Args: c.Argv[1:]}
@@ -401,8 +403,8 @@ func contentStamp(root, rel string) (stamp string, present bool, err error) {
 // cannot key such a command, so that nothing is recorded for the merge, it
 // says that.
 func declaredReuse(gateName, root string, r Runner, k declaredKeyed) bool {
-	if k.baselined && gateName == premergeDisplayName {
-		fmt.Fprintf(stderrFor(root), "[run] %s: no reuse — %s\n", cmdString(r), missBaseline)
+	if k.baselined {
+		return linesBaseReuse(gateName, root, r, k.cmd)
 	}
 	if !k.takes {
 		return false

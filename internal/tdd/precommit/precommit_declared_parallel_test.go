@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
+	"github.com/aphrollo/aphrollo-tools/internal/tdd/lock"
 )
 
 // dparFake is a runner for declared commands named by their program ("a",
@@ -24,6 +25,8 @@ type dparFake struct {
 	hold            map[string]chan struct{}
 	fail            map[string]bool
 	dur             map[string]time.Duration
+	seq             map[string][]SuiteResult
+	timeout         map[string]bool
 	running         map[string]bool
 	finished        []string
 	finishedAtStart map[string][]string
@@ -37,7 +40,7 @@ type dparFake struct {
 func newDparFake(names ...string) *dparFake {
 	f := &dparFake{
 		weights: map[string]int{}, hold: map[string]chan struct{}{}, fail: map[string]bool{},
-		dur: map[string]time.Duration{}, running: map[string]bool{},
+		dur: map[string]time.Duration{}, seq: map[string][]SuiteResult{}, timeout: map[string]bool{}, running: map[string]bool{},
 		finishedAtStart: map[string][]string{}, runningAtStart: map[string][]string{},
 		entered: make(chan string, 64), exited: make(chan string, 64),
 	}
@@ -64,7 +67,7 @@ func (f *dparFake) ours(name string) bool {
 	_, held := f.hold[name]
 	_, weighed := f.weights[name]
 	_, timed := f.dur[name]
-	return held || weighed || timed || f.fail[name]
+	return held || weighed || timed || f.fail[name] || f.timeout[name] || len(f.seq[name]) > 0
 }
 
 func (f *dparFake) run(r Runner, _ string) SuiteResult {
@@ -98,12 +101,15 @@ func (f *dparFake) run(r Runner, _ string) SuiteResult {
 	f.mu.Lock()
 	delete(f.running, name)
 	f.finished = append(f.finished, name)
-	f.mu.Unlock()
-	f.exited <- name
-	res := SuiteResult{Passed: !f.fail[name], Duration: f.dur[name]}
+	res := SuiteResult{Passed: !f.fail[name] && !f.timeout[name], Duration: f.dur[name], TimedOut: f.timeout[name]}
 	if f.fail[name] {
 		res.Output = "err " + name + "\n"
 	}
+	if q := f.seq[name]; len(q) > 0 {
+		res, f.seq[name] = q[0], q[1:]
+	}
+	f.mu.Unlock()
+	f.exited <- name
 	return res
 }
 
@@ -156,10 +162,50 @@ func dparToml(budget int, cmds ...string) string {
 	return s + "\".\" = [\n  " + strings.Join(cmds, ",\n  ") + ",\n]\n"
 }
 
+// dparSink is a root's stderr that keeps what it is given and lets a test
+// wait for a line to appear.
+type dparSink struct {
+	mu      sync.Mutex
+	buf     bytes.Buffer
+	changed chan struct{}
+}
+
+func (s *dparSink) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	n, err := s.buf.Write(p)
+	s.mu.Unlock()
+	select {
+	case s.changed <- struct{}{}:
+	default:
+	}
+	return n, err
+}
+
+func (s *dparSink) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
+
+// waitFor returns once the text holds want; a line that never comes fails the
+// test instead of hanging it.
+func (s *dparSink) waitFor(t *testing.T, want string) {
+	t.Helper()
+	// real-time: a failure bound only; the wait ends on the sink's signal, never on the clock
+	deadline := time.After(10 * time.Second)
+	for !strings.Contains(s.String(), want) {
+		select {
+		case <-s.changed:
+		case <-deadline:
+			t.Fatalf("%q never written; got:\n%s", want, s.String())
+		}
+	}
+}
+
 type dparRun struct {
 	res  chan GateResult
 	root string
-	sink *bytes.Buffer
+	sink *dparSink
 }
 
 // dparStart judges a staged change in a repo declaring toml, on its own
@@ -170,7 +216,7 @@ func dparStart(t *testing.T, toml string, f *dparFake) *dparRun {
 	write(t, root, "aphrollo.toml", toml)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", "-A")
-	d := &dparRun{res: make(chan GateResult, 1), root: root, sink: &bytes.Buffer{}}
+	d := &dparRun{res: make(chan GateResult, 1), root: root, sink: &dparSink{changed: make(chan struct{}, 1)}}
 	t.Cleanup(rootseam.SetStderr(root, d.sink))
 	t.Cleanup(func() {
 		f.mu.Lock()
@@ -213,22 +259,53 @@ func TestDeclaredParallel_MarkedCommandsRunAtTheSameTime(t *testing.T) {
 	}
 }
 
-// Each command's lines print whole and in declared order, whichever
-// finishes first: b ends before a is let go, and still prints after it.
-func TestDeclaredParallel_OutputIsInDeclaredOrderWhateverTheFinishOrder(t *testing.T) {
+// ratchet: test_removed TestDeclaredParallel_OutputIsInDeclaredOrderWhateverTheFinishOrder: blocks now stream in finish order; restated as TestDeclaredParallel_AFinishedCommandsBlockIsWrittenWholeAtOnce.
+
+// A command's block is written whole the moment it finishes, under a header
+// that says how many have finished, so a slow command ahead of it hides
+// nothing: b ends before a is let go, and its block is already out.
+func TestDeclaredParallel_AFinishedCommandsBlockIsWrittenWholeAtOnce(t *testing.T) {
 	f := newDparFake("a", "b")
 	d := dparStart(t, dparToml(2, dparCmd("a", true, 0), dparCmd("b", true, 0)), f)
 	f.waitEntered(t, 2)
 	f.free("b")
 	f.waitExited(t, "b")
+	d.sink.waitFor(t, "clean (b,")
+	if strings.Contains(d.sink.String(), "(a,") {
+		t.Fatalf("a's lines are out while a still runs:\n%s", d.sink.String())
+	}
 	f.free("a")
 	if res := d.wait(t); res.Blocked {
 		t.Fatalf("unexpected block: %s", res.Message)
 	}
+	nl := "\n"
 	out := d.sink.String()
-	ia, ib := strings.Index(out, "clean (a,"), strings.Index(out, "clean (b,")
-	if ia < 0 || ib < 0 || ia > ib {
-		t.Fatalf("lines for a and b at %d and %d, want a first, in:\n%s", ia, ib, out)
+	hb, ha := "[b] (finished 1 of 2)"+nl, "[a] (finished 2 of 2)"+nl
+	ib, ia := strings.Index(out, hb), strings.Index(out, ha)
+	if ib < 0 || ia < 0 || ib > ia {
+		t.Fatalf("headers at %d and %d, want b's then a's, in:\n%s", ib, ia, out)
+	}
+	if !strings.HasPrefix(out[ib+len(hb):], "gate ") || !strings.Contains(out[ib:ia], "clean (b,") || !strings.Contains(out[ia:], "clean (a,") {
+		t.Fatalf("a block is not whole after its header:\n%s", out)
+	}
+}
+
+// The notice that a command is still running is written as it happens, not
+// held behind the blocks ahead of it.
+func TestDeclaredParallel_TheStillRunningNoticeIsLive(t *testing.T) {
+	defer setStartNoticeAfter(time.Millisecond)()
+	f := newDparFake("a", "b")
+	d := dparStart(t, dparToml(2, dparCmd("a", true, 0), dparCmd("b", true, 0)), f)
+	f.waitEntered(t, 2)
+	d.sink.waitFor(t, "running a")
+	d.sink.waitFor(t, "running b")
+	if strings.Contains(d.sink.String(), "finished") {
+		t.Fatalf("a block is out before any command finished:\n%s", d.sink.String())
+	}
+	f.free("a")
+	f.free("b")
+	if res := d.wait(t); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
 	}
 }
 
@@ -478,5 +555,30 @@ func TestDeclaredParallel_BudgetComesFromTheTableOrTheBox(t *testing.T) {
 		if (err != nil) != c.wantErr || got != c.want {
 			t.Errorf("%q: budget %d err %v, want %d err=%v", c.toml, got, err, c.want, c.wantErr)
 		}
+	}
+}
+
+// With no parallel-budget the repo has not priced its commands, so the box
+// does: one at a time per 8 threads and 8 GB free, as for a race run. A group
+// of four on a 16-thread box with 16 GB free goes two at a time, not four.
+func TestDeclaredParallel_TheDefaultBudgetIsWhatTheBoxCarries(t *testing.T) {
+	defer lock.SetRaceMachineForTest(16, 16*1024)()
+	f := newDparFake("a", "b", "c", "d")
+	d := dparStart(t, dparToml(0, dparCmd("a", true, 0), dparCmd("b", true, 0), dparCmd("c", true, 0), dparCmd("d", true, 0)), f)
+	for _, batch := range [][]string{{"a", "b"}, {"c", "d"}} {
+		if got := f.waitEntered(t, 2); !slices.Equal(got, batch) {
+			t.Fatalf("began %v, want %v", got, batch)
+		}
+		for _, n := range batch {
+			f.free(n)
+		}
+	}
+	if res := d.wait(t); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.peakRun != 2 {
+		t.Fatalf("peak concurrent = %d, want 2", f.peakRun)
 	}
 }

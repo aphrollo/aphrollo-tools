@@ -81,6 +81,7 @@ var speedClasses = []speedClass{
 	{name: "CI pipeline", gap: "CI pipeline: no ci event in the window carries its run's seconds"},
 	{name: "PR lead time"},
 	{name: "declared reuse saved", sum: true},
+	{name: "declared parallel saved", sum: true},
 }
 
 // speedByKind is the class of a kind that names its stage; speedByStage the
@@ -131,6 +132,12 @@ func speedOf(e stamped) (speedSample, bool) {
 		// lane's green took, not a run of the merge gate.
 		s, ok := floatOf(e.Detail["saved_secs"])
 		class, known, secs = "declared reuse saved", ok, s
+	case e.Verdict == "declared-parallel":
+		// A block of declared commands run side by side: the sample is what it
+		// saved, the sum of its parts less its wall time, not a gate run.
+		sum, okSum := floatOf(e.Detail["sum_secs"])
+		wall, okWall := floatOf(e.Detail["wall_secs"])
+		class, known, secs = "declared parallel saved", okSum && okWall, sum-wall
 	case e.Kind == "mutants" && strings.Contains(e.Verdict, "ci-busy"):
 		// A wait for CI to finish, not a mutation run.
 		known = false

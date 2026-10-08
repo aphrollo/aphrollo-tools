@@ -80,23 +80,47 @@ func bareLiteral(rs []rune) (string, int) {
 	return word, n
 }
 
+// declaredNow is the clock the wall time of a parallel block is read from.
+var declaredNow = time.Now
+
+// setDeclaredClock replaces the clock and answers the restore. A test that
+// calls it must not run in parallel.
+func setDeclaredClock(now func() time.Time) (restore func()) {
+	prev := declaredNow
+	declaredNow = now
+	return func() { declaredNow = prev }
+}
+
+// jobOut holds the lines a job earns until its block is written. Its notice
+// that the command is still running goes straight to live, so a long command
+// is never silent behind one ahead of it.
+type jobOut struct {
+	bytes.Buffer
+	live io.Writer
+}
+
+func (o *jobOut) noticeWriter() io.Writer { return o.live }
+
 // declaredJob is one declared command on its way through the gate.
 type declaredJob struct {
 	c      declaredCommand
 	r      Runner
 	k      declaredKeyed
 	weight int
-	out    bytes.Buffer
+	out    jobOut
 	res    GateResult
 	last   SuiteResult
-	ran    bool
-	done   chan struct{}
+	// total is the seconds of every run of the command: the run, and for a
+	// command judged against HEAD the run at HEAD too.
+	total time.Duration
+	ran   bool
 }
 
 // judge runs the command and writes the lines it earns to w.
 func (j *declaredJob) judge(gateName, repoRoot, root string, run SuiteRunner, w io.Writer) {
 	judged := func(rr Runner, dir string) SuiteResult {
 		j.last, j.ran = run(rr, dir), true
+		j.total += j.last.Duration
 		return j.last
 	}
 	if j.c.Baseline == baselineLines {
@@ -104,6 +128,11 @@ func (j *declaredJob) judge(gateName, repoRoot, root string, run SuiteRunner, w 
 	} else {
 		j.res = goCheckStageTo(w, gateName, "declared", root, j.r, judged)
 	}
+}
+
+// record stores what the command left for a later reuse.
+func (j *declaredJob) record(root string) {
+	recordDeclaredRun(root, j.c, j.k.key, j.k.takes && j.k.err == nil, j.res, j.last, j.ran)
 }
 
 // declaredGroup runs one barrier, or one group of parallel commands, and is
@@ -116,34 +145,32 @@ func declaredGroup(gateName, repoRoot, root string, cmds []declaredCommand, budg
 		if declaredReuse(gateName, root, r, k) {
 			continue
 		}
-		jobs = append(jobs, &declaredJob{
-			c: c, r: r, k: k,
-			weight: max(c.Weight, defaultDeclaredWeight), done: make(chan struct{}),
-		})
+		jobs = append(jobs, &declaredJob{c: c, r: r, k: k, weight: max(c.Weight, defaultDeclaredWeight)})
 	}
-	started := time.Now()
-	if len(jobs) == 1 && !jobs[0].c.Parallel {
-		// A barrier, or the lone command of a repo with no parallel key: its
-		// lines are written as they happen, as ever.
+	started := declaredNow()
+	if len(jobs) == 1 {
+		// A barrier, or the lone command of a group: its lines are written as
+		// they happen, as ever.
 		j := jobs[0]
 		j.judge(gateName, repoRoot, root, run, stderrFor(root))
-	} else {
+		j.record(root)
+	} else if len(jobs) > 1 {
 		runDeclaredGroup(gateName, repoRoot, root, jobs, budget, run)
 	}
-	var sum float64
+	wall := declaredNow().Sub(started)
+	var sum time.Duration
 	var reds []*declaredJob
 	for _, j := range jobs {
-		recordDeclaredRun(root, j.c, j.k.key, j.k.takes && j.k.err == nil, j.res, j.last, j.ran)
-		sum += j.last.Duration.Seconds()
+		sum += j.total
 		if j.res.Blocked {
 			reds = append(reds, j)
 		}
 	}
 	if len(jobs) > 1 {
-		AppendGateLogDetail(gateName, root, "parallel group", "declared-parallel", time.Since(started), map[string]string{
+		AppendGateLogDetail(gateName, root, "parallel group", "declared-parallel", wall, map[string]string{
 			"commands":  strconv.Itoa(len(jobs)),
-			"sum_secs":  strconv.FormatFloat(sum, 'f', -1, 64),
-			"wall_secs": strconv.FormatFloat(time.Since(started).Seconds(), 'f', -1, 64),
+			"sum_secs":  strconv.FormatFloat(sum.Seconds(), 'f', -1, 64),
+			"wall_secs": strconv.FormatFloat(wall.Seconds(), 'f', -1, 64),
 		})
 	}
 	switch len(reds) {
@@ -152,6 +179,8 @@ func declaredGroup(gateName, repoRoot, root string, cmds []declaredCommand, budg
 	case 1:
 		return reds[0].res
 	}
+	// Blocks were written as the commands finished; the refusal lists the
+	// reds in declared order.
 	var msg strings.Builder
 	for _, j := range reds {
 		msg.WriteString(j.res.Message)
@@ -163,24 +192,22 @@ func declaredGroup(gateName, repoRoot, root string, cmds []declaredCommand, budg
 }
 
 // runDeclaredGroup runs jobs at once within budget and returns when every one
-// has ended. Jobs start in declared order, so what runs together is the same
-// whatever the timings; each job's lines are written to root's stderr whole,
-// in declared order, the moment it and every job before it are done.
+// has ended. Jobs start in declared order, so what runs together does not
+// depend on timings. A job that finishes records its verdict and writes its
+// whole block, under a header saying how many have finished, to root's
+// stderr at once, all under one lock: the block is never interleaved with
+// another and a slow command ahead of it hides nothing.
 func runDeclaredGroup(gateName, repoRoot, root string, jobs []*declaredJob, budget int, run SuiteRunner) {
 	var (
-		mu            sync.Mutex
-		changed       = sync.NewCond(&mu)
-		used, running int
-		wg            sync.WaitGroup
+		mu                    sync.Mutex
+		changed               = sync.NewCond(&mu)
+		used, running, ending int
+		wg                    sync.WaitGroup
 	)
-	flushed := make(chan struct{})
-	go func() {
-		defer close(flushed)
-		for _, j := range jobs {
-			<-j.done
-			_, _ = stderrFor(root).Write(j.out.Bytes())
-		}
-	}()
+	live := stderrFor(root)
+	for _, j := range jobs {
+		j.out.live = live
+	}
 	for _, j := range jobs {
 		mu.Lock()
 		for !parallelAdmits(used, running, j.weight, budget) {
@@ -193,12 +220,13 @@ func runDeclaredGroup(gateName, repoRoot, root string, jobs []*declaredJob, budg
 			defer wg.Done()
 			j.judge(gateName, repoRoot, root, run, &j.out)
 			mu.Lock()
+			defer mu.Unlock()
+			j.record(root)
+			ending++
+			_, _ = fmt.Fprintf(live, "[%s] (finished %d of %d)\n%s", cmdString(j.r), ending, len(jobs), j.out.String())
 			used, running = used-j.weight, running-1
 			changed.Broadcast()
-			mu.Unlock()
-			close(j.done)
 		}()
 	}
 	wg.Wait()
-	<-flushed
 }

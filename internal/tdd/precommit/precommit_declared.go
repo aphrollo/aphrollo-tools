@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"unicode"
@@ -22,7 +21,8 @@ import (
 // The key is the root's path from the repo root ("." for the root itself),
 // the value its commands as argv arrays. They run in that root, in order,
 // with no shell between them and the process — so a declaration means the
-// same thing on Windows — and the first to fail refuses the commit. A root
+// same thing on Windows — and the first to fail refuses the commit (but see
+// parallel below: a group of those runs to its end first). A root
 // that declares commands gets those and none of the built-in checks: the
 // declaration is the repo saying how that root is checked.
 //
@@ -33,6 +33,11 @@ import (
 // baseline is "none" by default: any failure refuses. With "lines" a failure
 // is run again on HEAD's tree, and refuses only over the output lines HEAD's
 // run did not print (precommit_declared_baseline.go).
+//
+// parallel = true and weight = n are also keys of the table: neighbouring
+// commands then run side by side within the repo's parallel-budget, every one
+// to its end, so the refusal lists every red. A command without parallel runs
+// alone, in order (precommit_declared_parallel.go).
 
 const declaredPrecommitTable = "[aphrollo.precommit]"
 
@@ -71,7 +76,7 @@ func declaredEntry(repoRoot, root, table string) (value string, declared bool) {
 func declaredChecksStage(gateName, repoRoot, root string, cmds []declaredCommand, err error, run SuiteRunner) GateResult {
 	budget := 0
 	if err == nil && slices.ContainsFunc(cmds, func(c declaredCommand) bool { return c.Parallel }) {
-		budget, err = declaredParallelBudget(repoRoot, runtime.NumCPU())
+		budget, err = declaredParallelBudget(repoRoot, boxHeavyCapacity())
 	}
 	if err != nil {
 		return verdictFor(gateName, "declared", root, "aphrollo.toml", stageOutcome{

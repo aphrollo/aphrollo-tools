@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
@@ -153,6 +154,29 @@ func runPrelude(prelude []Runner, dir string, run SuiteRunner) {
 // When the root at rel has a node_modules, the root's place in the tree
 // links to it. The link is removed as a link, then the tree is unregistered
 // and removed, once fn returns.
+// headWorktreeMu keeps two commands judged against HEAD from adding or
+// removing a worktree of the same repository at once: git takes its own locks
+// for it, and a run that loses one fails for no reason of the code.
+var headWorktreeMu sync.Mutex
+
+// headGit is the git call headWorktreeGit makes; a seam for the tests.
+var headGit = git
+
+// setHeadGit replaces it and answers the restore. A test that calls it must not
+// run in parallel.
+func setHeadGit(f func(dir string, args ...string) (string, error)) (restore func()) {
+	prev := headGit
+	headGit = f
+	return func() { headGit = prev }
+}
+
+// headWorktreeGit runs a worktree add or remove under headWorktreeMu.
+func headWorktreeGit(repoRoot string, args ...string) (string, error) {
+	headWorktreeMu.Lock()
+	defer headWorktreeMu.Unlock()
+	return headGit(repoRoot, args...)
+}
+
 func atHead(repoRoot, rel string, fn func(base string) error) error {
 	parent := ""
 	if dir := StateDir(); dir != "" && os.MkdirAll(filepath.Join(dir, HeadWorktreeDir), 0o700) == nil {
@@ -163,10 +187,10 @@ func atHead(repoRoot, rel string, fn func(base string) error) error {
 		return err
 	}
 	defer os.RemoveAll(base)
-	if _, err := git(repoRoot, "worktree", "add", "--detach", base, "HEAD"); err != nil {
+	if _, err := headWorktreeGit(repoRoot, "worktree", "add", "--detach", base, "HEAD"); err != nil {
 		return fmt.Errorf("worktree at HEAD: %v", err)
 	}
-	defer func() { _, _ = git(repoRoot, "worktree", "remove", "--force", base) }()
+	defer func() { _, _ = headWorktreeGit(repoRoot, "worktree", "remove", "--force", base) }()
 	var links depinstall.Links
 	defer links.Remove()
 	installed := filepath.Join(repoRoot, rel, depinstall.NodeModules)

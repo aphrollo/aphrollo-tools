@@ -164,6 +164,7 @@ func TestDeclaredMiss_TheMergeGatePrintsTheReasonLine(t *testing.T) {
 		map[string]string{"web/z.ts": "export const z = 2\n"})
 	out := dmissStderr(t, root, func() { Mechanical(root, dreuseRunner(&mergeRuns, true, time.Second)) })
 	// expectation-changed: the reason now names the age of the entry it was compared with (review item 2)
+	// expectation-changed: a baseline command no longer never reuses; it names what differs from HEAD
 	want := "[run] git --version: no reuse — inputs changed since the last recorded run ("
 	if !strings.Contains(out, want) {
 		t.Errorf("merge stderr lacks %q:\n%s", want, out)
@@ -315,16 +316,19 @@ func TestDeclaredMiss_AgeIsWrittenInTheLargestWholeUnit(t *testing.T) {
 	}
 }
 
-// A command that declares inputs and is judged against HEAD never reuses; the
-// merge gate says so rather than staying silent.
-func TestDeclaredMiss_ABaselineCommandSaysItNeverReuses(t *testing.T) {
+// ratchet: test_removed TestDeclaredMiss_ABaselineCommandSaysItNeverReuses: a baseline command is now compared with HEAD instead of never reusing; restated as TestDeclaredMiss_ABaselineCommandSaysWhatDiffersFromTheBase.
+
+// A command that declares inputs and is judged against HEAD is compared with
+// the base; the merge gate says what differs rather than staying silent.
+func TestDeclaredMiss_ABaselineCommandSaysWhatDiffersFromTheBase(t *testing.T) {
 	t.Parallel()
 	const toml = "[aphrollo.precommit]\n\".\" = [{ argv = [\"git\", \"--version\"], inputs = [\"web/**\"], baseline = \"lines\" }]\n"
 	var laneRuns, mergeRuns int
 	root := dreuseLane(t, toml, dreuseRunner(&laneRuns, true, time.Second),
 		map[string]string{"docs/a.md": "# a, moved\n"})
 	out := dmissStderr(t, root, func() { Mechanical(root, dreuseRunner(&mergeRuns, true, time.Second)) })
-	want := "[run] git --version: no reuse — baseline commands never reuse\n"
+	// expectation-changed: a baseline command no longer never reuses; it names what differs from HEAD
+	want := "[run] git --version: no reuse — inputs differ from the base (inputs)\n"
 	if !strings.Contains(out, want) {
 		t.Errorf("merge stderr lacks %q:\n%s", want, out)
 	}

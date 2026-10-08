@@ -264,3 +264,28 @@ func TestAcquireRaceSlot_LeavesNoWaiterRecordBehind(t *testing.T) {
 		t.Fatalf("a finished wait left %d waiter record(s): %+v", len(left), left)
 	}
 }
+
+// The number of heavy children a box carries at once is priced with the race
+// rule on the box as it is now: one per 8 threads and per 8 GB free, never
+// below one.
+func TestBoxHeavyCapacity_IsTheRaceCapacityOfTheBoxNow(t *testing.T) {
+	const gb = 1024
+	for _, c := range []struct {
+		name    string
+		cores   int
+		availMB int64
+		want    int
+	}{
+		{"memory is the limit", 64, 16 * gb, 2},
+		{"cores are the limit", 16, 512 * gb, 2},
+		{"a small box gets one", 4, 4 * gb, 1},
+		{"an unreadable box gets one", 16, 0, 1},
+	} {
+		restore := SetRaceMachineForTest(c.cores, c.availMB)
+		got := boxHeavyCapacity()
+		restore()
+		if got != c.want {
+			t.Errorf("%s: %d cores, %d MB free: capacity %d, want %d", c.name, c.cores, c.availMB, got, c.want)
+		}
+	}
+}

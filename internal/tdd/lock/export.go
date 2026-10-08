@@ -38,6 +38,8 @@ func AcquireRaceSlot(p0 time.Duration, p1 string, p2 string) (BuildSlot, func(),
 	return acquireRaceSlot(p0, p1, p2)
 }
 
+func BoxHeavyCapacity() int { return boxHeavyCapacity() }
+
 func BuildSlotCount() int { return buildSlotCount() }
 
 func BuildSlotHolderDescription(p0 string) string { return buildSlotHolderDescription(p0) }
