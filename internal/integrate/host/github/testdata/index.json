@@ -31,7 +31,7 @@
       "--paginate",
       "repos/{owner}/{repo}/commits/6e2087329a8fcdf466b3d73eddbed4bd1328ed2f/check-runs",
       "--jq",
-      ".check_runs[] | {id, name, head_sha, status, conclusion, html_url, started_at, app: .app.slug}"
+      ".check_runs[] | {id, name, head_sha, status, conclusion, html_url, started_at, completed_at, app: .app.slug}"
     ],
     "file": "03.out"
   },

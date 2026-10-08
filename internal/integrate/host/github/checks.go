@@ -18,7 +18,7 @@ import (
 // record is one JSON object per line, so a name with spaces stays whole.
 func (g *GitHub) ChecksAt(sha string) ([]host.Check, error) {
 	runs, err := g.jsonLines("api", "--paginate", "repos/{owner}/{repo}/commits/"+sha+"/check-runs",
-		"--jq", `.check_runs[] | {id, name, head_sha, status, conclusion, html_url, started_at, app: .app.slug}`)
+		"--jq", `.check_runs[] | {id, name, head_sha, status, conclusion, html_url, started_at, completed_at, app: .app.slug}`)
 	if err != nil {
 		return nil, err
 	}

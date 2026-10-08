@@ -19,9 +19,21 @@ func recordSettledCI(wt, sha string, pr int, state, cause string) {
 	recordSettledCIBy(wt, sha, pr, state, tdd.CIGithub, cause)
 }
 
+// recordSettledRun is recordSettledCI for a run whose checks were read, so its
+// event also says how long the run took when every check has its times.
+func recordSettledRun(wt, sha string, pr int, state, cause string, checks []CheckRun) {
+	recordSettledCIDetail(wt, sha, pr, state, tdd.CIGithub, cause, ciRunSecs(checks))
+}
+
 // recordSettledCIBy is recordSettledCI with the CI that judged the commit
 // (tdd.CIGithub or tdd.CILocal) carried in the event's "ci" field.
 func recordSettledCIBy(wt, sha string, pr int, state, by, cause string) {
+	recordSettledCIDetail(wt, sha, pr, state, by, cause, "")
+}
+
+// recordSettledCIDetail is recordSettledCIBy with the run's seconds, "" when
+// they are not known.
+func recordSettledCIDetail(wt, sha string, pr int, state, by, cause, secs string) {
 	if sha == "" || (state != "green" && state != "red") {
 		return
 	}
@@ -32,7 +44,34 @@ func recordSettledCIBy(wt, sha string, pr int, state, by, cause string) {
 	if cause != "" {
 		detail["cause"] = cause
 	}
+	if secs != "" {
+		detail["secs"] = secs
+	}
 	tdd.AppendEventOnce(tdd.Event{Kind: "ci", Root: wt, Verdict: state, Detail: detail}, "sha")
+}
+
+// ciRunSecs is how long the run behind checks took, in whole seconds: from the
+// first check's start to the last check's end. It is "" when any check lacks a
+// time it can parse, so a run still going, or a commit status, is never timed.
+func ciRunSecs(checks []CheckRun) string {
+	var first, last time.Time
+	for _, c := range checks {
+		start, err1 := time.Parse(time.RFC3339, c.StartedAt)
+		end, err2 := time.Parse(time.RFC3339, c.CompletedAt)
+		if err1 != nil || err2 != nil {
+			return ""
+		}
+		if first.IsZero() || start.Before(first) {
+			first = start
+		}
+		if end.After(last) {
+			last = end
+		}
+	}
+	if first.IsZero() || !last.After(first) {
+		return ""
+	}
+	return strconv.Itoa(int(last.Sub(first) / time.Second))
 }
 
 // ciCause says why a first CI run was red, from the names of the checks that

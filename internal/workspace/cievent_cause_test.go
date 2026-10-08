@@ -106,3 +106,39 @@ func TestGhCIStatus_ARedStatusNamesTheCauseOfItsFailedChecks(t *testing.T) {
 		t.Fatalf("ghCIStatus = %+v, %v, want red with cause mutation", st, err)
 	}
 }
+
+// A settled run names how long it took: from its first check's start to its
+// last check's end, so the speed report can time the CI pipeline.
+func TestMergeWait_ASettledRunRecordsHowLongItTook(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	gateState(t)
+	lint := run("lint", newSHA, "completed", "success")
+	lint.StartedAt, lint.CompletedAt = "2026-10-08T01:00:00Z", "2026-10-08T01:02:00Z"
+	test := run("go test", newSHA, "completed", "success")
+	test.StartedAt, test.CompletedAt = "2026-10-08T01:00:30Z", "2026-10-08T01:10:00Z"
+	pr := &fakePR{number: 12, branch: "lane/b", steps: []ciStep{{head: newSHA, checks: []CheckRun{lint, test}}}}
+	install(t, &fakeCI{prs: []*fakePR{pr}, laneHead: map[string]string{"/w/b": newSHA}})
+
+	if err := MergeWait(&Target{Worktree: "/w/b", Branch: "lane/b", MainRepo: "/r", RepoName: "r"}, "squash", true, testWait, &bytes.Buffer{}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("MergeWait: %v", err)
+	}
+
+	cis := ofKind(emitted(t), "ci")
+	if len(cis) != 1 || cis[0].Detail["secs"] != "600" {
+		t.Fatalf("ci events = %+v, want one with secs 600 (01:00:00 to 01:10:00)", cis)
+	}
+}
+
+func TestCIRunSecs_IsUnknownWhenAnyCheckLacksItsTimes(t *testing.T) {
+	a := CheckRun{StartedAt: "2026-10-08T01:00:00Z", CompletedAt: "2026-10-08T01:01:00Z"}
+	open := CheckRun{StartedAt: "2026-10-08T01:00:00Z"}
+	if got := ciRunSecs([]CheckRun{a, open}); got != "" {
+		t.Errorf("secs = %q, want none while a check has no end", got)
+	}
+	if got := ciRunSecs(nil); got != "" {
+		t.Errorf("secs = %q, want none for no checks", got)
+	}
+	if got := ciRunSecs([]CheckRun{a}); got != "60" {
+		t.Errorf("secs = %q, want 60", got)
+	}
+}
