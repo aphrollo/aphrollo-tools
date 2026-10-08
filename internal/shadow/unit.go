@@ -69,6 +69,9 @@ func UnitOf(file string, projectRoot func(string) string) (Unit, bool) {
 // node project, whose tests (vitest, jest) read .ts and .js files alike, so a unit
 // per spelling would split one project's red from its code edits.
 func languageOf(file string) string {
+	if componentUnits[strings.ToLower(filepath.Ext(file))] {
+		return "typescript"
+	}
 	t, err := lang.Defaults()
 	if err != nil {
 		return "other"
@@ -81,6 +84,11 @@ func languageOf(file string) string {
 	}
 	return "other"
 }
+
+// componentUnits are the single-file components no language row owns: they are
+// code of their node package, which its vitest or jest tests mount, so a red of
+// those tests must open them (core.ClassifyFile already counts them as source).
+var componentUnits = map[string]bool{".svelte": true, ".vue": true}
 
 // findUp is the nearest directory from dir upward holding name, "" when none does.
 func findUp(dir, name string) string {

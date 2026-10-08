@@ -43,7 +43,7 @@ func TestUnitOf_NamesAUnitPerLanguage(t *testing.T) {
 		"go.mod", "internal/lane/lane.go", "main.go",
 		"tools/x/go.mod", "tools/x/pkg/p.go", "tools/x/x.go",
 		"crates/engine/Cargo.toml", "crates/engine/src/lib.rs",
-		"web/package.json", "web/src/app.ts",
+		"web/package.json", "web/src/app.ts", "web/src/lib/Step.svelte", "web/src/App.vue",
 		"scripts/run.py",
 	)
 	cases := []struct {
@@ -56,6 +56,9 @@ func TestUnitOf_NamesAUnitPerLanguage(t *testing.T) {
 		{"the root package of a nested module is the module's path", "tools/x/x.go", "tools/x", unitGoPackage, true},
 		{"a rust file is its crate", "crates/engine/src/lib.rs", "rust:crates/engine", unitProjectRoot, true},
 		{"a node file is its package", "web/src/app.ts", "typescript:web", unitProjectRoot, true},
+		// A vitest red in the package must open its components: they are the code it tests.
+		{"a svelte component is its node package", "web/src/lib/Step.svelte", "typescript:web", unitProjectRoot, true},
+		{"a vue component is its node package", "web/src/App.vue", "typescript:web", unitProjectRoot, true},
 		{"a file in no project has no unit", "scripts/run.py", "", "", false},
 	}
 	for _, c := range cases {
