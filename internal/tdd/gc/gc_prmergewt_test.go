@@ -4,6 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strconv"
 	"testing"
 	"time"
@@ -283,5 +285,57 @@ func TestGCOrphanGatePRMergeWorktrees_AClaimUnderAReusedPidDoesNotKeepTheCheckou
 	got = gcOrphanGatePRMergeWorktreesAt(repo, now)
 	if len(got) != 1 || got[0].Path != reused {
 		t.Fatalf("want the old identity-less claim's checkout %s alone (a matching identity is never aged out), got %+v", reused, got)
+	}
+}
+
+// The scratch files and takeover locks the warm claim leaves beside the
+// checkout when its owner dies are swept: a file whose pid is gone, a lock
+// older than the takeover bound. A live owner's file and a fresh lock stay.
+func TestGCOrphanGatePRMergeWorktrees_SweepsDeadClaimLitter(t *testing.T) {
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	gitDo(t, repo, "worktree", "add", "--detach", filepath.Join(wtParent, "gate-prmerge-warm"), "HEAD")
+	writeHolder(t, filepath.Join(wtParent, "gate-prmerge-warm"), os.Getpid())
+	now := time.Now()
+	dead, live := strconv.Itoa(deadPidForTest(t)), strconv.Itoa(os.Getpid())
+	deadTmp := filepath.Join(wtParent, ".warm-gate-prmerge-warm.claim."+dead+".3.tmp")
+	deadGone := filepath.Join(wtParent, ".warm-gate-prmerge-warm.claim."+dead+".4.gone")
+	liveTmp := filepath.Join(wtParent, ".warm-gate-prmerge-warm.claim."+live+".5.tmp")
+	oldLock := filepath.Join(wtParent, ".warm-gate-prmerge-warm.claim.takeover")
+	for _, f := range []string{deadTmp, deadGone, liveTmp} {
+		mkFile(t, f, "pid=1\n", 0)
+	}
+	if err := os.Mkdir(oldLock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := now.Add(-time.Hour)
+	if err := os.Chtimes(oldLock, old, old); err != nil {
+		t.Fatal(err)
+	}
+	freshLock := filepath.Join(wtParent, ".warm-gate-prmerge-localci.claim.takeover")
+	if err := os.Mkdir(freshLock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	for _, c := range gcOrphanGatePRMergeWorktreesAt(repo, now) {
+		got = append(got, c.Path)
+	}
+	sort.Strings(got)
+	want := []string{deadGone, deadTmp, oldLock}
+	sort.Strings(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("swept %v, want %v (a live owner's file and a fresh lock stay)", got, want)
+	}
+	if _, refused := ApplyGC(gcOrphanGatePRMergeWorktreesAt(repo, now)); len(refused) != 0 {
+		t.Fatalf("applying the sweep refused %v", refused)
+	}
+	for _, p := range want {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s survived the sweep (stat err: %v)", p, err)
+		}
+	}
+	if _, err := os.Stat(liveTmp); err != nil {
+		t.Errorf("a live owner's file was removed: %v", err)
 	}
 }

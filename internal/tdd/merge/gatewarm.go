@@ -18,8 +18,8 @@ import (
 
 // A merge gate that builds in a fresh directory every time starts every
 // path-keyed cache cold: Go's build cache and golangci-lint's key on the
-// package directory, tsc's tsbuildinfo lives in the checkout. So the gate
-// keeps one checkout per repo and purpose under a stable name, resets it to
+// package directory. So the gate (tsc's incremental state is the exception:
+// see prGateKeep) keeps one checkout per repo and purpose under a stable name, resets it to
 // the tree being judged before each use, and falls back to a fresh directory
 // (correct, only cold) whenever the stable one is held or cannot be trusted.
 //
@@ -205,8 +205,6 @@ func withinCheckout(root, dir string) bool {
 	}
 }
 
-// warmClaimJudged runs once a taker has judged a claim stale and before it
-// acts; a test uses it to let another taker in at that instant.
 // warmResetting runs as the reset of a reused checkout begins, so a test can
 // look at what a sweep would see at that instant.
 var warmResetting = func(string) {}
@@ -231,6 +229,9 @@ var warmNow = time.Now
 
 var warmClaimSeq atomic.Int64
 
+// warmClaimJudged runs once a taker has judged a claim stale and holds the
+// takeover lock, before it acts; a test uses it to let another taker in at that
+// instant.
 var warmClaimJudged = func() {}
 
 // warmClaimBeforeRemove runs after the takeover has re-read the claim and

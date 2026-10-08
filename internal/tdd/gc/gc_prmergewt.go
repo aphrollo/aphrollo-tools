@@ -3,6 +3,7 @@ package gc
 import (
 	"bufio"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -74,7 +75,63 @@ func gcOrphanGatePRMergeWorktreesAt(repoRoot string, now time.Time) []GCCandidat
 		out = append(out, GCCandidate{Path: path, Size: size, Kind: GCKindGatePRMerge,
 			Reason: fmt.Sprintf("gate-prmerge checkout whose holder (pid %d) is no longer running", pid)})
 	}
+	out = append(out, gcWarmClaimLitter(slices.Collect(maps.Values(registered)), now)...)
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// gatePRMergeTakeoverStale matches the merge gate's bound
+// (merge.warmTakeoverStale): a takeover lock older than this was left by a
+// taker that died inside its takeover.
+const gatePRMergeTakeoverStale = time.Minute
+
+// gcWarmClaimLitter proposes what a dead taker of the warm checkout leaves
+// beside it, in the directories the registered worktrees live in: the claim's
+// scratch files (".warm-<claim>.<pid>.<seq>.tmp|gone|lock") whose pid is no
+// longer running, and takeover locks (".warm-<claim>.takeover") older than the
+// takeover bound. Anything else, and a live owner's file, is left alone.
+func gcWarmClaimLitter(registered []string, now time.Time) []GCCandidate {
+	seen := map[string]bool{}
+	var out []GCCandidate
+	for _, wt := range registered {
+		dir := filepath.Dir(wt)
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if !strings.HasPrefix(name, ".warm-") {
+				continue
+			}
+			path := filepath.Join(dir, name)
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			if strings.HasSuffix(name, ".takeover") {
+				if now.Sub(info.ModTime()) > gatePRMergeTakeoverStale {
+					out = append(out, GCCandidate{Path: path, Size: info.Size(), Kind: GCKindTempLitter,
+						Reason: "warm checkout takeover lock left by a taker that died"})
+				}
+				continue
+			}
+			parts := strings.Split(name, ".")
+			if len(parts) < 4 || (parts[len(parts)-1] != "tmp" && parts[len(parts)-1] != "gone" && parts[len(parts)-1] != "lock") {
+				continue
+			}
+			pid, err := strconv.Atoi(parts[len(parts)-3])
+			if err != nil || pidRunningFn(pid) {
+				continue
+			}
+			out = append(out, GCCandidate{Path: path, Size: info.Size(), Kind: GCKindTempLitter,
+				Reason: fmt.Sprintf("warm checkout claim scratch file of pid %d, which is no longer running", pid)})
+		}
+	}
 	return out
 }
 
