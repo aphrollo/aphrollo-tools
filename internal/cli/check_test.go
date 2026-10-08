@@ -104,6 +104,9 @@ func cleanCheckRepo(t *testing.T) string {
 	origPathDirs := userPathDirsFn
 	userPathDirsFn = func() []string { return []string{shim} }
 	t.Cleanup(func() { userPathDirsFn = origPathDirs })
+	origProcessPath := processPathDirsFn
+	processPathDirsFn = func() []string { return []string{shim} }
+	t.Cleanup(func() { processPathDirsFn = origProcessPath })
 
 	// A managed hooks dir, built by writing the same shim install writes —
 	// never through a real `git config --global`, which is why isolateGit

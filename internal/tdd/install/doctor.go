@@ -58,6 +58,9 @@ func Doctor(in DoctorInput) []DoctorCheck {
 	if c, ok := doctorClaudeMD(in); ok {
 		checks = append(checks, c)
 	}
+	if c, ok := doctorSystemPath(in); ok {
+		checks = append(checks, c)
+	}
 	if c, ok := doctorEnvPath(in); ok {
 		checks = append(checks, c)
 	}
@@ -146,6 +149,8 @@ func RenderDoctor(checks []DoctorCheck) (string, int) {
 		switch {
 		case c.OK && c.Detail == "":
 			fmt.Fprintf(&b, "ok    %s\n", c.Name)
+		case c.OK && c.Info:
+			fmt.Fprintf(&b, "info  %s — %s\n", c.Name, c.Detail)
 		case c.OK:
 			fmt.Fprintf(&b, "ok    %s — %s\n", c.Name, c.Detail)
 		default:
@@ -238,28 +243,38 @@ func doctorHookTimeouts(in DoctorInput) DoctorCheck {
 // entry shadows the shim for either command it queues.
 func doctorShimPath(in DoctorInput) DoctorCheck {
 	c := DoctorCheck{Name: "shim dir on PATH"}
-	if len(in.PathDirs) == 0 {
+	// The PATH this process has is the one a shell the agent starts resolves
+	// against; the registry's order is reported apart (doctorSystemPath).
+	dirs := in.ProcessPathDirs
+	if len(dirs) == 0 {
+		dirs = in.PathDirs
+	}
+	if len(dirs) == 0 {
 		c.Detail = "could not read the user PATH"
 		return c
 	}
-	shimAt := -1
-	for i, dir := range in.PathDirs {
-		if samePath(dir, in.ShimDir) {
-			shimAt = i
-			break
-		}
-	}
+	shimAt := shimIndex(dirs, in.ShimDir)
 	if shimAt < 0 {
 		c.Detail = fmt.Sprintf("%s is not on PATH at all — put the queue dir on PATH", in.ShimDir)
 		return c
 	}
-	if dir, name, shadowed := shadowingCommand(in.PathDirs[:shimAt]); shadowed {
+	if dir, name, shadowed := shadowingCommand(dirs[:shimAt]); shadowed {
 		c.Detail = fmt.Sprintf("%s in %s resolves before the queue dir %s — a direct %s never queues; put the queue dir first or ahead of that entry",
 			name, dir, in.ShimDir, strings.TrimSuffix(name, ".exe"))
 		return c
 	}
 	c.OK = true
 	return c
+}
+
+// shimIndex is where shimDir sits in dirs, -1 when it is not there.
+func shimIndex(dirs []string, shimDir string) int {
+	for i, dir := range dirs {
+		if samePath(dir, shimDir) {
+			return i
+		}
+	}
+	return -1
 }
 
 // doctorShimResolution surfaces the caller's own exec.LookPath finding of

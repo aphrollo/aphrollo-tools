@@ -314,6 +314,8 @@ doctor_managedfiles_test.go                        install
 doctor_mutation.go                                 mutation  # created by P2
 doctor_own_test.go                                 core
 doctor_primary_test.go                             install
+doctor_syspath.go                                  install
+doctor_syspath_test.go                             install
 doctor_test.go                                     install
 doctor_twogates.go                                 install
 doctor_twogates_test.go                            install

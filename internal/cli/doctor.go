@@ -47,15 +47,16 @@ func doctorInput(configDir, shimDir, repo string) tdd.DoctorInput {
 		shim = defaultCargoShimDir(bin)
 	}
 	return tdd.DoctorInput{
-		ConfigDir:      dir,
-		Bin:            bin,
-		ShimDir:        shim,
-		Repo:           repo,
-		PathDirs:       userPathDirsFn(),
-		UserPathDirs:   userPathEntries(),
-		LauncherDir:    launcherDir(bin),
-		GitHooksPath:   gitHooksPathFn(),
-		ShimBypassLine: shimBypassLineFn(bin),
+		ConfigDir:       dir,
+		Bin:             bin,
+		ShimDir:         shim,
+		Repo:            repo,
+		PathDirs:        userPathDirsFn(),
+		ProcessPathDirs: processPathDirsFn(),
+		UserPathDirs:    userPathEntries(),
+		LauncherDir:     launcherDir(bin),
+		GitHooksPath:    gitHooksPathFn(),
+		ShimBypassLine:  shimBypassLineFn(bin),
 	}
 }
 
@@ -63,6 +64,11 @@ func doctorInput(configDir, shimDir, repo string) tdd.DoctorInput {
 // judges without touching the box's own registry — mirroring the
 // ratchetCheckFn seam other guards already use.
 var userPathDirsFn = userPathDirs
+
+// processPathDirsFn is the PATH this process has, in order: what a shell the
+// agent harness starts resolves a command against. A var so a test can fake
+// it, as it does userPathDirsFn.
+var processPathDirsFn = func() []string { return filepath.SplitList(os.Getenv("PATH")) }
 
 // gitHooksPathFn indirects tdd.GlobalHooksPath so a test can fake the
 // configured core.hooksPath doctor judges without reading the box's own
