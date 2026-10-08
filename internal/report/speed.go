@@ -3,6 +3,7 @@ package report
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,6 +22,25 @@ type SpeedRow struct {
 	PrevN   int      `json:"prev_n"`
 	PrevP50 float64  `json:"prev_p50_secs"`
 	Change  *float64 `json:"p50_change_secs,omitempty"`
+	// Clear is whether the change passes the benchstat test: four runs on each side and a Mann-Whitney p under 0.05; P is that p, 0 when the test was not run. Only a clear change is shown.
+	Clear bool    `json:"clear_change"`
+	P     float64 `json:"p,omitempty"`
+	// Versions are the binary versions the runs of the window span, in order of first appearance, each against the one before; empty unless there are two or more.
+	Versions []SpeedVersion `json:"versions,omitempty"`
+}
+
+// SpeedVersion is a stage over the runs a binary version wrote. A version with
+// fewer than minClearRuns runs is merged into the version before it, and the label says so.
+type SpeedVersion struct {
+	Label   string   `json:"label"`
+	N       int      `json:"n"`
+	P50     float64  `json:"p50_secs"`
+	P90     float64  `json:"p90_secs"`
+	Max     float64  `json:"max_secs"`
+	PrevP50 float64  `json:"prev_p50_secs,omitempty"`
+	Change  *float64 `json:"p50_change_secs,omitempty"`
+	Clear   bool     `json:"clear_change"`
+	P       float64  `json:"p,omitempty"`
 }
 
 // Speed is the gate's duration trend: whether it is getting faster.
@@ -71,6 +91,7 @@ type speedSample struct {
 	key  string
 	at   time.Time
 	secs float64
+	ver  string
 }
 
 // floatOf is the number in s, with ok false when s holds none.
@@ -108,7 +129,7 @@ func speedOf(e stamped) (speedSample, bool) {
 		}
 		key = class + ": " + cmd
 	}
-	return speedSample{key: key, at: e.at, secs: secs}, true
+	return speedSample{key: key, at: e.at, secs: secs, ver: e.BinVer}, true
 }
 
 // pairedSpeed is the durations that span two events of a PR: open to merge, and
@@ -136,10 +157,10 @@ func pairedSpeed(evs []stamped) []speedSample {
 		case e.Kind == "merge" && e.Verdict == "ok" && !done[pr]:
 			done[pr] = true
 			if t, ok := opened[pr]; ok {
-				out = append(out, speedSample{"PR lead time", e.at, e.at.Sub(t).Seconds()})
+				out = append(out, speedSample{"PR lead time", e.at, e.at.Sub(t).Seconds(), e.BinVer})
 			}
 			if t, ok := queued[pr]; ok && e.Detail["method"] == "merge queue" {
-				out = append(out, speedSample{"merge queue", e.at, e.at.Sub(t).Seconds()})
+				out = append(out, speedSample{"merge queue", e.at, e.at.Sub(t).Seconds(), e.BinVer})
 			}
 		}
 	}
@@ -172,14 +193,17 @@ func buildSpeed(evs []stamped, since, from time.Time, hasPrev bool) Speed {
 		}
 	}
 	cur, prev := map[string][]float64{}, map[string][]float64{}
+	curSamples := map[string][]speedSample{}
 	for _, s := range all {
 		switch {
 		case since.IsZero() || !s.at.Before(since):
 			cur[s.key] = append(cur[s.key], s.secs)
+			curSamples[s.key] = append(curSamples[s.key], s)
 		case hasPrev && !s.at.Before(from):
 			prev[s.key] = append(prev[s.key], s.secs)
 		}
 	}
+	firstSeen := versionDates(evs, since)
 	var sp Speed
 	for k, v := range cur {
 		sort.Float64s(v)
@@ -189,7 +213,9 @@ func buildSpeed(evs []stamped, since, from time.Time, hasPrev bool) Speed {
 			row.PrevN, row.PrevP50 = len(p), percentile(p, 50)
 			c := row.P50 - row.PrevP50
 			row.Change = &c
+			row.Clear, row.P = clearOf(v, p)
 		}
+		row.Versions = versionColumns(curSamples[k], firstSeen)
 		sp.Rows = append(sp.Rows, row)
 	}
 	sort.Slice(sp.Rows, func(i, j int) bool {
@@ -216,12 +242,15 @@ func buildSpeed(evs []stamped, since, from time.Time, hasPrev bool) Speed {
 
 // text writes the compact block of the text report.
 func (s Speed) text(p func(string, ...any), more func(int, int)) {
-	p("Speed (seconds per run, green or not; change is the p50 against the window before, + is slower)")
+	p("Speed (seconds per run, green or not; change is the p50 against the window before, + is slower, ~ is no clear change)")
 	if len(s.Rows) == 0 {
 		p("  no runs timed in the window")
 	}
 	for _, r := range s.Rows[:min(len(s.Rows), textRows)] {
 		p("%s", strings.TrimRight(fmt.Sprintf("  %-44.44s n %-4d p50 %-7s p90 %-7s max %-7s %s", r.Stage, r.N, secsText(r.P50), secsText(r.P90), secsText(r.Max), r.changeText()), " "))
+		for _, v := range r.Versions {
+			p("%s", strings.TrimRight(fmt.Sprintf("    %-42.42s n %-4d p50 %-7s p90 %-7s max %-7s %s", v.Label, v.N, secsText(v.P50), secsText(v.P90), secsText(v.Max), changeText(v.Change, v.Clear)), " "))
+		}
 	}
 	more(textRows, len(s.Rows))
 	for _, g := range s.Gaps {
@@ -229,11 +258,17 @@ func (s Speed) text(p func(string, ...any), more func(int, int)) {
 	}
 }
 
-func (r SpeedRow) changeText() string {
-	if r.Change == nil {
+func (r SpeedRow) changeText() string { return changeText(r.Change, r.Clear) }
+
+// changeText shows a change only when it is clear; an unclear one reads ~, as in benchstat.
+func changeText(change *float64, clear bool) string {
+	switch {
+	case change == nil:
 		return ""
+	case !clear:
+		return "change ~"
 	}
-	return "change " + signedSecs(*r.Change)
+	return "change " + signedSecs(*change)
 }
 
 func secsText(s float64) string {
@@ -252,4 +287,93 @@ func signedSecs(s float64) string {
 		return "0s"
 	}
 	return sign + secsText(s)
+}
+
+// clearOf is whether the change from prev to cur is clear and the p value the
+// test gave, 0 when a side is too small to test.
+func clearOf(cur, prev []float64) (clear bool, p float64) {
+	if len(cur) < minClearRuns || len(prev) < minClearRuns {
+		return false, 0
+	}
+	p, clear = clearChange(cur, prev)
+	return clear, p
+}
+
+// versionDates is the day each binary version first wrote an event of the window.
+func versionDates(evs []stamped, since time.Time) map[string]time.Time {
+	first := map[string]time.Time{}
+	for _, e := range evs {
+		if e.BinVer == "" || (!since.IsZero() && e.at.Before(since)) {
+			continue
+		}
+		if t, ok := first[e.BinVer]; !ok || e.at.Before(t) {
+			first[e.BinVer] = e.at
+		}
+	}
+	return first
+}
+
+func versionName(v string) string { return "v" + strings.TrimPrefix(v, "v") }
+
+// versionColumns splits the runs of one stage by the binary version that wrote
+// them, in order of first appearance. A version with fewer than minClearRuns
+// runs merges into the version before it. Each column is compared with the one
+// before it by the same test as the week before. Fewer than two columns is no
+// split at all.
+func versionColumns(samples []speedSample, first map[string]time.Time) []SpeedVersion {
+	byVer := map[string][]float64{}
+	for _, s := range samples {
+		if s.ver != "" {
+			byVer[s.ver] = append(byVer[s.ver], s.secs)
+		}
+	}
+	vers := make([]string, 0, len(byVer))
+	for v := range byVer {
+		vers = append(vers, v)
+	}
+	sort.Slice(vers, func(i, j int) bool {
+		if !first[vers[i]].Equal(first[vers[j]]) {
+			return first[vers[i]].Before(first[vers[j]])
+		}
+		return vers[i] < vers[j]
+	})
+	type group struct {
+		vers []string
+		secs []float64
+	}
+	var groups []group
+	for _, v := range vers {
+		if n := len(groups); n > 0 && len(byVer[v]) < minClearRuns {
+			groups[n-1].vers = append(groups[n-1].vers, v)
+			groups[n-1].secs = append(groups[n-1].secs, byVer[v]...)
+			continue
+		}
+		groups = append(groups, group{[]string{v}, slices.Clone(byVer[v])})
+	}
+	if len(groups) < 2 {
+		return nil
+	}
+	var out []SpeedVersion
+	var before []float64
+	for _, g := range groups {
+		sort.Float64s(g.secs)
+		label := "since " + versionName(g.vers[0]) + ", " + first[g.vers[0]].UTC().Format("2006-01-02")
+		if len(g.vers) > 1 {
+			names := make([]string, len(g.vers)-1)
+			for i, v := range g.vers[1:] {
+				names[i] = versionName(v)
+			}
+			label += " (merged with " + strings.Join(names, ", ") + ")"
+		}
+		col := SpeedVersion{Label: label, N: len(g.secs), P50: percentile(g.secs, 50), P90: percentile(g.secs, 90), Max: g.secs[len(g.secs)-1]}
+		if before != nil {
+			col.PrevP50 = percentile(before, 50)
+			c := col.P50 - col.PrevP50
+			col.Change = &c
+			col.Clear, col.P = clearOf(g.secs, before)
+		}
+		before = g.secs
+		out = append(out, col)
+	}
+	return out
 }

@@ -26,7 +26,7 @@ func RenderHTML(r Report) ([]byte, error) {
 
 var pageTmpl = template.Must(template.New("page").Funcs(template.FuncMap{
 	"refs": refsHTML, "dur": dur, "tok": tok, "usd": usd, "num": numAny,
-	"delta": deltaCell, "speedDelta": speedDeltaCell, "secs": secsText, "short": shortKey, "frictionRow": frictionRowOf,
+	"delta": deltaCell, "speedDelta": speedDeltaCell, "versionDelta": versionDeltaCell, "secs": secsText, "short": shortKey, "frictionRow": frictionRowOf,
 }).Parse(pageTemplate))
 
 // pageRows is how many rows a long table shows before the rest is folded.
@@ -143,6 +143,7 @@ type webCharts struct {
 type webPage struct {
 	R              Report
 	Lede           string
+	Changed        []string
 	Facts          []fact
 	Groups         []proposalGroup
 	Friction       []Friction
@@ -168,6 +169,7 @@ func newPage(r Report) webPage {
 	}
 	p.Groups = groupProposals(r.Proposals)
 	p.Lede = lede(r, len(p.Groups))
+	p.Changed = r.Changes()
 	p.Facts = facts(r)
 	if u := r.Usage; u != nil {
 		p.Lanes, p.LanesMore = split(u.ByLane, pageRows)
@@ -399,16 +401,29 @@ func frictionRowOf(p webPage, f Friction) frictionLine {
 // speedDeltaCell is a stage's p50 change against the window before as a table
 // cell: a slower p50 reads as worse, a faster one as better, no comparison as a dash.
 func speedDeltaCell(r SpeedRow) template.HTML {
-	if r.Change == nil {
+	return speedCell(r.Change, r.Clear, r.PrevP50)
+}
+
+func versionDeltaCell(v SpeedVersion) template.HTML {
+	return speedCell(v.Change, v.Clear, v.PrevP50)
+}
+
+// speedCell is the change cell of a stage or a version: a clear change with its
+// direction, an unclear one as ~ (no clear change), as benchstat prints it.
+func speedCell(change *float64, clear bool, prevP50 float64) template.HTML {
+	if change == nil {
 		return template.HTML(`<td class="n muted">–</td>`)
+	}
+	title := html.EscapeString(secsText(prevP50)) + " the window before"
+	if !clear {
+		return template.HTML(fmt.Sprintf(`<td class="n muted" title="%s">~</td>`, title))
 	}
 	class := "n"
 	switch {
-	case *r.Change > 0:
+	case *change > 0:
 		class += " up"
-	case *r.Change < 0:
+	case *change < 0:
 		class += " down"
 	}
-	text := strings.Replace(signedSecs(*r.Change), "-", "−", 1)
-	return template.HTML(fmt.Sprintf(`<td class="%s" title="%s the window before">%s</td>`, class, html.EscapeString(secsText(r.PrevP50)), html.EscapeString(text)))
+	return template.HTML(fmt.Sprintf(`<td class="%s" title="%s">%s</td>`, class, title, html.EscapeString(strings.Replace(signedSecs(*change), "-", "−", 1))))
 }

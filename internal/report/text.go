@@ -27,6 +27,12 @@ func (r Report) Text() string {
 	b.WriteString(measure.VersionsText(r.Versions))
 
 	p("")
+	p("Changed")
+	for _, c := range r.Changes() {
+		p("  %s", c)
+	}
+
+	p("")
 	r.Speed.text(p, more)
 
 	p("")

@@ -302,8 +302,11 @@ func webSpeed() Speed {
 	slower, faster := 5.0, -6.0
 	return Speed{
 		Rows: []SpeedRow{
-			{Stage: "edit suite", N: 120, P50: 4, P90: 18, Max: 90, PrevN: 100, PrevP50: 10, Change: &faster},
-			{Stage: "commit gate: go test ./...", N: 14, P50: 95, P90: 210, Max: 240, PrevN: 9, PrevP50: 90, Change: &slower},
+			{Stage: "edit suite", N: 120, P50: 4, P90: 18, Max: 90, PrevN: 100, PrevP50: 10, Change: &faster, Clear: true, P: 0.01, Versions: []SpeedVersion{
+				{Label: "since v1.0.0, 2026-10-01", N: 60, P50: 10, P90: 20, Max: 90},
+				{Label: "since v1.1.0, 2026-10-05", N: 60, P50: 4, P90: 18, Max: 80, PrevP50: 10, Change: &faster, Clear: true, P: 0.01},
+			}},
+			{Stage: "commit gate: go test ./...", N: 14, P50: 95, P90: 210, Max: 240, PrevN: 9, PrevP50: 90, Change: &slower, Clear: true, P: 0.03},
 			{Stage: "PR lead time", N: 3, P50: 5400, P90: 7200, Max: 7200},
 		},
 		Gaps: []string{"CI pipeline: a ci event carries no run duration"},
@@ -331,5 +334,37 @@ func TestRenderHTML_SpeedSectionReadsASlowerP50AsWorse(t *testing.T) {
 func TestRenderHTML_SpeedSectionWithoutRunsSaysSo(t *testing.T) {
 	if page := render(t, Report{Title: "T", Repo: "r"}); !strings.Contains(page, "no runs timed") {
 		t.Error("an empty speed section does not say no runs")
+	}
+}
+
+func TestRenderHTML_ChangedLeadsThePageAndAnUnclearChangeReadsTilde(t *testing.T) {
+	r := webFixture()
+	r.Previous = &Previous{Window: "last 7d", Gone: []RuleCount{{Rule: "old-rule", N: 2}}}
+	unclear := 3.0
+	r.Speed.Rows = append(r.Speed.Rows, SpeedRow{Stage: "merge gate: x", N: 5, P50: 9, PrevN: 5, PrevP50: 6, Change: &unclear})
+	page := render(t, r)
+	c, f := strings.Index(page, `id="changed"`), strings.Index(page, `<dl class="facts">`)
+	if c < 0 || c > f {
+		t.Fatalf("the Changed section is not first (changed at %d, facts at %d)", c, f)
+	}
+	sec := page[c:]
+	sec = sec[:strings.Index(sec, "</section>")]
+	for _, want := range []string{"slower: commit gate: go test ./...", "gone: old-rule (was 2)"} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("the Changed section lacks %q", want)
+		}
+	}
+	if !strings.Contains(page, `<td class="n muted" title="6s the window before">~</td>`) {
+		t.Error("an unclear change does not read ~")
+	}
+	if !strings.Contains(page, "since v1.1.0, 2026-10-05") {
+		t.Error("the version columns are missing")
+	}
+}
+
+func TestRenderHTML_NothingChangedIsOneLine(t *testing.T) {
+	page := render(t, Report{Title: "T", Repo: "r", Window: "last 7d", Previous: &Previous{Window: "last 7d"}})
+	if !strings.Contains(page, "no clear change against the previous 7d") {
+		t.Error("the one line is missing")
 	}
 }

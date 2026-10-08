@@ -85,6 +85,12 @@ figcaption { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
 <h1>Report 2026-W41</h1>
 <p class="sub">aphrollo-tools · last 7d up to 2026-10-07T12:00:00Z · 1,234 events. Replay an event by running its <code>aphrollo why &lt;seq&gt;</code> text in the repo.</p>
 <p class="lede">The A/B is not decidable yet: enforce 12 of 30 lanes, warn 31 of 30 lanes. One proposal.</p>
+<section id="changed">
+<h2>Changed</h2>
+<ul>
+<li>faster since v1.1.0, 2026-10-05: edit suite p50 10s -&gt; 4s (-6s, p 0.01)</li>
+</ul>
+</section>
 <dl class="facts">
 <div><dt>Not tested</dt><dd>9</dd></div>
 <div><dt>Denies</dt><dd>4</dd></div>
@@ -95,14 +101,16 @@ figcaption { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
 <div><dt>Session cost</dt><dd>$12.50</dd></div>
 </dl>
 
-<nav aria-label="sections"><a href="#speed">Speed</a><a href="#proposals">Proposals</a><a href="#friction">Friction</a><a href="#wrong">Wrong blocks</a><a href="#escapes">Escapes</a><a href="#ab">A/B and shadow</a><a href="#tokens">Injected tokens</a><a href="#usage">Session usage</a></nav>
+<nav aria-label="sections"><a href="#changed">Changed</a><a href="#speed">Speed</a><a href="#proposals">Proposals</a><a href="#friction">Friction</a><a href="#wrong">Wrong blocks</a><a href="#escapes">Escapes</a><a href="#ab">A/B and shadow</a><a href="#tokens">Injected tokens</a><a href="#usage">Session usage</a></nav>
 </header>
 
 <section id="speed">
 <h2>Speed</h2>
-<p class="note">Seconds per run, green or not, over the window. Change is the p50 against the window before; a slower p50 is worse.</p>
+<p class="note">Seconds per run, green or not, over the window. Change is the p50 against the window before; a slower p50 is worse, and ~ is no clear change (it shows only with four runs on each side and a Mann-Whitney p under 0.05). Indented rows are the binary versions of the window; a version is confounded with the work done that week.</p>
 <div class="scroll"><table><tr><th>Stage</th><th class="n">Runs</th><th class="n">p50</th><th class="n">p90</th><th class="n">Max</th><th class="n">Change</th></tr>
 <tr><td>edit suite</td><td class="n">120</td><td class="n">4s</td><td class="n">18s</td><td class="n">1.5m</td><td class="n down" title="10s the window before">−6s</td></tr>
+<tr class="ver"><td>&nbsp;&nbsp;since v1.0.0, 2026-10-01</td><td class="n">60</td><td class="n">10s</td><td class="n">20s</td><td class="n">1.5m</td><td class="n muted">–</td></tr>
+<tr class="ver"><td>&nbsp;&nbsp;since v1.1.0, 2026-10-05</td><td class="n">60</td><td class="n">4s</td><td class="n">18s</td><td class="n">1.3m</td><td class="n down" title="10s the window before">−6s</td></tr>
 <tr><td>commit gate: go test ./...</td><td class="n">14</td><td class="n">1.6m</td><td class="n">3.5m</td><td class="n">4.0m</td><td class="n up" title="1.5m the window before">+5s</td></tr>
 <tr><td>PR lead time</td><td class="n">3</td><td class="n">1.5h</td><td class="n">2.0h</td><td class="n">2.0h</td><td class="n muted">–</td></tr>
 </table></div>

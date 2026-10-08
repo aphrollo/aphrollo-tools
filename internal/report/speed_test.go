@@ -226,7 +226,7 @@ func TestSecsText_AndSignedSecsReadLiteralValues(t *testing.T) {
 
 func TestSpeedDeltaCell_NoChangeIsNeitherBetterNorWorse(t *testing.T) {
 	zero := 0.0
-	if got, want := string(speedDeltaCell(SpeedRow{Change: &zero, PrevP50: 4})), `<td class="n" title="4s the window before">0s</td>`; got != want {
+	if got, want := string(speedDeltaCell(SpeedRow{Change: &zero, Clear: true, PrevP50: 4})), `<td class="n" title="4s the window before">0s</td>`; got != want {
 		t.Errorf("cell = %s, want %s", got, want)
 	}
 }
