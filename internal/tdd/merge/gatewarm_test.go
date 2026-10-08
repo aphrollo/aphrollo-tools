@@ -528,3 +528,24 @@ func TestEmptyGitlinks_NeverFollowsASymlinkOutOfTheCheckout(t *testing.T) {
 		t.Fatalf("the directory outside the checkout was deleted through the symlink: %v", err)
 	}
 }
+
+// A merge that runs past the age bound keeps its claim while its pid and
+// identity still match: the bound is only for a claim whose identity cannot be
+// checked. Time is injected, so no test waits twelve hours.
+func TestWarmClaim_ALongRunningMergeKeepsItsClaimWhileTheIdentityMatches(t *testing.T) {
+	oldNow, oldID := warmNow, warmIdentityFn
+	t.Cleanup(func() { warmNow, warmIdentityFn = oldNow, oldID })
+	taken := time.Date(2026, 10, 8, 6, 0, 0, 0, time.UTC)
+	body := "pid=" + strconv.Itoa(os.Getpid()) + "\nstarted=" + taken.Format(time.RFC3339Nano) + "\nid=boot:5\n"
+	warmNow = func() time.Time { return taken.Add(warmClaimMaxAge + time.Hour) }
+
+	warmIdentityFn = func(int) (string, bool) { return "boot:5", true }
+	if takeWarmClaim(warmWriteClaim(t, body)) {
+		t.Fatal("a live merge with a matching identity lost its claim after the age bound")
+	}
+	// the identity cannot be read now: only then does the age bound decide
+	warmIdentityFn = func(int) (string, bool) { return "", false }
+	if !takeWarmClaim(warmWriteClaim(t, body)) {
+		t.Fatal("a claim past the age bound with no readable identity still held the checkout")
+	}
+}

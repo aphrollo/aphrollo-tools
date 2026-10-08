@@ -226,6 +226,9 @@ var warmNotef = func(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "gate: "+format+"\n", args...)
 }
 
+// warmNow is the clock the age bound reads; a seam so a test can move it.
+var warmNow = time.Now
+
 var warmClaimSeq atomic.Int64
 
 var warmClaimJudged = func() {}
@@ -279,8 +282,10 @@ func warmClaimBody() string {
 }
 
 // warmClaimLive reports whether a claim still names the process that took it.
-// A claim that cannot be read is held (unproven means protected); a dead pid, a
-// live pid with another identity, and a claim past warmClaimMaxAge are stale.
+// A claim that cannot be read is held (unproven means protected); a dead pid and
+// a live pid with another identity are stale. Where the identity is missing or
+// cannot be read, a claim past warmClaimMaxAge is stale too; a matching identity
+// is never aged out.
 func warmClaimLive(claim string) bool {
 	var pid int
 	var id string
@@ -308,10 +313,12 @@ func warmClaimLive(claim string) bool {
 	if !pidRunningFn(pid) {
 		return false
 	}
-	if cur, ok := warmIdentityFn(pid); ok && id != "" && cur != id {
-		return false
+	// a readable identity decides: the same process is live however long it has
+	// run, another process under the same pid is not
+	if cur, ok := warmIdentityFn(pid); ok && id != "" {
+		return cur == id
 	}
-	return started.IsZero() || time.Since(started) < warmClaimMaxAge
+	return started.IsZero() || warmNow().Sub(started) < warmClaimMaxAge
 }
 
 // warmTakeoverStale is how old a takeover lock must be before it is taken for
