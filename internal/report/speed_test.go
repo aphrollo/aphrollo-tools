@@ -371,3 +371,17 @@ func TestSpeed_MergeQueueCountsFromTheEnqueueTheMergeRecordCarries(t *testing.T)
 }
 
 // ratchet: test_removed TestSpeed_MergeQueueAlsoCountsFromAnEnqueueTheVerbWaitedOn: the merge record now carries enqueued_at instead of a separate enqueued event; TestSpeed_MergeQueueCountsFromTheEnqueueTheMergeRecordCarries pins it
+
+// A merge that skipped a declared command by reuse is counted with the seconds
+// the lane's green took, summed: the saving is the point of the reuse.
+func TestSpeed_DeclaredReuseCountsEachSkipAndSumsTheSavedSeconds(t *testing.T) {
+	evs := []tdd.Event{
+		evAt(1, 50, "merge_gate", "l", "declared-reuse", "saved_secs", "90"),
+		evAt(2, 49, "merge_gate", "l", "declared-reuse", "saved_secs", "30.5"),
+		evAt(3, 48, "merge_gate", "l", "declared-reuse", "saved_secs", "bogus"),
+	}
+	row := speedRow(t, build(evs), "declared reuse saved")
+	if row.N != 2 || row.Sum != 120.5 {
+		t.Errorf("declared reuse saved = n %d sum %v, want n 2 sum 120.5 (an unreadable saved_secs counts nothing)", row.N, row.Sum)
+	}
+}

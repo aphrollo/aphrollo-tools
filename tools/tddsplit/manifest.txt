@@ -917,6 +917,7 @@ precommit_declared_baseline.go                     precommit
 precommit_declared_baseline_test.go                precommit
 precommit_declared_notice_test.go                  precommit
 precommit_declared_reuse.go                        precommit
+precommit_declared_reuse_inputs_test.go            precommit
 precommit_declared_reuse_test.go                   precommit
 precommit_declared_test.go                         precommit
 precommit_diffscan.go                              precommit

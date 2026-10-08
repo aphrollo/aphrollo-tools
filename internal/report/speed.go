@@ -14,11 +14,13 @@ import (
 // not, as exact nearest-rank percentiles in seconds. Change is the p50 against
 // the window before (positive is slower), nil when either window has no run.
 type SpeedRow struct {
-	Stage   string   `json:"stage"`
-	N       int      `json:"n"`
-	P50     float64  `json:"p50_secs"`
-	P90     float64  `json:"p90_secs"`
-	Max     float64  `json:"max_secs"`
+	Stage string  `json:"stage"`
+	N     int     `json:"n"`
+	P50   float64 `json:"p50_secs"`
+	P90   float64 `json:"p90_secs"`
+	Max   float64 `json:"max_secs"`
+	// Sum is the seconds of every run added up, set for a class whose runs are savings: the total is the figure.
+	Sum     float64  `json:"sum_secs,omitempty"`
 	PrevN   int      `json:"prev_n"`
 	PrevP50 float64  `json:"prev_p50_secs"`
 	Change  *float64 `json:"p50_change_secs,omitempty"`
@@ -63,6 +65,8 @@ type speedClass struct {
 	name string
 	// gap says what the log lacks and the smallest change that adds it; "" for a class the log always carries.
 	gap string
+	// sum says the class's samples are savings, so its row carries their total.
+	sum bool
 }
 
 var speedClasses = []speedClass{
@@ -76,6 +80,7 @@ var speedClasses = []speedClass{
 	{name: "merge queue", gap: "merge queue: no PR in the window has both its enqueue and its merge recorded"},
 	{name: "CI pipeline", gap: "CI pipeline: no ci event in the window carries its run's seconds"},
 	{name: "PR lead time"},
+	{name: "declared reuse saved", sum: true},
 }
 
 // speedByKind is the class of a kind that names its stage; speedByStage the
@@ -121,6 +126,11 @@ func speedOf(e stamped) (speedSample, bool) {
 	case e.Kind == "ci":
 		s, ok := floatOf(e.Detail["secs"])
 		class, known, secs = "CI pipeline", ok, s
+	case e.Verdict == "declared-reuse":
+		// The merge skipped a declared command: the sample is the seconds the
+		// lane's green took, not a run of the merge gate.
+		s, ok := floatOf(e.Detail["saved_secs"])
+		class, known, secs = "declared reuse saved", ok, s
 	case e.Kind == "mutants" && strings.Contains(e.Verdict, "ci-busy"):
 		// A wait for CI to finish, not a mutation run.
 		known = false
@@ -256,6 +266,11 @@ func buildSpeed(evs []stamped, since, from time.Time, hasPrev bool) Speed {
 			row.Change = &c
 			row.Clear, row.P = clearOf(v, p)
 		}
+		if i := classOf(k); i < len(speedClasses) && speedClasses[i].sum {
+			for _, x := range v {
+				row.Sum += x
+			}
+		}
 		row.Versions = versionColumns(curSamples[k], firstSeen)
 		sp.Rows = append(sp.Rows, row)
 	}
@@ -296,7 +311,7 @@ func (s Speed) text(p func(string, ...any), more func(int, int)) {
 		p("  no runs timed in the window")
 	}
 	for _, r := range s.Rows[:min(len(s.Rows), textRows)] {
-		p("%s", strings.TrimRight(fmt.Sprintf("  %-44.44s n %-4d p50 %-7s p90 %-7s max %-7s %s", r.Stage, r.N, secsText(r.P50), secsText(r.P90), secsText(r.Max), r.changeText()), " "))
+		p("%s", strings.TrimRight(fmt.Sprintf("  %-44.44s n %-4d p50 %-7s p90 %-7s max %-7s %s", r.Stage, r.N, secsText(r.P50), secsText(r.P90), secsText(r.Max), r.changeText()+r.sumText()), " "))
 		for _, v := range r.Versions {
 			p("%s", strings.TrimRight(fmt.Sprintf("    %-42.42s n %-4d p50 %-7s p90 %-7s max %-7s %s", v.Label, v.N, secsText(v.P50), secsText(v.P90), secsText(v.Max), changeText(v.Change, v.Clear)), " "))
 		}
@@ -305,6 +320,14 @@ func (s Speed) text(p func(string, ...any), more func(int, int)) {
 	for _, g := range s.Gaps {
 		p("  not derivable: %s", g)
 	}
+}
+
+// sumText is the total a savings row adds to its line.
+func (r SpeedRow) sumText() string {
+	if r.Sum == 0 {
+		return ""
+	}
+	return " saved " + secsText(r.Sum)
 }
 
 func (r SpeedRow) changeText() string { return changeText(r.Change, r.Clear) }

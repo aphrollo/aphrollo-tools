@@ -55,6 +55,8 @@ type declaredVerdictStore struct {
 	newer bool
 }
 
+// declaredVerdictsWrite serialises this process's writes. Two processes can still
+// lose one another's entry; the cost is a miss, which runs the command.
 var declaredVerdictsWrite sync.Mutex
 
 func declaredVerdictsPath() string {
@@ -79,7 +81,12 @@ func loadDeclaredVerdicts(path string) *declaredVerdictStore {
 // recordDeclaredVerdict stores v under key, dropping the oldest entries past
 // the cap. Best-effort: a failure only loses the reuse.
 func recordDeclaredVerdict(key string, v declaredVerdict) {
-	path := declaredVerdictsPath()
+	recordDeclaredVerdictAt(declaredVerdictsPath(), key, v, declaredVerdictsMax)
+}
+
+// recordDeclaredVerdictAt is recordDeclaredVerdict into the store at path,
+// keeping at most max entries. A v with no time is stamped now.
+func recordDeclaredVerdictAt(path, key string, v declaredVerdict, max int) {
 	if key == "" || path == "" {
 		return
 	}
@@ -90,9 +97,11 @@ func recordDeclaredVerdict(key string, v declaredVerdict) {
 		return
 	}
 	s.Schema = StateSchema
-	v.At = time.Now().UTC().Format(time.RFC3339)
+	if v.At == "" {
+		v.At = time.Now().UTC().Format(time.RFC3339)
+	}
 	s.Verdicts[key] = v
-	for len(s.Verdicts) > declaredVerdictsMax {
+	for len(s.Verdicts) > max {
 		oldest, oldestAt := "", ""
 		for k, e := range s.Verdicts {
 			if oldest == "" || e.At < oldestAt {
@@ -110,7 +119,10 @@ func recordDeclaredVerdict(key string, v declaredVerdict) {
 }
 
 func declaredVerdictFor(key string) (declaredVerdict, bool) {
-	path := declaredVerdictsPath()
+	return declaredVerdictAt(declaredVerdictsPath(), key)
+}
+
+func declaredVerdictAt(path, key string) (declaredVerdict, bool) {
 	if key == "" || path == "" {
 		return declaredVerdict{}, false
 	}
@@ -159,13 +171,48 @@ func toolStamp(program string) (string, error) {
 	return fmt.Sprintf("%s|%d|%d", path, info.Size(), info.ModTime().UnixNano()), nil
 }
 
+// lockfiles are the files of a root a dependency or tool-version move changes
+// without touching any input the command lists; their content is part of every
+// key, with the manifests beside them.
+var lockfiles = []string{
+	"package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb", "go.sum", "Cargo.lock",
+	"package.json", "go.mod", "Cargo.toml",
+}
+
+// normalizeInputGlobs is globs as slash paths from the root: backslashes
+// become slashes and a leading ./ goes. A glob that starts outside the root
+// (/ or ..) is refused by name, since the tree hashed is the root's.
+func normalizeInputGlobs(globs []string) ([]string, error) {
+	out := make([]string, 0, len(globs))
+	for _, g := range globs {
+		n := strings.ReplaceAll(g, `\`, "/")
+		// walk-terminates: each turn drops two bytes from n
+		for strings.HasPrefix(n, "./") {
+			n = strings.TrimPrefix(n, "./")
+		}
+		if n == "" || strings.HasPrefix(n, "/") || n == ".." || strings.HasPrefix(n, "../") || filepath.VolumeName(n) != "" {
+			return nil, fmt.Errorf("input glob \"%s\" starts outside the root", g)
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
 // inputsHash is the hash of every file under root, tracked or untracked and not
-// ignored, that one of globs selects: its path and the hash of its content.
+// ignored, that one of globs selects (its path and content), and of the root's
+// lockfiles and manifests. It fails, so the command runs, when a glob selects
+// no file (a typo would otherwise hash to a constant for ever) or selects a
+// git-ignored one (the merge checkout does not hold it the same way).
 func inputsHash(root string, globs []string) (string, error) {
+	globs, err := normalizeInputGlobs(globs)
+	if err != nil {
+		return "", err
+	}
 	out, err := git(root, "-c", "core.quotepath=off", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
 	if err != nil {
 		return "", err
 	}
+	matched := make([]bool, len(globs))
 	var picked []string
 	seen := map[string]bool{}
 	for _, p := range strings.Split(out, "\x00") {
@@ -173,28 +220,66 @@ func inputsHash(root string, globs []string) (string, error) {
 			continue
 		}
 		seen[p] = true
-		for _, g := range globs {
+		hit := false
+		for i, g := range globs {
 			if ratchet.MatchGlob(g, p) {
-				picked = append(picked, p)
-				break
+				matched[i], hit = true, true
+			}
+		}
+		if hit {
+			picked = append(picked, p)
+		}
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\n", strings.Join(globs, "\x00"))
+	sort.Strings(picked)
+	for _, p := range picked {
+		stamp, present, err := contentStamp(root, p)
+		if err != nil {
+			return "", err
+		}
+		if !present {
+			continue // tracked but deleted: absent from the hash, as from the tree
+		}
+		fmt.Fprintf(h, "%s\x00%s\n", p, stamp)
+	}
+	for i, g := range globs {
+		if !matched[i] {
+			return "", fmt.Errorf("input glob %q matches no file", g)
+		}
+	}
+	ignored, err := git(root, "-c", "core.quotepath=off", "ls-files", "-z", "--ignored", "--others", "--exclude-standard")
+	if err != nil {
+		return "", err
+	}
+	for _, p := range strings.Split(ignored, "\x00") {
+		for _, g := range globs {
+			if p != "" && ratchet.MatchGlob(g, p) {
+				return "", fmt.Errorf("input glob %q selects the git-ignored %s", g, p)
 			}
 		}
 	}
-	sort.Strings(picked)
-	h := sha256.New()
-	fmt.Fprintf(h, "%s\n", strings.Join(globs, "\x00"))
-	for _, p := range picked {
-		data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(p)))
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			continue // tracked but deleted: it is absent from the hash, as from the tree
-		case err != nil:
+	for _, name := range lockfiles {
+		stamp, present, err := contentStamp(root, name)
+		if err != nil {
 			return "", err
 		}
-		sum := sha256.Sum256(data)
-		fmt.Fprintf(h, "%s\x00%x\n", p, sum)
+		fmt.Fprintf(h, "lock %s\x00%v\x00%s\n", name, present, stamp)
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// contentStamp is the hash of the file at rel under root; present is false for
+// a file that does not exist.
+func contentStamp(root, rel string) (stamp string, present bool, err error) {
+	data, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "", false, nil
+	case err != nil:
+		return "", false, err
+	}
+	return fmt.Sprintf("%x", sha256.Sum256(data)), true, nil
 }
 
 // declaredReuse answers whether the merge gate may skip c: it must be the
