@@ -65,7 +65,7 @@ func TestRun_RefusesAnIncompleteCommandLineWithoutAnAnswer(t *testing.T) {
 
 var queueArgs = []string{"-repo", "o/r", "-sha", pushSHA, "-tree", pushTree, "-workflow", wfPath,
 	"-require", "test=Test (race", "-require", "test-windows=Test (race",
-	"-event", "merge_group", "-head-ref", "gh-readonly-queue/main/pr-42-" + headSHA, "-base-sha", baseSHA, "-parent", baseSHA}
+	"-event", "merge_group", "-head-ref", "gh-readonly-queue/main/pr-42-" + baseSHA, "-base-sha", baseSHA, "-parent", baseSHA}
 
 func TestRun_AMergeGroupReadsItsHeadRefBaseAndParentFromTheCommandLine(t *testing.T) {
 	t.Parallel()

@@ -156,7 +156,7 @@ func decidePull(src Source, c Commit, reqs []Requirement) Verdict {
 }
 
 // queueRefRe is the head ref the merge queue gives a group:
-// gh-readonly-queue/<base branch>/pr-<number>-<head sha of the last pull request>.
+// gh-readonly-queue/<base branch>/pr-<number>-<the group's base sha>.
 var queueRefRe = regexp.MustCompile(`^(?:refs/heads/)?gh-readonly-queue/.+/pr-([0-9]+)-([0-9a-f]+)$`)
 
 // decideQueue answers whether a merge group's run may skip the suites because
@@ -176,12 +176,14 @@ func decideQueue(src Source, c Commit, reqs []Requirement) Verdict {
 	if err != nil || number < 1 {
 		return no("the merge group head ref %q does not name one pull request", c.HeadRef)
 	}
+	if m[2] != c.BaseSHA {
+		return no("the merge group head ref %q names base %s, not the group's base %s", c.HeadRef, m[2], c.BaseSHA)
+	}
+	// A pull request that moved after it was queued has a newer head whose run
+	// tested another tree, which judge refuses.
 	pr, err := src.Pull(number)
 	if err != nil {
 		return no("pull request #%d could not be read: %v", number, err)
-	}
-	if pr.HeadSHA == "" || pr.HeadSHA != m[2] {
-		return no("pull request #%d head is %q, not the %s it was queued at: it moved", number, pr.HeadSHA, m[2])
 	}
 	runs, err := src.Runs("pull_request", pr.HeadSHA)
 	if err != nil {
