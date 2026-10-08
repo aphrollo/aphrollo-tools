@@ -29,7 +29,9 @@ type selFake struct {
 	noList   map[string]bool     // package dir -> its -test.list fails
 	bins     map[string]string   // binary path -> package dir
 	running  atomic.Int32
-	peak     atomic.Int32
+	// onSolo runs once at the start of each solo test run.
+	onSolo func()
+	peak   atomic.Int32
 	// now is the fake clock; a probe build and a whole run of a test binary advance
 	// it by buildCost and runCost, every command by step.
 	now                time.Time
@@ -101,6 +103,9 @@ func (f *selFake) exec(ctx context.Context, dir string, env []string, argv []str
 		}
 		_, err := io.WriteString(log, strings.Join(f.tests[pkg], "\n")+"\n")
 		return 0, err
+	}
+	if f.onSolo != nil {
+		f.onSolo()
 	}
 	now := f.running.Add(1)
 	defer f.running.Add(-1)
@@ -490,5 +495,68 @@ func TestBuildSelIndex_SaysWhatEachPackagesCoverageCostInBuildsAndInTestRuns(t *
 	want := "mutants: coverage of p (unit): compiled in 2s, 2 test(s) run alone in 6s"
 	if !strings.Contains(log.String(), want) {
 		t.Errorf("the log lacks %q:\n%s", want, log.String())
+	}
+}
+
+func TestMeasureSelPackage_LeavesNoProfileAndNoBinaryInTheWorkDir(t *testing.T) {
+	f := &selFake{}
+	root := selBuildRepo(t, f)
+	work := t.TempDir()
+	res, why := measureSelPackage(context.Background(), root, root, work, "0", selUnit, "p", []string{"example.com/m/p"}, 2, nil, "example.com/m", io.Discard)
+	if why != "" || len(res.per) != 2 {
+		t.Fatalf("measured %d tests, doubt %q", len(res.per), why)
+	}
+	left, _ := os.ReadDir(work)
+	for _, e := range left {
+		t.Errorf("the work dir still holds %s: a profile or a binary is disk until the run ends", e.Name())
+	}
+}
+
+func TestBuildSelIndex_AFileEditedWhileMeasuringIsNotKeptAndTheIndexIsStaleAgainstIt(t *testing.T) {
+	f := &selFake{}
+	root := selBuildRepo(t, f)
+	before := selFileHash(root, "p/p.go")
+	var once sync.Once
+	f.onSolo = func() {
+		once.Do(func() {
+			mustWrite(t, filepath.Join(root, "p", "p.go"), "package p\n\n\n// edited mid-run\nfunc F1() int {\n\treturn 1\n}\n")
+		})
+	}
+	b := selBuildAsk(t, root, selUnit, 2)
+	if b.Idx == nil {
+		t.Fatal(b.Why)
+	}
+	if b.Idx.FileHash["p/p.go"] != before {
+		t.Error("the file's hash is not the one taken with the key, before measuring")
+	}
+	if b.Idx.stale(root, "p/p.go") == "" {
+		t.Error("the index is not stale against the file edited while it was measured")
+	}
+	if loadSelIndex(root, b.Idx.Key) != nil {
+		t.Error("an index measured while the tree changed was kept for the next run")
+	}
+	f.onSolo = nil
+	mustWrite(t, filepath.Join(root, "p", "p.go"), "package p\n\nfunc F1() int {\n\treturn 1\n}\n\nfunc F2() int {\n\treturn 2\n}\n")
+	if again := selBuildAsk(t, root, selUnit, 2); again.Hit && again.Idx.FileHash["p/p.go"] != selFileHash(root, "p/p.go") {
+		t.Error("an index measured on a tree that moved was kept and read back")
+	}
+}
+
+func TestBuildSelIndex_TheSharedDependencyHashIsMadeOnceForAllTargets(t *testing.T) {
+	f := &selFake{buildCost: 4 * time.Second, runCost: 2 * time.Second}
+	root := selBuildRepo(t, f)
+	mustWrite(t, filepath.Join(root, "q", "q.go"), "package q\n")
+	gitDo(t, root, "add", "-A")
+	gitDo(t, root, "commit", "-qm", "q has a source")
+	calls := 0
+	prev := selContentHashFn
+	t.Cleanup(func() { selContentHashFn = prev })
+	selContentHashFn = func(root string, dirs []string) string { calls++; return prev(root, dirs) }
+	b := buildSelIndex(context.Background(), root, selIntegrationCfg, selUnit, []string{"p", "q"}, 2, nil, io.Discard)
+	if !b.Cheap["p"] || !b.Cheap["q"] {
+		t.Fatalf("build = %+v, want both cheap", b)
+	}
+	if calls != 1 {
+		t.Errorf("the dependency files were hashed %d times for two targets, want once", calls)
 	}
 }

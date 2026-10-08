@@ -17,7 +17,7 @@ func selPlanSet(t *testing.T, root, label string, tags []string, tests ...selTes
 		ran[i] = i
 	}
 	return selSet{Label: label, Tags: tags, Idx: &selIndex{
-		Schema: selSchema, Tests: tests,
+		Schema: selSchema, Tests: tests, Pkgs: []string{"p"},
 		Files:    map[string][]selBlock{"p/p.go": {{From: 4, FromCol: 1, To: 4, ToCol: 80, Tests: ran}, {From: 8, FromCol: 1, To: 8, ToCol: 80}, {From: 12, FromCol: 1, To: 12, ToCol: 80}}},
 		FileHash: map[string]string{"p/p.go": selFileHash(root, "p/p.go")},
 	}}
@@ -38,7 +38,8 @@ func selRunsOf(stage selStage) map[string][]string {
 	return out
 }
 
-func TestPlanSelection_UnitTestsFirstThenOnlyTheTaggedTestsNotAlreadyRun(t *testing.T) {
+// ratchet: test_removed TestPlanSelection_UnitTestsFirstThenOnlyTheTaggedTestsNotAlreadyRun: a test that passed the unit build is not skipped under tags, whose build differs
+func TestPlanSelection_UnitTestsFirstThenEveryTestOfTheTaggedBuildThatExecutesIt(t *testing.T) {
 	root := selPlanTree(t)
 	unit := selPlanSet(t, root, "unit", nil, selTest{"a", "TestA"}, selTest{"p", "TestP1"}, selTest{"q", "TestQ"})
 	tagged := selPlanSet(t, root, "tags", []string{"integration"}, selTest{"p", "TestInteg"}, selTest{"p", "TestP1"})
@@ -59,8 +60,8 @@ func TestPlanSelection_UnitTestsFirstThenOnlyTheTaggedTestsNotAlreadyRun(t *test
 	if second.Label != "tags" || !slices.Equal(second.Tags, []string{"integration"}) {
 		t.Errorf("the second stage is %+v, want the integration tag set", second)
 	}
-	if got := selRunsOf(second); len(got) != 1 || !slices.Equal(got["p"], []string{"TestInteg"}) {
-		t.Errorf("tagged stage runs %v, want only p:[TestInteg] (TestP1 ran in the unit stage)", got)
+	if got := selRunsOf(second); len(got) != 1 || !slices.Equal(got["p"], []string{"TestInteg", "TestP1"}) {
+		t.Errorf("tagged stage runs %v, want p:[TestInteg TestP1]: TestP1 passed the unit build, and the tagged build is another binary", got)
 	}
 }
 
@@ -200,5 +201,41 @@ func TestPlanSelection_WhenEverySetIsCheapTheMutantRunsTheFullSuiteAsItAlwaysDid
 	sets := []selSet{{Label: "unit", Cheap: map[string]bool{"p": true}}, {Label: "tags", Tags: []string{"x"}, Cheap: map[string]bool{"p": true}}}
 	if plan := planSelection(sets, root, "p/p.go", 4, 7); plan.Full != selWhyCheap || len(plan.Stages) != 0 {
 		t.Errorf("plan = %+v, want the full suite for %s", plan, selWhyCheap)
+	}
+}
+
+func TestPlanSelection_AMutatedPackageWithNoTestsOfItsOwnThatIsNotDeclaredRunsTheFullSuite(t *testing.T) {
+	root := selPlanTree(t)
+	mustWrite(t, filepath.Join(root, "z", "z.go"), "package z\n")
+	s := selPlanSet(t, root, "unit", nil, selTest{"p", "TestP1"})
+	s.Idx.Files["z/z.go"] = []selBlock{{From: 1, FromCol: 1, To: 9, ToCol: 80}}
+	s.Idx.FileHash["z/z.go"] = selFileHash(root, "z/z.go")
+	// p is measured, z is not: the old path ran every tested package that reaches z
+	if plan := planSelection([]selSet{s}, root, "z/z.go", 3, 7); plan.Full != selWhyNoOwnTests {
+		t.Errorf("plan = %+v, want the full suite for %s", plan, selWhyNoOwnTests)
+	}
+	// declared, its importers are the measured packages
+	s.Declared = map[string]bool{"z": true}
+	if plan := planSelection([]selSet{s}, root, "z/z.go", 3, 7); plan.Full != "" {
+		t.Errorf("a declared package gave %+v, want a selection over its importers", plan)
+	}
+}
+
+func TestPlanSelection_ADeclaredPackageWhoseUnitSuiteIsCheapRunsTheFullSuiteSoItsImportersAreNotLost(t *testing.T) {
+	root := selPlanTree(t)
+	unit := selSet{Label: "unit", Cheap: map[string]bool{"p": true}, Declared: map[string]bool{"p": true}}
+	tagged := selPlanSet(t, root, "tags", []string{"x"}, selTest{"p", "TestInteg"})
+	if plan := planSelection([]selSet{unit, tagged}, root, "p/p.go", 4, 7); plan.Full != selWhyCheap {
+		t.Errorf("plan = %+v, want the full suite for %s", plan, selWhyCheap)
+	}
+}
+
+func TestPlanSelection_AMutantWithNoPositionRunsTheFullSuite(t *testing.T) {
+	root := selPlanTree(t)
+	s := selPlanSet(t, root, "unit", nil, selTest{"p", "TestP1"})
+	for _, col := range []int{0, -1} {
+		if plan := planSelection([]selSet{s}, root, "p/p.go", 4, col); plan.Full != selWhyNoPosition {
+			t.Errorf("col %d gave %+v, want the full suite for %s", col, plan, selWhyNoPosition)
+		}
 	}
 }

@@ -23,6 +23,12 @@ const (
 	// selWhyCheap: every set measured that the package's tests run faster than a
 	// build, so selecting among them saves less than it costs.
 	selWhyCheap = "cheap-suite"
+	// selWhyNoOwnTests: the mutated package has no tests of its own and is not
+	// declared, so the packages that import it were not measured; the full suite
+	// runs every tested package that reaches it, as before.
+	selWhyNoOwnTests = "no-own-tests"
+	// selWhyNoPosition: the mutant names no column, so no block can hold it.
+	selWhyNoPosition = "no-position"
 )
 
 // selSet is one tag set as the plan reads it: its index, or why it has none.
@@ -35,6 +41,9 @@ type selSet struct {
 	// Cheap names the packages whose tests run faster than one build of them:
 	// they have no coverage in this set and run whole.
 	Cheap map[string]bool
+	// Declared names the packages the repo lists in mutants-integration-packages,
+	// whose importers' tests are measured and run.
+	Declared map[string]bool
 }
 
 // selRun is the tests of one package a stage runs: the named ones, or the
@@ -66,6 +75,9 @@ type selPlan struct {
 // runs. root is the tree the file is read from, to check the index's lines
 // still hold for it.
 func planSelection(sets []selSet, root, file string, line, col int) selPlan {
+	if col <= 0 {
+		return selPlan{Full: selWhyNoPosition}
+	}
 	pkg := goMutantPackageDir(file)
 	type found struct {
 		set   selSet
@@ -76,6 +88,11 @@ func planSelection(sets []selSet, root, file string, line, col int) selPlan {
 	anyListed, measured := false, 0
 	for _, s := range sets {
 		if s.Cheap[pkg] {
+			if s.Declared[pkg] {
+				// Its importers' unit tests are part of the old path's run, and no
+				// coverage here says which of them reach it.
+				return selPlan{Full: selWhyCheap}
+			}
 			// Its tests run faster than a build: no coverage was made for the
 			// package, and the mutant runs the whole suite in this set.
 			all = append(all, found{set: s, whole: []string{pkg}})
@@ -87,6 +104,9 @@ func planSelection(sets []selSet, root, file string, line, col int) selPlan {
 		}
 		if why := s.Idx.Doubt[pkg]; why != "" {
 			return selPlan{Full: why}
+		}
+		if !slices.Contains(s.Idx.Pkgs, pkg) && !s.Declared[pkg] {
+			return selPlan{Full: selWhyNoOwnTests}
 		}
 		tests, listed := s.Idx.testsAt(file, line, col)
 		if listed {
@@ -109,8 +129,10 @@ func planSelection(sets []selSet, root, file string, line, col int) selPlan {
 		return selPlan{Full: selWhyUnlisted}
 	}
 	var plan selPlan
-	ran := map[selTest]bool{}
 	for _, f := range all {
+		// A test is run once per stage and not once overall: each tag set is another
+		// build, and what passed the unit build may fail the tagged one.
+		ran := map[selTest]bool{}
 		stage := selStage{Label: f.set.Label, Tags: f.set.Tags}
 		byPkg := map[string][]string{}
 		tests := slices.Clone(f.tests)

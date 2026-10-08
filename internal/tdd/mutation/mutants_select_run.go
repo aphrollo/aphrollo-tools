@@ -101,9 +101,13 @@ func selTagSets(cfg MutantsConfig) []selTagSet {
 func newSelRunner(ctx context.Context, root string, cfg MutantsConfig, targets []string, workers int, log io.Writer) *selRunner {
 	box := &commitBox{root: root}
 	r := &selRunner{root: root, cfg: cfg, known: &killChecks{}, log: log, env: measureEnv(root, cfg), open: box.open, close: box.close}
+	declared := map[string]bool{}
+	for _, dir := range declaredImporters(cfg, targets) {
+		declared[dir] = true
+	}
 	for _, set := range selTagSets(cfg) {
 		b := buildSelIndex(ctx, root, cfg, set, targets, workers, box, log)
-		r.sets = append(r.sets, selSet{Label: set.Label, Tags: set.Tags, Idx: b.Idx, Why: b.Why, Cheap: b.Cheap})
+		r.sets = append(r.sets, selSet{Label: set.Label, Tags: set.Tags, Idx: b.Idx, Why: b.Why, Cheap: b.Cheap, Declared: declared})
 		r.stats.Build += b.Took
 		r.stats.Packages = max(r.stats.Packages, b.Packages)
 		r.stats.Extra = max(r.stats.Extra, b.Extra)

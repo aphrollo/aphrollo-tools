@@ -76,7 +76,7 @@ func selIndexOf(tests map[int][]selTest, doubt map[string]string) *selIndex {
 	for _, ts := range tests {
 		all = append(all, ts...)
 	}
-	idx := &selIndex{Schema: selSchema, Tests: all, Doubt: doubt, PkgTests: map[string]int{"p": 5, "q": 9},
+	idx := &selIndex{Schema: selSchema, Tests: all, Pkgs: []string{"p", "q"}, Doubt: doubt, PkgTests: map[string]int{"p": 5, "q": 9},
 		Files: map[string][]selBlock{"p/p.go": {{From: 4, FromCol: 1, To: 4, ToCol: 80}, {From: 5, FromCol: 1, To: 5, ToCol: 80}}}}
 	for i := range all {
 		idx.Files["p/p.go"][0].Tests = append(idx.Files["p/p.go"][0].Tests, i)

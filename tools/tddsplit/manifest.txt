@@ -811,6 +811,7 @@ mutants_runstatus.go                               mutation
 mutants_seal_test.go                               mutation
 mutants_select_build.go                            mutation
 mutants_select_build_test.go                       mutation
+mutants_select_cost.go                             mutation
 mutants_select_e2e_test.go                         mutation
 mutants_select_index.go                            mutation
 mutants_select_index_test.go                       mutation

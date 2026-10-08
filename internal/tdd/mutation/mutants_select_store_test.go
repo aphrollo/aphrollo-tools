@@ -110,3 +110,29 @@ func TestSelStore_AnIndexOfAnotherKeyInsideTheFileIsNotTrusted(t *testing.T) {
 		t.Errorf("loaded an index of key %s for 0001", got.Key)
 	}
 }
+
+func TestSelKey_AFileInASubdirectoryTheTestsMayEmbedMovesIt(t *testing.T) {
+	root := selStoreTree(t)
+	mustWrite(t, filepath.Join(root, "p", "assets", "a.txt"), "one")
+	base := selStoreKey(t, root, nil)
+	mustWrite(t, filepath.Join(root, "p", "assets", "a.txt"), "two")
+	if selStoreKey(t, root, nil) == base {
+		t.Error("an edit to p/assets/a.txt, which //go:embed may read, left the key where it was")
+	}
+	mustWrite(t, filepath.Join(root, "p", "sub", "s.go"), "package sub\n")
+	withSub := selStoreKey(t, root, nil)
+	mustWrite(t, filepath.Join(root, "p", "sub", "s.go"), "package sub\n\nvar X = 1\n")
+	if selStoreKey(t, root, nil) != withSub {
+		t.Error("an edit to another package nested in p moved p's key")
+	}
+}
+
+func TestSelKeyFrom_AKeyFromTheSharedHashIsTheKeyOfTheSameDirs(t *testing.T) {
+	root := selStoreTree(t)
+	ctx := context.Background()
+	want, _ := selKey(ctx, root, MutantsConfig{}, nil, []string{"p"}, []string{"p", "q"})
+	got, _ := selKeyFrom(ctx, root, MutantsConfig{}, nil, []string{"p"}, selContentHash(root, []string{"p", "q"}))
+	if got != want {
+		t.Errorf("selKeyFrom = %s, selKey = %s", got, want)
+	}
+}

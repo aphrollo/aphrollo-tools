@@ -29,13 +29,17 @@ import (
 // directories under mutation (what -coverpkg names), dirs every directory
 // whose files the measurement reads.
 func selKey(ctx context.Context, root string, cfg MutantsConfig, tags, targets, dirs []string) (string, error) {
-	env, err := goEnvFn(ctx, root)
-	if err != nil {
-		return "", fmt.Errorf("go env: %w", err)
-	}
+	return selKeyFrom(ctx, root, cfg, tags, targets, selContentHashFn(root, dirs))
+}
+
+// selContentHashFn is the seam the tests count the hashing of files through.
+var selContentHashFn = selContentHash
+
+// selContentHash is the part of a key that is the files: the module files and
+// every file of the package directories dirs. It is the costly part, so a caller
+// that keys several targets over the same dirs makes it once.
+func selContentHash(root string, dirs []string) string {
 	h := sha256.New()
-	fmt.Fprintf(h, "select schema %d\nmodule %s\nenv %s\ntags %s\nmutants-env %s\ntargets %s\n",
-		selSchema, modulePath(root), strings.TrimSpace(env), strings.Join(tags, ","), strings.Join(cfg.Env, ";"), strings.Join(targets, ","))
 	for _, name := range []string{"go.mod", "go.sum", "go.work", "go.work.sum"} {
 		hashFile(h, filepath.Join(root, name), name)
 	}
@@ -45,11 +49,24 @@ func selKey(ctx context.Context, root string, cfg MutantsConfig, tags, targets, 
 		fmt.Fprintf(h, "dir %s\n", dir)
 		hashPackageDir(h, root, dir)
 	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// selKeyFrom keys the targets over a content hash made by selContentHash.
+func selKeyFrom(ctx context.Context, root string, cfg MutantsConfig, tags, targets []string, content string) (string, error) {
+	env, err := goEnvFn(ctx, root)
+	if err != nil {
+		return "", fmt.Errorf("go env: %w", err)
+	}
+	h := sha256.New()
+	fmt.Fprintf(h, "select schema %d\nmodule %s\nenv %s\ntags %s\nmutants-env %s\ntargets %s\ncontent %s\n",
+		selSchema, modulePath(root), strings.TrimSpace(env), strings.Join(tags, ","), strings.Join(cfg.Env, ";"), strings.Join(targets, ","), content)
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// hashPackageDir hashes every file directly in the package directory and,
-// recursively, its testdata: what a test of the package can read.
+// hashPackageDir hashes every file directly in the package directory, its
+// testdata recursively, and every subdirectory that holds no Go file (what a
+// //go:embed may name): what a test of the package can read.
 func hashPackageDir(h io.Writer, root, dir string) {
 	base := filepath.Join(root, filepath.FromSlash(dir))
 	entries, err := os.ReadDir(base)
@@ -62,14 +79,44 @@ func hashPackageDir(h io.Writer, root, dir string) {
 			hashFile(h, filepath.Join(base, e.Name()), dir+"/"+e.Name())
 		}
 	}
-	_ = filepath.WalkDir(filepath.Join(base, "testdata"), func(p string, d fs.DirEntry, err error) error {
-		if err != nil || !d.Type().IsRegular() {
-			return nil // absence-ok: a package with no testdata has none to hash
+	hashTree := func(p string, skipPackages bool) {
+		_ = filepath.WalkDir(p, func(q string, d fs.DirEntry, err error) error {
+			if err != nil {
+				return nil // absence-ok: a package with no such directory has none to hash
+			}
+			if d.IsDir() {
+				if skipPackages && q != p && selHoldsGo(q) {
+					return filepath.SkipDir // another package, not an embed
+				}
+				return nil
+			}
+			if d.Type().IsRegular() {
+				rel, _ := filepath.Rel(root, q)
+				hashFile(h, q, filepath.ToSlash(rel))
+			}
+			return nil
+		})
+	}
+	hashTree(filepath.Join(base, "testdata"), false)
+	for _, e := range entries {
+		if e.IsDir() && e.Name() != "testdata" && !selHoldsGo(filepath.Join(base, e.Name())) {
+			hashTree(filepath.Join(base, e.Name()), true)
 		}
-		rel, _ := filepath.Rel(root, p)
-		hashFile(h, p, filepath.ToSlash(rel))
-		return nil
-	})
+	}
+}
+
+// selHoldsGo reports whether the directory has a Go file directly in it.
+func selHoldsGo(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".go") {
+			return true
+		}
+	}
+	return false
 }
 
 // selFileHash is the hash of one module-relative file as it is on disk, "" when
