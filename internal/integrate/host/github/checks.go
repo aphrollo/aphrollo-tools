@@ -144,7 +144,7 @@ func (g *GitHub) RunInfo(id int64) (host.RunInfo, error) {
 // off by a page limit and a reused branch name brings in no older PR's runs.
 func (g *GitHub) PRRuns(branch string, pr int) ([]host.PRRun, error) {
 	jq := fmt.Sprintf(`.workflow_runs[] | select(any(.pull_requests[]?; .number == %d)) | `+
-		`{databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at, attempt: .run_attempt, path: .path}`, pr)
+		`{databaseId: .id, headSha: .head_sha, status: .status, conclusion: .conclusion, createdAt: .created_at, updatedAt: .updated_at, attempt: .run_attempt, path: .path}`, pr)
 	out, err := g.gh("api", "--paginate",
 		"repos/{owner}/{repo}/actions/runs?event=pull_request&per_page=100&branch="+branch, "--jq", jq)
 	if err != nil {

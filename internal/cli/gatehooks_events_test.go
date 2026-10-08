@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -116,5 +117,40 @@ func TestGateFeedback_EmitsAFeedbackEventWithoutTheText(t *testing.T) {
 	}
 	if text := fmt.Sprintf("%+v", all); strings.Contains(text, "SECRET99") {
 		t.Fatalf("report text leaked into the event log: %s", text)
+	}
+}
+
+// ticks makes gateClock answer each call with the next instant, stepping by step.
+func ticks(t *testing.T, step time.Duration) {
+	t.Helper()
+	old := gateClock
+	t.Cleanup(func() { gateClock = old })
+	at := time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)
+	gateClock = func() time.Time { at = at.Add(step); return at }
+}
+
+func TestGatePrecommit_StampsTheRunsElapsedSecondsOnItsResultEvent(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	managedBlockCommit(t, false)
+	ticks(t, 42*time.Second)
+
+	Run([]string{"gate", "precommit"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+
+	results := eventsOfKind(loggedEvents(t), "commit_gate_result")
+	if len(results) != 1 || results[0].Secs != 42 {
+		t.Fatalf("commit_gate_result = %+v, want one with secs 42", results)
+	}
+}
+
+func TestGatePremerge_StampsTheRunsElapsedSecondsOnItsResultEvent(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	managedBlockCommit(t, true)
+	ticks(t, 17*time.Second)
+
+	Run([]string{"gate", "premerge"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+
+	results := eventsOfKind(loggedEvents(t), "merge_gate_result")
+	if len(results) != 1 || results[0].Secs != 17 {
+		t.Fatalf("merge_gate_result = %+v, want one with secs 17", results)
 	}
 }
