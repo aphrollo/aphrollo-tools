@@ -227,3 +227,28 @@ func TestDeclaredReuse_ARunIsRecordedOnlyForTheTreeAndOutcomeItJudged(t *testing
 		}
 	}
 }
+
+// node_modules is installed from the lockfile, which every key already holds:
+// an ignored one beside the inputs neither blocks the key nor moves it.
+func TestDeclaredReuse_AnIgnoredNodeModulesIsNeitherAnInputNorARefusal(t *testing.T) {
+	t.Parallel()
+	root := dreuseKeyRepo(t)
+	write(t, root, ".gitignore", "node_modules/\nweb/gen/\n")
+	write(t, root, "web/node_modules/x/index.js", "module.exports = 1\n")
+	before, ok := dreuseKey(root, "web/**")
+	if !ok {
+		t.Fatal("web/** with an ignored web/node_modules gave no key")
+	}
+	write(t, root, "web/node_modules/x/index.js", "module.exports = 2\n")
+	if after, _ := dreuseKey(root, "web/**"); after != before {
+		t.Error("a change inside node_modules moved the key")
+	}
+	write(t, root, "package-lock.json", "{}\n")
+	if after, _ := dreuseKey(root, "web/**"); after == before {
+		t.Error("a lockfile change did not move the key")
+	}
+	write(t, root, "web/gen/a.ts", "export const a = 1\n")
+	if key, ok := dreuseKey(root, "web/**"); ok {
+		t.Errorf("an ignored web/gen/a.ts beside node_modules gave key %q, want none", key)
+	}
+}

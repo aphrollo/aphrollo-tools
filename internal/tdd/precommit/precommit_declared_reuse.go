@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -179,6 +180,15 @@ var lockfiles = []string{
 	"package.json", "go.mod", "Cargo.toml",
 }
 
+// dependencyDirs are the path segments of installed dependencies. The lockfile
+// fold already stands for their content, so an ignored file under one is
+// neither hashed nor a reason to refuse a key. A new dependency dir is a row.
+var dependencyDirs = []string{"node_modules"}
+
+func inDependencyDir(path string) bool {
+	return slices.ContainsFunc(strings.Split(path, "/"), func(seg string) bool { return slices.Contains(dependencyDirs, seg) })
+}
+
 // normalizeInputGlobs is globs as slash paths from the root: backslashes
 // become slashes and a leading ./ goes. A glob that starts outside the root
 // (/ or ..) is refused by name, since the tree hashed is the root's.
@@ -253,6 +263,9 @@ func inputsHash(root string, globs []string) (string, error) {
 		return "", err
 	}
 	for _, p := range strings.Split(ignored, "\x00") {
+		if inDependencyDir(p) {
+			continue
+		}
 		for _, g := range globs {
 			if p != "" && ratchet.MatchGlob(g, p) {
 				return "", fmt.Errorf("input glob %q selects the git-ignored %s", g, p)
