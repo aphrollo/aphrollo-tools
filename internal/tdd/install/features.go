@@ -105,6 +105,18 @@ var features = []Feature{
 		Enable: "race-scope = \"all\"",
 	},
 	{
+		Key: "test-cache", Default: "off",
+		Effect: "go's own test-result cache serves the packages a change left alone, in the post-edit suite (\"edit\") and also the commit's suite (\"commit\"), instead of every gate run carrying -count=1 and -shuffle=on; the merge and CI always run the whole tree with no cache, and a line reads \"N passed (M cached)\"",
+		Cost:   "a cached pass is the earlier result of an unchanged package: right only for tests whose inputs go tracks (its sources, the env variables and files they read), so list the packages that exec git or another binary, read the network or the clock in test-cache-impure; -shuffle is off while the cache serves",
+		Enable: "test-cache = \"edit\" or \"commit\"",
+	},
+	{
+		Key: "test-cache-impure", Default: "none",
+		Effect: "package patterns such as [\"./internal/git/...\"] whose tests go's cache cannot vouch for: with test-cache on, they run apart with -count=1 every time",
+		Cost:   "each listed package reruns at every post-edit run that includes it; a whole-module run (./...) cannot be split and runs uncached",
+		Enable: "test-cache-impure = [\"./internal/git/...\"]",
+	},
+	{
 		Key: "gocache-cap", Default: "20GB",
 		Effect: "the size `aphrollo gate gc` trims the Go build cache (`go env GOCACHE`) down to, taking the files unused longest first, only go's own entries, and none used within the last two hours",
 		Cost:   "a smaller cap rebuilds more of what the next build needs",

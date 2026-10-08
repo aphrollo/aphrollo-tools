@@ -31,6 +31,63 @@ go-test-reads = [
   "CHANGELOG.md -> internal/release",
 ]
 
+# Go's test cache, off here until the owner has seen the numbers. With
+# test-cache = "edit" or "commit" the post-edit suite (and, at "commit", the
+# commit's suite) lets go serve a package whose sources and test inputs did not
+# change, where every gate run carries -count=1 today; the merge and CI never
+# do. A cached result is only as good as what go can see of a test's inputs:
+# its binary, the env variables it read and the files it opened. test-cache-impure
+# lists the packages that cannot be vouched for, which always rerun with
+# -count=1. Found by grep over the test files and by `go list -deps -test`: a
+# package is listed when its tests import os/exec, internal/run, internal/git,
+# gitx, gitenv, shfake, proc, msys, lsp, net or net/http, or when its test
+# binary links one of the packages that spawn a process. What is left (buildinfo,
+# config/decl, diff, guardrail, integrate/host, lang, lsp, mask, oracle,
+# rootseam, tomlsubset) is pure Go over its inputs. A new package whose tests
+# exec git, a language server or any other binary, or read the network, goes in
+# this list; internal/tdd and tools are listed as trees, so a new package under
+# them is impure until someone proves otherwise.
+test-cache = "off"
+test-cache-impure = [
+  "./internal/tdd/...",
+  "./tools/...",
+  "./cmd/...",
+  "./internal/argvbatch",
+  "./internal/cireuse",
+  "./internal/ciwhy",
+  "./internal/cli",
+  "./internal/commitrecord",
+  "./internal/compat",
+  "./internal/config",
+  "./internal/depinstall",
+  "./internal/dev",
+  "./internal/docs",
+  "./internal/engine",
+  "./internal/ghworkflow",
+  "./internal/git",
+  "./internal/gitenv",
+  "./internal/gitiso",
+  "./internal/integrate/host/github/...",
+  "./internal/kernel",
+  "./internal/measure",
+  "./internal/msys",
+  "./internal/proc",
+  "./internal/ratchet",
+  "./internal/refactor",
+  "./internal/release",
+  "./internal/render",
+  "./internal/report",
+  "./internal/run/...",
+  "./internal/shadow",
+  "./internal/shfake",
+  "./internal/sqlc",
+  "./internal/store",
+  "./internal/tddarm",
+  "./internal/undercover",
+  "./internal/userbin",
+  "./internal/workspace",
+]
+
 # The post-merge retro `aphrollo workspace merge` runs once the PR has landed.
 # It reads the PR's journey (one bounded gh batch), the lane's gate.log
 # entries and the lane branch's reflog, and records a retro for the session
