@@ -107,9 +107,7 @@ var noTestsToRunRe = regexp.MustCompile(`(?i)no tests to run|no test files found
 func RunSuite(timeout time.Duration) SuiteRunner {
 	one := runSuiteOnce(timeout)
 	return func(r Runner, root string) SuiteResult {
-		return runRapidSplit(r, root, timeout, func(sub Runner, dir string) SuiteResult {
-			return runImpureSplit(sub, dir, timeout, argvBudgetFn(sub.Cmd), one)
-		})
+		return runImpureSplit(r, root, timeout, argvBudgetFn(r.Cmd), one)
 	}
 }
 

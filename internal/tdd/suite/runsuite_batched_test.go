@@ -202,3 +202,5 @@ func TestRunSuite_TwoHundredLongPackagesUnderTheWindowsCmdShimBudget(t *testing.
 		t.Fatalf("%d packages listed, want 200, each once", lines)
 	}
 }
+
+// ratchet: test_removed internal/tdd/suite/rapidseed_test.go: the rapid seed split was dropped; it stopped go caching rapid packages and doubled build and link per run, for a nondeterminism that never flipped a verdict

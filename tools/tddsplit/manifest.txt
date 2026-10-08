@@ -1012,8 +1012,6 @@ queuewaiters.go                                    lock
 queuewaiters_test.go                               lock
 raceslots.go                                       lock
 raceslots_own_test.go                              lock
-rapidseed.go                                        suite
-rapidseed_test.go                                   suite
 ratchet_laws.md                                    tdd
 ratchetbase_test.go                                precommit
 ratchetedit.go                                     lawgate
