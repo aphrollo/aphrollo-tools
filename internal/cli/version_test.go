@@ -39,6 +39,20 @@ func TestVersion_PrintsShortShaAndBuildTime(t *testing.T) {
 	}
 }
 
+// `--version` is the convention every CLI answers (GNU, clig.dev): it prints
+// what `aphrollo version` prints, byte for byte, never "unknown command".
+func TestRun_DashDashVersionPrintsTheVersion(t *testing.T) {
+	var want, wantErr bytes.Buffer
+	runVersion(nil, &want, &wantErr)
+	var out, errb bytes.Buffer
+	if code := Run([]string{"--version"}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("--version exit = %d, want 0; stderr %q", code, errb.String())
+	}
+	if out.String() != want.String() {
+		t.Fatalf("--version printed %q, want what version prints: %q", out.String(), want.String())
+	}
+}
+
 // version takes no arguments but its one subcommand: -h and anything else are
 // both errors, same shape, so a caller who typos a flag gets a usage line
 // instead of a silently-ignored argument.
