@@ -54,12 +54,15 @@ func runWorkspaceMergeWait(pos []string, into, method string, deleteBranch, dry,
 	stampedOut, stampedErr := workspace.StampLines(stdout), workspace.StampLines(stderr)
 	// The gate runs in this process and speaks on os.Stderr, so that goes
 	// through the same stamp: its stage lines carry the prefix too.
-	defer workspace.RouteProcessStderr(stampedErr)()
+	restoreStderr := workspace.RouteProcessStderr(stampedErr)
+	defer restoreStderr() // backstop: restore is idempotent
 	if queue {
 		err = workspace.ResumeMergeQueue(t.MainRepo, prior, items, method, deleteBranch, opts, stampedOut, stampedErr)
 	} else {
 		err = workspace.MergeWait(t, method, deleteBranch, opts, stampedOut, stampedErr)
 	}
+	// The gate is done: its lines are flushed before anything else prints.
+	restoreStderr()
 	// Housekeeping, best-effort, as the plain merge does: sweep landed lanes
 	// other than the one the caller stands in. A queue sweeps even when it
 	// stopped part-way, since the PRs before the stop did land.

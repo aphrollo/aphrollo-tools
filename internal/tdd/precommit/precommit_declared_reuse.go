@@ -53,6 +53,9 @@ type declaredVerdict struct {
 	At    string         `json:"at"`
 	Scope string         `json:"scope,omitempty"`
 	Parts *declaredParts `json:"parts,omitempty"`
+	// Seq counts the writes to the store, so two entries made in one second
+	// still have an order. An entry from an older binary has none (0).
+	Seq int64 `json:"seq,omitempty"`
 }
 
 // declaredParts are the three hashes a declared command's key folds together.
@@ -123,12 +126,18 @@ func recordDeclaredVerdictAt(path, key string, v declaredVerdict, max int) {
 	if v.At == "" {
 		v.At = time.Now().UTC().Format(time.RFC3339)
 	}
+	v.Seq = 1
+	for _, e := range s.Verdicts {
+		if e.Seq >= v.Seq {
+			v.Seq = e.Seq + 1
+		}
+	}
 	s.Verdicts[key] = v
 	for len(s.Verdicts) > max {
-		oldest, oldestAt := "", ""
+		oldest := ""
 		for k, e := range s.Verdicts {
-			if oldest == "" || e.At < oldestAt {
-				oldest, oldestAt = k, e.At
+			if oldest == "" || declaredNewer(oldest, s.Verdicts[oldest], k, e) {
+				oldest = k
 			}
 		}
 		delete(s.Verdicts, oldest)
@@ -166,13 +175,19 @@ type declaredKeyed struct {
 	key, short, scope string
 	parts             declaredParts
 	takes             bool
-	err               error
+	// baselined marks a command with inputs that is judged against HEAD and so
+	// never reuses.
+	baselined bool
+	err       error
 }
 
 // declaredKeying keys c run in root.
 func declaredKeying(root string, c declaredCommand) declaredKeyed {
-	if len(c.Inputs) == 0 || (c.Baseline != "" && c.Baseline != baselineNone) {
+	if len(c.Inputs) == 0 {
 		return declaredKeyed{}
+	}
+	if c.Baseline != "" && c.Baseline != baselineNone {
+		return declaredKeyed{baselined: true}
 	}
 	k := declaredKeyed{takes: true}
 	r := Runner{Cmd: c.Argv[0], Args: c.Argv[1:]}
@@ -386,6 +401,9 @@ func contentStamp(root, rel string) (stamp string, present bool, err error) {
 // cannot key such a command, so that nothing is recorded for the merge, it
 // says that.
 func declaredReuse(gateName, root string, r Runner, k declaredKeyed) bool {
+	if k.baselined && gateName == premergeDisplayName {
+		fmt.Fprintf(stderrFor(root), "[run] %s: no reuse — %s\n", cmdString(r), missBaseline)
+	}
 	if !k.takes {
 		return false
 	}
@@ -403,7 +421,7 @@ func declaredReuse(gateName, root string, r Runner, k declaredKeyed) bool {
 			return true
 		}
 	}
-	fmt.Fprintf(stderrFor(root), "[run] %s: no reuse — %s\n", cmdString(r), missReasonFor(declaredVerdictsPath(), k))
+	fmt.Fprintf(stderrFor(root), "[run] %s: no reuse — %s\n", cmdString(r), missReasonFor(declaredVerdictsPath(), k, time.Now()))
 	return false
 }
 

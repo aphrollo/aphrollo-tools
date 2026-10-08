@@ -11,6 +11,13 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/rootseam"
 )
 
+// dmissAt is when the entries these tests record were made; dmissNow is 90
+// seconds later.
+var (
+	dmissAt  = time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	dmissNow = dmissAt.Add(90 * time.Second)
+)
+
 var dmissCmd = declaredCommand{Argv: []string{"git", "--version"}, Inputs: []string{"web/**"}}
 
 // dmissStore is an empty store path for one test.
@@ -27,12 +34,14 @@ func dmissRecord(t *testing.T, path, root string, c declaredCommand, green bool)
 	if k.err != nil {
 		t.Fatalf("no key to record under: %v", k.err)
 	}
-	recordDeclaredVerdictAt(path, k.key, declaredVerdictFrom(k, green, 5), declaredVerdictsMax)
+	v := declaredVerdictFrom(k, green, 5)
+	v.At = dmissAt.Format(time.RFC3339)
+	recordDeclaredVerdictAt(path, k.key, v, declaredVerdictsMax)
 }
 
 func dmissWant(t *testing.T, path, root string, c declaredCommand, want string) {
 	t.Helper()
-	if got := declaredMissReasonAt(path, root, c); got != want {
+	if got := declaredMissReasonAt(path, root, c, dmissNow); got != want {
 		t.Errorf("reason = %q, want %q", got, want)
 	}
 }
@@ -54,7 +63,7 @@ func TestDeclaredMiss_ChangedInputsAreNamed(t *testing.T) {
 	path, root := dmissStore(t), dreuseKeyRepo(t)
 	dmissRecord(t, path, root, dmissCmd, true)
 	write(t, root, "web/x.ts", "export const x = 2\n")
-	dmissWant(t, path, root, dmissCmd, "inputs changed")
+	dmissWant(t, path, root, dmissCmd, "inputs changed since the last recorded run (1m ago)")
 }
 
 func TestDeclaredMiss_AChangedLockfileIsNamed(t *testing.T) {
@@ -62,7 +71,7 @@ func TestDeclaredMiss_AChangedLockfileIsNamed(t *testing.T) {
 	path, root := dmissStore(t), dreuseKeyRepo(t)
 	dmissRecord(t, path, root, dmissCmd, true)
 	write(t, root, "package-lock.json", "{}\n")
-	dmissWant(t, path, root, dmissCmd, "lockfile/manifest changed")
+	dmissWant(t, path, root, dmissCmd, "lockfile/manifest changed since the last recorded run (1m ago)")
 }
 
 func TestDeclaredMiss_AChangedToolIsNamed(t *testing.T) {
@@ -77,7 +86,7 @@ func TestDeclaredMiss_AChangedToolIsNamed(t *testing.T) {
 	if err := os.WriteFile(tool, []byte("version two"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dmissWant(t, path, root, c, "tool changed")
+	dmissWant(t, path, root, c, "tool changed since the last recorded run (1m ago)")
 }
 
 func TestDeclaredMiss_AGlobMatchingNoFileIsNamed(t *testing.T) {
@@ -141,10 +150,10 @@ func TestDeclaredMiss_ComparesAgainstTheMostRecentEntry(t *testing.T) {
 	old.Parts.Locks = "other-locks"
 	recordDeclaredVerdictAt(path, "old-key", old, declaredVerdictsMax)
 	newer := declaredVerdictFrom(k, true, 5)
-	newer.At = time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)
+	newer.At = dmissAt.Format(time.RFC3339)
 	recordDeclaredVerdictAt(path, "new-key", newer, declaredVerdictsMax)
 	write(t, root, "web/x.ts", "export const x = 2\n")
-	dmissWant(t, path, root, dmissCmd, "inputs changed")
+	dmissWant(t, path, root, dmissCmd, "inputs changed since the last recorded run (1m ago)")
 }
 
 // The merge gate says why it ran a declared command instead of reusing it.
@@ -154,7 +163,8 @@ func TestDeclaredMiss_TheMergeGatePrintsTheReasonLine(t *testing.T) {
 	root := dreuseLane(t, dreuseDeclared, dreuseRunner(&laneRuns, true, time.Second),
 		map[string]string{"web/z.ts": "export const z = 2\n"})
 	out := dmissStderr(t, root, func() { Mechanical(root, dreuseRunner(&mergeRuns, true, time.Second)) })
-	want := "[run] git --version: no reuse — inputs changed\n"
+	// expectation-changed: the reason now names the age of the entry it was compared with (review item 2)
+	want := "[run] git --version: no reuse — inputs changed since the last recorded run ("
 	if !strings.Contains(out, want) {
 		t.Errorf("merge stderr lacks %q:\n%s", want, out)
 	}
@@ -261,4 +271,74 @@ func dmissStderr(t *testing.T, root string, fn func()) string {
 	defer restore()
 	fn()
 	return buf.String()
+}
+
+// Entries made in the same second are ordered by when they were written, not by
+// map order: the latest write is the one a miss is compared with.
+func TestDeclaredMiss_TwoEntriesInOneSecondAreOrderedByWrite(t *testing.T) {
+	t.Parallel()
+	path, root := dmissStore(t), dreuseKeyRepo(t)
+	k := declaredKeying(root, dmissCmd)
+	first := declaredVerdictFrom(k, true, 5)
+	first.Parts.Locks = "other-locks"
+	second := declaredVerdictFrom(k, true, 5)
+	second.Parts.Tool = "other-tool"
+	for _, e := range []struct {
+		key string
+		v   declaredVerdict
+	}{{"z-key", first}, {"a-key", second}} {
+		e.v.At = dmissAt.Format(time.RFC3339)
+		recordDeclaredVerdictAt(path, e.key, e.v, declaredVerdictsMax)
+	}
+	// Map order is random: a pick that depended on it would fail within a few turns.
+	for range 40 {
+		dmissWant(t, path, root, dmissCmd, "tool changed since the last recorded run (1m ago)")
+	}
+}
+
+// Every part that moved is named.
+func TestDeclaredMiss_NamesEveryPartThatMoved(t *testing.T) {
+	t.Parallel()
+	path, root := dmissStore(t), dreuseKeyRepo(t)
+	dmissRecord(t, path, root, dmissCmd, true)
+	write(t, root, "web/x.ts", "export const x = 2\n")
+	write(t, root, "package-lock.json", "{}\n")
+	dmissWant(t, path, root, dmissCmd, "inputs and lockfile/manifest changed since the last recorded run (1m ago)")
+}
+
+func TestDeclaredMiss_AgeIsWrittenInTheLargestWholeUnit(t *testing.T) {
+	t.Parallel()
+	for secs, want := range map[int]string{5: "5s", 90: "1m", 3599: "59m", 7200: "2h", 172800: "2d"} {
+		if got := missAge(dmissAt, dmissAt.Add(time.Duration(secs)*time.Second)); got != want {
+			t.Errorf("%ds: age = %q, want %q", secs, got, want)
+		}
+	}
+}
+
+// A command that declares inputs and is judged against HEAD never reuses; the
+// merge gate says so rather than staying silent.
+func TestDeclaredMiss_ABaselineCommandSaysItNeverReuses(t *testing.T) {
+	t.Parallel()
+	const toml = "[aphrollo.precommit]\n\".\" = [{ argv = [\"git\", \"--version\"], inputs = [\"web/**\"], baseline = \"lines\" }]\n"
+	var laneRuns, mergeRuns int
+	root := dreuseLane(t, toml, dreuseRunner(&laneRuns, true, time.Second),
+		map[string]string{"docs/a.md": "# a, moved\n"})
+	out := dmissStderr(t, root, func() { Mechanical(root, dreuseRunner(&mergeRuns, true, time.Second)) })
+	want := "[run] git --version: no reuse — baseline commands never reuse\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("merge stderr lacks %q:\n%s", want, out)
+	}
+}
+
+// A tool that exists but cannot be read is not "not found": the reason carries
+// the real error.
+func TestDeclaredMiss_AToolThatCannotBeReadSaysSo(t *testing.T) {
+	t.Parallel()
+	root := dreuseKeyRepo(t)
+	write(t, root, "tools/x", "x\n")
+	c := declaredCommand{Argv: []string{"./tools"}, Inputs: []string{"web/**"}}
+	got := declaredMissReasonAt(dmissStore(t), root, c, dmissNow)
+	if !strings.HasPrefix(got, "the tool could not be read (./tools): ") || strings.Contains(got, "found") {
+		t.Errorf("reason = %q, want the tool could not be read with its error", got)
+	}
 }
