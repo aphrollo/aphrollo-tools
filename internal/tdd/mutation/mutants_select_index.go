@@ -55,6 +55,8 @@ type selIndex struct {
 	Doubt map[string]string `json:"doubt,omitempty"`
 	// PkgTests is how many tests each measured package has.
 	PkgTests map[string]int `json:"pkg_tests,omitempty"`
+	// Pkgs are the package directories whose test binaries were measured.
+	Pkgs []string `json:"pkgs,omitempty"`
 }
 
 // selBlockRe reads a profile block's position, `import/path/file.go:12.3,14.2`.
