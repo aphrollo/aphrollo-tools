@@ -7,6 +7,8 @@ import (
 	time "time"
 )
 
+const GCOnlyGoCache = gc.GCOnlyGoCache
+
 type GCScope = gc.GCScope
 
 type GoCacheSettings = gc.GoCacheSettings
@@ -19,7 +21,11 @@ func ApplyGCFor(p0 string, p1 []GCCandidate) (int64, []string, int) { return gc.
 
 func BackgroundGCArgs(p0 string) []string { return gc.BackgroundGCArgs(p0) }
 
+func FilterGCOnly(p0 []GCCandidate, p1 map[string]bool) []GCCandidate { return gc.FilterGCOnly(p0, p1) }
+
 func GCAfterWorktreeChange(p0 string, p1 string) int64 { return gc.GCAfterWorktreeChange(p0, p1) }
+
+func GCOnlyNames() []string { return gc.GCOnlyNames() }
 
 func GoCacheTrimDue() bool { return gc.GoCacheTrimDue() }
 
@@ -32,6 +38,8 @@ func MutantsCopiesInUse(p0 []string) []string { return gc.MutantsCopiesInUse(p0)
 func MutantsTempDirs() []string { return gc.MutantsTempDirs() }
 
 func ParseGCAge(p0 string) (time.Duration, error) { return gc.ParseGCAge(p0) }
+
+func ParseGCOnly(p0 string) (map[string]bool, error) { return gc.ParseGCOnly(p0) }
 
 func ReadGoCacheSettings(p0 string) (GoCacheSettings, error) { return gc.ReadGoCacheSettings(p0) }
 

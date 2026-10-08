@@ -89,3 +89,72 @@ func ParseGCAge(s string) (time.Duration, error) {
 	}
 	return d, nil
 }
+
+// GCOnlyGoCache is the --only name of the Go build cache trim, which is not a
+// candidate kind: it trims files inside go's own cache rather than removing
+// a directory.
+const GCOnlyGoCache = "gocache"
+
+// gcKindNames is the --only vocabulary, one row per candidate kind.
+var gcKindNames = []struct {
+	name string
+	kind GCKind
+}{
+	{"other", GCKindOther},
+	{"incremental", GCKindIncremental},
+	{"gate-dir", GCKindGateDir},
+	{"orphan-worktree", GCKindOrphanWorktree},
+	{"temp-litter", GCKindTempLitter},
+	{"mutants", GCKindMutants},
+	{"mutants-target", GCKindMutantsTarget},
+	{"mutants-temp", GCKindMutantsTemp},
+	{"deps-member", GCKindDepsMember},
+	{"deps-third-party", GCKindDepsThirdParty},
+	{"stray-target", GCKindStrayTarget},
+	{"gotmp", GCKindGoTmp},
+	{"gate-prmerge", GCKindGatePRMerge},
+}
+
+// GCOnlyNames lists every name --only accepts, in the order --help shows them.
+func GCOnlyNames() []string {
+	names := make([]string, 0, len(gcKindNames)+1)
+	for _, k := range gcKindNames {
+		names = append(names, k.name)
+	}
+	return append(names, GCOnlyGoCache)
+}
+
+// ParseGCOnly reads a comma-separated --only value into the set of names it
+// holds. A name outside GCOnlyNames is an error naming the valid ones.
+func ParseGCOnly(value string) (map[string]bool, error) {
+	valid := map[string]bool{}
+	for _, n := range GCOnlyNames() {
+		valid[n] = true
+	}
+	set := map[string]bool{}
+	for _, n := range strings.Split(value, ",") {
+		n = strings.TrimSpace(n)
+		if !valid[n] {
+			return nil, fmt.Errorf("--only: unknown kind %q (valid: %s)", n, strings.Join(GCOnlyNames(), ", "))
+		}
+		set[n] = true
+	}
+	return set, nil
+}
+
+// FilterGCOnly keeps the candidates whose kind the set names; a nil set keeps
+// them all. It is the one place --only narrows a sweep.
+func FilterGCOnly(cands []GCCandidate, only map[string]bool) []GCCandidate {
+	if only == nil {
+		return cands
+	}
+	var out []GCCandidate
+	for _, c := range cands {
+		for _, k := range gcKindNames {
+			if k.kind == c.Kind && only[k.name] {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
