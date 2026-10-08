@@ -124,7 +124,7 @@ func recordPhaseVerdict(j DeferredJob, out PhaseOutcome, key string) kernel.Verd
 			failing = tests[0]
 		}
 	}
-	runner := runnerFromArgv(j.Runner, j.Dir)
+	runner := runnerFromJob(j)
 	unit := runUnitOf(j)
 	// The pointer follows the verdict, not the store write: a green whose write
 	// failed still clears its unit's red, and a red whose write failed leaves

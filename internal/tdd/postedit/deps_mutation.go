@@ -8,9 +8,19 @@ import (
 
 const GCKindTempLitter = mutation.GCKindTempLitter
 
+type CoverQuery = mutation.CoverQuery
+
+type FuncDiff = mutation.FuncDiff
+
 type GCCandidate = mutation.GCCandidate
 
 type MutantsConfig = mutation.MutantsConfig
+
+func CoveringTests(p0 string, p1 string, p2 []string) CoverQuery {
+	return mutation.CoveringTests(p0, p1, p2)
+}
+
+func DiffFuncs(p0 []byte, p1 []byte, p2 bool) FuncDiff { return mutation.DiffFuncs(p0, p1, p2) }
 
 func ReadMutantsConfig(p0 string) (MutantsConfig, error) { return mutation.ReadMutantsConfig(p0) }
 

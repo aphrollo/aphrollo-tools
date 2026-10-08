@@ -150,7 +150,7 @@ func runPhaseHeld(j DeferredJob) heldRun {
 	}
 	defer log.Close()
 
-	r := runnerFromArgv(j.Runner, j.Dir)
+	r := runnerFromJob(j)
 	// The TARGET-DIR flock mirrors cargo's own build-directory lock (one
 	// build per target dir, ever) and only cargo has such a directory to
 	// protect: resolveTargetDir's cargo-shaped fallback would otherwise key

@@ -178,7 +178,7 @@ func staleVerdictLabel(j DeferredJob, out PhaseOutcome) string {
 	}
 	outcome := ClassifyOutcome(res.Passed, res.Output, nil)
 	if !outcome.IsRed() {
-		return greenLabel(outcome, res.Output, res.Duration)
+		return greenLabelFor(runnerFromJob(j), outcome, res.Output, res.Duration)
 	}
 	if first := firstFailingName(res.Output); first != "" {
 		return fmt.Sprintf("%s (first failure: %s)", outcome, first)

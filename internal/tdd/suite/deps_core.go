@@ -21,6 +21,8 @@ type Outcome = core.Outcome
 
 type Runner = core.Runner
 
+type Selection = core.Selection
+
 type gateEntry = core.GateEntry
 
 func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration) {

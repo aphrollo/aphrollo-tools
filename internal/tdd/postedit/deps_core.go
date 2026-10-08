@@ -38,6 +38,8 @@ type Outcome = core.Outcome
 
 type Runner = core.Runner
 
+type Selection = core.Selection
+
 type bashSnapshot = core.BashSnapshot
 
 type fingerprint = core.Fingerprint

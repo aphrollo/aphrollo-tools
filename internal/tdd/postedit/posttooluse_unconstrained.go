@@ -29,6 +29,9 @@ func unconstrainedLine(r Runner, root string, passed, cached int, dur time.Durat
 	if cached > 0 {
 		count = fmt.Sprintf("%d passed (%s)", passed, cachedPackagesNote(cached))
 	}
+	if note := r.Select.Note(); note != "" {
+		count += ", " + note
+	}
 	return withTargetsNotRun(fmt.Sprintf("gate: %s in %s %s (%s; no test changed with this edit — mutation proof owed)",
 		cmdString(r), root, GreenUnconstrained, count), r, root)
 }

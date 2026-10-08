@@ -246,6 +246,7 @@ deferred_run.go                                    postedit
 deferred_run_batched_test.go                       postedit
 deferred_run_test.go                               postedit
 deferred_seams_test.go                             postedit
+deferred_select.go                                  postedit
 deferred_selfspawn_test.go                          postedit
 deferred_session_test.go                           tdd       # prefix says postedit; its test body reaches tdd
 deferred_status.go                                 postedit
@@ -694,9 +695,13 @@ mutants_covbuild.go                                mutation
 mutants_covbuild_test.go                           mutation
 mutants_covdeps.go                                 mutation
 mutants_covdeps_test.go                            mutation
+mutants_covdiff_test.go                            mutation
 mutants_covershape.go                              mutation
 mutants_covershape_test.go                         mutation
 mutants_covplan_test.go                            mutation
+mutants_covquery.go                                mutation
+mutants_covquery_e2e_test.go                       mutation
+mutants_covquery_test.go                           mutation
 mutants_covscan.go                                 mutation
 mutants_covscan_review_test.go                     mutation
 mutants_covscan_test.go                            mutation
@@ -1241,6 +1246,10 @@ testquality.go                                     smell
 testquality_line_test.go                           postedit  # prefix says smell; its test body reaches postedit
 testquality_own_test.go                            smell
 testquality_test.go                                postedit  # prefix says smell; its test body reaches postedit
+testselect.go                                       suite
+testselect_edit.go                                  postedit
+testselect_edit_test.go                             postedit
+testselect_test.go                                  suite
 tilde.go                                           shell
 timeout_reject_test.go                             precommit
 tomlstrings.go                                     core

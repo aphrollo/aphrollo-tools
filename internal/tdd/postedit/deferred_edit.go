@@ -184,7 +184,7 @@ func firstEditPhase(runner Runner, root, target, headSHA, fileHash, session, edi
 		Project: root, Phase: "build", Dir: runnerDir(runner, root),
 		Runner: phaseArgv(runner, "build"), RunRunner: phaseArgv(runner, "run"),
 		HeadSHA: headSHA, FileHash: fileHash, File: target, Session: session, EditID: editID,
-		Touched: touched, Agent: HookAgent(),
+		Touched: touched, Agent: HookAgent(), Select: runner.Select,
 	}
 	if !splittable(runner) {
 		j.Phase, j.Runner, j.RunRunner = "run", j.RunRunner, nil
@@ -301,7 +301,7 @@ func editResultAdvisory(j DeferredJob, out PhaseOutcome, root string, state *ses
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
-	line, word := judgeEditResultWord(runnerFromArgv(j.Runner, j.Dir), j.File, j.EditID, res, root, state, statePath, headSHA)
+	line, word := judgeEditResultWord(runnerFromJob(j), j.File, j.EditID, res, root, state, statePath, headSHA)
 	queueShadowRun(j.Phase, out, kernelRes, root, j.Session, j.EditID, j.Runner, word)
 	note := lintGuidance(j, out.RunID)
 	if note != "" {
@@ -348,7 +348,7 @@ func judgeEditResultWord(runner Runner, file, editID string, res SuiteResult, ro
 		})
 		_ = state.Save(statePath)
 	}
-	logSuiteVerdict("postedit", root, cmdString(runner), string(outcome), res)
+	logSuiteVerdictWith("postedit", root, cmdString(runner), string(outcome), res, selectionDetail(runner))
 	recordEditVerdict(root, editID, cmdString(runner), outcome, res.Output)
 	if outcome.IsRed() {
 		return redSummary(runner, root, outcome, res.Output), string(outcome)

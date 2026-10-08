@@ -85,6 +85,8 @@ func dropLeadingEnvAssignmentWords(p0 []shellWord) []shellWord {
 	return suite.DropLeadingEnvAssignmentWords(p0)
 }
 
+func editSelectMode(p0 string) string { return suite.EditSelectMode(p0) }
+
 func effectiveRunRoot(p0 string, p1 string) string { return suite.EffectiveRunRoot(p0, p1) }
 
 func findRootFrom(p0 string) string { return suite.FindRootFrom(p0) }
@@ -107,8 +109,8 @@ func isEnvAssignment(p0 string) bool { return suite.IsEnvAssignment(p0) }
 
 func isGoTestInvocation(p0 string, p1 []string) bool { return suite.IsGoTestInvocation(p0, p1) }
 
-func logSuiteVerdict(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult) {
-	suite.LogSuiteVerdict(p0, p1, p2, p3, p4)
+func logSuiteVerdictWith(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult, p5 map[string]string) {
+	suite.LogSuiteVerdictWith(p0, p1, p2, p3, p4, p5)
 }
 
 func mechCacheAddUnmoved(p0 string, p1 string, p2 Runner) { suite.MechCacheAddUnmoved(p0, p1, p2) }
@@ -150,6 +152,10 @@ func unownedEdit(p0 Runner, p1 string, p2 string) string { return suite.UnownedE
 func verdictCoversRun(p0 gateEntry, p1 runScope) bool { return suite.VerdictCoversRun(p0, p1) }
 
 func wholeRunScope() runScope { return suite.WholeRunScope() }
+
+func withSelectedTests(p0 Runner, p1 []string, p2 int, p3 []string) Runner {
+	return suite.WithSelectedTests(p0, p1, p2, p3)
+}
 
 func withTestCache(p0 Runner, p1 string, p2 string) Runner { return suite.WithTestCache(p0, p1, p2) }
 

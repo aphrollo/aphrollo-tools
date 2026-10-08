@@ -62,6 +62,15 @@ func postEditWideningSteps(r Runner, target, root string) []Runner {
 // so it has no rung; neither does a reach that cannot be read, nor one that
 // adds no package.
 func goWideningSteps(r Runner, target, root string) []Runner {
+	if r.Select != nil && r.Select.Reason == "" && len(r.Args) > 1 {
+		// test-select named tests the build does not hold: the first rung is the
+		// package whole, and the ladder goes on from there. Keeping the -run
+		// filter on the wider rungs would select nothing again.
+		whole := r
+		whole.Args = []string{r.Args[0], r.Args[1]}
+		whole.Select = &Selection{Total: r.Select.Total, Reason: "the selected tests ran none"}
+		return append([]Runner{whole}, goWideningSteps(whole, target, root)...)
+	}
 	if goOwnTestRun(r, target) {
 		return nil
 	}

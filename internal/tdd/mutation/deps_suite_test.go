@@ -20,3 +20,7 @@ func SetGoTestReachForTest(p0 func(root string, dir string) ([]string, error)) f
 }
 
 func loadGoReachGraph(p0 string) (goReachGraph, error) { return suite.LoadGoReachGraph(p0) }
+
+func withSelectedTests(p0 Runner, p1 []string, p2 int, p3 []string) Runner {
+	return suite.WithSelectedTests(p0, p1, p2, p3)
+}

@@ -3,6 +3,7 @@ package suite
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -68,9 +69,21 @@ type suiteOutputRecord struct {
 // directly — post-edit (immediate and deferred), the commit gate's
 // mechanical stage, and every stage that blocks through verdictFor.
 func logSuiteVerdict(stage, root, cmd, verdict string, res SuiteResult) {
+	logSuiteVerdictWith(stage, root, cmd, verdict, res, nil)
+}
+
+// logSuiteVerdictWith is logSuiteVerdict with detail of its own on the event,
+// such as the tests an edit-time run selected and the package's total.
+func logSuiteVerdictWith(stage, root, cmd, verdict string, res SuiteResult, extra map[string]string) {
 	var detail map[string]string
 	if n := cachedGoPackages(res.Output); n > 0 {
 		detail = map[string]string{"cached_packages": strconv.Itoa(n)}
+	}
+	if len(extra) > 0 {
+		if detail == nil {
+			detail = map[string]string{}
+		}
+		maps.Copy(detail, extra)
 	}
 	AppendGateLogDetail(stage, root, cmd, verdict, res.Duration, detail)
 	retainSuiteOutput(stage, root, cmd, verdict, res)
