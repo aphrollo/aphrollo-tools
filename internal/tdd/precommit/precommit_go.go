@@ -3,6 +3,7 @@ package precommit
 import (
 	"fmt"
 	"go/format"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -371,7 +372,12 @@ func pinnedLinterVersion(repoRoot string) string {
 // goCheckStage runs one check and turns it into a verdict, via verdictFor
 // for the outcomes it owns.
 func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateResult {
-	res := runNoticed(gateName, stage, root, r, run)
+	return goCheckStageTo(stderrFor(root), gateName, stage, root, r, run)
+}
+
+// goCheckStageTo is goCheckStage with its lines going to w.
+func goCheckStageTo(w io.Writer, gateName, stage, root string, r Runner, run SuiteRunner) GateResult {
+	res := runNoticedTo(w, gateName, stage, root, r, run)
 	switch {
 	case res.TimedOut:
 		return verdictFor(gateName, stage, root, cmdString(r), stageOutcome{
@@ -380,7 +386,7 @@ func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateR
 			Message: unfinishedMessage(gateName, r, res, "retry once it finishes"),
 		})
 	case !res.Passed:
-		fmt.Fprintf(stderrFor(root), "gate %s: %s in %s → blocked\n", gateName, stage, root)
+		fmt.Fprintf(w, "gate %s: %s in %s → blocked\n", gateName, stage, root)
 		AppendGateLog(gateName, root, cmdString(r), stage+"-blocked", res.Duration)
 		var b strings.Builder
 		fmt.Fprintf(&b, "TDD quality: %s failed in %s — fix before committing.\n", stage, root)
@@ -393,7 +399,7 @@ func goCheckStage(gateName, stage, root string, r Runner, run SuiteRunner) GateR
 		b.WriteString(tailSnippet(res.Output))
 		return GateResult{Blocked: true, Message: b.String()}
 	default:
-		fmt.Fprintf(stderrFor(root), "gate %s: %s in %s → clean (%s, %s)\n", gateName, stage, root, cmdString(r), res.Duration.Round(100*time.Millisecond))
+		fmt.Fprintf(w, "gate %s: %s in %s → clean (%s, %s)\n", gateName, stage, root, cmdString(r), res.Duration.Round(100*time.Millisecond))
 		return GateResult{}
 	}
 }
