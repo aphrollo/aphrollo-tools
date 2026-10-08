@@ -1,7 +1,7 @@
 name: Nightly fuzz
 
 # Runs the native Go fuzz targets for real, past their seed corpus, on a
-# schedule rather than per-PR: 60 s each across the 8 targets is ~8 minutes,
+# schedule rather than per-PR: 60 s each across the 9 targets is ~9 minutes,
 # too slow for the PR pipeline's per-push budget but cheap once a night. A
 # crash opens an issue through `gate issue` with the reproducer attached —
 # the same mechanism the rest of the gate uses for an open point, so a fuzz
@@ -56,6 +56,7 @@ jobs:
           declare -A targets=(
             ["internal/ratchet"]="FuzzParseLaw FuzzBaseline"
             ["internal/tdd/escape"]="FuzzGateLogLine"
+            ["internal/mask"]="FuzzLexer_AgreesWithTheLexerItReplaced"
             ["internal/tdd/core"]="FuzzDocsOnlyClassifier"
             ["internal/tdd/shell"]="FuzzBashWriteTargets"
             ["internal/cli"]="FuzzGitShimArgv FuzzCargoShimArgv"
