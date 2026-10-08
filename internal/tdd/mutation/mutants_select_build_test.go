@@ -30,12 +30,42 @@ type selFake struct {
 	bins     map[string]string   // binary path -> package dir
 	running  atomic.Int32
 	peak     atomic.Int32
+	// now is the fake clock; a probe build and a whole run of a test binary advance
+	// it by buildCost and runCost, every command by step.
+	now                time.Time
+	buildCost, runCost time.Duration
+	step               time.Duration
+}
+
+func (f *selFake) clock() time.Time {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.now
+}
+
+func (f *selFake) advance(d time.Duration) {
+	f.mu.Lock()
+	f.now = f.now.Add(d)
+	f.mu.Unlock()
+}
+
+// probes is how many builds the cost decision made.
+func (f *selFake) probes() (n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, c := range f.calls {
+		if c[0] == "go" && c[1] == "test" && slices.Contains(c, "-overlay") {
+			n++
+		}
+	}
+	return n
 }
 
 func (f *selFake) exec(ctx context.Context, dir string, env []string, argv []string, log io.Writer) (int, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, slices.Clone(argv))
 	f.mu.Unlock()
+	f.advance(f.step)
 	switch {
 	case argv[0] == "go" && argv[1] == "list":
 		_, err := io.WriteString(log, f.listing)
@@ -45,6 +75,9 @@ func (f *selFake) exec(ctx context.Context, dir string, env []string, argv []str
 		if f.build[pkg] {
 			_, _ = io.WriteString(log, "p.go:1:1: syntax error")
 			return 1, nil
+		}
+		if slices.Contains(argv, "-overlay") {
+			f.advance(f.buildCost)
 		}
 		out := valueAfter(argv, "-o")
 		f.mu.Lock()
@@ -58,6 +91,10 @@ func (f *selFake) exec(ctx context.Context, dir string, env []string, argv []str
 	f.mu.Lock()
 	pkg := f.bins[argv[0]]
 	f.mu.Unlock()
+	if len(argv) == 1 {
+		f.advance(f.runCost)
+		return 0, nil
+	}
 	if slices.Contains(argv, "-test.list=.") {
 		if f.noList[pkg] {
 			return 1, nil
@@ -91,7 +128,7 @@ func (f *selFake) compiled() (pkgs []string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, c := range f.calls {
-		if c[0] == "go" && c[1] == "test" {
+		if c[0] == "go" && c[1] == "test" && !slices.Contains(c, "-overlay") {
 			pkgs = append(pkgs, strings.TrimPrefix(c[len(c)-1], "./"))
 		}
 	}
@@ -130,6 +167,13 @@ func selBuildRepo(t *testing.T, f *selFake) string {
 	gitDo(t, root, "add", "-A")
 	gitDo(t, root, "commit", "-qm", "the packages")
 	f.listing = selListing
+	if f.buildCost == 0 {
+		f.buildCost, f.runCost = time.Second, 10*time.Second
+	}
+	f.now = time.Unix(1000, 0)
+	prevNow := commitNowFn
+	t.Cleanup(func() { commitNowFn = prevNow })
+	commitNowFn = f.clock
 	if f.tests == nil {
 		f.tests = map[string][]string{"p": {"TestP1", "TestP2"}, "q": {"TestQ"}, "r": {"TestR"}, "s": {"TestS"}}
 	}
@@ -147,14 +191,17 @@ func selBuildRepo(t *testing.T, f *selFake) string {
 
 func selBuildAsk(t *testing.T, root string, set selTagSet, workers int) selBuild {
 	t.Helper()
-	return buildSelIndex(context.Background(), root, MutantsConfig{}, set, []string{"p"}, workers, nil, io.Discard)
+	return buildSelIndex(context.Background(), root, selIntegrationCfg, set, []string{"p"}, workers, nil, io.Discard)
 }
 
 var selUnit = selTagSet{Label: "unit"}
 
+// selIntegrationCfg declares p an integration package, so the packages that import it are measured too.
+var selIntegrationCfg = MutantsConfig{IntegrationPackages: []string{"p"}}
+
 func TestSelTestPackages_OnlyPackagesWhoseTestBinaryLinksTheMutatedOne(t *testing.T) {
 	infos := parseSelListing(selListing, "example.com/m")
-	tests, deps := selTestPackages(infos, "example.com/m", []string{"p"})
+	tests, deps := selTestPackages(infos, "example.com/m", []string{"p"}, []string{"p"})
 	if !slices.Equal(tests, []string{"p", "q", "r"}) {
 		t.Fatalf("test packages = %v, want p, q and r (s imports nothing of the module, t has no test)", tests)
 	}
@@ -194,7 +241,7 @@ func TestBuildSelIndex_CompilesEachTestPackageWithCoverpkgAndRunsEveryTestAlone(
 		t.Errorf("packages %d extra %d, want 3 and 2 (q and r beyond the mutated p)", b.Packages, b.Extra)
 	}
 	for _, c := range f.calls {
-		if c[0] == "go" && c[1] == "test" {
+		if c[0] == "go" && c[1] == "test" && !slices.Contains(c, "-overlay") {
 			if !slices.Contains(c, "-coverpkg=example.com/m/p") || !slices.Contains(c, "-covermode=set") || !slices.Contains(c, "-c") {
 				t.Errorf("compile argv %v lacks -c, -covermode=set or -coverpkg of the mutated package", c)
 			}
@@ -229,7 +276,7 @@ func TestBuildSelIndex_ATaggedSetCompilesWithTheTags(t *testing.T) {
 		t.Errorf("%d tests ran at once in the tagged set, want one at a time", f.peak.Load())
 	}
 	for _, c := range f.calls {
-		if c[0] == "go" && c[1] == "test" && !slices.Contains(c, "-tags=integration") {
+		if c[0] == "go" && c[1] == "test" && !slices.Contains(c, "-overlay") && !slices.Contains(c, "-tags=integration") {
 			t.Errorf("compile argv %v lacks -tags=integration", c)
 		}
 	}
@@ -277,7 +324,7 @@ func TestBuildSelIndex_AFreshEntryIsNeverRebuiltAndAnEditedTreeIs(t *testing.T) 
 		t.Fatalf("first hit %v, second hit %v, want a miss then a hit", first.Hit, second.Hit)
 	}
 	for _, c := range f.calls[n:] {
-		if c[0] == "go" && c[1] == "test" {
+		if c[0] == "go" && c[1] == "test" && !slices.Contains(c, "-overlay") {
 			t.Errorf("a fresh entry was rebuilt: %v", c)
 		}
 	}
@@ -314,14 +361,13 @@ func TestBuildSelIndex_ATestThatStartsTheBinaryAgainJoinsEverySelectionOfItsPack
 }
 
 func TestBuildSelIndex_SaysHowLongTheBuildTook(t *testing.T) {
-	f := &selFake{}
+	f := &selFake{step: 5 * time.Second}
 	root := selBuildRepo(t, f)
-	now := time.Unix(1000, 0)
-	prev := commitNowFn
-	t.Cleanup(func() { commitNowFn = prev })
-	commitNowFn = func() time.Time { now = now.Add(5 * time.Second); return now }
-	if b := selBuildAsk(t, root, selUnit, 2); b.Took != 5*time.Second {
-		t.Errorf("took %s, want 5s on a clock that steps 5s a reading", b.Took)
+	b := selBuildAsk(t, root, selUnit, 2)
+	// every command the build ran took 5s on the fake clock, and the probe and the whole run their own
+	want := time.Duration(len(f.calls))*5*time.Second + f.buildCost + f.runCost
+	if b.Took != want {
+		t.Errorf("took %s, want %s", b.Took, want)
 	}
 }
 
@@ -329,7 +375,7 @@ func TestBuildSelIndex_NamesTheTestsThatMakeAPackageRunWhole(t *testing.T) {
 	f := &selFake{exit: map[string]int{"q/TestQ": 1}}
 	root := selBuildRepo(t, f)
 	var log strings.Builder
-	b := buildSelIndex(context.Background(), root, MutantsConfig{}, selUnit, []string{"p"}, 2, nil, &log)
+	b := buildSelIndex(context.Background(), root, selIntegrationCfg, selUnit, []string{"p"}, 2, nil, &log)
 	if b.Idx == nil {
 		t.Fatal(b.Why)
 	}
@@ -364,5 +410,85 @@ func TestBuildSelIndex_AnIndexWithASelfStartingTestIsKept(t *testing.T) {
 	selBuildAsk(t, root, selUnit, 2)
 	if second := selBuildAsk(t, root, selUnit, 2); !second.Hit {
 		t.Error("an index whose only doubt is of the source was measured again")
+	}
+}
+
+func TestSelTestPackages_AnImporterIsMeasuredOnlyForADeclaredPackage(t *testing.T) {
+	infos := parseSelListing(selListing, "example.com/m")
+	tests, deps := selTestPackages(infos, "example.com/m", []string{"p"}, nil)
+	if !slices.Equal(tests, []string{"p"}) {
+		t.Errorf("test packages = %v, want only p: nothing was declared in mutants-integration-packages", tests)
+	}
+	if slices.Contains(deps, "q") || slices.Contains(deps, "r") {
+		t.Errorf("deps %v name an importer nobody asked for", deps)
+	}
+}
+
+func TestBuildSelIndex_NoImporterIsCompiledUnlessThePackageIsDeclared(t *testing.T) {
+	f := &selFake{}
+	root := selBuildRepo(t, f)
+	b := buildSelIndex(context.Background(), root, MutantsConfig{}, selUnit, []string{"p"}, 2, nil, io.Discard)
+	if b.Idx == nil || b.Extra != 0 || !slices.Equal(f.compiled(), []string{"p"}) {
+		t.Errorf("build = %+v, compiled %v, want p alone and no package beyond it", b, f.compiled())
+	}
+}
+
+func TestBuildSelIndex_ASuiteThatRunsFasterThanOneBuildIsRunWholeAndGetsNoCoverage(t *testing.T) {
+	f := &selFake{buildCost: 4 * time.Second, runCost: 2 * time.Second}
+	root := selBuildRepo(t, f)
+	var log strings.Builder
+	b := buildSelIndex(context.Background(), root, selIntegrationCfg, selUnit, []string{"p"}, 2, nil, &log)
+	if !b.Cheap["p"] || b.Idx != nil {
+		t.Fatalf("build = %+v, want p cheap and no index", b)
+	}
+	if got := f.compiled(); len(got) != 0 {
+		t.Errorf("coverage was compiled for %v though its tests run faster than a build", got)
+	}
+	want := "mutants: p (unit): the tests run in 2s and a build takes 4s, so each mutant runs the whole suite and no per-test coverage is built"
+	if !strings.Contains(log.String(), want) {
+		t.Errorf("the log lacks %q:\n%s", want, log.String())
+	}
+}
+
+func TestBuildSelIndex_ASuiteThatDominatesItsBuildIsSelectedAndSaysSo(t *testing.T) {
+	f := &selFake{buildCost: 4 * time.Second, runCost: 40 * time.Second}
+	root := selBuildRepo(t, f)
+	var log strings.Builder
+	b := buildSelIndex(context.Background(), root, selIntegrationCfg, selUnit, []string{"p"}, 2, nil, &log)
+	if b.Cheap["p"] || b.Idx == nil {
+		t.Fatalf("build = %+v, want a selection for p", b)
+	}
+	want := "mutants: p (unit): the tests run in 40s and a build takes 4s, so each mutant runs the tests that execute its position"
+	if !strings.Contains(log.String(), want) {
+		t.Errorf("the log lacks %q:\n%s", want, log.String())
+	}
+}
+
+func TestBuildSelIndex_TheCostDecisionIsKeptByContentAndNotMeasuredAgain(t *testing.T) {
+	f := &selFake{buildCost: 4 * time.Second, runCost: 2 * time.Second}
+	root := selBuildRepo(t, f)
+	selBuildAsk(t, root, selUnit, 2)
+	if f.probes() != 1 {
+		t.Fatalf("%d probes, want 1", f.probes())
+	}
+	if b := selBuildAsk(t, root, selUnit, 2); !b.Cheap["p"] || f.probes() != 1 {
+		t.Errorf("second build cheap %v after %d probes, want the kept decision and still 1", b.Cheap["p"], f.probes())
+	}
+	mustWrite(t, filepath.Join(root, "p", "p.go"), "package p\n\nfunc F1() int {\n\treturn 3\n}\n")
+	selBuildAsk(t, root, selUnit, 2)
+	if f.probes() != 2 {
+		t.Errorf("%d probes after an edit, want the decision measured again", f.probes())
+	}
+}
+
+func TestBuildSelIndex_SaysWhatEachPackagesCoverageCostInBuildsAndInTestRuns(t *testing.T) {
+	f := &selFake{step: 2 * time.Second}
+	root := selBuildRepo(t, f)
+	var log strings.Builder
+	buildSelIndex(context.Background(), root, selIntegrationCfg, selUnit, []string{"p"}, 1, nil, &log)
+	// one command compiles, one lists, and each of the two tests runs alone: 2s each
+	want := "mutants: coverage of p (unit): compiled in 2s, 2 test(s) run alone in 6s"
+	if !strings.Contains(log.String(), want) {
+		t.Errorf("the log lacks %q:\n%s", want, log.String())
 	}
 }

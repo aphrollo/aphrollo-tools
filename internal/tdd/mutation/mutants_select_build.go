@@ -48,8 +48,11 @@ type selBuild struct {
 	// them are not themselves under mutation.
 	Packages, Extra int
 	// Hit says the index was read from the store and nothing was built.
-	Hit  bool
-	Took time.Duration
+	// Cheap names the targets whose suite runs faster than one build of them: they
+	// have no coverage here and run whole.
+	Cheap map[string]bool
+	Hit   bool
+	Took  time.Duration
 }
 
 // selPkgInfo is one module package of the listing.
@@ -103,13 +106,18 @@ func selImportPath(module, dir string) string {
 	return module + "/" + dir
 }
 
-// selTestPackages is the directories of the packages whose test binary links
-// one of the targets (the target itself if it has tests), sorted, and every
-// module directory those binaries are built from, which is what the index is
-// keyed by.
-func selTestPackages(infos map[string]selPkgInfo, module string, targets []string) (tests, deps []string) {
-	want := map[string]bool{}
+// selTestPackages is the directories of the packages to measure, sorted: each
+// target that has tests, and the packages whose test binary links a target that
+// is declared in withImporters (mutants-integration-packages), which is the only
+// place a test of another package is credited. It also answers every module
+// directory those binaries are built from, which is what the index is keyed by.
+func selTestPackages(infos map[string]selPkgInfo, module string, targets, withImporters []string) (tests, deps []string) {
+	self := map[string]bool{}
 	for _, dir := range targets {
+		self[selImportPath(module, dir)] = true
+	}
+	want := map[string]bool{}
+	for _, dir := range withImporters {
 		want[selImportPath(module, dir)] = true
 	}
 	depSet := map[string]bool{}
@@ -132,7 +140,7 @@ func selTestPackages(infos map[string]selPkgInfo, module string, targets []strin
 		for _, imp := range info.TestImports {
 			visit(imp)
 		}
-		linked := false
+		linked := self[info.Path]
 		for path := range want {
 			linked = linked || seen[path]
 		}
@@ -157,10 +165,30 @@ func selTestPackages(infos map[string]selPkgInfo, module string, targets []strin
 // selWhyCut is the reason of an index the deadline ended before it was done.
 const selWhyCut = "cut-off"
 
-// buildSelIndex answers the index of one tag set for the packages under
-// mutation: the kept one if its content key still holds, else one built now.
-// box is the disposable copy the build runs in, shared with the mutant runs;
-// nil makes the build its own.
+// selRunToBuild is the factor of one rebuild of a package's test binary under
+// which its whole suite is too cheap to select among: a mutant costs one
+// rebuild whatever tests it runs, so a suite that runs faster than that saves
+// less than the coverage that would pick its tests costs. A variable so a test
+// can ask for a selection on a fixture that runs in no time.
+var selRunToBuild = 1.0
+
+// declaredImporters are the targets the repo lists in
+// mutants-integration-packages: the only ones whose importers' tests are run.
+func declaredImporters(cfg MutantsConfig, targets []string) []string {
+	var out []string
+	for _, dir := range targets {
+		if isIntegrationPackage(cfg, dir) {
+			out = append(out, dir)
+		}
+	}
+	return out
+}
+
+// buildSelIndex answers, for one tag set and the packages under mutation, which
+// of them are too cheap to select among (Cheap) and the index of the rest: the
+// kept one if its content key still holds, else one built now. box is the
+// disposable copy the build runs in, shared with the mutant runs; nil makes the
+// build its own.
 func buildSelIndex(ctx context.Context, root string, cfg MutantsConfig, set selTagSet, targets []string, workers int, box *commitBox, log io.Writer) (b selBuild) {
 	start := commitNowFn()
 	defer func() { b.Took = commitNowFn().Sub(start) }()
@@ -181,8 +209,36 @@ func buildSelIndex(ctx context.Context, root string, cfg MutantsConfig, set selT
 		b.Why = selWhyBuild
 		return b
 	}
-	tests, deps := selTestPackages(parseSelListing(listing.String(), module), module, targets)
-	key, err := selKey(ctx, root, cfg, set.Tags, targets, deps)
+	infos := parseSelListing(listing.String(), module)
+	tests, deps := selTestPackages(infos, module, targets, declaredImporters(cfg, targets))
+	cheap, err := decideSelCost(ctx, root, cfg, set, targets, tests, deps, box, env, log)
+	if ctx.Err() != nil {
+		b.Why = selWhyCut
+		return b
+	}
+	if err != nil {
+		logf(log, "mutants: the cost of the %s tests could not be measured: %v", set.Label, err)
+		b.Why = selWhyBuild
+		return b
+	}
+	var picked []string
+	for _, dir := range targets {
+		if cheap[dir] {
+			if b.Cheap == nil {
+				b.Cheap = map[string]bool{}
+			}
+			b.Cheap[dir] = true
+		} else {
+			picked = append(picked, dir)
+		}
+	}
+	if len(picked) == 0 {
+		return b
+	}
+	if len(picked) != len(targets) {
+		tests, deps = selTestPackages(infos, module, picked, declaredImporters(cfg, picked))
+	}
+	key, err := selKey(ctx, root, cfg, set.Tags, picked, deps)
 	if err != nil {
 		logf(log, "mutants: the coverage key of %s could not be made: %v", set.Label, err)
 		b.Why = selWhyBuild
@@ -190,10 +246,10 @@ func buildSelIndex(ctx context.Context, root string, cfg MutantsConfig, set selT
 	}
 	if idx := loadSelIndex(root, key); idx != nil {
 		b.Idx, b.Hit = idx, true
-		b.Packages, b.Extra = len(idx.Pkgs), selExtra(idx.Pkgs, targets)
+		b.Packages, b.Extra = len(idx.Pkgs), selExtra(idx.Pkgs, picked)
 		return b
 	}
-	idx, why := measureSelIndex(ctx, root, cfg, set, targets, tests, workers, box, env, log)
+	idx, why := measureSelIndex(ctx, root, cfg, set, picked, tests, workers, box, env, log)
 	if idx == nil {
 		b.Why = why
 		return b
@@ -207,8 +263,121 @@ func buildSelIndex(ctx context.Context, root string, cfg MutantsConfig, set selT
 	} else if err := idx.save(root); err != nil {
 		logf(log, "mutants: the coverage of %s is not kept for the next run: %v", set.Label, err)
 	}
-	b.Idx, b.Packages, b.Extra = idx, len(idx.Pkgs), selExtra(idx.Pkgs, targets)
+	b.Idx, b.Packages, b.Extra = idx, len(idx.Pkgs), selExtra(idx.Pkgs, picked)
 	return b
+}
+
+// decideSelCost says, per target with tests, whether its whole suite runs
+// faster than one rebuild of its test binary (see selRunToBuild). The rebuild
+// is timed as a mutant forces it, with one of the package's files replaced
+// through -overlay, and the suite by running that binary once; both are kept by
+// content so the next run does not measure again. A package that cannot be
+// measured is not called cheap.
+func decideSelCost(ctx context.Context, root string, cfg MutantsConfig, set selTagSet, targets, tests, deps []string,
+	shared *commitBox, env []string, log io.Writer) (map[string]bool, error) {
+	cheap := map[string]bool{}
+	var work, boxRoot string
+	release := func() {}
+	defer func() {
+		release()
+		if work != "" {
+			_ = os.RemoveAll(work)
+		}
+	}()
+	for _, dir := range targets {
+		if !slices.Contains(tests, dir) {
+			continue
+		}
+		key, err := selKey(ctx, root, cfg, set.Tags, []string{dir}, deps)
+		if err != nil {
+			return nil, err
+		}
+		cost := loadSelCost(root, key)
+		if cost == nil {
+			if boxRoot == "" {
+				area := measureTempDir(root)
+				if err := os.MkdirAll(area, 0o755); err != nil {
+					return nil, err
+				}
+				if work, err = os.MkdirTemp(area, "cost-"); err != nil {
+					return nil, err
+				}
+				if boxRoot, release, err = coverageBox(root, strings.Join(targets, ", "), shared, log); err != nil {
+					return nil, err
+				}
+			}
+			measured, ok := probeSelCost(ctx, boxRoot, work, set, dir, env)
+			if ctx.Err() != nil {
+				return nil, nil
+			}
+			if !ok {
+				continue
+			}
+			cost = &selCost{Schema: selSchema, Key: key, Build: int64(measured[0]), Run: int64(measured[1])}
+			cost.Cheap = float64(cost.Run) < selRunToBuild*float64(cost.Build)
+			if err := cost.save(root); err != nil {
+				logf(log, "mutants: the cost of %s is not kept for the next run: %v", dir, err)
+			}
+		}
+		cheap[dir] = cost.Cheap
+		verdict := "each mutant runs the tests that execute its position"
+		if cost.Cheap {
+			verdict = "each mutant runs the whole suite and no per-test coverage is built"
+		}
+		logf(log, "mutants: %s (%s): the tests run in %s and a build takes %s, so %s", dir, set.Label,
+			time.Duration(cost.Run).Round(100*time.Millisecond), time.Duration(cost.Build).Round(100*time.Millisecond), verdict)
+	}
+	return cheap, nil
+}
+
+// probeSelCost times one rebuild of dir's test binary with a file of it replaced
+// (a mutant forces that: the package and what links it are built again) and one
+// run of the whole suite. ok is false when either could not be had.
+func probeSelCost(ctx context.Context, boxRoot, work string, set selTagSet, dir string, env []string) (measured [2]time.Duration, ok bool) {
+	absDir := filepath.Join(boxRoot, filepath.FromSlash(dir))
+	entries, err := os.ReadDir(absDir)
+	if err != nil {
+		return measured, false
+	}
+	var src string
+	for _, e := range entries {
+		if n := e.Name(); !e.IsDir() && strings.HasSuffix(n, ".go") && !strings.HasSuffix(n, "_test.go") {
+			src = filepath.Join(absDir, n)
+			break
+		}
+	}
+	if src == "" {
+		return measured, false
+	}
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return measured, false
+	}
+	overlay, err := writeOverlay(work, src, append(data, []byte("\n// probe\n")...))
+	if err != nil {
+		return measured, false
+	}
+	binary := filepath.Join(work, "probe.test")
+	if mutantsGOOSFn() == "windows" {
+		binary += ".exe"
+	}
+	var out bytes.Buffer
+	began := commitNowFn()
+	code, err := testMapExecFn(ctx, boxRoot, env, slices.Concat([]string{"go", "test", "-c"}, tagsFlag(set.Tags),
+		[]string{"-vet=off", "-overlay", overlay, "-o", binary, packagePattern(dir)}), &out)
+	measured[0] = commitNowFn().Sub(began)
+	if err != nil || code != 0 {
+		return measured, false
+	}
+	runCtx, cancel := context.WithTimeout(ctx, perTestTimeout)
+	defer cancel()
+	began = commitNowFn()
+	_, _ = testMapExecFn(runCtx, absDir, env, []string{binary}, io.Discard)
+	measured[1] = commitNowFn().Sub(began)
+	if runCtx.Err() != nil {
+		measured[1] = perTestTimeout
+	}
+	return measured, true
 }
 
 // selExtra is how many of the measured packages are not under mutation.
@@ -291,6 +460,7 @@ func measureSelPackage(ctx context.Context, root, boxRoot, work, id string, set 
 		binary += ".exe"
 	}
 	var out bytes.Buffer
+	compileBegan := commitNowFn()
 	code, err := testMapExecFn(ctx, boxRoot, env, slices.Concat([]string{"go", "test", "-c"}, tagsFlag(set.Tags),
 		[]string{"-vet=off", "-covermode=set", "-coverpkg=" + strings.Join(coverpkg, ","), "-o", binary, packagePattern(dir)}), &out)
 	if ctx.Err() != nil {
@@ -303,6 +473,8 @@ func measureSelPackage(ctx context.Context, root, boxRoot, work, id string, set 
 	if _, err := os.Stat(binary); err != nil {
 		return res, selWhyBuild
 	}
+	execBegan := commitNowFn()
+	compiledIn := execBegan.Sub(compileBegan)
 	scan, scanErr := scanPackage(filepath.Join(root, filepath.FromSlash(dir)), set.Tags)
 	absDir := filepath.Join(boxRoot, filepath.FromSlash(dir))
 	ctx = withCapShare(ctx, workers)
@@ -360,6 +532,8 @@ feed:
 		slices.Sort(unsure)
 		logf(log, "mutants: %d test(s) of %s (%s) failed alone or wrote no profile, so the package runs whole (e.g. %s)", len(unsure), dir, set.Label, strings.Join(unsure[:min(len(unsure), 3)], ", "))
 	}
+	logf(log, "mutants: coverage of %s (%s): compiled in %s, %d test(s) run alone in %s", dir, set.Label,
+		compiledIn.Round(100*time.Millisecond), len(res.names), commitNowFn().Sub(execBegan).Round(100*time.Millisecond))
 	if scanErr != nil {
 		doubt(selWhyBuild)
 	} else {

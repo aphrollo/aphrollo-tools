@@ -161,3 +161,65 @@ func (x *selIndex) stale(root, file string) string {
 	}
 	return ""
 }
+
+// selCost is what one package's tests and one build of them were measured to
+// cost, kept by the same content key as coverage: the decision to select is
+// made once for the content, not on every run.
+type selCost struct {
+	Schema int    `json:"schema"`
+	Key    string `json:"key"`
+	// Build and Run are nanoseconds: one rebuild of the package's test binary
+	// as a mutant forces it, and one run of the whole suite.
+	Build int64 `json:"build"`
+	Run   int64 `json:"run"`
+	Cheap bool  `json:"cheap"`
+}
+
+// selCostPath is the file the cost of one key is kept in.
+func selCostPath(root, key string) string {
+	base := CoverCacheDir(root)
+	if base == "" {
+		return ""
+	}
+	return filepath.Join(base, "select-cost-v"+fmt.Sprint(selSchema)+"-"+key[:min(len(key), 16)]+".json")
+}
+
+// loadSelCost is the kept cost of a key, nil when there is none.
+func loadSelCost(root, key string) *selCost {
+	path := selCostPath(root, key)
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		// absence-ok: no kept cost is the cold case, which measures it
+		return nil
+	}
+	var c selCost
+	if json.Unmarshal(data, &c) != nil || c.Schema != selSchema || c.Key != key {
+		return nil
+	}
+	now := time.Now()
+	_ = os.Chtimes(path, now, now)
+	return &c
+}
+
+// save keeps the cost, then trims the directory to its bounds.
+func (c *selCost) save(root string) error {
+	path := selCostPath(root, c.Key)
+	if path == "" {
+		return errors.New("no git directory to keep the cost in")
+	}
+	data, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	trimCoverCache(filepath.Dir(path), coverCacheMaxEntries, coverCacheMaxBytes)
+	return nil
+}

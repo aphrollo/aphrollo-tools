@@ -20,6 +20,9 @@ const (
 	selWhyNoProfile = "no-profile"
 	selWhyStale     = "stale-shape"
 	selWhyUnlisted  = "unlisted-line"
+	// selWhyCheap: every set measured that the package's tests run faster than a
+	// build, so selecting among them saves less than it costs.
+	selWhyCheap = "cheap-suite"
 )
 
 // selSet is one tag set as the plan reads it: its index, or why it has none.
@@ -29,6 +32,9 @@ type selSet struct {
 	Idx   *selIndex
 	// Why is the reason Idx is nil.
 	Why string
+	// Cheap names the packages whose tests run faster than one build of them:
+	// they have no coverage in this set and run whole.
+	Cheap map[string]bool
 }
 
 // selRun is the tests of one package a stage runs: the named ones, or the
@@ -67,8 +73,15 @@ func planSelection(sets []selSet, root, file string, line, col int) selPlan {
 		whole []string
 	}
 	var all []found
-	anyListed := false
+	anyListed, measured := false, 0
 	for _, s := range sets {
+		if s.Cheap[pkg] {
+			// Its tests run faster than a build: no coverage was made for the
+			// package, and the mutant runs the whole suite in this set.
+			all = append(all, found{set: s, whole: []string{pkg}})
+			continue
+		}
+		measured++
 		if s.Idx == nil {
 			return selPlan{Full: s.Why}
 		}
@@ -89,6 +102,9 @@ func planSelection(sets []selSet, root, file string, line, col int) selPlan {
 		slices.Sort(f.whole)
 		all = append(all, f)
 	}
+	if measured == 0 {
+		return selPlan{Full: selWhyCheap}
+	}
 	if !anyListed {
 		return selPlan{Full: selWhyUnlisted}
 	}
@@ -98,7 +114,11 @@ func planSelection(sets []selSet, root, file string, line, col int) selPlan {
 		stage := selStage{Label: f.set.Label, Tags: f.set.Tags}
 		byPkg := map[string][]string{}
 		tests := slices.Clone(f.tests)
-		for dir, names := range f.set.Idx.Always {
+		var always map[string][]string
+		if f.set.Idx != nil {
+			always = f.set.Idx.Always
+		}
+		for dir, names := range always {
 			for _, name := range names {
 				tests = append(tests, selTest{Pkg: dir, Name: name})
 			}

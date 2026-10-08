@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -104,14 +103,14 @@ func newSelRunner(ctx context.Context, root string, cfg MutantsConfig, targets [
 	r := &selRunner{root: root, cfg: cfg, known: &killChecks{}, log: log, env: measureEnv(root, cfg), open: box.open, close: box.close}
 	for _, set := range selTagSets(cfg) {
 		b := buildSelIndex(ctx, root, cfg, set, targets, workers, box, log)
-		r.sets = append(r.sets, selSet{Label: set.Label, Tags: set.Tags, Idx: b.Idx, Why: b.Why})
+		r.sets = append(r.sets, selSet{Label: set.Label, Tags: set.Tags, Idx: b.Idx, Why: b.Why, Cheap: b.Cheap})
 		r.stats.Build += b.Took
 		r.stats.Packages = max(r.stats.Packages, b.Packages)
 		r.stats.Extra = max(r.stats.Extra, b.Extra)
 		if b.Hit {
 			r.stats.Kept++
 		}
-		if b.Idx == nil {
+		if b.Idx == nil && len(b.Cheap) == 0 {
 			logf(log, "mutants: no per-test coverage for the %s tests (%s): their mutants run the package's full suite", set.Label, b.Why)
 		}
 	}
@@ -301,7 +300,10 @@ func selRunName(run selRun) string {
 
 // selSettleWorkers is how many tests of the unit set run at once while the
 // coverage of a settle run is built.
-func selSettleWorkers() int { return max(1, min(4, runtime.NumCPU())) }
+func selSettleWorkers() int {
+	jobs, _ := mutantsJobsForThisBoxFn(mutantsGoJobGB)
+	return max(1, jobs)
+}
 
 // newSettleSelection builds the per-test coverage the settle of the mutants at
 // idx is judged on, for the packages they sit in, within the run's settle cap.

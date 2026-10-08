@@ -64,7 +64,7 @@ var features = []Feature{
 	},
 	{
 		Key: "mutants-integration-packages", Default: "none",
-		Effect: "package directories whose mutants stay settled against the tests of the packages that import them; every other package's mutant its own tests miss is refused at once",
+		Effect: "package directories whose mutants stay settled against the tests of the packages that import them; every other package's mutant its own tests miss is refused at once; a package whose tests take longer to run than one build of them runs only the tests that execute a mutant's line, importers' included",
 		Cost:   "each listed package's missed mutants run the importers' suites, nearest first, within a total time cap",
 		Enable: "mutants-integration-packages = [\"<package dir>\"]",
 	},

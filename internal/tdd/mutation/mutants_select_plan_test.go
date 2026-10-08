@@ -178,3 +178,27 @@ func TestPlanSelection_ATestWhoseChildCoverageIsInNoProfileJoinsEverySelectionOf
 		t.Errorf("an uncovered line = %+v, want q's self-starting test run all the same", uncovered)
 	}
 }
+
+func TestPlanSelection_APackageWhoseSuiteIsCheapRunsWholeInItsSetAndTheOtherSetStillSelects(t *testing.T) {
+	root := selPlanTree(t)
+	unit := selSet{Label: "unit", Cheap: map[string]bool{"p": true}}
+	tagged := selPlanSet(t, root, "tags", []string{"integration"}, selTest{"p", "TestInteg"})
+	plan := planSelection([]selSet{unit, tagged}, root, "p/p.go", 4, 7)
+	if plan.Full != "" || len(plan.Stages) != 2 {
+		t.Fatalf("plan = %+v, want two stages", plan)
+	}
+	if first := plan.Stages[0]; first.Label != "unit" || len(first.Runs) != 1 || first.Runs[0].Pkg != "p" || !first.Runs[0].Whole {
+		t.Errorf("first stage = %+v, want p whole", first)
+	}
+	if got := selRunsOf(plan.Stages[1]); !slices.Equal(got["p"], []string{"TestInteg"}) {
+		t.Errorf("second stage runs %v, want p:[TestInteg]", got)
+	}
+}
+
+func TestPlanSelection_WhenEverySetIsCheapTheMutantRunsTheFullSuiteAsItAlwaysDid(t *testing.T) {
+	root := selPlanTree(t)
+	sets := []selSet{{Label: "unit", Cheap: map[string]bool{"p": true}}, {Label: "tags", Tags: []string{"x"}, Cheap: map[string]bool{"p": true}}}
+	if plan := planSelection(sets, root, "p/p.go", 4, 7); plan.Full != selWhyCheap || len(plan.Stages) != 0 {
+		t.Errorf("plan = %+v, want the full suite for %s", plan, selWhyCheap)
+	}
+}

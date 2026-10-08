@@ -59,6 +59,10 @@ func selE2ERepo(t *testing.T) string {
 	prevExec, prevEnv := testMapExecFn, goEnvFn
 	t.Cleanup(func() { testMapExecFn, goEnvFn = prevExec, prevEnv })
 	testMapExecFn, goEnvFn = runMutantsTool, listGoEnv
+	// The fixture package runs faster than it builds; the test is of the selection.
+	prevRatio := selRunToBuild
+	t.Cleanup(func() { selRunToBuild = prevRatio })
+	selRunToBuild = 0
 	return root
 }
 
@@ -72,7 +76,7 @@ func selE2ENames(stage selStage) map[string][]string {
 
 func TestSelectE2E_AMutantInF1RunsExactlyItsTestAndTheOneInQThatReachesIt(t *testing.T) {
 	root := selE2ERepo(t)
-	r := newSelRunner(context.Background(), root, MutantsConfig{}, []string{"p"}, 2, io.Discard)
+	r := newSelRunner(context.Background(), root, selIntegrationCfg, []string{"p"}, 2, io.Discard)
 	defer r.close()
 	if r.stats.Packages != 2 || r.stats.Extra != 1 {
 		t.Errorf("coverage of %d packages, %d beyond the mutated one, want 2 and 1 (q imports p)", r.stats.Packages, r.stats.Extra)
@@ -127,12 +131,12 @@ func TestSelectE2E_AMutantInF1RunsExactlyItsTestAndTheOneInQThatReachesIt(t *tes
 
 func TestSelectE2E_AStoredIndexIsReadNotRebuiltAndAStaleOneFallsBackToTheFullSuite(t *testing.T) {
 	root := selE2ERepo(t)
-	first := newSelRunner(context.Background(), root, MutantsConfig{}, []string{"p"}, 2, io.Discard)
+	first := newSelRunner(context.Background(), root, selIntegrationCfg, []string{"p"}, 2, io.Discard)
 	first.close()
 	if first.stats.Kept != 0 {
 		t.Fatalf("a cold run read %d kept sets", first.stats.Kept)
 	}
-	second := newSelRunner(context.Background(), root, MutantsConfig{}, []string{"p"}, 2, io.Discard)
+	second := newSelRunner(context.Background(), root, selIntegrationCfg, []string{"p"}, 2, io.Discard)
 	defer second.close()
 	if second.stats.Kept != 1 {
 		t.Fatalf("the second run read %d kept sets, want 1: a fresh entry is not rebuilt", second.stats.Kept)
@@ -162,7 +166,7 @@ func TestSettle_UsesTheSelectionForAMutantItsIndexCoversAndSaysSoInTheSummary(t 
 	root := selE2ERepo(t)
 	var log strings.Builder
 	in := []MutantOutcome{selSettleOutcome(selE2EF1Line, gremlinsScopeUnknown), selSettleOutcome(selE2EF3Line, gremlinsNotCovered)}
-	out := resolveGapMutants(context.Background(), root, MutantsConfig{}, goReachOnce(root), in, []int{0, 1}, &log)
+	out := resolveGapMutants(context.Background(), root, selIntegrationCfg, goReachOnce(root), in, []int{0, 1}, &log)
 	if out[0].Status != "caught" || !strings.Contains(out[0].Note, "TestF1") {
 		t.Errorf("the F1 mutant = %+v, want caught by the selected tests, named", out[0])
 	}
