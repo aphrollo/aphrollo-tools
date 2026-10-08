@@ -42,10 +42,13 @@ func recordFirstRunCI(wt, branch string, pr int) {
 	sort.SliceStable(runs, func(i, j int) bool { return runs[i].CreatedAt < runs[j].CreatedAt })
 	first := runs[0].SHA
 	red, open, failedRun := false, false, int64(0)
+	finished, rerun := "", false
 	for _, r := range runs {
 		if r.SHA != first {
 			continue
 		}
+		finished = max(finished, r.UpdatedAt)
+		rerun = rerun || r.Attempt > 1
 		// The listing shows a run's latest attempt: a failure fixed by a rerun reads
 		// green there, and "first run" means the first attempt.
 		if r.Attempt > 1 {
@@ -70,6 +73,9 @@ func recordFirstRunCI(wt, branch string, pr int) {
 	}
 	state := "green"
 	detail := map[string]string{"sha": first, "ci": tdd.CIGithub, "pr": fmt.Sprint(pr)}
+	if secs := ciSecs(runs[0].CreatedAt, finished); secs != "" && !open && !rerun {
+		detail["secs"] = secs
+	}
 	if red {
 		state = "red"
 		names, err := ghRunFailedJobs(wt, failedRun, 1)

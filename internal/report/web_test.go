@@ -38,6 +38,7 @@ func webFixture() Report {
 			Briefs:  []measure.BriefLine{{Name: "managed CLAUDE.md block", Bytes: 1463, Tokens: 366, Cap: 400}, {Name: "tdd skill", Bytes: 1700, Tokens: 425, Cap: 400, Over: true}},
 			Biggest: []GateLine{{Name: "commit_gate:precommit:mutants-passed", N: 96, Tokens: 900, Refs: refs}},
 		},
+		Speed:     webSpeed(),
 		Proposals: []Proposal{{Rule: "disabled-test", Numbers: "5 denies, 3 waived", Change: "lower the rule from block to guide", Refs: refs}},
 		Usage: &Usage{
 			Repo: "aphrollo-tools", Sessions: 3,
@@ -294,5 +295,86 @@ func TestRenderHTML_AnInjectedTextIsDrawnAgainstItsOwnCap(t *testing.T) {
 		if !strings.Contains(briefs, want) {
 			t.Errorf("the brief chart lacks %q: a bar is its text's share of its own cap, not of the biggest text:\n%s", want, briefs)
 		}
+	}
+}
+
+func webSpeed() Speed {
+	slower, faster := 5.0, -6.0
+	return Speed{
+		Rows: []SpeedRow{
+			{Stage: "edit suite", N: 120, P50: 4, P90: 18, Max: 90, PrevN: 100, PrevP50: 10, Change: &faster, Clear: true, P: 0.01, Versions: []SpeedVersion{
+				{Label: "since v1.0.0, 2026-10-01", N: 60, P50: 10, P90: 20, Max: 90},
+				{Label: "since v1.1.0, 2026-10-05", N: 60, P50: 4, P90: 18, Max: 80, PrevP50: 10, Change: &faster, Clear: true, P: 0.01},
+			}},
+			{Stage: "commit gate: go test ./...", N: 14, P50: 95, P90: 210, Max: 240, PrevN: 9, PrevP50: 90, Change: &slower, Clear: true, P: 0.03},
+			{Stage: "PR lead time", N: 3, P50: 5400, P90: 7200, Max: 7200},
+		},
+		Gaps: []string{"CI pipeline: a ci event carries no run duration"},
+	}
+}
+
+func TestRenderHTML_SpeedSectionReadsASlowerP50AsWorse(t *testing.T) {
+	page := render(t, webFixture())
+	i := strings.Index(page, `id="speed"`)
+	if i < 0 {
+		t.Fatal("the page has no speed section")
+	}
+	if i > strings.Index(page, `id="proposals"`) {
+		t.Error("the speed section is not near the top summary")
+	}
+	sec := page[i:]
+	sec = sec[:strings.Index(sec, "</section>")]
+	for _, want := range []string{"commit gate: go test ./...", `<td class="n up" title="1.5m the window before">+5s</td>`, `<td class="n down" title="10s the window before">−6s</td>`, "not derivable", `href="#speed"`} {
+		if !strings.Contains(sec+page[:strings.Index(page, "</header>")], want) {
+			t.Errorf("the speed section lacks %q", want)
+		}
+	}
+}
+
+func TestRenderHTML_SpeedSectionWithoutRunsSaysSo(t *testing.T) {
+	if page := render(t, Report{Title: "T", Repo: "r"}); !strings.Contains(page, "no runs timed") {
+		t.Error("an empty speed section does not say no runs")
+	}
+}
+
+func TestRenderHTML_ChangedLeadsThePageAndAnUnclearChangeReadsTilde(t *testing.T) {
+	r := webFixture()
+	r.Previous = &Previous{Window: "last 7d", Gone: []RuleCount{{Rule: "old-rule", N: 2}}}
+	unclear := 3.0
+	r.Speed.Rows = append(r.Speed.Rows, SpeedRow{Stage: "merge gate: x", N: 5, P50: 9, PrevN: 5, PrevP50: 6, Change: &unclear})
+	page := render(t, r)
+	c, f := strings.Index(page, `id="changed"`), strings.Index(page, `<dl class="facts">`)
+	if c < 0 || c > f {
+		t.Fatalf("the Changed section is not first (changed at %d, facts at %d)", c, f)
+	}
+	sec := page[c:]
+	sec = sec[:strings.Index(sec, "</section>")]
+	for _, want := range []string{"slower: commit gate: go test ./...", "gone: old-rule (was 2)"} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("the Changed section lacks %q", want)
+		}
+	}
+	if !strings.Contains(page, `<td class="n muted" title="6s the window before">~</td>`) {
+		t.Error("an unclear change does not read ~")
+	}
+	if !strings.Contains(page, "since v1.1.0, 2026-10-05") {
+		t.Error("the version columns are missing")
+	}
+}
+
+func TestRenderHTML_NothingChangedIsOneLine(t *testing.T) {
+	page := render(t, Report{Title: "T", Repo: "r", Window: "last 7d", Previous: &Previous{Window: "last 7d"}})
+	if !strings.Contains(page, "no clear change against the previous 7d") {
+		t.Error("the one line is missing")
+	}
+}
+
+func TestRenderHTML_AVersionCellSaysTheVersionBeforeAndTheNoteSaysWhoIsLeftOut(t *testing.T) {
+	page := render(t, webFixture())
+	if !strings.Contains(page, `title="10s the version before">−6s`) {
+		t.Error("a version's change cell does not name the version before")
+	}
+	if !strings.Contains(page, "no binary version are left out of the version split") || !strings.Contains(page, "first version with fewer than four runs stays on its own") {
+		t.Error("the note does not say which runs the version split leaves out")
 	}
 }

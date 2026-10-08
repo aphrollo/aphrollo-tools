@@ -12,7 +12,9 @@ type Previous struct {
 	Refusals  int     `json:"refusals"`
 	NotTested int     `json:"not_tested"`
 	SecsLost  float64 `json:"secs_lost"`
-	Escapes   int     `json:"escapes"`
+	// Waived is the denies an override waived, the wrong blocks.
+	Waived  int `json:"waived"`
+	Escapes int `json:"escapes"`
 	// Gone are the rules with friction the window before and none in this one.
 	Gone []RuleCount `json:"gone"`
 }
@@ -42,7 +44,10 @@ func previous(evs []stamped, repo, window string, from, since time.Time, rows []
 		// Before the log began: every number would read as all new.
 		return rows, nil
 	}
-	before, _, _, esc := f.results()
+	before, wrong, _, esc := f.results()
+	for _, w := range wrong {
+		p.Waived += w.Waived
+	}
 	for _, x := range esc.Rows {
 		p.Escapes += x.N
 	}

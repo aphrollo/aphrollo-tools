@@ -18,6 +18,9 @@ import (
 // merge gate actually runs Mechanical. Tests substitute it to prove that
 // "premerge" and its "premergecommit" alias reach the exact same code path
 // rather than two copies that happen to agree.
+// gateClock reads the time a gate run is measured by; tests replace it.
+var gateClock = time.Now
+
 var premergeRoutineSeam = func(routine string) {}
 
 // runGateMergeHook dispatches precommit, premerge (and its "premergecommit"
@@ -40,6 +43,7 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 	if root == "" {
 		return 0 // not in a git repo — nothing to gate
 	}
+	started := gateClock()
 	// The merge gate runs ONLY the mechanical stage: a git merge never fires
 	// pre-commit, so nothing else has proven the COMBINED tree still
 	// compiles and passes — fail-first and the anti-cheat scan are both
@@ -116,7 +120,7 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 	if isMerge {
 		kind = "merge_gate_result"
 	}
-	tdd.AppendEvent(tdd.Event{Kind: kind, Root: root, Verdict: gateVerdictWord(code)})
+	tdd.AppendEvent(tdd.Event{Kind: kind, Root: root, Verdict: gateVerdictWord(code), Secs: gateClock().Sub(started).Seconds()})
 	return code
 }
 

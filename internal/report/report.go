@@ -179,6 +179,8 @@ type Report struct {
 	ByVersion []VersionSlice         `json:"by_version,omitempty"`
 	// Previous is the window before, for the change since; nil on a whole-log report.
 	Previous *Previous `json:"previous,omitempty"`
+	// Speed is how long the gate's stages, CI, the queue and the whole PR took.
+	Speed Speed `json:"speed"`
 	// Usage is the session usage section; nil when no transcripts were read.
 	Usage *Usage `json:"usage,omitempty"`
 	// withheld is set on the published form whose usage section the undercover check refused.
@@ -217,6 +219,8 @@ func Build(in Input) Report {
 	if in.Window > 0 {
 		r.Friction, r.Previous = previous(evs, in.Repo, r.Window, since.Add(-in.Window), since, r.Friction)
 	}
+
+	r.Speed = buildSpeed(evs, since, since.Add(-in.Window), r.Previous != nil)
 
 	o := measure.Options{Window: in.Window}
 	raw := make([]tdd.Event, len(evs))

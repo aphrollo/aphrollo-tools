@@ -1,6 +1,17 @@
 Report 2026-W41: aphrollo-tools
 last 7d up to 2026-10-07T12:00:00Z, 1234 events. Replay any event with `aphrollo why <seq>`.
 
+Changed
+  faster since v1.1.0, 2026-10-05: edit suite p50 10s -> 4s (-6s, p 0.01)
+
+Speed (seconds per run, green or not; change is the p50 against the window before, + is slower, ~ is no clear change)
+  edit suite                                   n 120  p50 4s      p90 18s     max 1.5m    change -6s
+    since v1.0.0, 2026-10-01                   n 60   p50 10s     p90 20s     max 1.5m
+    since v1.1.0, 2026-10-05                   n 60   p50 4s      p90 18s     max 1.3m    change -6s
+  commit gate: go test ./...                   n 14   p50 1.6m    p90 3.5m    max 4.0m    change +5s
+  PR lead time                                 n 3    p50 1.5h    p90 2.0h    max 2.0h
+  not derivable: CI pipeline: a ci event carries no run duration
+
 1. Friction per rule (denies, overrides, refusals, not-tested runs, time lost)
   ratchet:module_size                          denies 4  overrides 1  refusals 0  not tested 0  time lost 2.2m  seq 12,14 (+3 more)
   gate:lint-blocked                            denies 0  overrides 0  refusals 3  not tested 0  time lost 40s  seq 30

@@ -3,6 +3,7 @@ package workspace
 import (
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -82,4 +83,18 @@ func recordQueueRed(wt, lane string, pr int) {
 	}
 	tdd.AppendEventOnce(tdd.Event{Kind: "ci", Root: wt, Lane: lane, Verdict: "red",
 		Detail: map[string]string{"sha": ciQueue + ":" + sha, "ci": ciQueue, "pr": strconv.Itoa(pr), "cause": ciQueue}}, "sha")
+}
+
+// ciSecs is the whole seconds from created to done, "" unless both are RFC 3339
+// times with done not before created: a duration is never guessed.
+func ciSecs(created, done string) string {
+	from, err := time.Parse(time.RFC3339, created)
+	if err != nil {
+		return ""
+	}
+	to, err := time.Parse(time.RFC3339, done)
+	if err != nil || to.Before(from) {
+		return ""
+	}
+	return strconv.FormatInt(int64(to.Sub(from).Seconds()), 10)
 }

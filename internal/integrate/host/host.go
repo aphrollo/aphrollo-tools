@@ -210,6 +210,8 @@ type PRRun struct {
 	Conclusion string `json:"conclusion"`
 	CreatedAt  string `json:"createdAt"`
 	Attempt    int    `json:"attempt"`
+	// UpdatedAt is when the run last changed: its finish, for a completed run.
+	UpdatedAt string `json:"updatedAt"`
 	// Path is the workflow file the run is of, such as .github/workflows/pipeline.yml.
 	Path string `json:"path"`
 }

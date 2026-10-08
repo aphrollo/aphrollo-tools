@@ -153,3 +153,78 @@ func TestMergeApply_AFirstRunFailureFixedByARerunIsStillRed(t *testing.T) {
 	}
 	t.Fatal("no first-run event recorded")
 }
+
+func TestCISecs_IsWholeSecondsOnlyWhenBothTimesAreKnown(t *testing.T) {
+	for _, c := range []struct{ created, done, want string }{
+		{"2026-10-03T19:43:33Z", "2026-10-03T19:49:03Z", "330"},
+		{"", "2026-10-03T19:49:03Z", ""},
+		{"2026-10-03T19:43:33Z", "", ""},
+		{"2026-10-03T19:43:33Z", "not a time", ""},
+		{"2026-10-03T19:49:03Z", "2026-10-03T19:43:33Z", ""},
+	} {
+		if got := ciSecs(c.created, c.done); got != c.want {
+			t.Errorf("ciSecs(%q, %q) = %q, want %q", c.created, c.done, got, c.want)
+		}
+	}
+}
+
+func TestMergeApply_AFirstRunEventCarriesTheSecondsFromItsFirstRunToTheLastToFinish(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	firstRunWorld(t, []prRun{
+		{ID: 1, SHA: "aaa111", Status: "completed", Conclusion: "success", CreatedAt: "2026-10-03T19:00:00Z", UpdatedAt: "2026-10-03T19:05:30Z"},
+		{ID: 2, SHA: "aaa111", Status: "completed", Conclusion: "success", CreatedAt: "2026-10-03T19:00:02Z", UpdatedAt: "2026-10-03T19:07:00Z"},
+	}, nil)
+	if _, err := applyMerge(t, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ciOf(t) {
+		if e.Detail["sha"] == "aaa111" {
+			if e.Detail["secs"] != "420" {
+				t.Fatalf("ci event = %+v, want secs 420 (19:00:00 to 19:07:00)", e)
+			}
+			return
+		}
+	}
+	t.Fatal("no ci event for the first head")
+}
+
+func TestMergeApply_AFirstRunWithNoFinishTimeCarriesNoSeconds(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	firstRunWorld(t, []prRun{
+		{ID: 1, SHA: "bbb222", Status: "completed", Conclusion: "success", CreatedAt: "2026-10-03T19:00:00Z"},
+	}, nil)
+	if _, err := applyMerge(t, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ciOf(t) {
+		if e.Detail["sha"] == "bbb222" {
+			if _, ok := e.Detail["secs"]; ok {
+				t.Fatalf("ci event = %+v, want no secs without a finish time", e)
+			}
+			return
+		}
+	}
+	t.Fatal("no ci event for the head")
+}
+
+func TestMergeApply_ARerunRunsFinishTimeIsNotTheFirstAttemptsSoItCarriesNoSeconds(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	firstRunWorld(t, []prRun{
+		{ID: 1, SHA: "ccc333", Status: "completed", Conclusion: "success", Attempt: 2, CreatedAt: "2026-10-03T19:00:00Z", UpdatedAt: "2026-10-03T19:40:00Z"},
+	}, nil)
+	oFirst := ghRunFirstAttempt
+	t.Cleanup(func() { ghRunFirstAttempt = oFirst })
+	ghRunFirstAttempt = func(string, int64) (string, string, error) { return "completed", "success", nil }
+	if _, err := applyMerge(t, ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range ciOf(t) {
+		if e.Detail["sha"] == "ccc333" {
+			if _, ok := e.Detail["secs"]; ok {
+				t.Fatalf("ci event = %+v, want no secs: updatedAt is the rerun's finish", e)
+			}
+			return
+		}
+	}
+	t.Fatal("no ci event for the head")
+}

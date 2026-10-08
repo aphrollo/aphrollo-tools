@@ -325,3 +325,18 @@ func TestBuild_AnEmptyWindowBeforeIsNoComparison(t *testing.T) {
 		t.Errorf("prev = %d, want 0", got)
 	}
 }
+
+// A blocked commit logs its stage line and then the whole run's result, which now
+// carries the run's seconds too: the wait is the stage's, counted once.
+func TestBuild_AResultEventsSecondsAreNotAddedToTheTimeLost(t *testing.T) {
+	stage := timed(evAt(1, 30, "commit_gate", "l", "lint-blocked"), "precommit", "golangci-lint", 10)
+	result := timed(evAt(2, 29, "commit_gate_result", "l", "blocked"), "", "", 12)
+	r := build([]tdd.Event{stage, result})
+	var lost float64
+	for _, f := range r.Friction {
+		lost += f.SecsLost
+	}
+	if lost != 10 {
+		t.Errorf("seconds lost = %v, want 10 (the stage only, not the run's 12 on top)", lost)
+	}
+}

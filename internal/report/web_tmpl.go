@@ -89,12 +89,28 @@ figcaption { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
 <h1>{{.R.Title}}</h1>
 <p class="sub">{{.R.Repo}} · {{.R.Window}} up to {{.R.Until}} · {{num .R.Events}} events. Replay an event by running its <code>aphrollo why &lt;seq&gt;</code> text in the repo.</p>
 <p class="lede">{{.Lede}}</p>
+<section id="changed">
+<h2>Changed</h2>
+<ul>
+{{range .Changed}}<li>{{.}}</li>
+{{end}}</ul>
+</section>
 <dl class="facts">
 {{range .Facts}}<div><dt>{{.Name}}</dt><dd>{{.Value}}{{if .Change}} <span class="chg {{if .Worse}}up{{else}}down{{end}}">({{.Change}})</span>{{end}}</dd></div>
 {{end}}</dl>
 {{with .R.Previous}}<p class="note">In brackets: the change against the {{.Window}} before, which held {{num .Events}} events.</p>{{end}}
-<nav aria-label="sections"><a href="#proposals">Proposals</a><a href="#friction">Friction</a><a href="#wrong">Wrong blocks</a><a href="#escapes">Escapes</a><a href="#ab">A/B and shadow</a><a href="#tokens">Injected tokens</a>{{if .R.Usage}}<a href="#usage">Session usage</a>{{end}}</nav>
+<nav aria-label="sections"><a href="#changed">Changed</a><a href="#speed">Speed</a><a href="#proposals">Proposals</a><a href="#friction">Friction</a><a href="#wrong">Wrong blocks</a><a href="#escapes">Escapes</a><a href="#ab">A/B and shadow</a><a href="#tokens">Injected tokens</a>{{if .R.Usage}}<a href="#usage">Session usage</a>{{end}}</nav>
 </header>
+
+<section id="speed">
+<h2>Speed</h2>
+<p class="note">Seconds per run, green or not, over the window. Change is the p50 against the window before; a slower p50 is worse, and ~ is no clear change (it shows only with four runs on each side and a Mann-Whitney p under 0.05). Indented rows are the binary versions of the window; a version is confounded with the work done that week. Runs of no binary version are left out of the version split (they stay in the row above), and a first version with fewer than four runs stays on its own.</p>
+{{if .R.Speed.Rows}}<div class="scroll"><table><tr><th>Stage</th><th class="n">Runs</th><th class="n">p50</th><th class="n">p90</th><th class="n">Max</th><th class="n">Change</th></tr>
+{{range .R.Speed.Rows}}<tr><td>{{.Stage}}</td><td class="n">{{num .N}}</td><td class="n">{{secs .P50}}</td><td class="n">{{secs .P90}}</td><td class="n">{{secs .Max}}</td>{{speedDelta .}}</tr>
+{{range .Versions}}<tr class="ver"><td>&nbsp;&nbsp;{{.Label}}</td><td class="n">{{num .N}}</td><td class="n">{{secs .P50}}</td><td class="n">{{secs .P90}}</td><td class="n">{{secs .Max}}</td>{{versionDelta .}}</tr>
+{{end}}{{end}}</table></div>{{else}}<p class="none">no runs timed in the window</p>{{end}}
+{{range .R.Speed.Gaps}}<p class="note">not derivable: {{.}}</p>
+{{end}}</section>
 
 <section id="proposals">
 <h2>Proposals</h2>
