@@ -177,3 +177,41 @@ func TestVersion_NamesTheUserSpaceCurrentWhenTheRunningBinaryIsElsewhere(t *test
 		t.Fatalf("binary line = %q, want %q", got, want)
 	}
 }
+
+// A binary older than the user-space current says so, so a stale
+// /usr/local/bin install is not mistaken for the one that runs the gate.
+func TestVersion_NamesANewerInstall(t *testing.T) {
+	defer buildinfo.SetModuleBuildForTest("v1.23.1", "", false)()
+	userspaceHome(t)
+	root, _ := userbin.Root()
+	userspaceSeed(t, root, "1.39.0")
+	if err := userbin.SetCurrent(root, "1.39.0"); err != nil {
+		t.Fatal(err)
+	}
+	prev := execPathFn
+	execPathFn = func() (string, error) { return filepath.Join(t.TempDir(), "aphrollo"), nil }
+	t.Cleanup(func() { execPathFn = prev })
+	var out, errb bytes.Buffer
+	if code := runVersion(nil, &out, &errb); code != 0 {
+		t.Fatalf("exit %d: %s", code, errb.String())
+	}
+	want := "newer install: 1.39.0 at " + userbin.BinaryPath(root, "1.39.0") + "\n"
+	if !strings.HasSuffix(out.String(), want) {
+		t.Fatalf("output = %q, want it to end with %q", out.String(), want)
+	}
+}
+
+func TestVersion_SaysNothingOfANewerInstallWhenNoneIsNewer(t *testing.T) {
+	defer buildinfo.SetModuleBuildForTest("v1.39.0", "", false)()
+	userspaceHome(t)
+	root, _ := userbin.Root()
+	userspaceSeed(t, root, "1.39.0")
+	if err := userbin.SetCurrent(root, "1.39.0"); err != nil {
+		t.Fatal(err)
+	}
+	var out, errb bytes.Buffer
+	runVersion(nil, &out, &errb)
+	if strings.Contains(out.String(), "newer install") {
+		t.Fatalf("output names a newer install:\n%s", out.String())
+	}
+}

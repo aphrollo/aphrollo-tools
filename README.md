@@ -30,6 +30,7 @@ binary, and a build at no release tag reports `0.0.0-dev+<sha>`. PATH names
 no version: install puts the queue shim dir and the root (`~/.aphrollo/bin`,
 `%LOCALAPPDATA%\aphrollo\bin` on Windows) first, whose `aphrollo` launcher
 follows `current`, so an update reaches every open shell at once. A PR does not
+A shell that still resolves `aphrollo` to an older install (a root-owned `/usr/local/bin/aphrollo`, say) hands `workspace`, `ratchet`, `ci` and the `gate` hooks to the user-space `current` when that names a strictly newer release the same account owns: one stderr line `aphrollo <self> -> <newer> (<path>): a newer install runs this`, then the same argv, stdin, environment and exit code. `version`, `update`, `install` and help text are never handed off. A pointer that is unreadable, not MAJOR.MINOR.PATCH or missing its binary, or a version that is equal or older, runs this binary silently; `APHROLLO_NO_HANDOFF=1` switches the handoff off, and `aphrollo version` prints `newer install: <ver> at <path>` when one exists.
 carry a number. It says `version: none|patch|minor|major` in its body and, when
 it is not `none`, adds one `changelog.d/<lane>.md` fragment (a first line
 `level: patch|minor|major`, then what a consumer will notice, in plain words;

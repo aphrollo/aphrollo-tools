@@ -45,6 +45,7 @@ var spreadCallSites = map[string]string{
 	"internal/integrate/host/github/runs.go:JobLog":                  "bounded: fixed gh arguments plus the few values of one request",
 	"internal/integrate/host/github/runs.go:RunLog":                  "bounded: fixed gh arguments plus the few values of one request",
 	"internal/integrate/host/github/runs.go:jsonOf":                  "bounded: fixed gh arguments plus the few values of one request",
+	"internal/handoff/launch_windows.go:Launch":                      "bounded: forwards the caller's own command line, which already fit the shell's limit once",
 	"internal/cli/cargo_shim.go:execCargoEnv":                        "bounded: forwards the caller's own command line, which already fit the shell's limit once",
 	"internal/cli/git_shim.go:execGit":                               "bounded: forwards the caller's own command line, which already fit the shell's limit once",
 	"internal/cli/git_shim_discard.go:diffCost":                      "bounded: the paths are the ones the user typed after git checkout or restore, already within the shell limit",

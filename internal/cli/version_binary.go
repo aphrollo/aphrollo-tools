@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
+	"github.com/aphrollo/aphrollo-tools/internal/handoff"
 	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
@@ -11,6 +13,10 @@ import (
 // user-space install hooks follow, so "which aphrollo is this" never needs
 // guessing after an update.
 func versionBinaryLine() string {
+	return versionBinaryLineOnly() + newerInstallLine()
+}
+
+func versionBinaryLineOnly() string {
 	exe := rawExecutablePath()
 	root, err := userbin.Root()
 	if err != nil {
@@ -42,4 +48,18 @@ func sameFilePath(a, b string) bool {
 	}
 	fb, err := os.Stat(b)
 	return err == nil && os.SameFile(fa, fb)
+}
+
+// newerInstallLine names a user-space install newer than this binary, or is
+// empty: the line a stale root-owned install prints so it is not mistaken for
+// the one the gate runs.
+func newerInstallLine() string {
+	root, err := userbin.Root()
+	if err != nil {
+		return ""
+	}
+	if v, p, ok := handoff.Newer(buildinfo.Version(), root); ok {
+		return "newer install: " + v + " at " + p + "\n"
+	}
+	return ""
 }
