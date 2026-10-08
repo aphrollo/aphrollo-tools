@@ -42,10 +42,10 @@ jobs:
     # Only the schedule or a manual dispatch by a writer can put this job on
     # the host; a pull_request event never satisfies the guard.
     if: github.repository == 'aphrollo/aphrollo-tools' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     # Sized the same as the job this replaces: 30 minutes is far past any
     # single night's accumulated diff for a repo merging at PR cadence.
-    timeout-minutes: 30
+    timeout-minutes: 120
     permissions:
       contents: read
       actions: read # gh run list, to find the last successful run of THIS workflow

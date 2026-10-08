@@ -37,13 +37,13 @@ jobs:
     # Only the schedule or a manual dispatch by a writer can put this job on
     # the host; a pull_request event never satisfies the guard.
     if: github.repository == 'aphrollo/aphrollo-tools' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     # Measured on the box this was written on: `go test ./... -race -count=1`
     # took 233s (3m53s) for all 31 packages. -shuffle=on adds no measurable
     # cost (it only orders the same test set differently); -count=5 repeats
     # the test bodies, not the -race build, so five nights of headroom sit
     # comfortably inside the hour even generously padded for a busier runner.
-    timeout-minutes: 60
+    timeout-minutes: 120
     permissions:
       contents: read
       issues: write # flakehunt files or updates an issue per failing test
