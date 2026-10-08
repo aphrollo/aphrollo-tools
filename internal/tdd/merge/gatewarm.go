@@ -233,12 +233,29 @@ var warmClaimSeq atomic.Int64
 
 var warmClaimJudged = func() {}
 
+// warmClaimBeforeRemove runs after the takeover has re-read the claim and
+// before it removes it, the instant a lock that expired under it would let
+// another taker in.
+var warmClaimBeforeRemove = func() {}
+
+// warmLockPath is the takeover lock of a claim. Its name starts with a dot and
+// not with gate-prmerge-, so no sweep takes it for a checkout.
+func warmLockPath(claim string) string {
+	return filepath.Join(filepath.Dir(claim), ".warm-"+filepath.Base(claim)+".takeover")
+}
+
+// warmScratchPath names a file of this call beside the claim: ".warm-" first,
+// for the same reason, then the pid so a sweep can tell a dead owner's litter.
+func warmScratchPath(claim, ext string) string {
+	return filepath.Join(filepath.Dir(claim), fmt.Sprintf(".warm-%s.%d.%d.%s", filepath.Base(claim), os.Getpid(), warmClaimSeq.Add(1), ext))
+}
+
 // takeWarmClaim takes the exclusive claim on a warm checkout: a file naming
 // this pid, created whole and linked into place so a second process sees all
 // of it or none. A claim naming a live process is held; one naming a dead
 // process is stale and replaced. Never waits.
 func takeWarmClaim(claim string) bool {
-	tmp := fmt.Sprintf("%s.%d.%d.tmp", claim, os.Getpid(), warmClaimSeq.Add(1))
+	tmp := warmScratchPath(claim, "tmp")
 	if err := os.WriteFile(tmp, []byte(warmClaimBody()), 0o644); err != nil {
 		return false
 	}
@@ -331,12 +348,22 @@ const warmTakeoverStale = time.Minute
 // live claim another taker has put there since. A busy lock is not waited for:
 // the caller builds a fresh checkout.
 func replaceStaleClaim(claim string, stale []byte) bool {
-	lock := claim + ".takeover"
+	lock := warmLockPath(claim)
 	if err := os.Mkdir(lock, 0o755); err != nil {
-		if fi, serr := os.Stat(lock); serr == nil && time.Since(fi.ModTime()) > warmTakeoverStale {
-			_ = os.Remove(lock) // a taker that died inside its takeover; the next try is clean
+		if fi, serr := os.Stat(lock); serr != nil || time.Since(fi.ModTime()) <= warmTakeoverStale {
+			return false
 		}
-		return false
+		// a taker that died inside its takeover. Renamed away before it is
+		// removed, so two takers expiring the same lock cannot remove the
+		// lock the other has just made.
+		gone := warmScratchPath(claim, "lock")
+		if os.Rename(lock, gone) != nil {
+			return false
+		}
+		_ = os.RemoveAll(gone)
+		if os.Mkdir(lock, 0o755) != nil {
+			return false
+		}
 	}
 	defer os.Remove(lock)
 	warmClaimJudged()
@@ -347,5 +374,20 @@ func replaceStaleClaim(claim string, stale []byte) bool {
 	if !bytes.Equal(now, stale) {
 		return false
 	}
-	return os.Remove(claim) == nil
+	warmClaimBeforeRemove()
+	// moved aside and read, not deleted blind: a live claim that got in after
+	// the re-read goes back instead of being lost
+	gone := warmScratchPath(claim, "gone")
+	if os.Rename(claim, gone) != nil {
+		return false
+	}
+	defer os.Remove(gone)
+	moved, err := os.ReadFile(gone)
+	if err == nil && bytes.Equal(moved, stale) {
+		return true
+	}
+	if lerr := warmLink(gone, claim); lerr != nil {
+		warmNotef("a live warm checkout claim %s was displaced and could not be put back (%v)", claim, lerr)
+	}
+	return false
 }
