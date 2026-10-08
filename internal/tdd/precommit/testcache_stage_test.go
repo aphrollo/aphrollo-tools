@@ -101,3 +101,31 @@ func TestMechanical_TestCacheNeverTouchesTheMergeFlags(t *testing.T) {
 		t.Fatalf("the merge ran %q, want %q", got, want)
 	}
 }
+
+// test-select narrows the post-edit suite only: the commit's and the merge's
+// suites are the argv they always were, with no selection, whatever the key says.
+func TestGroupSuiteRunner_TestSelectNeverNarrowsTheCommitOrTheMerge(t *testing.T) {
+	t.Parallel()
+	for gate, want := range map[string]string{
+		"precommit": "go test -count=1 -shuffle=on ./hub ./leaf1 ./leaf2",
+		"premerge":  "go test -race -count=1 -shuffle=on ./hub ./leaf1 ./leaf2",
+	} {
+		root := hubMergeRepo(t)
+		write(t, root, "aphrollo.toml", "[aphrollo]\ntest-select = \"edit\"\n")
+		groups := stagedRootGroups(root)
+		if len(groups) != 1 {
+			t.Fatalf("setup: %d root groups", len(groups))
+		}
+		base, ok := DetectRunner(groups[0].Root)
+		if !ok {
+			t.Fatal("setup: no runner")
+		}
+		got, ok := groupSuiteRunner(gate, root, groups[0], base)
+		if !ok {
+			t.Fatalf("%s: the group owes no suite", gate)
+		}
+		if line := cmdLine(got); line != want || got.Select != nil {
+			t.Errorf("%s with test-select = edit: ran %q (select %+v), want %q and no selection", gate, line, got.Select, want)
+		}
+	}
+}
