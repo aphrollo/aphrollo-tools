@@ -62,6 +62,11 @@ func TestMergeWait_QueueWaitsForMergedAndPrintsEachChangeOnce(t *testing.T) {
 	if len(got) != 1 || got[0].Verdict != "ok" || got[0].Detail["pr"] != "5" {
 		t.Errorf("merge events = %+v, want one ok event for pr 5 (recorded before the sync)", got)
 	}
+	if len(got) == 1 {
+		if _, err := time.Parse(time.RFC3339, got[0].Detail["enqueued_at"]); err != nil {
+			t.Errorf("merge detail = %v, want enqueued_at: when the PR entered the queue, so the time the queue took is known", got[0].Detail)
+		}
+	}
 }
 
 func TestMergeWait_QueueRemovalNamesTheFailingJobAndFails(t *testing.T) {

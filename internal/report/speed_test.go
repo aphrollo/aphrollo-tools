@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -335,16 +336,6 @@ func TestSpeed_AnEmptyClassSaysWhatWouldFillIt(t *testing.T) {
 	}
 }
 
-func TestSpeed_MergeQueueAlsoCountsFromAnEnqueueTheVerbWaitedOn(t *testing.T) {
-	evs := []tdd.Event{
-		evAt(1, 60, "merge", "l", "enqueued", "pr", "5", "method", "merge queue"),
-		evAt(2, 30, "merge", "l", "ok", "pr", "5", "method", "merge queue"),
-	}
-	if row := speedRow(t, build(evs), "merge queue"); row.N != 1 || row.P50 != 1800 {
-		t.Errorf("merge queue = %+v, want 1800s from the enqueue", row)
-	}
-}
-
 func TestGateStage_ABareCommandOrNoneStillNamesARow(t *testing.T) {
 	cases := map[[2]string]string{
 		{"ran", ""}:              "(unnamed)",
@@ -369,3 +360,14 @@ func TestSpeed_ThirtyDaysExactlyIsKeptAndNothingDroppedSaysNothing(t *testing.T)
 		t.Errorf("dropped = %d, gaps %q, want nothing dropped and no line about it", r.Speed.Dropped, r.Speed.Gaps)
 	}
 }
+
+func TestSpeed_MergeQueueCountsFromTheEnqueueTheMergeRecordCarries(t *testing.T) {
+	merged := evAt(2, 30, "merge", "l", "ok", "pr", "5", "method", "merge queue")
+	at, _ := time.Parse(time.RFC3339, merged.At)
+	merged.Detail["enqueued_at"] = at.Add(-30 * time.Minute).Format(time.RFC3339)
+	if row := speedRow(t, build([]tdd.Event{merged}), "merge queue"); row.N != 1 || row.P50 != 1800 {
+		t.Errorf("merge queue = %+v, want 1800s from the enqueue the merge record names", row)
+	}
+}
+
+// ratchet: test_removed TestSpeed_MergeQueueAlsoCountsFromAnEnqueueTheVerbWaitedOn: the merge record now carries enqueued_at instead of a separate enqueued event; TestSpeed_MergeQueueCountsFromTheEnqueueTheMergeRecordCarries pins it

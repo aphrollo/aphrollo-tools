@@ -183,12 +183,17 @@ func pairedSpeed(evs []stamped) []speedSample {
 			if _, ok := opened[pr]; !ok {
 				opened[pr] = e.at
 			}
-		case e.Kind == "merge" && (e.Verdict == "queued" || e.Verdict == "enqueued"):
+		case e.Kind == "merge" && e.Verdict == "queued":
 			queued[pr] = e.at // the last enqueue is the one the merge waited on
 		case e.Kind == "merge" && e.Verdict == "ok" && !done[pr]:
 			done[pr] = true
 			if t, ok := opened[pr]; ok && e.at.After(t) {
 				out = append(out, speedSample{"PR lead time", e.at, e.at.Sub(t).Seconds(), e.BinVer})
+			}
+			// A merge the verb waited on names its own enqueue; one it left in the
+			// queue pairs with the queued record it wrote then.
+			if at, err := time.Parse(time.RFC3339, e.Detail["enqueued_at"]); err == nil {
+				queued[pr] = at
 			}
 			if t, ok := queued[pr]; ok && e.at.After(t) && e.Detail["method"] == "merge queue" {
 				out = append(out, speedSample{"merge queue", e.at, e.at.Sub(t).Seconds(), e.BinVer})
