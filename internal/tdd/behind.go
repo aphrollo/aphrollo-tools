@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -29,6 +30,34 @@ const binaryBehindCacheTTL = time.Hour
 // session start that hangs on the network is worse than one that occasionally
 // says nothing about a stale binary.
 const binaryBehindTimeout = 2 * time.Second
+
+// aphrolloToolsModule is the module path of the repo the binary is built
+// from, and the only repo whose sessions are told the binary is behind.
+const aphrolloToolsModule = "github.com/aphrollo/aphrollo-tools"
+
+// inAphrolloToolsRepo reports whether dir is inside a Go module named
+// aphrolloToolsModule: the nearest go.mod above it says so. A directory with
+// no go.mod above it, or an unreadable one, is not.
+func inAphrolloToolsRepo(dir string) bool {
+	if dir == "" {
+		return false
+	}
+	for d := filepath.Clean(dir); ; {
+		if data, err := os.ReadFile(filepath.Join(d, "go.mod")); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				if f := strings.Fields(line); len(f) == 2 && f[0] == "module" {
+					return strings.Trim(f[1], `"`) == aphrolloToolsModule
+				}
+			}
+			return false
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return false
+		}
+		d = parent
+	}
+}
 
 // binaryBehindRemote is the one repo this notice ever asks about.
 const binaryBehindRemote = "https://github.com/aphrollo/aphrollo-tools"

@@ -19,6 +19,8 @@ type Kind = core.Kind
 
 type Outcome = core.Outcome
 
+type PinProof = core.PinProof
+
 type Runner = core.Runner
 
 var sourceExts = core.SourceExts
@@ -30,6 +32,8 @@ func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration)
 }
 
 func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }
+
+func PinProofs(p0 string) []PinProof { return core.PinProofs(p0) }
 
 func StateDir() string { return core.StateDir() }
 

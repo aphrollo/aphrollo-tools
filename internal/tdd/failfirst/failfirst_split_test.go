@@ -33,7 +33,7 @@ func TestGoRunNames_ReadsTheStagedNamesOutOfTheProofsRunFilter(t *testing.T) {
 }
 
 func TestSplitAdvice_NamesTheTestsTheFilesAndTheCommands(t *testing.T) {
-	got := splitAdvice([]string{"a_test.go", "b_test.go"}, []string{"TestA", "TestB"})
+	got := splitAdvice([]string{"a_test.go", "b_test.go"}, []string{"TestA", "TestB"}, nil)
 	for _, want := range []string{
 		"Tests that pass at HEAD: TestA, TestB",
 		"Test files: a_test.go, b_test.go",
@@ -48,7 +48,7 @@ func TestSplitAdvice_NamesTheTestsTheFilesAndTheCommands(t *testing.T) {
 }
 
 func TestSplitAdvice_WithoutNamesStillNamesTheFilesAndCommands(t *testing.T) {
-	got := splitAdvice([]string{"a_test.go"}, nil)
+	got := splitAdvice([]string{"a_test.go"}, nil, nil)
 	if strings.Contains(got, "Tests that pass at HEAD") {
 		t.Errorf("no names known, yet the advice lists tests:\n%s", got)
 	}

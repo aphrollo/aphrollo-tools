@@ -23,7 +23,8 @@ const ratchetUsage = `usage: aphrollo ratchet <subcommand>
 
 Subcommands:
   check    Judge the tree against .ratchet/laws/*.toml (--repo, --only, --proposed
-           file=contentfile, --format text|json, --dry, --no-cache, --base <ref>).
+           file=contentfile, --format text|json, --dry, --no-cache, --base <ref>;
+           with no --base the merge base with origin's default branch is used and printed).
            --dry writes no baseline (--no-tighten is its alias for one release);
            with --adopt <law> it prints the baseline it would write
   test     Run every law against its .ratchet/fixtures/<law>/{hit,clean} files
@@ -122,12 +123,22 @@ func runRatchetCheck(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// No --base: judge against where this checkout left origin's default
+	// branch, so a diff-scoped law (test_removed) runs in a lane instead of
+	// skipping. Said aloud; the run is not base-relative for it.
+	baseRef := *base
+	if baseRef == "" {
+		if sha, ref, ok := ratchet.DefaultBase(root); ok {
+			baseRef = sha
+			fmt.Fprintf(stderr, "ratchet: base %s (merge-base of HEAD and %s)\n", sha, ref)
+		}
+	}
 	opts := ratchet.Options{
 		Root:     root,
 		Only:     *only,
 		Proposed: proposed,
 		Tighten:  !*dry && !*noTighten,
-		Base:     *base,
+		Base:     baseRef,
 		// A ref given is the tree the run is judged against: only what the
 		// tree added since it counts.
 		BaseRelative: *base != "",
