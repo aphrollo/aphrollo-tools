@@ -15,6 +15,9 @@ type commitMutant struct {
 	Col      int
 	Mutation string
 	Func     string
+	// Skipped says a mutants-skip entry takes the mutant out of the
+	// measurement (mutants_skip.go).
+	Skipped bool
 }
 
 // commitMutators are the mutators gremlins enables by default, which are the
@@ -36,6 +39,12 @@ var commitMutators = []string{
 // tests for and is left out, as CI's judge exempts it. A source that does
 // not parse has no mutants.
 func enumerateCommitMutants(file string, src []byte, added map[int]bool) []commitMutant {
+	return enumerateMutants(file, src, added, nil)
+}
+
+// enumerateMutants is enumerateCommitMutants with the mutants of the calls on
+// skips marked Skipped.
+func enumerateMutants(file string, src []byte, added map[int]bool, skips []string) []commitMutant {
 	if len(added) == 0 {
 		return nil
 	}
@@ -44,6 +53,7 @@ func enumerateCommitMutants(file string, src []byte, added map[int]bool) []commi
 		return nil
 	}
 	var out []commitMutant
+	skipped := skippedOperators(parsed, skips)
 	ast.Inspect(parsed, func(n ast.Node) bool {
 		tok, pos := operatorOf(n)
 		if pos == token.NoPos {
@@ -56,7 +66,7 @@ func enumerateCommitMutants(file string, src []byte, added map[int]bool) []commi
 		}
 		for _, mutator := range commitMutators {
 			if _, ok := gremlinsTokenMutations[mutator][tok]; ok {
-				out = append(out, commitMutant{File: file, Line: p.Line, Col: p.Column, Mutation: mutator, Func: fn})
+				out = append(out, commitMutant{File: file, Line: p.Line, Col: p.Column, Mutation: mutator, Func: fn, Skipped: skipped[pos]})
 			}
 		}
 		return true

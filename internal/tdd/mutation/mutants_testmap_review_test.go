@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -142,8 +143,20 @@ func TestMeasureTestMaps_EachPackageGetsItsOwnShareOfTheBudget(t *testing.T) {
 		return prev(ctx, dir, env, argv, log)
 	}
 	t.Cleanup(func() { testMapExecFn = prev })
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	// The shares are cut on a clock of this test's own: a solo run that waits
+	// out its share moves the clock to the share's end, so what the second
+	// package gets does not depend on how long the box took to reach it.
+	fc := &shareClock{now: time.Unix(1_700_000_000, 0)}
+	fc.install(t)
+	ctx, cancel := fc.timeout(context.Background(), 4*time.Second)
 	defer cancel()
+	waitOut := testMapExecFn
+	testMapExecFn = func(ctx context.Context, dir string, env, argv []string, log io.Writer) (int, error) {
+		if argv[0] != "go" {
+			fc.expire(ctx)
+		}
+		return waitOut(ctx, dir, env, argv, log)
+	}
 	plans := map[string]*commitPlan{"internal/p": {Dir: "internal/p"}, "internal/q": {Dir: "internal/q"}}
 
 	mutants := []commitMutant{{File: "internal/p/p.go", Line: 4}, {File: "internal/q/q.go", Line: 4}}
@@ -151,6 +164,71 @@ func TestMeasureTestMaps_EachPackageGetsItsOwnShareOfTheBudget(t *testing.T) {
 
 	if !slices.Equal(compiled, []string{"./internal/p", "./internal/q"}) {
 		t.Errorf("compiled %v, want both packages: the first one's solo runs wait for the whole budget, and its share ends before the second starts", compiled)
+	}
+}
+
+// shareClock is a clock the coverage phase's shares are cut on. A context made
+// by timeout ends only when expire moves the clock to its deadline.
+type shareClock struct {
+	mu   sync.Mutex
+	now  time.Time
+	live []shareTimer
+}
+
+type shareTimer struct {
+	cancel   context.CancelFunc
+	deadline time.Time
+}
+
+// shareCtx is a context with a deadline on the fake clock.
+type shareCtx struct {
+	context.Context
+	deadline time.Time
+}
+
+func (c shareCtx) Deadline() (time.Time, bool) { return c.deadline, true }
+
+func (c *shareClock) install(t *testing.T) {
+	t.Helper()
+	prevTimeout, prevUntil, prevNow, prevCover := coverTimeoutFn, coverUntilFn, commitNowFn, coverNowFn
+	coverTimeoutFn = c.timeout
+	coverUntilFn = func(d time.Time) time.Duration { return d.Sub(c.read()) }
+	commitNowFn, coverNowFn = c.read, c.read
+	t.Cleanup(func() {
+		coverTimeoutFn, coverUntilFn, commitNowFn, coverNowFn = prevTimeout, prevUntil, prevNow, prevCover
+	})
+}
+
+func (c *shareClock) read() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *shareClock) timeout(parent context.Context, d time.Duration) (context.Context, context.CancelFunc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	deadline := c.now.Add(d)
+	if up, ok := parent.Deadline(); ok && up.Before(deadline) {
+		deadline = up
+	}
+	ctx, cancel := context.WithCancel(parent)
+	c.live = append(c.live, shareTimer{cancel, deadline})
+	return shareCtx{ctx, deadline}, cancel
+}
+
+// expire waits out ctx's share: the clock moves to its deadline and every
+// context that was due by then ends.
+func (c *shareClock) expire(ctx context.Context) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if d, ok := ctx.Deadline(); ok && d.After(c.now) {
+		c.now = d
+	}
+	for _, timer := range c.live {
+		if !timer.deadline.After(c.now) {
+			timer.cancel()
+		}
 	}
 }
 

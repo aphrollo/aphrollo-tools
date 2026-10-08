@@ -36,6 +36,9 @@ type Verdict struct {
 	// folded into unviable that fact disappears, and a report that is mostly
 	// uncovered reads like a report that is mostly fine.
 	NotCovered int
+	// SkipListed is how many mutants a mutants-skip entry took out of the
+	// measurement; they are in no other count.
+	SkipListed int
 	// Inconclusive is the survivors whose verdict the run could not have
 	// reached: gremlins judged them with the mutated package's own tests
 	// while a package outside it has tests that reach the mutated code

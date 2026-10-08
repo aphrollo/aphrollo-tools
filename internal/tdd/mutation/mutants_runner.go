@@ -121,6 +121,7 @@ func consumeRunnerReport(tree string, r RunnerReport) (why string, ok bool) {
 // measurement ends in measureUnmeasured — the outcome issue #699 built, not a
 // parallel one beside it — because "no evidence" is what all of them are.
 func measureOnRunner(root string, cfg MutantsConfig, log io.Writer) Verdict {
+	began := measureNowFn()
 	tree, why := mutantsTreeID(root)
 	if tree == "" {
 		return measureUnmeasured(root, gremlinsWindowsGap+
@@ -139,7 +140,7 @@ func measureOnRunner(root string, cfg MutantsConfig, log io.Writer) Verdict {
 	}
 	logf(log, "mutants: consuming the measurement made on %s of tree %s — the tree this gate is judging, byte "+
 		"for byte, so its outcomes are judged here against this repo's own accept-list", report.Runner, tree)
-	return finishMeasure(root, cfg, report.Mutants, log)
+	return finishMeasure(root, cfg, report.Mutants, log, began)
 }
 
 // writeRunnerReport publishes what THIS box measured, for a box that cannot.

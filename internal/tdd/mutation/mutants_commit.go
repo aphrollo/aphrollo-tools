@@ -57,9 +57,12 @@ func mutantsAtCommitStage(displayName, repoRoot string) GateResult {
 func measureAddedLines(displayName, repoRoot, prefix string, cfg MutantsConfig, added map[string]map[int]bool,
 	unstaged map[string]bool, start time.Time) GateResult {
 	root := moduleDir(repoRoot, prefix)
-	mutants, notes := commitMutantsOf(root, added, unstaged)
+	mutants, skipped, notes := commitMutantsSkipping(root, added, unstaged, cfg.SkipList())
 	for _, note := range notes {
 		fmt.Fprintf(os.Stderr, "gate %s: mutants → %s\n", displayName, note)
+	}
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "gate %s: mutants → %d mutant(s) skipped by mutants-skip, not measured\n", displayName, skipped)
 	}
 	if len(mutants) == 0 {
 		return commitStandDown(displayName, repoRoot, "no mutable line is added by this commit", "nothing-to-measure")

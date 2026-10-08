@@ -67,6 +67,13 @@ func isMutationData(file string) bool {
 // commitMutantsOf lists the mutants of every staged source on the lines the
 // commit adds, and the notes for the sources it left out.
 func commitMutantsOf(root string, added map[string]map[int]bool, unstaged map[string]bool) (mutants []commitMutant, notes []string) {
+	mutants, _, notes = commitMutantsSkipping(root, added, unstaged, nil)
+	return mutants, notes
+}
+
+// commitMutantsSkipping is commitMutantsOf without the mutants of the calls on
+// skips, and how many it left out.
+func commitMutantsSkipping(root string, added map[string]map[int]bool, unstaged map[string]bool, skips []string) (mutants []commitMutant, skipped int, notes []string) {
 	files := make([]string, 0, len(added))
 	for file := range added {
 		files = append(files, file)
@@ -86,9 +93,15 @@ func commitMutantsOf(root string, added map[string]map[int]bool, unstaged map[st
 			// absence-ok: a file the diff names but the tree lacks (deleted or renamed away) has no mutants to measure
 			continue
 		}
-		mutants = append(mutants, enumerateCommitMutants(file, src, added[file])...)
+		for _, m := range enumerateMutants(file, src, added[file], skips) {
+			if m.Skipped {
+				skipped++
+				continue
+			}
+			mutants = append(mutants, m)
+		}
 	}
-	return mutants, notes
+	return mutants, skipped, notes
 }
 
 // commitPlans reads, for each package the mutants sit in, the tests it has
@@ -175,6 +188,16 @@ const coverageShare = 2
 // ones its mutants need may start in.
 const fillShare = 2
 
+// coverTimeoutFn, coverUntilFn and coverNowFn are how the coverage phase cuts its budget
+// into shares: a deadline and the time left to it. Seams, so a test that says
+// how the shares divide does so on a clock of its own, not on how long the box
+// takes to get to the second package.
+var (
+	coverTimeoutFn = context.WithTimeout
+	coverUntilFn   = time.Until
+	coverNowFn     = time.Now
+)
+
 // measureTestMaps gives each plan the map of its package, each package within
 // an equal share of the coverage phase: what the store holds and still holds,
 // plus the tests measured now for the functions the mutants sit in, in the
@@ -194,7 +217,7 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 	sort.Strings(dirs)
 	phase, endPhase := ctx, context.CancelFunc(func() {})
 	if deadline, ok := ctx.Deadline(); ok {
-		phase, endPhase = context.WithTimeout(ctx, time.Until(deadline)/coverageShare)
+		phase, endPhase = coverTimeoutFn(ctx, coverUntilFn(deadline)/coverageShare)
 	}
 	defer endPhase()
 	for i, dir := range dirs {
@@ -202,7 +225,7 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 		// first one cannot spend it all and leave the rest no time.
 		pctx, cancel := phase, context.CancelFunc(func() {})
 		if deadline, ok := phase.Deadline(); ok {
-			pctx, cancel = context.WithTimeout(phase, time.Until(deadline)/time.Duration(len(dirs)-i))
+			pctx, cancel = coverTimeoutFn(phase, coverUntilFn(deadline)/time.Duration(len(dirs)-i))
 		}
 		req := covRequest{Dir: dir, Workers: workers}
 		if deadline, ok := pctx.Deadline(); ok {
@@ -210,7 +233,7 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 			// share; the rest of the package is measured only in the first half of
 			// it, so a commit that has to compile anyway also builds toward a
 			// complete map without spending its whole budget on one.
-			req.FillBy = time.Now().Add(time.Until(deadline) / fillShare)
+			req.FillBy = coverNowFn().Add(coverUntilFn(deadline) / fillShare)
 		}
 		if len(boxes) > 0 {
 			req.Box = boxes[0]

@@ -206,6 +206,7 @@ func MeasureLane(root string, cfg MutantsConfig, opts MeasureOpts) (Verdict, err
 
 // measureLane is MeasureLane's measurement, before the canary judges the run.
 func measureLane(root string, cfg MutantsConfig, opts MeasureOpts, log io.Writer) (Verdict, error) {
+	began := measureNowFn()
 	ctx := opts.Ctx
 	if ctx == nil {
 		ctx = context.Background()
@@ -243,9 +244,9 @@ func measureLane(root string, cfg MutantsConfig, opts MeasureOpts, log io.Writer
 			"--shard needs a Go repo and --report")
 	}
 	if isGoModuleRepo(root) {
-		return measureGoLane(ctx, root, cfg, base, opts, log)
+		return measureGoLane(ctx, root, cfg, base, opts, log, began)
 	}
-	return measureCargoLane(ctx, root, cfg, base, log)
+	return measureCargoLane(ctx, root, cfg, base, log, began)
 }
 
 // isGoModuleRepo picks the runner. Cargo wins a repo carrying both manifests:
@@ -256,7 +257,7 @@ func isGoModuleRepo(root string) bool {
 }
 
 // measureCargoLane is the Cargo half: scope, run, re-run the timeouts, judge.
-func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base string, log io.Writer) (Verdict, error) {
+func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base string, log io.Writer, began time.Time) (Verdict, error) {
 	files, crates, err := measureDiff(root, base)
 	if err != nil {
 		return Verdict{}, err
@@ -329,13 +330,13 @@ func measureCargoLane(ctx context.Context, root string, cfg MutantsConfig, base 
 	if v, refused := refuseIfTreeChanged(root, before, log); refused {
 		return v, nil
 	}
-	return finishMeasure(root, cfg, mutants, log), nil
+	return finishMeasure(root, cfg, mutants, log, began), nil
 }
 
 // measureGoLane is the Go half. gremlins is invoked exactly as the detached
 // job invoked it, scoped to the same merge base, and its report is read the
 // same way.
-func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base string, opts MeasureOpts, log io.Writer) (Verdict, error) {
+func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base string, opts MeasureOpts, log io.Writer, began time.Time) (Verdict, error) {
 	reportOut := opts.ReportOut
 	if mutantsGOOSFn() == "windows" {
 		// gremlins reports 0.00% mutator coverage here — 4890 mutants NOT
@@ -424,6 +425,7 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 	if parseErr != nil {
 		return measureNoVerdictOrTreeChanged(root, measureTempDir(root), code, parseErr, before, log), nil
 	}
+	mutants = markSkipped(root, mutants, cfg.SkipList())
 	if v, refused := refuseIfTreeChanged(root, before, log); refused {
 		return v, nil
 	}
@@ -443,7 +445,7 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 		return finishShard(root, base, opts, outcomes, log), nil
 	}
 	writeRunnerReport(root, reportOut, base, outcomes, log)
-	return finishMeasure(root, cfg, outcomes, log), nil
+	return finishMeasure(root, cfg, outcomes, log, began), nil
 }
 
 // gremlinsReportPath is where the Go runner writes its machine-readable

@@ -75,6 +75,12 @@ var features = []Feature{
 		Enable: "mutants-test-tags = [\"integration\"]",
 	},
 	{
+		Key: "mutants-skip", Default: "crypto/rand.Read",
+		Effect: "calls, as <import path>.<Func>, whose error test no test can drive: the mutants of the err != nil (or == nil) test on the error such a call returns are not run at commit and CI reports them skipped, counted and never judged; your entries are added to the default",
+		Cost:   "an entry for a call that can fail hides the survivors of its error test",
+		Enable: "mutants-skip = [\"<import path>.<Func>\"]",
+	},
+	{
 		Key: "mutants-shards", Default: "derived",
 		Effect: "the most shards one measurement splits into; only ever lowers the box's own count",
 		Cost:   "fewer shards: less CPU at once, longer wall-clock",
@@ -189,7 +195,7 @@ func featureValues(repoRoot string) map[string]string {
 	cfg, err := ReadMutantsConfig(repoRoot)
 	if err != nil {
 		for _, key := range []string{"mutants-at-merge", "mutants-before-pr", "mutants-shards", "mutants-integration-packages",
-			"mutants-at-commit", "mutants-commit-budget", "mutants-at-merge-level", "mutants-test-tags"} {
+			"mutants-at-commit", "mutants-commit-budget", "mutants-at-merge-level", "mutants-test-tags", "mutants-skip"} {
 			values[key] = "unreadable"
 		}
 	} else {
@@ -205,6 +211,9 @@ func featureValues(repoRoot string) map[string]string {
 		}
 		if n := len(cfg.TestTags); n > 0 {
 			values["mutants-test-tags"] = strconv.Itoa(n)
+		}
+		if n := len(cfg.Skip); n > 0 {
+			values["mutants-skip"] = "crypto/rand.Read +" + strconv.Itoa(n)
 		}
 	}
 	if cfg.Shards > 0 {

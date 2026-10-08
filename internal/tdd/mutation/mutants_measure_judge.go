@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/run"
 )
@@ -21,14 +22,18 @@ import (
 // paperwork checks ahead of the question "did a mutant survive", and over
 // three weeks it refused 150 merges without naming a survivor once.
 
+// measureNowFn is the clock a measurement's duration is read from, a seam so a
+// test can say how long one took without waiting.
+var measureNowFn = time.Now
+
 // finishMeasure judges the run's outcomes, records the verdict in the gate
 // log and gives the repo's own after-hook the result. It is the one place a
 // measurement becomes a verdict, so a Cargo run and a Go run cannot disagree
 // about what a survivor means.
-func finishMeasure(root string, cfg MutantsConfig, mutants []MutantOutcome, log io.Writer) Verdict {
+func finishMeasure(root string, cfg MutantsConfig, mutants []MutantOutcome, log io.Writer, began time.Time) Verdict {
 	v := judgeMutants(cfg, mutants)
 	logf(log, "%s", v.Message)
-	AppendGateLog("mutants", measureLogRoot(root), "mutants", measureLogVerdict(v, cfg.AtMergeBlock), 0)
+	AppendGateLog("mutants", measureLogRoot(root), "mutants", measureLogVerdict(v, cfg.AtMergeBlock), measureNowFn().Sub(began))
 	runMutantsAfter(root, cfg, v, log)
 	return v
 }
@@ -69,6 +74,11 @@ func judgeMutants(cfg MutantsConfig, mutants []MutantOutcome) Verdict {
 			// counted apart, and never refused — an untested verdict is
 			// not a result.
 			v.Inconclusive = append(v.Inconclusive, m)
+		case mutantSkipped:
+			// Counted apart and never judged: a mutant of a call that cannot
+			// fail is neither caught nor missed.
+			v.SkipListed++
+			v.Tested--
 		case gremlinsNotCovered:
 			// Counted apart from unviable: "no coverage block maps here" is
 			// a different claim from "this mutant does not compile", and it
@@ -194,6 +204,9 @@ func measureReport(v Verdict, notes []acceptNote) string {
 		// and a trailing ", 0 not covered" on every one of its reports is a
 		// column about a tool it does not use.
 		fmt.Fprintf(&b, ", %d not covered", v.NotCovered)
+	}
+	if v.SkipListed > 0 {
+		fmt.Fprintf(&b, ", %d skipped by mutants-skip", v.SkipListed)
 	}
 	if len(v.Inconclusive) > 0 {
 		// Same rule as not covered: a column about a category this run had
