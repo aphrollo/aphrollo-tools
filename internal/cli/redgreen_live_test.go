@@ -45,6 +45,12 @@ func rglLane(t *testing.T, dir, branch string) {
 // holdout arm for red-green, where the deny is a shadowed guide).
 func rglRepo(t *testing.T, arm string, heldOut bool) string {
 	t.Helper()
+	// The hook's 50 ms budget is wall-clock: on a loaded runner the answer
+	// overruns it and the hook says nothing, which is a slow box, not the
+	// behaviour under test. A test that means the overrun sets its own budget.
+	old := shadow.LiveBudget
+	shadow.LiveBudget = time.Hour
+	t.Cleanup(func() { shadow.LiveBudget = old })
 	gateConfigDir(t)
 	_, dir := primaryWorktreeRepo(t)
 	writeFile(t, filepath.Join(dir, "aphrollo.toml"), "[aphrollo]\n")
