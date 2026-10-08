@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
@@ -166,5 +167,43 @@ func TestApplyGC_NeverDeletesThroughALinkedNodeModules(t *testing.T) {
 				t.Errorf("the junction's target must keep its contents: %v", err)
 			}
 		})
+	}
+}
+
+// A warm gate checkout (the stable per-repo one the merge gate reuses so
+// path-keyed caches stay warm) has a dead holder between merges by design, so the
+// holder alone does not make it garbage: gc proposes it only once it has sat
+// idle past the gc age, and never while a live process holds it.
+func TestGCOrphanGatePRMergeWorktrees_WarmCheckoutIsReapedOnlyWhenIdle(t *testing.T) {
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	now := time.Now()
+
+	mk := func(name string, pid int, idle time.Duration) string {
+		p := filepath.Join(wtParent, name)
+		gitDo(t, repo, "worktree", "add", "--detach", p, "HEAD")
+		writeHolder(t, p, pid)
+		when := now.Add(-idle)
+		if err := os.Chtimes(filepath.Join(p, gatePRMergeHolderFile), when, when); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	recent := mk("gate-prmerge-warm", deadPidForTest(t), time.Hour)
+	idle := mk("gate-prmerge-localci", deadPidForTest(t), DefaultGCAge+time.Hour)
+
+	got := gcOrphanGatePRMergeWorktreesAt(repo, now)
+	if len(got) != 1 || got[0].Path != idle {
+		t.Fatalf("want only the idle warm checkout %s, got %+v (the recent one %s must stay)", idle, got, recent)
+	}
+
+	// the same idle checkout, held by a live process, is never proposed
+	writeHolder(t, idle, os.Getpid())
+	old := now.Add(-DefaultGCAge - time.Hour)
+	if err := os.Chtimes(filepath.Join(idle, gatePRMergeHolderFile), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if got := gcOrphanGatePRMergeWorktreesAt(repo, now); len(got) != 0 {
+		t.Fatalf("a live holder's warm checkout was proposed: %+v", got)
 	}
 }

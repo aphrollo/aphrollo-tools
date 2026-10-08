@@ -87,10 +87,11 @@ func judgeMergedTreeWith(laneWorktree, head string, run SuiteRunner, log io.Writ
 	if tips.landed {
 		return nil // trunk already contains this lane: nothing lands, nothing to judge
 	}
-	wt, cleanup, err := prGateMergedCheckout(laneWorktree, *tips)
+	co, err := prGateMergedCheckout(laneWorktree, *tips)
 	if err != nil {
 		return err
 	}
+	wt := co.Path
 	// cleanupOnce guards the ONE real removal against running twice: the
 	// normal return path and a signal caught mid-Mechanical both call
 	// safeCleanup, and this stops a `git worktree remove` from racing its
@@ -100,13 +101,16 @@ func judgeMergedTreeWith(laneWorktree, head string, run SuiteRunner, log io.Writ
 	// reach through one into the lane's own node_modules.
 	var links depinstall.Links
 	var cleanupOnce sync.Once
-	safeCleanup := func() {
+	// A normal return hands the warm checkout back (the next merge resets
+	// it); a signal mid-run deletes it, since what it holds is half a run.
+	finish := func(done func()) {
 		cleanupOnce.Do(func() {
 			links.Remove()
-			cleanup()
+			done()
 		})
 	}
-	defer safeCleanup()
+	safeCleanup := func() { finish(co.Remove) }
+	defer finish(co.Release)
 	// Armed for exactly the window the checkout exists: Ctrl-C, a plain
 	// `kill`, or the SIGHUP a killed background shell sends its children all
 	// terminate a Go process immediately by default, running no deferred
@@ -189,29 +193,22 @@ func prGateTipsOf(laneWorktree, head string, log io.Writer) (prGateTips, error) 
 // merged index in place, which is the state Mechanical's own stages read: the
 // mutation base becomes the merge base with the incoming tip, exactly as it
 // does under the pre-merge-commit hook.
-func prGateMergedCheckout(laneWorktree string, tips prGateTips) (string, func(), error) {
-	wt, err := os.MkdirTemp(prGateCheckoutParent(laneWorktree), "gate-prmerge-")
+func prGateMergedCheckout(laneWorktree string, tips prGateTips) (prGateCheckout, error) {
+	co, err := prGateCheckoutAt(laneWorktree, prGateWarmName, tips.trunk)
 	if err != nil {
-		return "", nil, prGateRefusal(laneWorktree, "no-checkout",
-			"a checkout to build the merge in could not be created (%v), so the merge was never judged", err)
+		return prGateCheckout{}, prGateRefusal(laneWorktree, "no-checkout",
+			"a checkout of %s to build the merge in could not be made (%v), so the merge was never judged",
+			tips.trunkRef, err)
 	}
-	if out, err := git(laneWorktree, "worktree", "add", "--detach", wt, tips.trunk); err != nil {
-		_ = os.RemoveAll(wt)
-		return "", nil, prGateRefusal(laneWorktree, "no-checkout",
-			"a checkout of %s to build the merge in could not be made (%v), so the merge was never judged\n%s",
-			tips.trunkRef, err, strings.TrimSpace(out))
-	}
-	prGateWriteHolder(wt)
-	cleanup := func() { prGateRemoveCheckout(laneWorktree, wt) }
-	if out, err := git(wt, "merge", "--no-commit", "--no-ff", tips.lane); err != nil {
-		_, _ = git(wt, "merge", "--abort")
-		cleanup()
-		return "", nil, prGateRefusal(laneWorktree, "no-merge-tree",
+	if out, err := git(co.Path, "merge", "--no-commit", "--no-ff", tips.lane); err != nil {
+		_, _ = git(co.Path, "merge", "--abort")
+		co.Remove()
+		return prGateCheckout{}, prGateRefusal(laneWorktree, "no-merge-tree",
 			"this lane does not merge cleanly into %s here, so the merged tree could not be judged"+
 				" — update the lane (git fetch && git merge %s) and try again\n%s",
 			tips.trunkRef, tips.trunkRef, strings.TrimSpace(out))
 	}
-	return wt, cleanup, nil
+	return co, nil
 }
 
 // prGateRemoveCheckout deletes the throwaway checkout wt and the measurement
