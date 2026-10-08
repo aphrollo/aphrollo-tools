@@ -148,3 +148,64 @@ func moduleRootOf(t *testing.T) string {
 		dir = parent
 	}
 }
+
+// Editing aphrollo.toml at the edit stage used to run the whole
+// internal/tdd/mutation package (822s) to answer one question: does the
+// repo's own mutation-accept array stay comma-separated. The one test that
+// reads the file is named as data (goDataFileRun) and the edit runs just it.
+func TestNarrowToRelatedTests_ConfigEditRunsOnlyTheTestThatReadsIt(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, root, "aphrollo.toml", "[aphrollo]\n")
+	write(t, root, "internal/tdd/mutation/cfg_test.go",
+		"package mutation\n\nfunc TestAphrolloToml_MutationAcceptArrayStaysCommaSeparated(t *testing.T) {}\n")
+
+	got := NarrowToRelatedTests(Runner{Cmd: "go", Args: []string{"test", "./..."}}, filepath.Join(root, "aphrollo.toml"), root)
+
+	want := []string{"test", "./internal/tdd/mutation", "-run=^TestAphrolloToml_MutationAcceptArrayStaysCommaSeparated$"}
+	if !slices.Equal(got.Args, want) {
+		t.Fatalf("args = %q, want %q", got.Args, want)
+	}
+}
+
+// If the named reader is gone (renamed, deleted) the narrowing must not
+// select nothing: the package runs whole, as before.
+func TestNarrowToRelatedTests_ConfigEditKeepsThePackageWhenTheReaderIsGone(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, root, "aphrollo.toml", "[aphrollo]\n")
+	write(t, root, "internal/tdd/mutation/cfg_test.go", "package mutation\n\nfunc TestSomethingElse(t *testing.T) {}\n")
+
+	got := NarrowToRelatedTests(Runner{Cmd: "go", Args: []string{"test", "./..."}}, filepath.Join(root, "aphrollo.toml"), root)
+
+	if want := []string{"test", "./internal/tdd/mutation"}; !slices.Equal(got.Args, want) {
+		t.Fatalf("args = %q, want %q", got.Args, want)
+	}
+}
+
+// A non-Go file a package embeds still runs that package whole: only the
+// declared repo-root config is narrowed to a test.
+func TestNarrowToRelatedTests_EmbeddedAssetStillRunsItsPackage(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	write(t, root, "internal/x/x.go", "package x\n\nimport _ \"embed\"\n\n//go:embed asset.txt\nvar asset string\n")
+	write(t, root, "internal/x/asset.txt", "data\n")
+
+	got := NarrowToRelatedTests(Runner{Cmd: "go", Args: []string{"test", "./..."}}, filepath.Join(root, "internal/x/asset.txt"), root)
+
+	if want := []string{"test", "./internal/x"}; !slices.Equal(got.Args, want) {
+		t.Fatalf("args = %q, want %q", got.Args, want)
+	}
+}
+
+// goDataFileRun names a reader by string; if the real test is renamed the
+// edit stage would quietly fall back to the whole package. Pin the name
+// against this repo's own package so a rename is a visible red here.
+func TestGoDataFileRun_NamesATestThisRepoDeclares(t *testing.T) {
+	t.Parallel()
+	for file, name := range goDataFileRun {
+		if !goDeclaresTest(filepath.Join("..", filepath.Base(goDataFileScope[file])), name) {
+			t.Errorf("%s: %s is not declared in %s", file, name, goDataFileScope[file])
+		}
+	}
+}

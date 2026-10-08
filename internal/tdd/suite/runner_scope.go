@@ -1,6 +1,7 @@
 package suite
 
 import (
+	"bytes"
 	"os"
 	"path"
 	"path/filepath"
@@ -79,6 +80,35 @@ var goDataFileScope = map[string]string{
 	"aphrollo.toml": "internal/tdd/mutation",
 }
 
+// goDataFileRun names, per file in goDataFileScope, the one test in that
+// package that reads the file. The EDIT stage runs only it (the commit gate
+// and the merge keep the package whole): a repo-root config read at runtime
+// by the binary is observed by that single test, not by the other tests of
+// the package. The name is honoured only while the package still declares
+// it (goDeclaresTest); a renamed or deleted reader keeps the package whole.
+var goDataFileRun = map[string]string{
+	"aphrollo.toml": "TestAphrolloToml_MutationAcceptArrayStaysCommaSeparated",
+}
+
+// goDeclaresTest reports whether a _test.go file directly in dir declares the
+// function name. An unreadable directory reads as no.
+func goDeclaresTest(dir, name string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	decl := []byte("func " + name + "(")
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(dir, e.Name())); err == nil && bytes.Contains(b, decl) {
+			return true
+		}
+	}
+	return false
+}
+
 // narrowGoSourceEdit builds the edit-time related-tests command for a Source
 // file under a Go runner: a real .go file always narrows to its own
 // directory (it is a .go file there itself, so that directory trivially
@@ -103,7 +133,11 @@ func narrowGoSourceEdit(r Runner, rel, root string) Runner {
 			return r
 		}
 	}
-	return Runner{Cmd: "go", Args: []string{"test", "./" + dir}}
+	args := []string{"test", "./" + dir}
+	if name, ok := goDataFileRun[rel]; ok && goDeclaresTest(filepath.Join(root, dir), name) {
+		args = append(args, "-run=^"+name+"$")
+	}
+	return Runner{Cmd: "go", Args: args}
 }
 
 // dirHasGoFiles reports whether dir holds at least one .go file. An unreadable
