@@ -52,6 +52,9 @@ func runWorkspaceMergeWait(pos []string, into, method string, deleteBranch, dry,
 	// Every line from here on starts with the UTC time it began, so the gaps
 	// between the wait's and the gate's stages can be read off the log.
 	stampedOut, stampedErr := workspace.StampLines(stdout), workspace.StampLines(stderr)
+	// The gate runs in this process and speaks on os.Stderr, so that goes
+	// through the same stamp: its stage lines carry the prefix too.
+	defer workspace.RouteProcessStderr(stampedErr)()
 	if queue {
 		err = workspace.ResumeMergeQueue(t.MainRepo, prior, items, method, deleteBranch, opts, stampedOut, stampedErr)
 	} else {
