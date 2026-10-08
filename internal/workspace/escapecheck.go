@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/aphrollo/aphrollo-tools/internal/expect"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -36,6 +37,9 @@ func closureChecksBeforePR(wt, base, branch, title, body string, w io.Writer) (s
 		if body == "" {
 			body = filledBody
 		}
+	}
+	if _, err := expect.Parse(body); err != nil {
+		return title, body, fmt.Errorf("PR not opened: its body has an expect line the report cannot check: %w", err)
 	}
 	if !checkBodyCloses(body, w) {
 		return title, body, errors.New("PR not opened: its body closes more than one issue behind a single keyword — GitHub only honours the first (see above)")

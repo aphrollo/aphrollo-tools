@@ -391,5 +391,6 @@ func (m *Merge) mergeDetail(number int, via string) map[string]string {
 	if !m.enqueuedAt.IsZero() {
 		d["enqueued_at"] = m.enqueuedAt.UTC().Format(time.RFC3339)
 	}
+	addExpectation(d, m.Target.Worktree, m.Target.Branch)
 	return d
 }
