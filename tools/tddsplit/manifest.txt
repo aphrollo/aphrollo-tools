@@ -694,9 +694,12 @@ mutants_covbuild.go                                mutation
 mutants_covbuild_test.go                           mutation
 mutants_covdeps.go                                 mutation
 mutants_covdeps_test.go                            mutation
+mutants_covdiff_test.go                            mutation
 mutants_covershape.go                              mutation
 mutants_covershape_test.go                         mutation
 mutants_covplan_test.go                            mutation
+mutants_covquery.go                                mutation
+mutants_covquery_test.go                           mutation
 mutants_covscan.go                                 mutation
 mutants_covscan_review_test.go                     mutation
 mutants_covscan_test.go                            mutation
