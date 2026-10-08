@@ -120,6 +120,7 @@ func TestSelectionNote_SaysWhatRanAndNeverCallsASelectionFull(t *testing.T) {
 	}{
 		{"none", nil, ""},
 		{"selected", &Selection{Run: 3, Total: 40, Funcs: []string{"Parse", "T.Run"}}, "selected 3 of 40 tests: covering Parse, T.Run"},
+		{"exactly the named limit is not a count", &Selection{Run: 2, Total: 9, Funcs: []string{"A", "B", "C"}}, "selected 2 of 9 tests: covering A, B, C"},
 		{"many functions are counted", &Selection{Run: 2, Total: 9, Funcs: []string{"A", "B", "C", "D", "E"}}, "selected 2 of 9 tests: covering A, B, C and 2 more"},
 		{"refused", &Selection{Total: 40, Reason: "no coverage store for internal/p yet"}, "full suite: no coverage store for internal/p yet"},
 	}

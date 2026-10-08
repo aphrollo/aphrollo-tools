@@ -1245,6 +1245,8 @@ testquality_line_test.go                           postedit  # prefix says smell
 testquality_own_test.go                            smell
 testquality_test.go                                postedit  # prefix says smell; its test body reaches postedit
 testselect.go                                       suite
+testselect_edit.go                                  postedit
+testselect_edit_test.go                             postedit
 testselect_test.go                                  suite
 tilde.go                                           shell
 timeout_reject_test.go                             precommit

@@ -219,7 +219,7 @@ func postEditFileAs(session, target string, run SuiteRunner, editID string, touc
 		mechCacheAddUnmoved(root, before, snap.runner)
 	}
 
-	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
+	logSuiteVerdictWith("postedit", root, cmdString(snap.runner), string(outcome), res, selectionDetail(snap.runner))
 	queueForegroundRun(res, root, session, snap.editID, "", runnerArgv(snap.runner), string(outcome))
 	recordEditVerdict(root, snap.editID, cmdString(snap.runner), outcome, res.Output)
 	if outcome.IsRed() {
@@ -299,6 +299,9 @@ func captureStateSnapshot(session, target, root string, touched []string) (state
 	// test-cache: a repo that opted in lets go's cache serve the packages the
 	// edit left alone.
 	runner = withTestCache(runner, root, "edit")
+	// test-select: a repo that opted in runs the tests covering the edit and
+	// not the whole package, when the coverage store can say which they are.
+	runner = withTestSelect(runner, root, target, touched)
 
 	fp := computeFingerprint(root)
 	var prevFailing []string
@@ -366,6 +369,33 @@ func greenLabel(outcome Outcome, output string, dur time.Duration) string {
 	return fmt.Sprintf("%s (%.1fs)", outcome, dur.Seconds())
 }
 
+// greenLabelFor is greenLabel for the run r made: a run narrowed by test-select
+// says which tests it ran, or that it ran the package whole and why, so a
+// selected green is never read as a full one.
+func greenLabelFor(r Runner, outcome Outcome, output string, dur time.Duration) string {
+	note := r.Select.Note()
+	if note == "" || outcome == WritingTest {
+		return greenLabel(outcome, output, dur)
+	}
+	if n, ok := parsePassedCount(output); ok {
+		count := fmt.Sprintf("%d passed", n)
+		if cached := cachedGoPackages(output); cached > 0 {
+			count += " (" + cachedPackagesNote(cached) + ")"
+		}
+		return fmt.Sprintf("%s (%s, %s, %.1fs)", outcome, count, note, dur.Seconds())
+	}
+	return fmt.Sprintf("%s (%s, %.1fs)", outcome, note, dur.Seconds())
+}
+
+// selectionDetail is what a selected run adds to its event: how many tests ran
+// of how many the package has. Nothing for a run test-select did not narrow.
+func selectionDetail(r Runner) map[string]string {
+	if r.Select == nil || r.Select.Reason != "" {
+		return nil
+	}
+	return map[string]string{"selected": strconv.Itoa(r.Select.Run), "total": strconv.Itoa(r.Select.Total)}
+}
+
 // cachedPackagesNote says how many packages go served from its test cache,
 // in packages: "N passed" counts tests, and a note in the same unit would read
 // as N of them cached.
@@ -385,7 +415,7 @@ func cachedPackagesNote(n int) string {
 // means "still red, but nothing NEW", and a bare "no-delta" line leaves the
 // session guessing which pre-existing failure it is.
 func passAdvisory(r Runner, root string, outcome Outcome, output string, dur time.Duration, prevFailing []string) string {
-	line := withTargetsNotRun(fmt.Sprintf("gate: %s in %s → %s", cmdString(r), root, greenLabel(outcome, output, dur)), r, root)
+	line := withTargetsNotRun(fmt.Sprintf("gate: %s in %s → %s", cmdString(r), root, greenLabelFor(r, outcome, output, dur)), r, root)
 	if outcome == NoDelta {
 		if hint := noDeltaStillFailingLine(output, prevFailing); hint != "" {
 			line += "\n" + hint

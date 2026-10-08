@@ -147,3 +147,17 @@ func TestLogSuiteVerdictWith_RecordsTheSelectionOnTheEvent(t *testing.T) {
 		t.Fatalf("events = %q, want %q", got, want)
 	}
 }
+
+// A pattern of exactly selectArgMax characters is still one argument; one more
+// is refused and the package runs whole.
+func TestWithSelectedTests_ThePatternLengthLimitIsInclusive(t *testing.T) {
+	base := Runner{Cmd: "go", Args: []string{"test", "./p"}}
+	atLimit := withSelectedTests(base, []string{"Test" + strings.Repeat("a", selectArgMax-4-len("Test"))}, 9, []string{"F"})
+	if atLimit.Select == nil || atLimit.Select.Reason != "" || len(atLimit.Args) != 3 {
+		t.Fatalf("a pattern of %d characters: select = %+v", selectArgMax, atLimit.Select)
+	}
+	over := withSelectedTests(base, []string{"Test" + strings.Repeat("a", selectArgMax-3-len("Test"))}, 9, []string{"F"})
+	if over.Select == nil || !strings.Contains(over.Select.Reason, "too long") || len(over.Args) != 2 {
+		t.Fatalf("a pattern of %d characters: select = %+v", selectArgMax+1, over.Select)
+	}
+}
