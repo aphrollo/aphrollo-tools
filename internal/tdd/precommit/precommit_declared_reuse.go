@@ -37,15 +37,32 @@ import (
 const (
 	declaredVerdictsName = "declared-verdicts.json"
 	declaredVerdictsMax  = 200
-	declaredKeyVersion   = "declared-reuse-v1"
+	declaredKeyVersion   = "declared-reuse-v2"
 )
 
 // declaredVerdict is what one judged run of a command left: whether it passed,
 // how long it took (the seconds a reuse saves), and when.
+//
+// Scope names the command and the root it ran in (the same in every worktree
+// of a repo), and Parts the hashes the key is made of. A later miss compares
+// its own parts with the latest entry of its scope to say which one moved. An
+// entry without them (written before they were kept) is no record.
 type declaredVerdict struct {
-	Green bool    `json:"green"`
-	Secs  float64 `json:"secs"`
-	At    string  `json:"at"`
+	Green bool           `json:"green"`
+	Secs  float64        `json:"secs"`
+	At    string         `json:"at"`
+	Scope string         `json:"scope,omitempty"`
+	Parts *declaredParts `json:"parts,omitempty"`
+	// Seq counts the writes to the store, so two entries made in one second
+	// still have an order. An entry from an older binary has none (0).
+	Seq int64 `json:"seq,omitempty"`
+}
+
+// declaredParts are the three hashes a declared command's key folds together.
+type declaredParts struct {
+	Inputs string `json:"inputs"`
+	Locks  string `json:"locks"`
+	Tool   string `json:"tool"`
 }
 
 type declaredVerdictStore struct {
@@ -54,6 +71,9 @@ type declaredVerdictStore struct {
 	// newer marks a file written at a schema this binary does not know:
 	// nothing is read from it and nothing is written back.
 	newer bool
+	// bad marks a file that was there and did not parse; it has been set
+	// aside, and the store reads as empty.
+	bad bool
 }
 
 // declaredVerdictsWrite serialises this process's writes. Two processes can still
@@ -70,8 +90,13 @@ func declaredVerdictsPath() string {
 
 func loadDeclaredVerdicts(path string) *declaredVerdictStore {
 	s := &declaredVerdictStore{Verdicts: map[string]declaredVerdict{}}
-	if _, usable := readStateJSON(path, s); !usable {
+	_, existed := os.Stat(path)
+	ok, usable := readStateJSON(path, s)
+	if !usable {
 		return &declaredVerdictStore{Verdicts: map[string]declaredVerdict{}, newer: true}
+	}
+	if !ok && existed == nil {
+		return &declaredVerdictStore{Verdicts: map[string]declaredVerdict{}, bad: true}
 	}
 	if s.Verdicts == nil {
 		s.Verdicts = map[string]declaredVerdict{}
@@ -101,12 +126,18 @@ func recordDeclaredVerdictAt(path, key string, v declaredVerdict, max int) {
 	if v.At == "" {
 		v.At = time.Now().UTC().Format(time.RFC3339)
 	}
+	v.Seq = 1
+	for _, e := range s.Verdicts {
+		if e.Seq >= v.Seq {
+			v.Seq = e.Seq + 1
+		}
+	}
 	s.Verdicts[key] = v
 	for len(s.Verdicts) > max {
-		oldest, oldestAt := "", ""
+		oldest := ""
 		for k, e := range s.Verdicts {
-			if oldest == "" || e.At < oldestAt {
-				oldest, oldestAt = k, e.At
+			if oldest == "" || declaredNewer(oldest, s.Verdicts[oldest], k, e) {
+				oldest = k
 			}
 		}
 		delete(s.Verdicts, oldest)
@@ -135,32 +166,97 @@ func declaredVerdictAt(path, key string) (declaredVerdict, bool) {
 	return v, ok
 }
 
+// declaredKeyed is what keying c in root came to: the store key, the short
+// form of the inputs' hash for the line a reuse prints, the scope and parts a
+// stored entry carries. takes is false for a command that does not take part
+// (no inputs, or a baseline); err is set when it does and the key could not be
+// taken, and says which of the causes it was.
+type declaredKeyed struct {
+	key, short, scope string
+	parts             declaredParts
+	takes             bool
+	// baselined marks a command with inputs that is judged against HEAD and so
+	// never reuses.
+	baselined bool
+	err       error
+}
+
+// declaredKeying keys c run in root.
+func declaredKeying(root string, c declaredCommand) declaredKeyed {
+	if len(c.Inputs) == 0 {
+		return declaredKeyed{}
+	}
+	if c.Baseline != "" && c.Baseline != baselineNone {
+		return declaredKeyed{baselined: true}
+	}
+	k := declaredKeyed{takes: true}
+	r := Runner{Cmd: c.Argv[0], Args: c.Argv[1:]}
+	k.scope = mechKey(root, "", r)
+	tool, err := toolStamp(root, c.Argv[0])
+	if err != nil {
+		k.err = &toolError{program: c.Argv[0], err: err}
+		return k
+	}
+	inputs, locks, err := inputsParts(root, c.Inputs)
+	if err != nil {
+		k.err = err
+		return k
+	}
+	k.parts = declaredParts{Inputs: inputs, Locks: locks, Tool: tool}
+	h := sha256.New()
+	fmt.Fprintf(h, "%s\x00%s\x00%s\x00%s\x00%s", declaredKeyVersion, strings.Join(c.Argv, "\x00"), tool, inputs, locks)
+	k.key = mechKey(root, hex.EncodeToString(h.Sum(nil)), r)
+	k.short = inputs[:8]
+	return k
+}
+
 // declaredReuseKey is the store key for c run in root, and the short form of
 // the inputs' hash for the line a reuse prints. ok is false for a command
 // that does not take part: no inputs, a baseline, or anything that could not
 // be read.
 func declaredReuseKey(root string, c declaredCommand) (key, short string, ok bool) {
-	if len(c.Inputs) == 0 || (c.Baseline != "" && c.Baseline != baselineNone) {
+	k := declaredKeying(root, c)
+	if !k.takes || k.err != nil {
 		return "", "", false
 	}
-	tool, err := toolStamp(c.Argv[0])
-	if err != nil {
-		return "", "", false
-	}
-	inputs, err := inputsHash(root, c.Inputs)
-	if err != nil {
-		return "", "", false
-	}
-	h := sha256.New()
-	fmt.Fprintf(h, "%s\x00%s\x00%s\x00%s", declaredKeyVersion, strings.Join(c.Argv, "\x00"), tool, inputs)
-	state := hex.EncodeToString(h.Sum(nil))
-	return mechKey(root, state, Runner{Cmd: c.Argv[0], Args: c.Argv[1:]}), inputs[:8], true
+	return k.key, k.short, true
 }
 
-// toolStamp identifies the program a command runs: where it resolves and the
-// size and modification time of the file there, so an upgraded tool is a
-// different command.
-func toolStamp(program string) (string, error) {
+// declaredVerdictFrom is the entry a judged run of the command keyed as k
+// leaves: its outcome and seconds, and the scope and parts a later miss
+// compares against.
+func declaredVerdictFrom(k declaredKeyed, green bool, secs float64) declaredVerdict {
+	parts := k.parts
+	return declaredVerdict{Green: green, Secs: secs, Scope: k.scope, Parts: &parts}
+}
+
+// toolError is a program that could not be resolved.
+type toolError struct {
+	program string
+	err     error
+}
+
+func (e *toolError) Error() string { return fmt.Sprintf("tool %s: %v", e.program, e.err) }
+func (e *toolError) Unwrap() error { return e.err }
+
+// toolStamp identifies the program a command runs, so an upgraded tool is a
+// different command. A program found on PATH (or by absolute path) is its
+// location, size and modification time. A program named by a path inside the
+// root (./scripts/lint.sh) is the file in the root's own checkout, found from
+// root and not from the process, and is its content: a modification time is
+// when a worktree was checked out, which differs between the lane's and the
+// merge gate's.
+func toolStamp(root, program string) (string, error) {
+	if strings.ContainsAny(program, `/\`) && !filepath.IsAbs(program) {
+		stamp, present, err := contentStamp(root, filepath.ToSlash(program))
+		if err != nil {
+			return "", err
+		}
+		if !present {
+			return "", fs.ErrNotExist
+		}
+		return "root:" + filepath.ToSlash(filepath.Clean(program)) + "|" + stamp, nil
+	}
 	path, err := exec.LookPath(program)
 	if err != nil {
 		return "", err
@@ -201,26 +297,27 @@ func normalizeInputGlobs(globs []string) ([]string, error) {
 			n = strings.TrimPrefix(n, "./")
 		}
 		if n == "" || strings.HasPrefix(n, "/") || n == ".." || strings.HasPrefix(n, "../") || filepath.VolumeName(n) != "" {
-			return nil, fmt.Errorf("input glob \"%s\" starts outside the root", g)
+			return nil, &globError{kind: globOutside, arg: g}
 		}
 		out = append(out, n)
 	}
 	return out, nil
 }
 
-// inputsHash is the hash of every file under root, tracked or untracked and not
-// ignored, that one of globs selects (its path and content), and of the root's
-// lockfiles and manifests. It fails, so the command runs, when a glob selects
-// no file (a typo would otherwise hash to a constant for ever) or selects a
-// git-ignored one (the merge checkout does not hold it the same way).
-func inputsHash(root string, globs []string) (string, error) {
-	globs, err := normalizeInputGlobs(globs)
+// inputsParts is two hashes of root. inputs covers every file, tracked or
+// untracked and not ignored, that one of globs selects (its path and content);
+// locks covers the root's lockfiles and manifests. It fails, so the command
+// runs, when a glob selects no file (a typo would otherwise hash to a constant
+// for ever) or selects a git-ignored one (the merge checkout does not hold it
+// the same way).
+func inputsParts(root string, globs []string) (inputs, locks string, err error) {
+	globs, err = normalizeInputGlobs(globs)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	out, err := git(root, "-c", "core.quotepath=off", "ls-files", "-z", "--cached", "--others", "--exclude-standard")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	matched := make([]bool, len(globs))
 	var picked []string
@@ -246,7 +343,7 @@ func inputsHash(root string, globs []string) (string, error) {
 	for _, p := range picked {
 		stamp, present, err := contentStamp(root, p)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 		if !present {
 			continue // tracked but deleted: absent from the hash, as from the tree
@@ -255,12 +352,12 @@ func inputsHash(root string, globs []string) (string, error) {
 	}
 	for i, g := range globs {
 		if !matched[i] {
-			return "", fmt.Errorf("input glob %q matches no file", g)
+			return "", "", &globError{kind: globNoMatch, arg: g}
 		}
 	}
 	ignored, err := git(root, "-c", "core.quotepath=off", "ls-files", "-z", "--ignored", "--others", "--exclude-standard")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	for _, p := range strings.Split(ignored, "\x00") {
 		if inDependencyDir(p) {
@@ -268,18 +365,19 @@ func inputsHash(root string, globs []string) (string, error) {
 		}
 		for _, g := range globs {
 			if p != "" && ratchet.MatchGlob(g, p) {
-				return "", fmt.Errorf("input glob %q selects the git-ignored %s", g, p)
+				return "", "", &globError{kind: globIgnored, arg: p}
 			}
 		}
 	}
+	lh := sha256.New()
 	for _, name := range lockfiles {
 		stamp, present, err := contentStamp(root, name)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		fmt.Fprintf(h, "lock %s\x00%v\x00%s\n", name, present, stamp)
+		fmt.Fprintf(lh, "lock %s\x00%v\x00%s\n", name, present, stamp)
 	}
-	return hex.EncodeToString(h.Sum(nil)), nil
+	return hex.EncodeToString(h.Sum(nil)), hex.EncodeToString(lh.Sum(nil)), nil
 }
 
 // contentStamp is the hash of the file at rel under root; present is false for
@@ -298,19 +396,33 @@ func contentStamp(root, rel string) (stamp string, present bool, err error) {
 // declaredReuse answers whether the merge gate may skip c: it must be the
 // merge, c must declare inputs, and the store must hold a green for exactly
 // this command over exactly these inputs. It says so on the gate's stderr and
-// records the seconds saved.
-func declaredReuse(gateName, root string, r Runner, key, short string, ok bool) bool {
-	if gateName != premergeDisplayName || !ok {
+// records the seconds saved. When the merge runs a command that declares
+// inputs instead, it says why (declaredMissReason); when the commit gate
+// cannot key such a command, so that nothing is recorded for the merge, it
+// says that.
+func declaredReuse(gateName, root string, r Runner, k declaredKeyed) bool {
+	if k.baselined && gateName == premergeDisplayName {
+		fmt.Fprintf(stderrFor(root), "[run] %s: no reuse — %s\n", cmdString(r), missBaseline)
+	}
+	if !k.takes {
 		return false
 	}
-	v, found := declaredVerdictFor(key)
-	if !found || !v.Green {
+	if gateName != premergeDisplayName {
+		if k.err != nil {
+			fmt.Fprintf(stderrFor(root), "[note] %s: not recorded for reuse — %s\n", cmdString(r), keyErrReason(k.err))
+		}
 		return false
 	}
-	fmt.Fprintf(stderrFor(root), "[reuse] %s: inputs unchanged since the lane's green (%s)\n", cmdString(r), short)
-	AppendGateLogDetail(gateName, root, cmdString(r), "declared-reuse", 0,
-		map[string]string{"saved_secs": strconv.FormatFloat(v.Secs, 'f', -1, 64)})
-	return true
+	if k.err == nil {
+		if v, found := declaredVerdictFor(k.key); found && v.Green {
+			fmt.Fprintf(stderrFor(root), "[reuse] %s: inputs unchanged since the lane's green (%s)\n", cmdString(r), k.short)
+			AppendGateLogDetail(gateName, root, cmdString(r), "declared-reuse", 0,
+				map[string]string{"saved_secs": strconv.FormatFloat(v.Secs, 'f', -1, 64)})
+			return true
+		}
+	}
+	fmt.Fprintf(stderrFor(root), "[run] %s: no reuse — %s\n", cmdString(r), missReasonFor(declaredVerdictsPath(), k, time.Now()))
+	return false
 }
 
 // recordDeclaredRun stores what a judged run of c left, provided the inputs are
@@ -319,8 +431,9 @@ func recordDeclaredRun(root string, c declaredCommand, key string, ok bool, res 
 	if !ok || !ran || last.TimedOut || last.Inconclusive != "" {
 		return
 	}
-	if again, _, same := declaredReuseKey(root, c); !same || again != key {
+	again := declaredKeying(root, c)
+	if again.err != nil || again.key != key {
 		return
 	}
-	recordDeclaredVerdict(key, declaredVerdict{Green: !res.Blocked && last.Passed, Secs: last.Duration.Seconds()})
+	recordDeclaredVerdict(key, declaredVerdictFrom(again, !res.Blocked && last.Passed, last.Duration.Seconds()))
 }
