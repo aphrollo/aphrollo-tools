@@ -53,6 +53,8 @@ prints one line saying the repo's minimum went unchecked.
 version rule in this repo's CI: the body line, the one fragment and its level,
 no edit to a released changelog section or a merged fragment.
 
+A shell that still resolves `aphrollo` to an older install (a root-owned `/usr/local/bin/aphrollo`, say) hands `workspace`, `ratchet`, `ci` and the `gate` hooks to the user-space `current` when that names a strictly newer release the same account owns: the same argv, stdin, environment and exit code, and for every verb but the `gate` hooks one stderr line first, `aphrollo <self> -> <newer> (<path>): a newer install runs this` (printed once the newer binary has started; on Unix just before the exec, which cannot be undone). `version`, `update`, `install` and help text are never handed off. The child carries `APHROLLO_HANDOFF=<its version>`, and only a guard equal to the version about to be handed to stops a handoff, so a stale or leaked guard never hides a different, newer install. A pointer that is unreadable, not MAJOR.MINOR.PATCH or missing its binary, a binary owned by another account, or a version that is equal or older, runs this binary silently; `APHROLLO_NO_HANDOFF=1` switches the handoff off. The newer binary is not probed first: if it crashes at start, its non-zero exit and stderr pass through (the hooks call that same binary directly, so it would fail them too). `aphrollo version` prints `newer install: <ver> at <path>` when one exists.
+
 `refactor`, `find`, `outline` and `show` need the language server on PATH:
 `gopls`, `rust-analyzer`, `pyright-langserver` or `typescript-language-server`.
 

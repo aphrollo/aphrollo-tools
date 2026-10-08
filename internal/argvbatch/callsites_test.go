@@ -58,6 +58,7 @@ var spreadCallSites = map[string]string{
 	"internal/gitiso/template.go:BuildRepo":                          "bounded: fixed git arguments that build a test template repository",
 	"internal/gitiso/verify.go:Probe":                                "bounded: fixed git arguments of the isolation probe",
 	"internal/gitiso/verify.go:makeVictim":                           "bounded: fixed git arguments that build the probe's repository",
+	"internal/handoff/launch_windows.go:Launch":                      "bounded: forwards the caller's own command line, which already fit the shell's limit once",
 	"internal/proc/killtree_windows.go:KillTree":                     "bounded: one pid",
 	"internal/run/run.go:command":                                    "bounded: a leaf spawn that runs the arguments its caller built; a caller with a path list cuts it with run.Split or run.Batch first",
 	"internal/shfake/testdata/trampoline/main.go:main":               "bounded: forwards the command line its caller gave the fake, which already fit the shell's limit once",

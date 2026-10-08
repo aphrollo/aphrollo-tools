@@ -74,3 +74,5 @@ APHROLLO_MUTATION_GATE | internal/tdd/mutation/mutants_env.go | =1 marks a child
 APHROLLO_MUTANTS_STATUS | internal/tdd/mutation/mutants_measure_judge.go | The measurement's own verdict (0 passed, 1 refused), handed to the repo's mutants-after command so it can reclaim what a timeout-killed test binary left behind.
 APHROLLO_GITISO_PROBE | internal/gitiso/verify.go | Set on the child test binary VerifyNoLeak starts, so a package's git-isolation probe test runs its careless git calls there and does nothing when run on its own.
 APHROLLO_ASSIGNED_BRANCH | internal/undercover/assigned.go | The one branch a cloud session was assigned (read only when CLAUDE_CODE_REMOTE=true); the undercover branch-name check accepts exactly that name and no other.
+APHROLLO_HANDOFF | internal/handoff/handoff.go | Set in the child of a version handoff so a newer install never hands the same verb on again (a loop guard, not a setting).
+APHROLLO_NO_HANDOFF | internal/handoff/handoff.go | Set to any value to keep a binary from handing a verb to a newer user-space install.
