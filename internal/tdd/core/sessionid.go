@@ -38,6 +38,10 @@ func SetHookActor(session, agent string) {
 	hookSession, hookAgent = session, agent
 }
 
+// HookAgent is the subagent the hook process serves, "" for the session's own
+// agent or outside a hook.
+func HookAgent() string { return hookAgent }
+
 // eventActor is the actor an event is recorded under: the actor it names, or
 // the hook's session (else the environment's) when it names none, and
 // "session/agent" when the hook serves a subagent's call and the event is its
