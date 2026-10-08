@@ -154,3 +154,16 @@ func TestPipeline_NoJobInThePipelineIsSelfHosted(t *testing.T) {
 		}
 	}
 }
+
+// No self-hosted runner serves this repo: the nightly jobs that asked for one
+// sat queued or cancelled for a week. A public repo runs GitHub-hosted runners
+// for free, so every job names one.
+func TestPipeline_NoJobWaitsOnASelfHostedRunner(t *testing.T) {
+	for file, text := range workflowFiles(t) {
+		for _, job := range workflowJobs(file, text) {
+			if m := runsOnLineRe.FindStringSubmatch(job.text); m != nil && strings.Contains(m[1], "self-hosted") {
+				t.Errorf("%s job %s runs on %s, a runner nothing serves", file, job.name, m[1])
+			}
+		}
+	}
+}

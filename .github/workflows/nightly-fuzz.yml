@@ -24,7 +24,7 @@ jobs:
     # Only the schedule or a manual dispatch by a writer can put this job on
     # the host; a pull_request event never satisfies the guard.
     if: github.repository == 'aphrollo/aphrollo-tools' && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
-    runs-on: self-hosted
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
