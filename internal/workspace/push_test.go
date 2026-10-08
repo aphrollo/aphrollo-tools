@@ -60,18 +60,9 @@ func TestNormalizeGitHubURL_NeverLeaksCredentials(t *testing.T) {
 // pushed, returning the repo toplevel.
 func repoWithRemote(t *testing.T) string {
 	t.Helper()
-	repo := initRepo(t)
-	bare := filepath.Join(t.TempDir(), "origin.git")
-	if out, err := exec.Command("git", "init", "--bare", "-q", bare).CombinedOutput(); err != nil {
-		t.Fatalf("init bare: %v\n%s", err, out)
-	}
-	run := func(args ...string) {
-		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
-			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
-	}
-	run("remote", "add", "origin", bare)
-	run("push", "-q", "-u", "origin", "main")
+	fixtureGitEnv(t)
+	repo := t.TempDir()
+	copyOriginPair(t, remoteTemplate(), repo, filepath.Join(t.TempDir(), "origin.git"))
 	return repo
 }
 

@@ -4,9 +4,13 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+
+	"github.com/aphrollo/aphrollo-tools/internal/gitiso"
 )
 
 // A merge judges one commit and merges that same commit. The lane's local HEAD
@@ -21,15 +25,36 @@ type judgedRepo struct {
 	c1, c2, c3, d string
 }
 
+// judgedTemplate is the repo newJudgedRepo hands out a copy of, built once: a
+// run of three commits on main and a fourth off the first, left checked out.
+var judgedTemplate = sync.OnceValue(func() judgedRepo {
+	dir := filepath.Join(originTemplateRoot(), "repo")
+	if err := gitiso.CopyRepo(dir, repoTemplate()); err != nil {
+		panic(err)
+	}
+	commit := func(name string) string {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x\n"), 0o644); err != nil {
+			panic(err)
+		}
+		originTemplateGit(dir, "add", name)
+		originTemplateGit(dir, "commit", "-qm", "follow-up after merge")
+		return originTemplateGit(dir, "rev-parse", "HEAD")
+	}
+	r := judgedRepo{dir: dir}
+	r.c1, r.c2, r.c3 = commit("a.txt"), commit("b.txt"), commit("c.txt")
+	originTemplateGit(dir, "checkout", "-q", "--detach", r.c1)
+	r.d = commit("d.txt")
+	return r
+})
+
 func newJudgedRepo(t *testing.T) judgedRepo {
 	t.Helper()
-	dir := initRepo(t)
-	r := judgedRepo{dir: dir}
-	r.c1 = commitFile(t, dir, "a.txt")
-	r.c2 = commitFile(t, dir, "b.txt")
-	r.c3 = commitFile(t, dir, "c.txt")
-	gitIn(t, dir, "checkout", "-q", "--detach", r.c1)
-	r.d = commitFile(t, dir, "d.txt")
+	fixtureGitEnv(t)
+	r := judgedTemplate()
+	r.dir = t.TempDir()
+	if err := gitiso.CopyRepo(r.dir, judgedTemplate().dir); err != nil {
+		t.Fatal(err)
+	}
 	return r
 }
 

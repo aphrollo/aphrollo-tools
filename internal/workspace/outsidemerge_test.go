@@ -30,9 +30,7 @@ func originCheckout(t *testing.T, clone string) string {
 		t.Fatal(err)
 	}
 	tmp := t.TempDir()
-	gitRun(t, tmp, "clone", "-q", strings.TrimSpace(string(url)), tmp)
-	gitRun(t, tmp, "config", "user.email", "t@t")
-	gitRun(t, tmp, "config", "user.name", "t")
+	gitRun(t, tmp, "clone", "-q", "--config", "user.email=t@t", "--config", "user.name=t", strings.TrimSpace(string(url)), tmp)
 	return tmp
 }
 
