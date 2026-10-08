@@ -5,6 +5,9 @@ import (
 	"path"
 	"slices"
 	"strings"
+
+	"github.com/aphrollo/aphrollo-tools/internal/costhistory"
+	"github.com/aphrollo/aphrollo-tools/internal/testcost"
 )
 
 // rootGroup is one project root's staged Test/Source files (repo-root-
@@ -138,6 +141,11 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 		return Mechanical(repoRoot, run)
 	}
 
+	// What the suites this commit runs cost, for the one line a commit that adds
+	// a slow test gets at the end.
+	costs := NewCostRecorder()
+	run = costs.Wrap(run)
+
 	// The secret scan answers for every non-merge commit, prose and comment-only
 	// ones included: a key in a markdown file is as leaked as one in code.
 	var notes []string
@@ -212,6 +220,10 @@ func precommitDecide(repoRoot string, run SuiteRunner) GateResult {
 	// commit adds mutated and run against their own tests.
 	if res := mutantsAtCommitStage("precommit", repoRoot); collect(res) {
 		return res
+	}
+	first, _ := costs.Run()
+	if line := testCostInfoLine(repoRoot, first, func() []testcost.Run { return costhistory.Read(repoRoot) }); line != "" {
+		notes = append(notes, line)
 	}
 	return GateResult{Message: strings.Join(notes, "\n")}
 }
