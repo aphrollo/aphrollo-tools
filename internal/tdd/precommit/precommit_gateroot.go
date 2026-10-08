@@ -137,7 +137,11 @@ func rootChecksStage(gateName, repoRoot, root string, runner Runner, touched []s
 func rootSuiteRunner(gateName, repoRoot, root string, runner Runner, files []string) Runner {
 	runner = narrowedRunner(runner, repoRoot, root, files)
 	if runner.Cmd == "go" {
-		runner = withGoCIParity(runner, gateName == premergeDisplayName)
+		atMerge := gateName == premergeDisplayName
+		// test-cache lets the commit's suite be served by go's cache; the
+		// merge is a stage of its own in that table and never is.
+		runner = withTestCache(runner, repoRoot, testCacheStage(atMerge))
+		runner = withGoCIParity(runner, atMerge)
 	}
 	if node, missing := nodeToolRunner(root, runner); missing == "" {
 		runner = node
@@ -351,4 +355,12 @@ func doctestStage(gateName, repoRoot, root string, plan cargoStagePlan, run Suit
 // therefore the last.
 func suiteStage(gateName, repoRoot, root string, runner Runner, run SuiteRunner) GateResult {
 	return runSuiteStage(gateName, "mechanical", repoRoot, root, runner, run)
+}
+
+// testCacheStage is the stage name of the test-cache table the gate is at.
+func testCacheStage(atMerge bool) string {
+	if atMerge {
+		return "merge"
+	}
+	return "commit"
 }

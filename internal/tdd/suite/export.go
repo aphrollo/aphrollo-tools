@@ -83,6 +83,8 @@ func BuildOnlyTerminal(p0 Runner, p1 string, p2 SuiteResult) string {
 	return buildOnlyTerminal(p0, p1, p2)
 }
 
+func CachedGoPackages(p0 string) int { return cachedGoPackages(p0) }
+
 func CargoAlwaysRunPackages(p0 string) []string { return cargoAlwaysRunPackages(p0) }
 
 func CargoAphrolloFlag(p0 string, p1 string) bool { return cargoAphrolloFlag(p0, p1) }
@@ -336,6 +338,8 @@ func VerdictFor(p0 string, p1 string, p2 string, p3 string, p4 stageOutcome) Gat
 func WholeRunScope() runScope { return wholeRunScope() }
 
 func WithGateProfile(p0 Runner, p1 string) Runner { return withGateProfile(p0, p1) }
+
+func WithTestCache(p0 Runner, p1 string, p2 string) Runner { return withTestCache(p0, p1, p2) }
 
 func WorktreeStateHash(p0 string) string { return worktreeStateHash(p0) }
 

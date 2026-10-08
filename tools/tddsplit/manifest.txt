@@ -1218,11 +1218,16 @@ tddskill_test.go                                   install
 tddsplit_manifest.go                                precommit
 tddsplit_manifest_test.go                           precommit
 testbinary_refusal_test.go                          install
+testcache.go                                        suite
+testcache_edit_test.go                              postedit
+testcache_stage_test.go                             precommit
+testcache_test.go                                   suite
 testdata/cargo_mutants_outcomes.json               mutation
 testdata/covershape/                               mutation
 testdata/fuzz/FuzzBashWriteTargets/                shell
 testdata/fuzz/FuzzDocsOnlyClassifier/              core
 testdata/fuzz/FuzzGateLogLine/                     escape
+testdata/go_test_json_cached.json                  suite
 testdata/gremlins_report.json                      mutation
 testdata/hooks/                                    tddtest
 testdata/policies/                                 smell

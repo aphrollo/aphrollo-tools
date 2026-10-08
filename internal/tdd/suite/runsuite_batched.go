@@ -36,19 +36,26 @@ func runBatched(r Runner, root string, limit time.Duration, budget int, one Suit
 		b.Args = args
 		b.Deadline = deadline
 		res := one(b, root)
-		merged.Output += res.Output
-		merged.GoTestJSON += res.GoTestJSON
-		merged.Duration += res.Duration
-		merged.Dir = res.Dir
-		merged.Passed = res.Passed
-		merged.TimedOut = res.TimedOut
-		merged.Inconclusive = res.Inconclusive
-		if merged.Err == "" {
-			merged.Err = res.Err
-		}
+		joinResult(&merged, res)
 		if !res.Passed || res.TimedOut {
 			return merged
 		}
 	}
 	return merged
+}
+
+// joinResult folds the result of the next run into merged: its output after
+// the earlier ones', durations summed, and the verdict fields the latest
+// run's own.
+func joinResult(merged *SuiteResult, res SuiteResult) {
+	merged.Output += res.Output
+	merged.GoTestJSON += res.GoTestJSON
+	merged.Duration += res.Duration
+	merged.Dir = res.Dir
+	merged.Passed = res.Passed
+	merged.TimedOut = res.TimedOut
+	merged.Inconclusive = res.Inconclusive
+	if merged.Err == "" {
+		merged.Err = res.Err
+	}
 }

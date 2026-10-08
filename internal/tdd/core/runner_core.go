@@ -38,6 +38,15 @@ type Runner struct {
 	// runner but a proof's cargo one, which points the build at a target
 	// directory outside the lane it copied.
 	Env []string
+	// Cached lets go's own test-result cache serve this `go test` run: the
+	// gate's usual -count=1 is left off (test-cache in aphrollo.toml, chosen
+	// per stage by suite.withTestCache). false, the default for every runner,
+	// keeps -count=1 so a pass is a measurement of the tree on disk.
+	Cached bool
+	// Impure is the package patterns of a Cached run whose results go's cache
+	// cannot vouch for (test-cache-impure): RunSuite runs those apart with
+	// -count=1. nil when the run is not Cached.
+	Impure []string
 }
 
 // cargoPackageName reads a Cargo.toml's `[package]` name, "" when the file is

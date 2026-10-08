@@ -23,9 +23,8 @@ import (
 //	               whole-suite run past it, or its elements are a fixed set
 //	"batched ..."  the executor splits the line before it starts
 var loopBuiltArgSites = map[string]string{
-	"internal/tdd/mutation/mutants_prove_widen.go:widenGoSelection":  "batched: the go test package list it builds is split by SplitCommand where the mutation tool starts it",
-	"internal/tdd/precommit/precommit_go_ciparity.go:withGoCIParity": "bounded: the loop adds the fixed CI flag set; the package list is copied with a spread and split by RunSuite",
-	"internal/tdd/suite/runner_pytest.go:narrowPytestFailFirst":      "bounded: past stagedArgvBudget the runner stays whole instead of naming every staged test file",
+	"internal/tdd/mutation/mutants_prove_widen.go:widenGoSelection": "batched: the go test package list it builds is split by SplitCommand where the mutation tool starts it",
+	"internal/tdd/suite/runner_pytest.go:narrowPytestFailFirst":     "bounded: past stagedArgvBudget the runner stays whole instead of naming every staged test file",
 }
 
 func isRunnerOrExec(n ast.Node) bool {

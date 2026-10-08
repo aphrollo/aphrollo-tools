@@ -226,7 +226,7 @@ func postEditFileAs(session, target string, run SuiteRunner, editID string, touc
 		return withNote(redSummary(snap.runner, root, outcome, res.Output), widenNote), false
 	}
 	if unconstrained {
-		return withNote(unconstrainedLine(snap.runner, root, passed, res.Duration), widenNote), false
+		return withNote(unconstrainedLine(snap.runner, root, passed, cachedGoPackages(res.Output), res.Duration), widenNote), false
 	}
 	return withNote(passAdvisory(snap.runner, root, outcome, res.Output, res.Duration, snap.prevFailing), widenNote), false
 }
@@ -296,6 +296,9 @@ func captureStateSnapshot(session, target, root string, touched []string) (state
 	// the commit gate's proof resolves, never a bare `pytest` off PATH.
 	runner, pytestMissing := pytestExecRunner(root, runner)
 	toolMissing = cmp.Or(toolMissing, pytestMissing)
+	// test-cache: a repo that opted in lets go's cache serve the packages the
+	// edit left alone.
+	runner = withTestCache(runner, root, "edit")
 
 	fp := computeFingerprint(root)
 	var prevFailing []string
@@ -355,6 +358,9 @@ func greenLabel(outcome Outcome, output string, dur time.Duration) string {
 		return fmt.Sprintf("%s (0 tests ran, %.1fs — nothing was tested)", outcome, dur.Seconds())
 	}
 	if n, ok := parsePassedCount(output); ok {
+		if cached := cachedGoPackages(output); cached > 0 {
+			return fmt.Sprintf("%s (%d passed (%d cached), %.1fs)", outcome, n, cached, dur.Seconds())
+		}
 		return fmt.Sprintf("%s (%d passed, %.1fs)", outcome, n, dur.Seconds())
 	}
 	return fmt.Sprintf("%s (%.1fs)", outcome, dur.Seconds())

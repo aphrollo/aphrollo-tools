@@ -145,4 +145,6 @@ func verdictFor(p0 string, p1 string, p2 string, p3 string, p4 stageOutcome) Gat
 
 func withGateProfile(p0 Runner, p1 string) Runner { return suite.WithGateProfile(p0, p1) }
 
+func withTestCache(p0 Runner, p1 string, p2 string) Runner { return suite.WithTestCache(p0, p1, p2) }
+
 func worktreeStateHash(p0 string) string { return suite.WorktreeStateHash(p0) }

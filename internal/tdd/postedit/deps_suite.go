@@ -65,6 +65,8 @@ func buildOnlyTerminal(p0 Runner, p1 string, p2 SuiteResult) string {
 	return suite.BuildOnlyTerminal(p0, p1, p2)
 }
 
+func cachedGoPackages(p0 string) int { return suite.CachedGoPackages(p0) }
+
 func cargoIntegrationTargetsNotRun(p0 Runner, p1 string) []string {
 	return suite.CargoIntegrationTargetsNotRun(p0, p1)
 }
@@ -146,6 +148,8 @@ func unownedEdit(p0 Runner, p1 string, p2 string) string { return suite.UnownedE
 func verdictCoversRun(p0 gateEntry, p1 runScope) bool { return suite.VerdictCoversRun(p0, p1) }
 
 func wholeRunScope() runScope { return suite.WholeRunScope() }
+
+func withTestCache(p0 Runner, p1 string, p2 string) Runner { return suite.WithTestCache(p0, p1, p2) }
 
 func worktreeStateHash(p0 string) string { return suite.WorktreeStateHash(p0) }
 

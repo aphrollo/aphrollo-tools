@@ -21,8 +21,14 @@ func unconstrainedGreen(kind Kind, outcome Outcome, snap stateSnapshot, root str
 	return prev.PassedCount == passed
 }
 
-// unconstrainedLine is the one line that case prints.
-func unconstrainedLine(r Runner, root string, passed int, dur time.Duration) string {
-	return withTargetsNotRun(fmt.Sprintf("gate: %s in %s %s (%d passed; no test changed with this edit — mutation proof owed)",
-		cmdString(r), root, GreenUnconstrained, passed), r, root)
+// unconstrainedLine is the one line that case prints. cached is how many of
+// the packages go served from its test cache; it is named so a cached green is
+// never read as a fresh run.
+func unconstrainedLine(r Runner, root string, passed, cached int, dur time.Duration) string {
+	count := fmt.Sprintf("%d passed", passed)
+	if cached > 0 {
+		count = fmt.Sprintf("%d passed (%d cached)", passed, cached)
+	}
+	return withTargetsNotRun(fmt.Sprintf("gate: %s in %s %s (%s; no test changed with this edit — mutation proof owed)",
+		cmdString(r), root, GreenUnconstrained, count), r, root)
 }

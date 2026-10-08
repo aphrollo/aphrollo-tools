@@ -94,7 +94,7 @@ var noTestsToRunRe = regexp.MustCompile(`(?i)no tests to run|no test files found
 func RunSuite(timeout time.Duration) SuiteRunner {
 	one := runSuiteOnce(timeout)
 	return func(r Runner, root string) SuiteResult {
-		return runBatched(r, root, timeout, argvBudgetFn(r.Cmd), one)
+		return runImpureSplit(r, root, timeout, argvBudgetFn(r.Cmd), one)
 	}
 }
 
@@ -144,7 +144,7 @@ func runSuiteOnce(timeout time.Duration) SuiteRunner {
 		var buf bytes.Buffer
 		start := time.Now()
 		end := suiteChildFn(run.Spec{
-			Name: r.Cmd, Args: goExecArgs(r.Cmd, r.Args), Dir: dir, Env: suiteEnv(r, dir),
+			Name: r.Cmd, Args: goExecArgsFor(r), Dir: dir, Env: suiteEnv(r, dir),
 			Stdout: &buf, Stderr: &buf, Timeout: effectiveTimeout - suiteNowFn().Sub(budgetStart),
 		}, MemCapFor(dir, CapSlot))
 		err, capped, timedOut := end.err, end.capped, end.timedOut

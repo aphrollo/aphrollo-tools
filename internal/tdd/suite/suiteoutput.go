@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -67,7 +68,11 @@ type suiteOutputRecord struct {
 // directly — post-edit (immediate and deferred), the commit gate's
 // mechanical stage, and every stage that blocks through verdictFor.
 func logSuiteVerdict(stage, root, cmd, verdict string, res SuiteResult) {
-	AppendGateLog(stage, root, cmd, verdict, res.Duration)
+	var detail map[string]string
+	if n := cachedGoPackages(res.Output); n > 0 {
+		detail = map[string]string{"cached_packages": strconv.Itoa(n)}
+	}
+	AppendGateLogDetail(stage, root, cmd, verdict, res.Duration, detail)
 	retainSuiteOutput(stage, root, cmd, verdict, res)
 }
 
