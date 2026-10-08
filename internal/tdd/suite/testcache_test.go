@@ -147,6 +147,11 @@ func skipUnlessGo(env *testing.T) {
 func e2eModule(t *testing.T, pkgs ...string) string {
 	t.Helper()
 	skipUnlessGo(t)
+	// The child go commands read this process's env. A mutation run sets
+	// GOFLAGS=-count=1 for the suite it measures, and -count=1 (like a
+	// coverage flag) turns go's result cache off, so these tests own it.
+	t.Setenv("GOFLAGS", "")
+	t.Setenv("GOCOVERDIR", "")
 	root := t.TempDir()
 	// a number the test logs makes this run's test binaries unseen by go's
 	// cache (an unused constant compiles to the same binary)
