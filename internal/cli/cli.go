@@ -50,7 +50,7 @@ Commands:
               and (if declared) the app trio — one line per guard
   release     Read-only release plan: the tag a push to main owes from the changelog.d fragments (release plan)
   changelog   Print the full changelog, assembled from the changelog.d fragments each release tag first contains
-  version     Print the version, commit and build time this binary was stamped with; version check holds a PR to the version rule
+  version     Print the version, commit and build time this binary was stamped with (also --version); version check holds a PR to the version rule
   update      Fetch, build ./cmd/aphrollo from origin/main in a temporary worktree, swap it in, sweep stale copies, re-run init (--repo, --bin, --no-init)
 `
 
@@ -151,7 +151,7 @@ func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runRelease(args[1:], stdout, stderr)
 	case "changelog":
 		return runChangelog(args[1:], stdout, stderr)
-	case "version":
+	case "version", "--version":
 		return runVersion(args[1:], stdout, stderr)
 	case "update":
 		return runUpdate(args[1:], stdout, stderr)
