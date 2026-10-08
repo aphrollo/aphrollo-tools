@@ -76,7 +76,7 @@ var speedClasses = []speedClass{
 	{name: "commit gate total"},
 	{name: "merge gate"},
 	{name: "merge gate total"},
-	{name: "mutation (commit)", gap: "mutation at commit: no mutation run in the window carries its seconds (recorded from v1.34.0 on)"},
+	{name: "mutation (commit)", gap: "mutation at commit: no commit gate ran a mutation in the window"},
 	{name: "merge queue", gap: "merge queue: no PR in the window has both its enqueue and its merge recorded"},
 	{name: "CI pipeline", gap: "CI pipeline: no ci event in the window carries its run's seconds"},
 	{name: "PR lead time"},
@@ -141,6 +141,11 @@ func speedOf(e stamped) (speedSample, bool) {
 	key := class
 	if speedCmdClasses[class] {
 		key = class + ": " + gateStage(e.Verdict, e.Cmd)
+	}
+	if key == "commit gate: mutants" {
+		// The commit gate's mutation stage is the mutation run at commit: its
+		// own class, so one row carries it and the class is not "not derivable".
+		key = "mutation (commit)"
 	}
 	return speedSample{key: key, at: e.at, secs: secs, ver: e.BinVer}, true
 }

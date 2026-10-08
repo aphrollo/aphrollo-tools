@@ -303,10 +303,29 @@ func TestSpeed_AGateStageIsItsToolNotItsWholeCommandLine(t *testing.T) {
 	}
 	want := []string{
 		"commit gate: fail-first n=2", "commit gate: go test n=2", "commit gate: lint n=1",
-		"commit gate: mutants n=1", "commit gate: ratchet check n=1", "commit gate: tddsplit n=1",
-	}
+		"commit gate: ratchet check n=1", "commit gate: tddsplit n=1", "mutation (commit) n=1",
+	} // expectation-changed: the gate's mutation stage is the mutation (commit) row, not a second row for the same run
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
+	}
+}
+
+// The commit gate's mutation stage is the mutation run at commit: one row that
+// carries it, never a gate row beside a "not derivable" line for the same run.
+func TestSpeed_TheCommitGateMutationStageIsTheMutationRow(t *testing.T) {
+	r := build([]tdd.Event{
+		timed(evAt(1, 50, "commit_gate", "l", "mutants-passed:tested=3"), "precommit", "mutants", 90),
+	})
+	if row := speedRow(t, r, "mutation (commit)"); row.N != 1 || row.Max != 90 {
+		t.Errorf("mutation (commit) = %+v, want the one 90s run", row)
+	}
+	for _, row := range r.Speed.Rows {
+		if row.Stage == "commit gate: mutants" {
+			t.Errorf("the run is also a gate row: %+v", row)
+		}
+	}
+	if gaps := strings.Join(r.Speed.Gaps, "\n"); strings.Contains(gaps, "mutation at commit") {
+		t.Errorf("gaps = %q: a window with a mutation run at commit must not call it not derivable", gaps)
 	}
 }
 
