@@ -4,8 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
@@ -166,5 +169,173 @@ func TestApplyGC_NeverDeletesThroughALinkedNodeModules(t *testing.T) {
 				t.Errorf("the junction's target must keep its contents: %v", err)
 			}
 		})
+	}
+}
+
+// A warm gate checkout (the stable per-repo one the merge gate reuses so
+// path-keyed caches stay warm) has a dead holder between merges by design, so the
+// holder alone does not make it garbage: gc proposes it only once it has sat
+// idle past the gc age, and never while a live process holds it.
+func TestGCOrphanGatePRMergeWorktrees_WarmCheckoutIsReapedOnlyWhenIdle(t *testing.T) {
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	now := time.Now()
+
+	mk := func(name string, pid int, idle time.Duration) string {
+		p := filepath.Join(wtParent, name)
+		gitDo(t, repo, "worktree", "add", "--detach", p, "HEAD")
+		writeHolder(t, p, pid)
+		when := now.Add(-idle)
+		if err := os.Chtimes(filepath.Join(p, gatePRMergeHolderFile), when, when); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	recent := mk("gate-prmerge-warm", deadPidForTest(t), time.Hour)
+	idle := mk("gate-prmerge-localci", deadPidForTest(t), DefaultGCAge+time.Hour)
+
+	got := gcOrphanGatePRMergeWorktreesAt(repo, now)
+	if len(got) != 1 || got[0].Path != idle {
+		t.Fatalf("want only the idle warm checkout %s, got %+v (the recent one %s must stay)", idle, got, recent)
+	}
+
+	// the same idle checkout, held by a live process, is never proposed
+	writeHolder(t, idle, os.Getpid())
+	old := now.Add(-DefaultGCAge - time.Hour)
+	if err := os.Chtimes(filepath.Join(idle, gatePRMergeHolderFile), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if got := gcOrphanGatePRMergeWorktreesAt(repo, now); len(got) != 0 {
+		t.Fatalf("a live holder's warm checkout was proposed: %+v", got)
+	}
+}
+
+// Between a taker's claim and its holder rewrite, the holder still names the
+// old dead pid; the claim names the live taker. gc must not reap a warm
+// checkout a live claim holds, however idle its holder record looks.
+func TestGCOrphanGatePRMergeWorktrees_WarmCheckoutWithALiveClaimIsKept(t *testing.T) {
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	now := time.Now()
+	p := filepath.Join(wtParent, "gate-prmerge-warm")
+	gitDo(t, repo, "worktree", "add", "--detach", p, "HEAD")
+	writeHolder(t, p, deadPidForTest(t))
+	old := now.Add(-DefaultGCAge - time.Hour)
+	if err := os.Chtimes(filepath.Join(p, gatePRMergeHolderFile), old, old); err != nil {
+		t.Fatal(err)
+	}
+	mkFile(t, p+".claim", "pid="+strconv.Itoa(os.Getpid())+"\n", 0)
+	if got := gcOrphanGatePRMergeWorktreesAt(repo, now); len(got) != 0 {
+		t.Fatalf("a checkout under a live claim was proposed: %+v", got)
+	}
+}
+
+// Reaping a warm checkout removes its claim file too, so no claim outlives it.
+func TestRemoveGatePRMergeWorktree_RemovesTheClaimFile(t *testing.T) {
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	p := filepath.Join(wtParent, "gate-prmerge-warm")
+	gitDo(t, repo, "worktree", "add", "--detach", p, "HEAD")
+	mkFile(t, p+".claim", "pid="+strconv.Itoa(deadPidForTest(t))+"\n", 0)
+	if err := removeGatePRMergeWorktree(p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p + ".claim"); !os.IsNotExist(err) {
+		t.Fatalf("the claim file outlived the reaped checkout (stat err: %v)", err)
+	}
+}
+
+// A claim judged by pid alone keeps a dead checkout forever once the system
+// gives that pid to another process. The claim's identity is compared (and its
+// age, where it names none), as the merge gate itself judges it.
+func TestGCOrphanGatePRMergeWorktrees_AClaimUnderAReusedPidDoesNotKeepTheCheckout(t *testing.T) {
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	now := time.Now()
+	realID, ok := processIdentityFn(os.Getpid())
+	if !ok {
+		t.Fatal("this host cannot name its own process identity")
+	}
+	old := now.Add(-DefaultGCAge - time.Hour)
+	mk := func(name, claim string) string {
+		p := filepath.Join(wtParent, name)
+		gitDo(t, repo, "worktree", "add", "--detach", p, "HEAD")
+		writeHolder(t, p, deadPidForTest(t))
+		if err := os.Chtimes(filepath.Join(p, gatePRMergeHolderFile), old, old); err != nil {
+			t.Fatal(err)
+		}
+		mkFile(t, p+".claim", claim, 0)
+		return p
+	}
+	pid := "pid=" + strconv.Itoa(os.Getpid()) + "\n"
+	stamp := func(ago time.Duration) string {
+		return "started=" + now.Add(-ago).UTC().Format(time.RFC3339Nano) + "\n"
+	}
+	reused := mk("gate-prmerge-warm", pid+stamp(time.Minute)+"id=other-boot:1\n")
+	sameProcess := mk("gate-prmerge-localci", pid+stamp(time.Minute)+"id="+realID+"\n")
+
+	got := gcOrphanGatePRMergeWorktreesAt(repo, now)
+	if len(got) != 1 || got[0].Path != reused {
+		t.Fatalf("want only the checkout whose claim pid was reused (%s), got %+v (the live claim's %s must stay)", reused, got, sameProcess)
+	}
+
+	// no identity in the claim: past the age bound the claim is stale
+	mkFile(t, reused+".claim", pid+stamp(13*time.Hour), 0)
+	mkFile(t, sameProcess+".claim", pid+stamp(13*time.Hour)+"id="+realID+"\n", 0)
+	got = gcOrphanGatePRMergeWorktreesAt(repo, now)
+	if len(got) != 1 || got[0].Path != reused {
+		t.Fatalf("want the old identity-less claim's checkout %s alone (a matching identity is never aged out), got %+v", reused, got)
+	}
+}
+
+// The scratch files and takeover locks the warm claim leaves beside the
+// checkout when its owner dies are swept: a file whose pid is gone, a lock
+// older than the takeover bound. A live owner's file and a fresh lock stay.
+func TestGCOrphanGatePRMergeWorktrees_SweepsDeadClaimLitter(t *testing.T) {
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	gitDo(t, repo, "worktree", "add", "--detach", filepath.Join(wtParent, "gate-prmerge-warm"), "HEAD")
+	writeHolder(t, filepath.Join(wtParent, "gate-prmerge-warm"), os.Getpid())
+	now := time.Now()
+	dead, live := strconv.Itoa(deadPidForTest(t)), strconv.Itoa(os.Getpid())
+	deadTmp := filepath.Join(wtParent, ".warm-gate-prmerge-warm.claim."+dead+".3.tmp")
+	deadGone := filepath.Join(wtParent, ".warm-gate-prmerge-warm.claim."+dead+".4.gone")
+	liveTmp := filepath.Join(wtParent, ".warm-gate-prmerge-warm.claim."+live+".5.tmp")
+	oldLock := filepath.Join(wtParent, ".warm-gate-prmerge-warm.claim.takeover")
+	for _, f := range []string{deadTmp, deadGone, liveTmp} {
+		mkFile(t, f, "pid=1\n", 0)
+	}
+	if err := os.Mkdir(oldLock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := now.Add(-time.Hour)
+	if err := os.Chtimes(oldLock, old, old); err != nil {
+		t.Fatal(err)
+	}
+	freshLock := filepath.Join(wtParent, ".warm-gate-prmerge-localci.claim.takeover")
+	if err := os.Mkdir(freshLock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var got []string
+	for _, c := range gcOrphanGatePRMergeWorktreesAt(repo, now) {
+		got = append(got, c.Path)
+	}
+	sort.Strings(got)
+	want := []string{deadGone, deadTmp, oldLock}
+	sort.Strings(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("swept %v, want %v (a live owner's file and a fresh lock stay)", got, want)
+	}
+	if _, refused := ApplyGC(gcOrphanGatePRMergeWorktreesAt(repo, now)); len(refused) != 0 {
+		t.Fatalf("applying the sweep refused %v", refused)
+	}
+	for _, p := range want {
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Errorf("%s survived the sweep (stat err: %v)", p, err)
+		}
+	}
+	if _, err := os.Stat(liveTmp); err != nil {
+		t.Errorf("a live owner's file was removed: %v", err)
 	}
 }

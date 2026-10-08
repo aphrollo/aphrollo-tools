@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -23,6 +24,11 @@ const gatePRMergeHolderFile = ".aphrollo-prmerge-holder"
 // (internal/tdd/merge, prGateMergedCheckout's os.MkdirTemp pattern).
 const gatePRMergePrefix = "gate-prmerge-"
 
+// gatePRMergeWarmNames are the stable checkouts the gate keeps between merges
+// (internal/tdd/merge: prGateWarmName, ciWarmName). Their holder is dead
+// between merges by design, so prune leaves them; gate gc reaps them idle.
+var gatePRMergeWarmNames = []string{"gate-prmerge-warm", "gate-prmerge-localci"}
+
 // isGatePRMergeWorktree reports whether path is one of GatePRMerge's own
 // throwaway checkouts rather than an operator's lane.
 func isGatePRMergeWorktree(path string) bool {
@@ -38,6 +44,9 @@ func isGatePRMergeWorktree(path string) bool {
 // decides on: no record, or a still-running pid, means "leave it"; a dead
 // one means the gate that built it never got to remove it and it is safe to.
 func decideGatePRMergeWorktree(e worktreeEntry) pruneDecision {
+	if slices.Contains(gatePRMergeWarmNames, filepath.Base(e.Path)) {
+		return pruneDecision{wt: e, reason: "warm merge-gate checkout, kept for reuse (gate gc reaps it when idle)"}
+	}
 	pid, ok := gatePRMergeHolderPID(e.Path)
 	if !ok {
 		return pruneDecision{wt: e, reason: "merge-gate checkout, no holder record"}

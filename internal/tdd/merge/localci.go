@@ -104,24 +104,26 @@ func LocalCIWith(laneWorktree string, log io.Writer, run CIRunOptions) (LocalCIV
 		fmt.Fprintf(log, "ci local: merge result %s already judged green — reusing that verdict\n", tree)
 		return LocalCIVerdict{Tree: tree, Reused: true}, nil
 	}
-	wt, cleanup, err := ciCheckout(laneWorktree, commit)
+	co, err := ciCheckout(laneWorktree, commit)
 	if err != nil {
 		return LocalCIVerdict{}, err
 	}
+	wt := co.Path
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	var once sync.Once
 	// A signal exits the process from its handler, so Run never returns to remove
-	// its own scratch: stop the run's steps, then remove what it left.
-	safeCleanup := func() {
+	// its own scratch: stop the run's steps, then remove what it left. A normal
+	// return hands the warm checkout back; a signal deletes it.
+	finish := func(done func()) {
 		once.Do(func() {
 			cancel()
 			ghworkflow.RemoveLiveScratch(ciScratchGrace)
-			cleanup()
+			done()
 		})
 	}
-	defer safeCleanup()
-	defer watchPRGateSignals(safeCleanup, log)()
+	defer finish(co.Release)
+	defer watchPRGateSignals(func() { finish(co.Remove) }, log)()
 	fmt.Fprintf(log, "ci local: judging %s merged into %s (tree %s, in %s)\n", tips.lane, tips.trunkRef, tree, wt)
 	start := time.Now()
 	sum, err := runWorkflows(ctx, laneWorktree, wt, tips, commit, log, run)
@@ -213,17 +215,12 @@ func buildMergeResult(lane string, tips prGateTips) (tree, commit string, err er
 
 // ciCheckout is the throwaway worktree of the merge commit, built beside the
 // repo's lanes like the merge gate's own and swept by the same holder file.
-func ciCheckout(lane, commit string) (string, func(), error) {
-	wt, err := os.MkdirTemp(prGateCheckoutParent(lane), "gate-prmerge-")
+func ciCheckout(lane, commit string) (prGateCheckout, error) {
+	co, err := prGateCheckoutAt(lane, ciWarmName, commit)
 	if err != nil {
-		return "", nil, prGateRefusal(lane, "no-checkout", "a checkout to run CI in could not be created (%v), so the merge was never judged", err)
+		return prGateCheckout{}, prGateRefusal(lane, "no-checkout", "a checkout of the merge result could not be made (%v), so the merge was never judged", err)
 	}
-	if out, err := git(lane, "worktree", "add", "--detach", wt, commit); err != nil {
-		_ = os.RemoveAll(wt)
-		return "", nil, prGateRefusal(lane, "no-checkout", "a checkout of the merge result could not be made (%v), so the merge was never judged\n%s", err, strings.TrimSpace(out))
-	}
-	prGateWriteHolder(wt)
-	return wt, func() { prGateRemoveCheckout(lane, wt) }, nil
+	return co, nil
 }
 
 // storedGreen reports whether the event log holds a green local CI verdict for

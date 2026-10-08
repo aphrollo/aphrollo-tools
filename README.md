@@ -189,7 +189,7 @@ such a job running on `merge_group` and skip its steps instead.
   own checks and the merged tree's laws are judged as before, but a CI verdict for
   an older base is not refused, since the queue tests the current merge itself;
   `--wait` waits until GitHub has merged the PR, or reports why the queue removed
-  it, and `--wait <pr>...` enqueues every PR before waiting for any. A merge made outside it (the GitHub
+  it, and `--wait <pr>...` enqueues every PR before waiting for any; every line it prints begins with a UTC `HH:MM:SS`. The merge is judged in one checkout kept per repo (`gate-prmerge-warm` beside the lanes; local CI uses `gate-prmerge-localci`) and reset to the merge tree each time, so caches keyed by directory stay warm; a checkout another merge holds is not waited for, a fresh one is built, and `gate gc` removes a warm one only after it sits idle past the gc age. A merge made outside it (the GitHub
   web UI, `gh pr merge`, a terminal) is recorded once per commit as a `merge`
   event by=outside plus an `escape` event of verdict outside-merge, when local
   trunk takes it in: from `workspace sync`, or the post-merge hook in a repo

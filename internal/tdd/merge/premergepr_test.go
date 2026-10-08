@@ -276,7 +276,9 @@ func TestGatePRMerge_MergeConflictLeavesNoThrowawayCheckoutBehind(t *testing.T) 
 // `gate-prmerge-*` entry — the shape every throwaway checkout this gate
 // builds is named. A lanes dir that was never created at all (nothing ever
 // built a checkout) passes trivially: absence of the directory is absence of
-// the leak.
+// the leak. The two stable warm checkouts (one per purpose) are kept on
+// purpose between merges, so they are not a leak while no claim holds them: a
+// claim file left beside one is a checkout nobody released.
 func requireNoGatePRMergeCheckout(t *testing.T, lanes string) {
 	t.Helper()
 	entries, err := os.ReadDir(lanes)
@@ -287,6 +289,9 @@ func requireNoGatePRMergeCheckout(t *testing.T, lanes string) {
 		t.Fatalf("reading %s: %v", lanes, err)
 	}
 	for _, e := range entries {
+		if e.Name() == prGateWarmName || e.Name() == ciWarmName {
+			continue
+		}
 		if strings.HasPrefix(e.Name(), "gate-prmerge-") {
 			t.Fatalf("a throwaway checkout was left behind: %s", filepath.Join(lanes, e.Name()))
 		}

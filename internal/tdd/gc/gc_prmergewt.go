@@ -1,12 +1,16 @@
 package gc
 
 import (
+	"bufio"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 	"github.com/aphrollo/aphrollo-tools/internal/run"
@@ -33,6 +37,18 @@ const gatePRMergePrefix = "gate-prmerge-"
 // whose build dir survived; this one catches the opposite shape, a worktree
 // git still remembers whose OWNING PROCESS is gone.
 func gcOrphanGatePRMergeWorktrees(repoRoot string) []GCCandidate {
+	return gcOrphanGatePRMergeWorktreesAt(repoRoot, time.Now())
+}
+
+// gatePRMergeWarmNames are the stable per-repo checkouts the merge gate and
+// local CI keep between merges (premergepr/localci: prGateWarmName and
+// ciWarmName), so path-keyed Go, lint and tsc caches stay warm. Their holder
+// is dead between merges by design, so a dead holder alone is not garbage:
+// they are proposed only once idle longer than DefaultGCAge, measured from the
+// holder record's mtime, which every use rewrites.
+var gatePRMergeWarmNames = []string{"gate-prmerge-warm", "gate-prmerge-localci"}
+
+func gcOrphanGatePRMergeWorktreesAt(repoRoot string, now time.Time) []GCCandidate {
 	registered := gitWorktreePaths(repoRoot)
 	var out []GCCandidate
 	for _, path := range registered {
@@ -44,11 +60,78 @@ func gcOrphanGatePRMergeWorktrees(repoRoot string) []GCCandidate {
 		if !ok || pidRunningFn(pid) {
 			continue
 		}
+		if slices.Contains(gatePRMergeWarmNames, base) {
+			// a taker holds the claim before it rewrites the holder record, so a
+			// live claim means the checkout is in use whatever the holder says
+			if gatePRMergeClaimLive(path, now) {
+				continue
+			}
+			info, err := os.Stat(filepath.Join(path, gatePRMergeHolderFile))
+			if err != nil || now.Sub(info.ModTime()) < DefaultGCAge {
+				continue
+			}
+		}
 		_, size := dirNewestAndSize(path)
 		out = append(out, GCCandidate{Path: path, Size: size, Kind: GCKindGatePRMerge,
 			Reason: fmt.Sprintf("gate-prmerge checkout whose holder (pid %d) is no longer running", pid)})
 	}
+	out = append(out, gcWarmClaimLitter(slices.Collect(maps.Values(registered)), now)...)
 	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
+	return out
+}
+
+// gatePRMergeTakeoverStale matches the merge gate's bound
+// (merge.warmTakeoverStale): a takeover lock older than this was left by a
+// taker that died inside its takeover.
+const gatePRMergeTakeoverStale = time.Minute
+
+// gcWarmClaimLitter proposes what a dead taker of the warm checkout leaves
+// beside it, in the directories the registered worktrees live in: the claim's
+// scratch files (".warm-<claim>.<pid>.<seq>.tmp|gone|lock") whose pid is no
+// longer running, and takeover locks (".warm-<claim>.takeover") older than the
+// takeover bound. Anything else, and a live owner's file, is left alone.
+func gcWarmClaimLitter(registered []string, now time.Time) []GCCandidate {
+	seen := map[string]bool{}
+	var out []GCCandidate
+	for _, wt := range registered {
+		dir := filepath.Dir(wt)
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if !strings.HasPrefix(name, ".warm-") {
+				continue
+			}
+			path := filepath.Join(dir, name)
+			info, err := e.Info()
+			if err != nil {
+				continue
+			}
+			if strings.HasSuffix(name, ".takeover") {
+				if now.Sub(info.ModTime()) > gatePRMergeTakeoverStale {
+					out = append(out, GCCandidate{Path: path, Size: info.Size(), Kind: GCKindTempLitter,
+						Reason: "warm checkout takeover lock left by a taker that died"})
+				}
+				continue
+			}
+			parts := strings.Split(name, ".")
+			if len(parts) < 4 || (parts[len(parts)-1] != "tmp" && parts[len(parts)-1] != "gone" && parts[len(parts)-1] != "lock") {
+				continue
+			}
+			pid, err := strconv.Atoi(parts[len(parts)-3])
+			if err != nil || pidRunningFn(pid) {
+				continue
+			}
+			out = append(out, GCCandidate{Path: path, Size: info.Size(), Kind: GCKindTempLitter,
+				Reason: fmt.Sprintf("warm checkout claim scratch file of pid %d, which is no longer running", pid)})
+		}
+	}
 	return out
 }
 
@@ -73,6 +156,52 @@ func readGatePRMergeHolderPID(wt string) (int, bool) {
 	return 0, false
 }
 
+// gatePRMergeClaimMaxAge matches the merge gate's bound (merge.warmClaimMaxAge):
+// a claim past it that names no readable identity is stale.
+const gatePRMergeClaimMaxAge = 12 * time.Hour
+
+// gatePRMergeClaimLive reports whether wt's claim file (wt + ".claim", the
+// exclusive claim a warm checkout's taker holds for the whole use) still names
+// the process that took it, judged as the merge gate judges it: a dead pid, or
+// a live pid whose identity differs from the one stamped in the claim, is not
+// live; where no identity can be compared, a claim older than the bound is not
+// live either. No claim, or one with no pid, is not live: the holder record
+// decides then.
+func gatePRMergeClaimLive(wt string, now time.Time) bool {
+	data, err := os.ReadFile(wt + ".claim")
+	if err != nil {
+		return false
+	}
+	var pid int
+	var id string
+	var started time.Time
+	havePid := false
+	sc := bufio.NewScanner(strings.NewReader(string(data)))
+	for sc.Scan() {
+		k, v, ok := strings.Cut(strings.TrimSpace(sc.Text()), "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "pid":
+			if n, err := strconv.Atoi(v); err == nil {
+				pid, havePid = n, true
+			}
+		case "id":
+			id = v
+		case "started":
+			started, _ = time.Parse(time.RFC3339Nano, v)
+		}
+	}
+	if !havePid || !pidRunningFn(pid) {
+		return false
+	}
+	if cur, ok := processIdentityFn(pid); ok && id != "" {
+		return cur == id
+	}
+	return started.IsZero() || now.Sub(started) < gatePRMergeClaimMaxAge
+}
+
 // removeGatePRMergeWorktree removes a registered gate-prmerge checkout. A
 // GCCandidate carries no repo root, so the shared git directory is asked of the
 // worktree itself, and the removal then runs from there: a process whose
@@ -94,5 +223,6 @@ func removeGatePRMergeWorktree(path string) error {
 	if err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}
+	_ = os.Remove(path + ".claim") // a warm checkout's claim goes with it; none for a fresh one
 	return nil
 }

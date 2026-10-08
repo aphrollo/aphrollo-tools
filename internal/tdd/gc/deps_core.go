@@ -14,6 +14,8 @@ const gcOriginFile = core.GcOriginFile
 
 type gateEntry = core.GateEntry
 
+var processIdentityFn = core.ProcessIdentityFn
+
 func StateDir() string { return core.StateDir() }
 
 func TryAcquireFileLock(p0 string) (func(), bool) { return core.TryAcquireFileLock(p0) }
