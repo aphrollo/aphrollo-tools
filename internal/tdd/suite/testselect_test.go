@@ -161,3 +161,23 @@ func TestWithSelectedTests_ThePatternLengthLimitIsInclusive(t *testing.T) {
 		t.Fatalf("a pattern of %d characters: select = %+v", selectArgMax+1, over.Select)
 	}
 }
+
+// A selected run is named in logs and gate lines by how many tests it ran,
+// not by its pattern; the argv it executes stays complete (a hand-typed -run is left as typed).
+func TestCmdString_AbbreviatesASelectedPatternAndOnlyThat(t *testing.T) {
+	sel := withSelectedTests(Runner{Cmd: "go", Args: []string{"test", "./p"}}, []string{"TestA", "TestB", "TestC"}, 9, []string{"F"})
+	if got, want := cmdString(sel), "go test ./p -run=<3 tests>"; got != want {
+		t.Fatalf("cmdString = %q, want %q", got, want)
+	}
+	if sel.Args[2] != "-run=^(TestA|TestB|TestC)$" {
+		t.Fatalf("the real argv was abbreviated: %q", sel.Args)
+	}
+	plain := Runner{Cmd: "go", Args: []string{"test", "./p", "-run=^(X)$"}}
+	if got, want := cmdString(plain), "go test ./p -run=^(X)$"; got != want {
+		t.Fatalf("a hand-typed -run with no selection reads %q, want %q", got, want)
+	}
+	whole := withSelectedTests(Runner{Cmd: "go", Args: []string{"test", "./p"}}, nil, 9, nil)
+	if got := cmdString(whole); got != "go test ./p" {
+		t.Fatalf("a refused selection reads %q", got)
+	}
+}

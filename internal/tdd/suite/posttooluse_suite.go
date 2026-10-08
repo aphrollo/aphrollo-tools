@@ -3,9 +3,11 @@ package suite
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -66,7 +68,18 @@ type SuiteRunner func(r Runner, root string) SuiteResult
 // cmdString renders a Runner as the "<cmd> <args>" text every advisory line
 // uses, trimmed so a runner with no args never leaves a trailing space.
 func cmdString(r Runner) string {
-	return strings.TrimSpace(r.Cmd + " " + strings.Join(r.Args, " "))
+	args := r.Args
+	if r.Select != nil && r.Select.Run > 0 {
+		// A selection's pattern names every test it runs: logs and lines say
+		// how many instead, and the argv the run executes stays complete.
+		args = slices.Clone(args)
+		for i, a := range args {
+			if strings.HasPrefix(a, "-run=^(") {
+				args[i] = fmt.Sprintf("-run=<%d tests>", r.Select.Run)
+			}
+		}
+	}
+	return strings.TrimSpace(r.Cmd + " " + strings.Join(args, " "))
 }
 
 // noTestsToRunRe recognises cargo-nextest's hard failure (exit code 4) when a

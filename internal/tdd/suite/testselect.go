@@ -32,7 +32,7 @@ func editSelectMode(root string) string {
 // selectArgMax is the longest -run pattern a selection names. A longer one is
 // most of the package, and a line past it is not one every platform's command
 // line holds (Windows allows about 32k characters in all).
-const selectArgMax = 6000
+const selectArgMax = 2000
 
 // withSelectedTests is r, a `go test <pkg>` run, narrowed to the named tests
 // that cover funcs. total is how many tests the package has. The pattern is one
