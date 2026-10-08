@@ -19,9 +19,11 @@ import (
 // (internal/handoff), before stdin is read.
 func main() {
 	args := cli.DispatchArgs(os.Args[0], os.Args[1:])
-	if root, err := userbin.Root(); err == nil {
-		if code, handed := handoff.Maybe(args, buildinfo.Version(), root, os.Getenv, os.Stderr, handoff.Launch); handed {
-			os.Exit(code)
+	if handoff.Takes(args) {
+		if root, err := userbin.Root(); err == nil {
+			if code, handed := handoff.Maybe(args, buildinfo.Version(), root, os.Getenv, os.Stderr, handoff.Launch, handoff.OwnedByUser); handed {
+				os.Exit(code)
+			}
 		}
 	}
 	os.Exit(cli.Run(args, os.Stdin, os.Stdout, os.Stderr))

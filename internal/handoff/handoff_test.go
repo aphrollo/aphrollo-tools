@@ -37,12 +37,13 @@ type call struct {
 func run(t *testing.T, args []string, self, root string, env map[string]string) (code int, handed bool, calls []call, stderr string) {
 	t.Helper()
 	var buf bytes.Buffer
-	launch := func(path string, a, e []string) (int, error) {
+	launch := func(path string, a, e []string, announce func()) (int, error) {
 		calls = append(calls, call{path, a, e})
+		announce()
 		return 42, nil
 	}
 	getenv := func(k string) string { return env[k] }
-	code, handed = Maybe(args, self, root, getenv, &buf, launch)
+	code, handed = Maybe(args, self, root, getenv, &buf, launch, func(string) bool { return true })
 	return code, handed, calls, buf.String()
 }
 
@@ -55,8 +56,8 @@ func TestMaybe_NewerInstallTakesTheVerb(t *testing.T) {
 	if len(calls) != 1 || calls[0].path != bin || strings.Join(calls[0].args, " ") != "workspace merge --wait" {
 		t.Fatalf("launch = %+v, want one call to %s with the same argv", calls, bin)
 	}
-	if !slicesContains(calls[0].env, GuardEnv+"=1") {
-		t.Fatalf("child env lacks %s=1", GuardEnv)
+	if !slicesContains(calls[0].env, GuardEnv+"=1.39.0") {
+		t.Fatalf("child env lacks %s=1.39.0", GuardEnv)
 	}
 	want := "aphrollo 1.23.1 -> 1.39.0 (" + bin + "): a newer install runs this\n"
 	if stderr != want {
@@ -66,7 +67,7 @@ func TestMaybe_NewerInstallTakesTheVerb(t *testing.T) {
 
 func TestMaybe_GuardPreventsALoop(t *testing.T) {
 	root, _ := install(t, "1.39.0")
-	_, handed, calls, stderr := run(t, []string{"workspace", "list"}, "1.23.1", root, map[string]string{GuardEnv: "1"})
+	_, handed, calls, stderr := run(t, []string{"workspace", "list"}, "1.23.1", root, map[string]string{GuardEnv: "1.39.0"})
 	if handed || len(calls) != 0 || stderr != "" {
 		t.Fatalf("handed=%v calls=%d stderr=%q, want none once the guard is set", handed, len(calls), stderr)
 	}
@@ -139,7 +140,7 @@ func TestMaybe_LaunchErrorRunsSelf(t *testing.T) {
 	root, _ := install(t, "1.39.0")
 	var buf bytes.Buffer
 	_, handed := Maybe([]string{"workspace", "list"}, "1.23.1", root, func(string) string { return "" }, &buf,
-		func(string, []string, []string) (int, error) { return 0, os.ErrPermission })
+		func(string, []string, []string, func()) (int, error) { return 0, os.ErrPermission }, func(string) bool { return true })
 	if handed {
 		t.Fatal("a failed launch must fall back to self")
 	}
@@ -176,11 +177,11 @@ func TestMaybe_VerbList(t *testing.T) {
 
 func TestNewer_ReportsVersionAndPath(t *testing.T) {
 	root, bin := install(t, "1.39.0")
-	v, p, ok := Newer("1.23.1", root)
+	v, p, ok := Newer("1.23.1", root, func(string) bool { return true })
 	if !ok || v != "1.39.0" || p != bin {
 		t.Fatalf("Newer = %q %q %v, want 1.39.0 %s true", v, p, ok, bin)
 	}
-	if _, _, ok := Newer("1.39.0", root); ok {
+	if _, _, ok := Newer("1.39.0", root, func(string) bool { return true }); ok {
 		t.Fatal("equal version reported newer")
 	}
 }
@@ -220,4 +221,48 @@ func slicesContains(s []string, v string) bool {
 		}
 	}
 	return false
+}
+
+func TestMaybe_StaleGuardNamingAnOlderVersionStillHandsOff(t *testing.T) {
+	root, _ := install(t, "1.39.0")
+	_, handed, _, _ := run(t, []string{"workspace", "list"}, "1.23.1", root, map[string]string{GuardEnv: "1.30.0"})
+	if !handed {
+		t.Fatal("a guard naming another version suppressed the handoff")
+	}
+}
+
+func TestMaybe_LaunchErrorPrintsNoLine(t *testing.T) {
+	root, _ := install(t, "1.39.0")
+	var buf bytes.Buffer
+	_, handed := Maybe([]string{"workspace", "list"}, "1.23.1", root, func(string) string { return "" }, &buf,
+		func(string, []string, []string, func()) (int, error) { return 0, os.ErrPermission },
+		func(string) bool { return true })
+	if handed || buf.Len() != 0 {
+		t.Fatalf("handed=%v stderr=%q, want nothing when the launch fails before it starts", handed, buf.String())
+	}
+}
+
+func TestMaybe_GateHooksHandOffWithoutALine(t *testing.T) {
+	root, _ := install(t, "1.39.0")
+	_, handed, calls, stderr := run(t, []string{"gate", "pretooluse"}, "1.23.1", root, nil)
+	if !handed || len(calls) != 1 || stderr != "" {
+		t.Fatalf("handed=%v calls=%d stderr=%q, want a silent handoff", handed, len(calls), stderr)
+	}
+}
+
+func TestMaybe_AnotherUsersBinaryDoesNotHandOff(t *testing.T) {
+	root, _ := install(t, "1.39.0")
+	var buf bytes.Buffer
+	_, handed := Maybe([]string{"workspace", "list"}, "1.23.1", root, func(string) string { return "" }, &buf,
+		func(string, []string, []string, func()) (int, error) { t.Fatal("launched"); return 0, nil },
+		func(string) bool { return false })
+	if handed || buf.Len() != 0 {
+		t.Fatalf("handed=%v stderr=%q, want self silently", handed, buf.String())
+	}
+}
+
+func TestTakes_IsTheVerbListAlone(t *testing.T) {
+	if !Takes([]string{"workspace", "list"}) || Takes([]string{"version"}) {
+		t.Fatal("Takes disagrees with the verb list")
+	}
 }

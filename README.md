@@ -30,7 +30,6 @@ binary, and a build at no release tag reports `0.0.0-dev+<sha>`. PATH names
 no version: install puts the queue shim dir and the root (`~/.aphrollo/bin`,
 `%LOCALAPPDATA%\aphrollo\bin` on Windows) first, whose `aphrollo` launcher
 follows `current`, so an update reaches every open shell at once. A PR does not
-A shell that still resolves `aphrollo` to an older install (a root-owned `/usr/local/bin/aphrollo`, say) hands `workspace`, `ratchet`, `ci` and the `gate` hooks to the user-space `current` when that names a strictly newer release the same account owns: one stderr line `aphrollo <self> -> <newer> (<path>): a newer install runs this`, then the same argv, stdin, environment and exit code. `version`, `update`, `install` and help text are never handed off. A pointer that is unreadable, not MAJOR.MINOR.PATCH or missing its binary, or a version that is equal or older, runs this binary silently; `APHROLLO_NO_HANDOFF=1` switches the handoff off, and `aphrollo version` prints `newer install: <ver> at <path>` when one exists.
 carry a number. It says `version: none|patch|minor|major` in its body and, when
 it is not `none`, adds one `changelog.d/<lane>.md` fragment (a first line
 `level: patch|minor|major`, then what a consumer will notice, in plain words;
@@ -52,6 +51,8 @@ prints one line saying the repo's minimum went unchecked.
 `aphrollo version check --base <ref> --body-file <file>` holds a change to the
 version rule in this repo's CI: the body line, the one fragment and its level,
 no edit to a released changelog section or a merged fragment.
+
+A shell that still resolves `aphrollo` to an older install (a root-owned `/usr/local/bin/aphrollo`, say) hands `workspace`, `ratchet`, `ci` and the `gate` hooks to the user-space `current` when that names a strictly newer release the same account owns: the same argv, stdin, environment and exit code, and for every verb but the `gate` hooks one stderr line first, `aphrollo <self> -> <newer> (<path>): a newer install runs this` (printed once the newer binary has started; on Unix just before the exec, which cannot be undone). `version`, `update`, `install` and help text are never handed off. The child carries `APHROLLO_HANDOFF=<its version>`, and only a guard equal to the version about to be handed to stops a handoff, so a stale or leaked guard never hides a different, newer install. A pointer that is unreadable, not MAJOR.MINOR.PATCH or missing its binary, a binary owned by another account, or a version that is equal or older, runs this binary silently; `APHROLLO_NO_HANDOFF=1` switches the handoff off. The newer binary is not probed first: if it crashes at start, its non-zero exit and stderr pass through (the hooks call that same binary directly, so it would fail them too). `aphrollo version` prints `newer install: <ver> at <path>` when one exists.
 
 `refactor`, `find`, `outline` and `show` need the language server on PATH:
 `gopls`, `rust-analyzer`, `pyright-langserver` or `typescript-language-server`.

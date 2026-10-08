@@ -12,7 +12,7 @@ import (
 func TestMain(m *testing.M) {
 	switch os.Getenv("HANDOFF_TEST_MODE") {
 	case "launch":
-		code, err := Launch(os.Getenv("HANDOFF_TEST_TARGET"), []string{"workspace", "list"}, []string{"HANDOFF_TEST_MODE=fake", GuardEnv + "=1"})
+		code, err := Launch(os.Getenv("HANDOFF_TEST_TARGET"), []string{"workspace", "list"}, []string{"HANDOFF_TEST_MODE=fake", GuardEnv + "=1"}, func() {})
 		if err != nil {
 			os.Stderr.WriteString(err.Error())
 			os.Exit(99)

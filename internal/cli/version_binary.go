@@ -58,7 +58,7 @@ func newerInstallLine() string {
 	if err != nil {
 		return ""
 	}
-	if v, p, ok := handoff.Newer(buildinfo.Version(), root); ok {
+	if v, p, ok := handoff.Newer(buildinfo.Version(), root, handoff.OwnedByUser); ok {
 		return "newer install: " + v + " at " + p + "\n"
 	}
 	return ""
