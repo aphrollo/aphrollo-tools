@@ -103,3 +103,18 @@ func TestDiffFuncs_ANewTestFileOfTestsOnly(t *testing.T) {
 		t.Fatalf("got %+v", got)
 	}
 }
+
+// An autocrlf checkout holds the same file with other line endings than HEAD:
+// that is not an edit, and must not read every function as changed (the
+// function is f, as covdiffProd declares it).
+func TestDiffFuncs_LineEndingsAreNotAnEdit(t *testing.T) {
+	crlf := strings.ReplaceAll(covdiffProd, "\n", "\r\n")
+	if got := DiffFuncs([]byte(covdiffProd), []byte(crlf), false); got.Unmappable == "" || len(got.Funcs) != 0 {
+		t.Fatalf("the same file with CRLF endings: %+v, want no function changed", got)
+	}
+	edited := strings.Replace(crlf, "return 1", "return 11", 1)
+	got := DiffFuncs([]byte(covdiffProd), []byte(edited), false)
+	if got.Unmappable != "" || !slices.Equal(got.Funcs, []string{"f"}) {
+		t.Fatalf("an edit in a CRLF checkout: %+v, want only f", got)
+	}
+}

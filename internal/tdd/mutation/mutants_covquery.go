@@ -1,6 +1,7 @@
 package mutation
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"go/ast"
@@ -257,6 +258,8 @@ func diffDecls(src []byte, testFile bool) (declSet, bool) {
 	if len(src) == 0 {
 		return set, true
 	}
+	// An autocrlf checkout differs from HEAD in its line endings alone.
+	src = bytes.ReplaceAll(src, []byte("\r\n"), []byte("\n"))
 	fset, file, _ := parseFuncSpans(src)
 	if file == nil {
 		return set, false
