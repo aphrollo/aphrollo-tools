@@ -10,9 +10,13 @@ const Ignore = core.Ignore
 
 const premergeLogToken = core.PremergeLogToken
 
+type Event = core.Event
+
 type sessionState = core.SessionState
 
 func GateLogPath() string { return core.GateLogPath() }
+
+func ReadEvents(p0 string) []Event { return core.ReadEvents(p0) }
 
 func loadSession(p0 string) (*sessionState, string) { return core.LoadSession(p0) }
 

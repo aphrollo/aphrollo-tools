@@ -79,12 +79,23 @@ func declaredChecksStage(gateName, repoRoot, root string, cmds []declaredCommand
 	}
 	for _, c := range cmds {
 		r := Runner{Cmd: c.Argv[0], Args: c.Argv[1:]}
+		key, short, keyed := declaredReuseKey(root, c)
+		if declaredReuse(gateName, root, r, key, short, keyed) {
+			continue
+		}
+		var last SuiteResult
+		ran := false
+		judged := func(rr Runner, dir string) SuiteResult {
+			last, ran = run(rr, dir), true
+			return last
+		}
 		var res GateResult
 		if c.Baseline == baselineLines {
-			res = declaredLinesStage(gateName, repoRoot, root, r, run)
+			res = declaredLinesStage(gateName, repoRoot, root, r, judged)
 		} else {
-			res = goCheckStage(gateName, "declared", root, r, run)
+			res = goCheckStage(gateName, "declared", root, r, judged)
 		}
+		recordDeclaredRun(root, c, key, keyed, res, last, ran)
 		if res.Blocked {
 			return res
 		}
@@ -97,6 +108,7 @@ func declaredChecksStage(gateName, repoRoot, root string, cmds []declaredCommand
 type declaredCommand struct {
 	Argv     []string `json:"argv"`
 	Baseline string   `json:"baseline"`
+	Inputs   []string `json:"inputs"`
 }
 
 // The baselines a declared command can name; "" reads as "none".
