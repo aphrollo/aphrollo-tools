@@ -13,6 +13,9 @@ import (
 // measured value, only ever allowed to fall) but read different file
 // shapes — generated JSON versus `go test -bench -benchmem` text.
 func ceilingHits(view treeView, law Law, requireData bool, targetDir string) ([]Hit, error) {
+	if law.Matcher.Kind == KindTestCost {
+		return testCostHits(costRunsOf(view.root), law, requireData)
+	}
 	if law.Matcher.Kind == KindGoBenchCeiling {
 		return goBenchCeilingHits(view, law, requireData)
 	}

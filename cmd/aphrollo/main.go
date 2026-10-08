@@ -8,7 +8,9 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/buildinfo"
 	"github.com/aphrollo/aphrollo-tools/internal/cli"
+	"github.com/aphrollo/aphrollo-tools/internal/costhistory"
 	"github.com/aphrollo/aphrollo-tools/internal/handoff"
+	"github.com/aphrollo/aphrollo-tools/internal/ratchet"
 	"github.com/aphrollo/aphrollo-tools/internal/userbin"
 )
 
@@ -18,6 +20,9 @@ import (
 // argv forwarded verbatim. A newer user-space install takes the verb first
 // (internal/handoff), before stdin is read.
 func main() {
+	// The test_cost law reads the repo's recorded merges through this; the law
+	// engine may not reach the event log itself.
+	ratchet.CostHistory = costhistory.Read
 	args := cli.DispatchArgs(os.Args[0], os.Args[1:])
 	if handoff.Takes(args) {
 		if root, err := userbin.Root(); err == nil {

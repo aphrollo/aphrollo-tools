@@ -142,7 +142,7 @@ func adoptHitsIn(opts Options, law Law) ([]Hit, error) {
 		return depGraphCeilingHits(root, law)
 	case KindFileSetContainment:
 		return containmentHits(viewOf(opts), law)
-	case KindJSONNumberCeiling, KindGoBenchCeiling:
+	case KindJSONNumberCeiling, KindGoBenchCeiling, KindTestCost:
 		return ceilingHits(viewOf(opts), law, true, cargoTargetDir())
 	}
 	return hits, nil
