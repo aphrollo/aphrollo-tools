@@ -1,6 +1,7 @@
 package postedit
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -93,5 +94,58 @@ func TestStopMode_WarnNamesTheRedAndHowToReadIt(t *testing.T) {
 		if !strings.Contains(got.Guidance, want) {
 			t.Errorf("guidance = %q, want it to name %q", got.Guidance, want)
 		}
+	}
+}
+
+func TestStopMode_WarnNamesARedOnceAndThenStaysQuiet(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	crate := mkProject(t, "Cargo.toml")
+	stopmodeDeclare(t, crate, "tdd = \"warn\"\n")
+	redJobAt(t, crate)
+
+	first := DecideStop(StopHookStop, stopPayload(t, "stop.json", stopFields(crate)))
+	second := DecideStop(StopHookStop, stopPayload(t, "stop.json", stopFields(crate)))
+
+	if !strings.Contains(first.Guidance, crate) {
+		t.Fatalf("first guidance = %q, want it to name %s", first.Guidance, crate)
+	}
+	if second.Guidance != "" {
+		t.Fatalf("second guidance = %q, want silence: the same red was already named", second.Guidance)
+	}
+	if !second.Red {
+		t.Fatal("the shadow fact still holds: the agent has not been told of the red")
+	}
+}
+
+func TestStopMode_WarnNamesOnlyTheRedItHasNotNamedYet(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root := t.TempDir()
+	stopmodeDeclare(t, root, "tdd = \"warn\"\n")
+	first := filepath.Join(root, "crates", "a")
+	later := filepath.Join(root, "crates", "b")
+	redJobAt(t, first)
+	DecideStop(StopHookStop, stopPayload(t, "stop.json", stopFields(root)))
+	redJobAt(t, later)
+
+	got := DecideStop(StopHookStop, stopPayload(t, "stop.json", stopFields(root)))
+
+	if !strings.Contains(got.Guidance, later) || strings.Contains(got.Guidance, first+":") {
+		t.Fatalf("guidance = %q, want only the new red in %s", got.Guidance, later)
+	}
+}
+
+func TestDecideStop_ARedInACheckoutGoneFromDiskIsNotCounted(t *testing.T) {
+	stopEnforceEnv(t)
+	lane := makeGoRepo(t)
+	gone := filepath.Join(t.TempDir(), "lane-removed")
+	redJobAt(t, gone)
+	if err := os.RemoveAll(gone); err != nil {
+		t.Fatal(err)
+	}
+
+	got := DecideStop(StopHookStop, stopPayload(t, "stop.json", stopFields(lane)))
+
+	if got.Block || got.Red {
+		t.Fatalf("verdict = %+v, want an allow: no hook can ever reach a checkout that is gone", got)
 	}
 }
