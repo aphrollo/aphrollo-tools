@@ -1,6 +1,7 @@
 package merge
 
 import (
+	"context"
 	"io"
 	"os"
 	"os/exec"
@@ -207,7 +208,16 @@ func TestGatePRMerge_TwoMergesJudgeInOneWarmCheckout(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root, _ := prGateLane(t)
 	declareMutantsAtMergeCommitted(t, root)
+	// The measurement is stubbed: a runner without cargo-mutants (Linux CI)
+	// must judge this test the same as one with it.
 	var seen []gateRun
+	stubMutantsExec(t, func(_ context.Context, _ int, c measuredCall) (int, error) {
+		seen = append(seen, gateRun{Dir: c.Dir})
+		writeOutcomesIn(t, argvValueOf(t, c.Argv, "--output"), MutantOutcome{
+			File: "crates/a/src/lib.rs", Line: 1, Col: 36,
+			Mutation: "replace - with +", Package: "a", Status: "caught"})
+		return 0, nil
+	})
 	for i := 0; i < 2; i++ {
 		if err := GatePRMerge(root, "", recordRuns(&seen, SuiteResult{Passed: true}), io.Discard); err != nil {
 			t.Fatalf("merge %d: %v", i+1, err)
