@@ -424,6 +424,7 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		// checked first: #317's "executed zero tests" is neither a red proof
 		// nor a genuine violation, and reporting it as either would misname
 		// the actual defect.
+		pinned := out.Conclusive && out.violated && greenAtHeadProven(repoRoot, goRunNames(out.runner.Args))
 		verdict := "inconclusive (fail-open)" // standdown-logged: default value; every path below still reaches the appendGateLog(verdict) call after the switch
 		switch {
 		case out.vacuous:
@@ -443,6 +444,10 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 			// #898: the run at HEAD failed before it reached the staged
 			// tests, so it proved neither a red nor a pass.
 			verdict = failFirstTestNotReached
+		case pinned:
+			// A test green on the old code, with a recorded mutation
+			// proof on the code as staged: evidence in place of a RED.
+			verdict = "pin-proven (mutation proof)"
 		case out.Conclusive && out.violated:
 			verdict = "violated"
 		case out.Conclusive && !out.violated:
@@ -468,10 +473,10 @@ func failFirstStage(repoRoot, root string, tests, srcs []string, run SuiteRunner
 		if out.skipped {
 			return GateResult{Blocked: true, Message: allTestsSkippedMessage(out.skippedPkgs, out.runner)}
 		}
-		if out.Conclusive && out.violated {
-			return GateResult{Blocked: true, Message: failFirstViolationMessage(out.runner) + splitAdvice(tests, goRunNames(out.runner.Args))}
+		if out.Conclusive && out.violated && !pinned {
+			return GateResult{Blocked: true, Message: failFirstViolationMessage(out.runner) + splitAdvice(tests, goRunNames(out.runner.Args), srcs)}
 		}
-		if out.Conclusive {
+		if out.Conclusive && !pinned {
 			if o, refused := greenRefusal(root, ffCmd, out.green); refused {
 				return verdictFor("precommit", failFirstStageName, root, ffCmd, o)
 			}

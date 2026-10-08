@@ -380,6 +380,8 @@ failfirst_ledger_test.go                           failfirst
 failfirst_node.go                                  failfirst
 failfirst_node_test.go                             failfirst
 failfirst_outcome.go                               failfirst
+failfirst_pin.go                                   failfirst
+failfirst_pin_test.go                              failfirst
 failfirst_pytest.go                                failfirst
 failfirst_pytest_cache.go                          failfirst
 failfirst_pytest_cache_test.go                     failfirst
@@ -782,6 +784,7 @@ mutants_prove_eol_test.go                          mutation
 mutants_prove_holder_test.go                        mutation
 mutants_prove_landed.go                            mutation
 mutants_prove_landed_test.go                       mutation
+mutants_prove_pinproof_test.go                     mutation
 mutants_prove_retain.go                            mutation
 mutants_prove_retain_test.go                       mutation
 mutants_prove_sandbox.go                           mutation
@@ -881,6 +884,8 @@ pathless_test.go                                   tddtest
 pathlock.go                                        core
 payload.go                                         tddtest
 pidrunning_windows_test.go                         postedit
+pinproof_core.go                                   core
+pinproof_own_test.go                               core
 pipeline_mergequeue_test.go                        tdd
 pipeline_push_test.go                              tdd
 pipeline_reuse_test.go                             tdd

@@ -65,9 +65,10 @@ func goRunNames(args []string) []string {
 // splitAdvice is what the refusal of a commit whose tests already pass at
 // HEAD adds to its message: which tests, in which files, and the commands
 // that commit them alone before the rest.
-func splitAdvice(tests, names []string) string {
+func splitAdvice(tests, names, srcs []string) string {
 	var b strings.Builder
 	b.WriteString("\n\n")
+	b.WriteString(manifestAdvice(stagedManifests(srcs)))
 	if len(names) > 0 {
 		fmt.Fprintf(&b, "Tests that pass at HEAD: %s\n", strings.Join(names, ", "))
 	}
@@ -76,5 +77,8 @@ func splitAdvice(tests, names []string) string {
 	b.WriteString("    aphrollo gate split-commit --dry                              (names both commits, writes nothing)\n")
 	b.WriteString("    aphrollo gate split-commit -m \"<what the tests pin>\"          (commits the tests alone; the rest stays staged)\n")
 	b.WriteString("    git commit                                                    (the rest, with its own message)\n")
+	for _, r := range greenAtHeadEvidence {
+		b.WriteString(r.advice(names))
+	}
 	return b.String()
 }

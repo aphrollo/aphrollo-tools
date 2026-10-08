@@ -280,6 +280,10 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 	// the lane (#972). The copy is removed on every return below, and by the
 	// signal handler on a signal.
 	canary := watchGitWorld(repoRoot, "proof")
+	// The content being broken, named the way the commit gate reads it back
+	// out of the index, so a kill below can be recorded against it.
+	lane := repoRoot
+	brokenBlob := strings.TrimSpace(gitOut(lane, "hash-object", "--", relPath))
 	box, err := newProveSandbox(repoRoot, root)
 	if err != nil {
 		fmt.Fprintf(stderr, "gate: mutants prove refused — a disposable copy of %s to prove in could not be made: %v; "+
@@ -414,6 +418,9 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 		fmt.Fprintf(stdout, "gate: mutant KILLED — %s failed as predicted (mutation: %q -> %q in %s; "+
 			"mutation landed: %s)%s\n", matched, opts.Old, opts.New, relPath, landed,
 			widenedProveNote(narrow, widened))
+		if brokenBlob != "" {
+			RecordPinProof(lane, PinProof{Test: matched, File: relPath, Blob: brokenBlob})
+		}
 		return retainProveRun(laneRoot, runner, res, ExitMutantsProveKilled)
 	case !res.Passed && len(failing) == 0:
 		fmt.Fprintf(stdout, "gate: mutant UNREADABLE — unreadable red run: no failing test name could be read "+
