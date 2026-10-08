@@ -2,7 +2,10 @@ package tdd
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -329,18 +332,60 @@ func TestRecordBinaryBehindFailure_StillLogsWhenPathIsEmpty(t *testing.T) {
 	}
 }
 
-// The line must reach the session, not just the unit under test.
-func TestHandleSessionStart_CarriesTheBehindLine(t *testing.T) {
+// goModRepo is a directory holding a go.mod for module, with a nested
+// working directory, as a session's cwd can be anywhere below the root.
+func goModRepo(t *testing.T, module string) (root, cwd string) {
+	t.Helper()
+	root = t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module "+module+"\n\ngo 1.26\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cwd = filepath.Join(root, "internal", "x")
+	if err := os.MkdirAll(cwd, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return root, cwd
+}
+
+func sessionStartIn(t *testing.T, cwd string) string {
+	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("TRELLIS_DATA", t.TempDir())
 	setStamp(t, stampedCommit)
 	stubLsRemote(t, func(ctx context.Context) (string, error) {
 		return originHead, nil
 	})
+	raw, err := json.Marshal(map[string]string{"session_id": "ss-behind", "cwd": cwd})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return HandleSessionStart(raw)
+}
+
+// The line must reach a session working on aphrollo-tools itself, from any
+// directory below its root.
+func TestHandleSessionStart_CarriesTheBehindLine(t *testing.T) {
+	_, cwd := goModRepo(t, "github.com/aphrollo/aphrollo-tools")
 
 	want := "aphrollo binary is behind origin/main (built at ca47dba, origin at 15ac791): run aphrollo update"
-	msg := HandleSessionStart([]byte(`{"session_id":"ss-behind"}`))
+	msg := sessionStartIn(t, cwd)
 	if strings.Count(msg, want) != 1 {
 		t.Fatalf("session-start message should carry the behind-notice line exactly once:\n%s", msg)
+	}
+}
+
+// In a consumer repo the notice is noise: the session there cannot act on it.
+func TestHandleSessionStart_NoBehindLineInAConsumerRepo(t *testing.T) {
+	_, cwd := goModRepo(t, "example.com/consumer/app")
+
+	if msg := sessionStartIn(t, cwd); strings.Contains(msg, "behind origin/main") {
+		t.Fatalf("a consumer repo got the behind-notice:\n%s", msg)
+	}
+}
+
+// A session outside any Go module is not aphrollo-tools either.
+func TestHandleSessionStart_NoBehindLineOutsideAnyModule(t *testing.T) {
+	if msg := sessionStartIn(t, t.TempDir()); strings.Contains(msg, "behind origin/main") {
+		t.Fatalf("a directory with no go.mod got the behind-notice:\n%s", msg)
 	}
 }

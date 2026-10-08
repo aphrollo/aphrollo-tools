@@ -357,8 +357,12 @@ func HandleSessionStart(raw []byte) string {
 	if digest := maybeWeeklyDigest(time.Now(), issuePrompt); digest != "" {
 		parts = append(parts, digest)
 	}
-	if behind := BinaryBehindLine(time.Now()); behind != "" {
-		parts = append(parts, behind)
+	// Only where the session can act on it: the binary is built from the
+	// aphrollo-tools repo, so a consumer repo's session is told nothing.
+	if inAphrolloToolsRepo(in.Cwd) {
+		if behind := BinaryBehindLine(time.Now()); behind != "" {
+			parts = append(parts, behind)
+		}
 	}
 	exe, _ := os.Executable()
 	if bypass := shimBypassLineFn(exe); bypass != "" {
