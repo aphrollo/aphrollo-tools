@@ -1,6 +1,8 @@
 package postedit
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -82,7 +84,8 @@ func DecideStop(event StopEvent, raw []byte) StopVerdict {
 	}
 	// The unseen-red fact is read before the check, which marks what it tells seen.
 	var red bool
-	var trees, where []string
+	var trees []string
+	var where []redPlace
 	if event != StopHookTaskCompleted {
 		red, trees, where = unseenRedFact(event, in.SessionID, in.Cwd, in.AgentID)
 	}
@@ -104,8 +107,8 @@ func DecideStop(event StopEvent, raw []byte) StopVerdict {
 // red the store holds for the tree cwd stands in (its tree key is returned), or a
 // finished deferred run of the session (the whole session for a Stop, the cwd's
 // checkout for a SubagentStop), of the agent that is stopping. where names the
-// roots the reds are in. It marks and removes nothing.
-func unseenRedFact(event StopEvent, session, cwd, agent string) (red bool, trees, where []string) {
+// reds and the roots they are in. It marks and removes nothing.
+func unseenRedFact(event StopEvent, session, cwd, agent string) (red bool, trees []string, where []redPlace) {
 	if session == "" {
 		return false, nil, nil
 	}
@@ -116,7 +119,7 @@ func unseenRedFact(event StopEvent, session, cwd, agent string) (red bool, trees
 		for _, p := range laneRedsWithin(tree) {
 			if !redSeen(session, p.Key) && !slices.Contains(trees, p.Key) {
 				trees = append(trees, p.Key)
-				where = appendRoot(where, p.Root)
+				where = append(where, redPlace{Root: p.Root, ID: p.Key})
 			}
 		}
 	}
@@ -128,17 +131,14 @@ func unseenRedFact(event StopEvent, session, cwd, agent string) (red bool, trees
 		reds = redsWithin(reds, stopTreeFn(cwd))
 	}
 	for _, j := range reds {
-		where = appendRoot(where, j.Project)
+		where = append(where, redPlace{Root: j.Project, ID: j.Result + "\x00" + j.FileHash})
 	}
 	return len(reds) > 0, nil, where
 }
 
-func appendRoot(list []string, s string) []string {
-	if slices.Contains(list, s) {
-		return list
-	}
-	return append(list, s)
-}
+// redPlace is one unseen red: the root it is in and an id that changes with
+// each new red there (a lane pointer's tree key, a job's result and source).
+type redPlace struct{ Root, ID string }
 
 // agentReds is finishedReds of the one agent a stop is for. A subagent's hooks
 // carry its session's id, so the session's records hold every builder's reds
@@ -148,6 +148,10 @@ func appendRoot(list []string, s string) []string {
 func agentReds(session, agent string) []DeferredJob {
 	var kept []DeferredJob
 	for _, j := range finishedReds(session) {
+		// A checkout gone from the disk is one no hook will ever run in again.
+		if _, err := os.Stat(j.Project); err != nil {
+			continue
+		}
 		if j.Agent == agent || (agent != "" && j.Agent == "") {
 			kept = append(kept, j)
 		}
@@ -202,12 +206,13 @@ func stopMode(cwd string) string {
 	return EffectiveTDD(cwd).TDD
 }
 
-// warnStop is the stop check under tdd = warn: it never blocks, and says once
-// that the turn ends with a red its agent has not been told of. It reads the
-// same fact the shadow record does and consumes nothing, so the red is still
-// there for the agent's next hook to report. TaskCompleted is not held open
-// and has nothing to say.
-func warnStop(event StopEvent, in stopInput, red bool, where []string) StopVerdict {
+// warnStop is the stop check under tdd = warn: it never blocks, and names each
+// red its agent has not been told of once per session. It reads the same fact
+// the shadow record does and consumes nothing, so the red is still there for
+// the agent's next hook to report; only the warning is marked, so a red that
+// no hook reaches is not repeated at every stop. TaskCompleted is not held
+// open and has nothing to say.
+func warnStop(event StopEvent, in stopInput, red bool, where []redPlace) StopVerdict {
 	state, _ := loadSession(in.SessionID)
 	if !stopCheckEnforced(state) || !red || in.StopHookActive {
 		return StopVerdict{}
@@ -221,15 +226,36 @@ func warnStop(event StopEvent, in stopInput, red bool, where []string) StopVerdi
 	default:
 		return StopVerdict{}
 	}
-	return StopVerdict{Guidance: warnGuidance(where)}
+	var roots []string
+	for _, p := range where {
+		key := warnedKey(p.ID)
+		if redSeen(in.SessionID, key) {
+			continue
+		}
+		markRedSeen(in.SessionID, key)
+		if !slices.Contains(roots, p.Root) {
+			roots = append(roots, p.Root)
+		}
+	}
+	if len(roots) == 0 {
+		return StopVerdict{}
+	}
+	return StopVerdict{Guidance: warnGuidance(roots)}
+}
+
+// warnedKey is the seen-mark key of a warning about the red id names: its own
+// namespace, so marking a warning never reads as the red having been told.
+func warnedKey(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return "warn-" + hex.EncodeToString(sum[:])[:27]
 }
 
 // warnGuidance names where each red is and how to read it, so the person the
 // message reaches can act on it.
-func warnGuidance(where []string) string {
+func warnGuidance(roots []string) string {
 	var b strings.Builder
 	b.WriteString("gate (tdd = warn): this turn ends with a red its agent has not been told of; the next hook reports it. tdd = enforce blocks the stop on it.")
-	for _, root := range where {
+	for _, root := range roots {
 		fmt.Fprintf(&b, "\n  red in %s: cd %s && aphrollo gate output", root, root)
 	}
 	return b.String()
