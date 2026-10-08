@@ -170,11 +170,39 @@ func emptyGitlinks(path string) bool {
 			continue
 		}
 		dir := filepath.Join(path, filepath.FromSlash(name))
+		if !withinCheckout(path, dir) {
+			return false
+		}
 		if os.RemoveAll(dir) != nil || os.MkdirAll(dir, 0o755) != nil {
 			return false
 		}
 	}
 	return true
+}
+
+// withinCheckout reports whether dir, once the links among its parents are
+// resolved, lies inside root. A parent that has become a symlink out of the
+// checkout would make a removal reach a directory that is not the gate's. The
+// nearest parent that exists is the one resolved; dir itself may be a link, and
+// removing a link removes only the link.
+func withinCheckout(root, dir string) bool {
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	parent := filepath.Dir(dir)
+	for {
+		realParent, err := filepath.EvalSymlinks(parent)
+		if err == nil {
+			rel, rerr := filepath.Rel(realRoot, realParent)
+			return rerr == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+		}
+		next := filepath.Dir(parent)
+		if next == parent {
+			return false
+		}
+		parent = next
+	}
 }
 
 // warmClaimJudged runs once a taker has judged a claim stale and before it

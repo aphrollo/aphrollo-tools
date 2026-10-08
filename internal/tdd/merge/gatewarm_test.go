@@ -501,3 +501,30 @@ func TestWarmGate_SubmodulePathsStayEmptyLikeAFreshCheckout(t *testing.T) {
 		t.Fatalf("the submodule path holds %v after the reset, want it empty as in a fresh checkout", names)
 	}
 }
+
+// A path under a gitlink that has become a symlink out of the checkout is never
+// followed: the directory it points to survives and the reset gives up, so the
+// caller rebuilds the checkout cold.
+func TestEmptyGitlinks_NeverFollowsASymlinkOutOfTheCheckout(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, trunk := makeForkedRepo(t)
+	rev := warmRev(t, root, trunk)
+	gitDo(t, root, "update-index", "--add", "--cacheinfo", "160000,"+rev+",a/b")
+	gitDo(t, root, "commit", "-qm", "a gitlink under a")
+	wt := filepath.Join(t.TempDir(), "wt")
+	gitDo(t, root, "worktree", "add", "--detach", wt, warmRev(t, root, "HEAD"))
+	outside := t.TempDir()
+	write(t, outside, "b/precious.txt", "outside the checkout\n")
+	if err := os.RemoveAll(filepath.Join(wt, "a")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(wt, "a")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err) // skip-ok: creating a symlink needs a privilege some hosts withhold
+	}
+	if emptyGitlinks(wt) {
+		t.Error("a gitlink path behind a symlink out of the checkout was emptied")
+	}
+	if _, err := os.Stat(filepath.Join(outside, "b", "precious.txt")); err != nil {
+		t.Fatalf("the directory outside the checkout was deleted through the symlink: %v", err)
+	}
+}
