@@ -96,12 +96,12 @@ test-cache-impure = [
   "./tools/tddsplit",
 ]
 
-# Test selection at the edit stage, off here until the owner has seen the numbers.
+# Test selection at the edit stage, on here so the report measures it.
 # With test-select = "edit" the post-edit Go suite runs only the tests the
 # commit-time coverage store says cover the edited functions (and every test the
 # store does not know), and the whole package whenever the store cannot say;
 # the precommit fail-first, the merge and CI never narrow.
-test-select = "off"
+test-select = "edit"
 
 # The post-merge retro `aphrollo workspace merge` runs once the PR has landed.
 # It reads the PR's journey (one bounded gh batch), the lane's gate.log
