@@ -106,8 +106,8 @@ var features = []Feature{
 	},
 	{
 		Key: "test-cache", Default: "off",
-		Effect: "go's own test-result cache serves the packages a change left alone, in the post-edit suite (\"edit\") and also the commit's suite (\"commit\"), instead of every gate run carrying -count=1 and -shuffle=on; the merge and CI always run the whole tree with no cache, and a line reads \"N passed (M cached)\"",
-		Cost:   "a cached pass is the earlier result of an unchanged package: right only for tests whose inputs go tracks (its sources, the env variables and files they read), so list the packages that exec git or another binary, read the network or the clock in test-cache-impure; -shuffle is off while the cache serves",
+		Effect: "go's own test-result cache serves the packages a change left alone, in the post-edit suite (\"edit\") and also the commit's suite (\"commit\"), instead of every gate run carrying -count=1; the merge and CI always run the whole tree with no cache, and a line reads \"N passed (M packages cached)\"",
+		Cost:   "a cached pass is the earlier result of an unchanged package: right only for tests whose inputs go tracks (its sources, the env variables and files they read), so list in test-cache-impure the packages whose tests depend on what go cannot see (the network, the clock, a language server, the machine's processes and ports, files outside their temp dirs); at \"commit\" the commit's suite also drops -shuffle=on, which go never serves from its cache",
 		Enable: "test-cache = \"edit\" or \"commit\"",
 	},
 	{

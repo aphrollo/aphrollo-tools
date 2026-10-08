@@ -35,57 +35,65 @@ go-test-reads = [
 # test-cache = "edit" or "commit" the post-edit suite (and, at "commit", the
 # commit's suite) lets go serve a package whose sources and test inputs did not
 # change, where every gate run carries -count=1 today; the merge and CI never
-# do. A cached result is only as good as what go can see of a test's inputs:
-# its binary, the env variables it read and the files it opened. test-cache-impure
-# lists the packages that cannot be vouched for, which always rerun with
-# -count=1. Found by grep over the test files and by `go list -deps -test`: a
-# package is listed when its tests import os/exec, internal/run, internal/git,
-# gitx, gitenv, shfake, proc, msys, lsp, net or net/http, or when its test
-# binary links one of the packages that spawn a process. What is left (buildinfo,
-# config/decl, diff, guardrail, integrate/host, lang, lsp, mask, oracle,
-# rootseam, tomlsubset) is pure Go over its inputs. A new package whose tests
-# exec git, a language server or any other binary, or read the network, goes in
-# this list; internal/tdd and tools are listed as trees, so a new package under
-# them is impure until someone proves otherwise.
+# do.
+#
+# Go keys a cached result on the test binary, the cacheable flags, the env
+# variables the test read and the files it opened or stat'd, but only files
+# inside the module, GOPATH or GOROOT are rechecked. Probed on this box: a
+# package whose tests exec git on a temp repo is `(cached)` on its second plain
+# run, go's test log lists git.exe among the opened files, yet a copy of an
+# exec'd tool outside the module that is grown by a byte afterwards is still
+# served `(cached)`. So an upgraded git, gopls or gremlins does not invalidate a
+# result, and neither does anything a subprocess reads on its own. A package is
+# therefore listed in test-cache-impure when its tests run git, or depend on
+# what go cannot see: a language server or gremlins, the machine's processes,
+# ports and memory, ~/.gitconfig and the user's other config, or the git history
+# of this very repo. Found by grep over the test files and by reading the hits.
+# Unlisted: pure Go over files in the module and its own temp dirs (buildinfo,
+# config/decl, diff, guardrail, integrate/host and its github adapter, lang,
+# lsp, mask, oracle, rootseam, tomlsubset, tdd/shell, tddarm, release, report,
+# render, store, shfake, engine, kernel, measure, shadow, compat, cireuse,
+# ciwhy, depinstall, tools/flakehunt, tools/replay). A new package whose tests
+# run git or any binary, or read the network or the clock, goes in this list.
 test-cache = "off"
 test-cache-impure = [
-  "./internal/tdd/...",
-  "./tools/...",
-  "./cmd/...",
   "./internal/argvbatch",
-  "./internal/cireuse",
-  "./internal/ciwhy",
   "./internal/cli",
   "./internal/commitrecord",
-  "./internal/compat",
   "./internal/config",
-  "./internal/depinstall",
   "./internal/dev",
   "./internal/docs",
-  "./internal/engine",
   "./internal/ghworkflow",
   "./internal/git",
   "./internal/gitenv",
   "./internal/gitiso",
-  "./internal/integrate/host/github/...",
-  "./internal/kernel",
-  "./internal/measure",
+  "./internal/integrate/host/github/ghtransport",
   "./internal/msys",
   "./internal/proc",
   "./internal/ratchet",
   "./internal/refactor",
-  "./internal/release",
-  "./internal/render",
-  "./internal/report",
-  "./internal/run/...",
-  "./internal/shadow",
-  "./internal/shfake",
+  "./internal/run",
   "./internal/sqlc",
-  "./internal/store",
-  "./internal/tddarm",
+  "./internal/tdd",
+  "./internal/tdd/core",
+  "./internal/tdd/escape",
+  "./internal/tdd/failfirst",
+  "./internal/tdd/gc",
+  "./internal/tdd/gitx",
+  "./internal/tdd/install",
+  "./internal/tdd/internal/tddtest",
+  "./internal/tdd/lawgate",
+  "./internal/tdd/lock",
+  "./internal/tdd/merge",
+  "./internal/tdd/mutation",
+  "./internal/tdd/postedit",
+  "./internal/tdd/precommit",
+  "./internal/tdd/smell",
+  "./internal/tdd/suite",
   "./internal/undercover",
   "./internal/userbin",
   "./internal/workspace",
+  "./tools/tddsplit",
 ]
 
 # The post-merge retro `aphrollo workspace merge` runs once the PR has landed.
