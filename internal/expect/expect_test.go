@@ -62,3 +62,15 @@ func TestEncode_RoundTripsThroughDecode(t *testing.T) {
 		t.Fatalf("Decode kept a bad record: %v", got)
 	}
 }
+
+func TestFind_ReadsEveryRowOfTheTableIncludingTheFirst(t *testing.T) {
+	for _, m := range Metrics {
+		got, ok := Find(m.Name)
+		if !ok || got.Name != m.Name {
+			t.Errorf("Find(%q) = %v, %v; want the row itself", m.Name, got, ok)
+		}
+	}
+	if _, ok := Find("coffee"); ok {
+		t.Error("Find accepted a name no row has")
+	}
+}

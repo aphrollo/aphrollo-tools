@@ -181,6 +181,8 @@ type Report struct {
 	Previous *Previous `json:"previous,omitempty"`
 	// Speed is how long the gate's stages, CI, the queue and the whole PR took.
 	Speed Speed `json:"speed"`
+	// Expectations are the merged PRs' expect: lines read against the log; empty when none was recorded.
+	Expectations Expectations `json:"expectations"`
 	// Usage is the session usage section; nil when no transcripts were read.
 	Usage *Usage `json:"usage,omitempty"`
 	// withheld is set on the published form whose usage section the undercover check refused.
@@ -221,6 +223,7 @@ func Build(in Input) Report {
 	}
 
 	r.Speed = buildSpeed(evs, since, since.Add(-in.Window), r.Previous != nil)
+	r.Expectations = buildExpectations(evs)
 
 	o := measure.Options{Window: in.Window}
 	raw := make([]tdd.Event, len(evs))

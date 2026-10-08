@@ -34,6 +34,7 @@ func (r Report) Text() string {
 
 	p("")
 	r.Speed.text(p, more)
+	r.Expectations.text(p)
 
 	p("")
 	p("1. Friction per rule (denies, overrides, refusals, not-tested runs, time lost)")

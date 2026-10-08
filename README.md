@@ -39,6 +39,7 @@ level among them, bumped from that tag) and creates a GitHub Release whose notes
 are those fragments; `aphrollo release plan` prints the tag it would make, and
 `aphrollo changelog` prints the whole history, assembled from the fragments each
 tag first contains above `CHANGELOG.md`, which is the frozen record of the hand-written releases.
+A PR body may also say what the change should move, one `expect: <metric> <p50|p90|rate> <down|up>` line each (for example `expect: merge-queue p50 down`; the metrics are `edit-suite`, `edit-to-verdict`, `commit-gate`, `commit-gate-total`, `merge-gate`, `merge-gate-total`, `mutation-commit`, `merge-queue`, `ci-pipeline`, `pr-lead-time` with `p50` or `p90`, and `wrong-blocks` with `rate`). `workspace pr` and `submit` refuse a line that names another metric or is malformed, and name the valid ones. The merge records the lines with the newest release tag; once 30 lanes ran on a newer binary, `aphrollo report` has an Expectations section with the before and after values and the Mann-Whitney verdict of the speed section (`~` is no clear change), and a line that did not hold is a proposal. Until then the line reads `pending (n of 30 lanes)`.
 A repo declares the oldest binary it
 accepts with `requires = ">=1.4"` under `[aphrollo]` in `aphrollo.toml` (under
 `[workspace.metadata.aphrollo]` in a Cargo workspace's manifest). An older
