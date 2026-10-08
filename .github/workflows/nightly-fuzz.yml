@@ -39,12 +39,15 @@ jobs:
         id: fuzzcache
         run: echo "dir=$(go env GOCACHE)/fuzz" >> "$GITHUB_OUTPUT"
       # The corpus go grows past the checked-in seeds is kept between nights:
-      # restore the newest, save under this run's id.
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # restore the newest here, save under this run's id after the fuzz step
+      # (always, so a night with a crash keeps what it learned).
+      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.fuzzcache.outputs.dir }}
           key: fuzz-corpus-${{ github.run_id }}
           restore-keys: fuzz-corpus-
+      - name: List the checked-in fuzz files before the run
+        run: find . -path '*/testdata/fuzz/*' -type f | sort > pre-fuzz.txt
       - name: Build the CLI from this tree
         run: go build -trimpath -buildvcs=false -o bin/aphrollo ./cmd/aphrollo
       - name: Fuzz every target for 60s
@@ -128,14 +131,28 @@ jobs:
             done
           done
           exit $overall
-      # A crasher lands as a file under testdata/fuzz; commit it from this
-      # artifact as a deterministic regression.
+      - name: Save the fuzz corpus
+        if: always()
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.fuzzcache.outputs.dir }}
+          key: fuzz-corpus-${{ github.run_id }}
+      # A crasher lands as a new file under testdata/fuzz; only the files this
+      # run added are uploaded (not the checked-in seeds), to be committed as
+      # a deterministic regression.
+      - name: Collect the reproducers this run added
+        if: always()
+        run: |
+          find . -path '*/testdata/fuzz/*' -type f | sort | comm -13 pre-fuzz.txt - > new-reproducers.txt
+          mkdir -p fuzz-new
+          if [ -s new-reproducers.txt ]; then xargs -a new-reproducers.txt cp --parents -t fuzz-new; fi
+          cp new-reproducers.txt fuzz-new/
       - name: Upload fuzz reproducers
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-reproducers
-          path: "**/testdata/fuzz/**"
+          path: fuzz-new
           if-no-files-found: ignore
       - name: Upload fuzz logs
         if: always()

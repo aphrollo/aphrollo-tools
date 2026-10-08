@@ -265,6 +265,8 @@ func TestTDDSkill_NamesWhenAPropertyTestPays(t *testing.T) {
 		"model-based",
 		"untrusted bytes",
 		"never a blanket rule",
+		"-rapid.seed=<n>",
+		"real bug",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("skill body missing %q", want)

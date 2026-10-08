@@ -70,19 +70,41 @@ func TestNightlyFuzzWorkflow_FailsOnNoFuzzTestsWarning(t *testing.T) {
 // TestNightlyFuzzWorkflow_CapsParallelCachesCorpusAndUploadsReproducers pins
 // the three things that keep a nightly fuzz run affordable and useful: the
 // worker count is capped (an uncapped -fuzz takes every core of the runner),
-// the fuzz corpus go grows survives between nights (actions/cache over the
+// the fuzz corpus go grows survives between nights (the cache action over the
 // GOCACHE fuzz dir), and a crasher's testdata/fuzz file is uploaded as an
 // artifact so it can be committed as a regression.
 func TestNightlyFuzzWorkflow_CapsParallelCachesCorpusAndUploadsReproducers(t *testing.T) {
 	wf := repoFile(t, ".github", "workflows", "nightly-fuzz.yml")
 	for _, want := range []string{
 		"-fuzztime=60s -parallel=2",
-		"actions/cache@",
 		"go env GOCACHE",
-		"testdata/fuzz/**",
+		"name: fuzz-reproducers",
 	} {
 		if !strings.Contains(wf, want) {
 			t.Errorf("nightly-fuzz.yml lacks %q", want)
 		}
+	}
+}
+
+// TestNightlyFuzzWorkflow_UploadsOnlyNewReproducersAndSavesTheCorpusAlways pins
+// two things a night with a crash needs: the artifact holds the files this
+// run added to testdata/fuzz (not the checked-in seeds, which would bury the
+// reproducer), and the corpus is saved under `if: always()` with the split
+// cache/save action, since a plain cache step saves only on success and a
+// crashing night would lose what it learned.
+func TestNightlyFuzzWorkflow_UploadsOnlyNewReproducersAndSavesTheCorpusAlways(t *testing.T) {
+	wf := repoFile(t, ".github", "workflows", "nightly-fuzz.yml")
+	for _, want := range []string{
+		"actions/cache/restore@",
+		"actions/cache/save@",
+		"if: always()",
+		"new-reproducers.txt",
+	} {
+		if !strings.Contains(wf, want) {
+			t.Errorf("nightly-fuzz.yml lacks %q", want)
+		}
+	}
+	if strings.Contains(wf, `path: "**/testdata/fuzz/**"`) {
+		t.Error("nightly-fuzz.yml still uploads every file under testdata/fuzz, the checked-in seeds with the reproducer")
 	}
 }
