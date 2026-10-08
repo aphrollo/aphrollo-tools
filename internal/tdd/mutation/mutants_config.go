@@ -73,6 +73,9 @@ type MutantsConfig struct {
 	// commit-time run's coverage build and to every `go test` it makes, so a
 	// line only a tagged suite executes is measured against that suite.
 	TestTags []string
+	// Skip is mutants-skip: the repo's additions to the calls whose error
+	// tests are not measured (mutants_skip.go).
+	Skip []string
 }
 
 // defaultCommitBudget is how long the commit-time mutation run may take when
@@ -147,6 +150,10 @@ func ReadMutantsConfig(root string) (MutantsConfig, error) {
 	cfg.IntegrationPackages = firstDeclaredList(tables, mutantsIntegrationKey)
 	cfg.Env = firstDeclaredList(tables, mutantsEnvKey)
 	cfg.TestTags = firstDeclaredList(tables, mutantsTestTagsKey)
+	cfg.Skip = firstDeclaredList(tables, mutantsSkipKey)
+	if err := checkSkipEntries(cfg.Skip); err != nil {
+		return MutantsConfig{}, err
+	}
 	cfg.BaselineExclude = firstDeclaredList(tables, mutationBaselineExcludeKey)
 	cfg.Accept = firstDeclaredList(tables, mutantsAcceptKey)
 	// An accept-list nobody had to justify is a list of survivors somebody

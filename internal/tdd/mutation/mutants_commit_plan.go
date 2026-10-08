@@ -67,6 +67,13 @@ func isMutationData(file string) bool {
 // commitMutantsOf lists the mutants of every staged source on the lines the
 // commit adds, and the notes for the sources it left out.
 func commitMutantsOf(root string, added map[string]map[int]bool, unstaged map[string]bool) (mutants []commitMutant, notes []string) {
+	mutants, _, notes = commitMutantsSkipping(root, added, unstaged, nil)
+	return mutants, notes
+}
+
+// commitMutantsSkipping is commitMutantsOf without the mutants of the calls on
+// skips, and how many it left out.
+func commitMutantsSkipping(root string, added map[string]map[int]bool, unstaged map[string]bool, skips []string) (mutants []commitMutant, skipped int, notes []string) {
 	files := make([]string, 0, len(added))
 	for file := range added {
 		files = append(files, file)
@@ -86,9 +93,15 @@ func commitMutantsOf(root string, added map[string]map[int]bool, unstaged map[st
 			// absence-ok: a file the diff names but the tree lacks (deleted or renamed away) has no mutants to measure
 			continue
 		}
-		mutants = append(mutants, enumerateCommitMutants(file, src, added[file])...)
+		for _, m := range enumerateMutants(file, src, added[file], skips) {
+			if m.Skipped {
+				skipped++
+				continue
+			}
+			mutants = append(mutants, m)
+		}
 	}
-	return mutants, notes
+	return mutants, skipped, notes
 }
 
 // commitPlans reads, for each package the mutants sit in, the tests it has

@@ -745,7 +745,7 @@ mutants_measure_gitdir_test.go                     mutation
 mutants_measure_judge.go                           mutation
 mutants_measure_rerun.go                           mutation
 mutants_measure_test.go                            mutation
-mutants_measure_took_test.go                          mutation
+mutants_measure_took_test.go                       mutation
 mutants_measure_tree.go                            mutation
 mutants_measure_tree_batch_unix_test.go            mutation
 mutants_measure_tree_commita_test.go               mutation
@@ -808,6 +808,8 @@ mutants_shardmerge.go                              mutation
 mutants_shardmerge_test.go                         mutation
 mutants_shards.go                                  mutation
 mutants_shards_test.go                             mutation
+mutants_skip.go                                    mutation
+mutants_skip_test.go                               mutation
 mutants_smoke_test.go                              mutation
 mutants_stage.go                                   mutation
 mutants_stage_test.go                              precommit # prefix says mutation; its test body reaches precommit

@@ -74,6 +74,11 @@ func judgeMutants(cfg MutantsConfig, mutants []MutantOutcome) Verdict {
 			// counted apart, and never refused — an untested verdict is
 			// not a result.
 			v.Inconclusive = append(v.Inconclusive, m)
+		case mutantSkipped:
+			// Counted apart and never judged: a mutant of a call that cannot
+			// fail is neither caught nor missed.
+			v.SkipListed++
+			v.Tested--
 		case gremlinsNotCovered:
 			// Counted apart from unviable: "no coverage block maps here" is
 			// a different claim from "this mutant does not compile", and it
@@ -199,6 +204,9 @@ func measureReport(v Verdict, notes []acceptNote) string {
 		// and a trailing ", 0 not covered" on every one of its reports is a
 		// column about a tool it does not use.
 		fmt.Fprintf(&b, ", %d not covered", v.NotCovered)
+	}
+	if v.SkipListed > 0 {
+		fmt.Fprintf(&b, ", %d skipped by mutants-skip", v.SkipListed)
 	}
 	if len(v.Inconclusive) > 0 {
 		// Same rule as not covered: a column about a category this run had

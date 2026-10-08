@@ -425,6 +425,7 @@ func measureGoLane(ctx context.Context, root string, cfg MutantsConfig, base str
 	if parseErr != nil {
 		return measureNoVerdictOrTreeChanged(root, measureTempDir(root), code, parseErr, before, log), nil
 	}
+	mutants = markSkipped(root, mutants, cfg.SkipList())
 	if v, refused := refuseIfTreeChanged(root, before, log); refused {
 		return v, nil
 	}
