@@ -4,6 +4,9 @@ The gate now gives rapid a seed derived from the content of the packages that im
 
 ### What you will notice
 
-- A new info-level law, `roundtrip_untested`, reports a Go package with a Format, Marshal or Encode function and neither a rapid test nor a Fuzz target. It never blocks.
 - The tdd skill has a short Property tests section saying when a property test pays.
-- The nightly fuzz workflow caps its workers, keeps the fuzz corpus between nights and uploads a crasher's reproducer as an artifact.
+- The nightly fuzz workflow caps its workers, keeps the fuzz corpus between nights and uploads a crasher's reproducer as an artifact. A test now fails, naming the target, when a `func Fuzz` in the repo is missing from the workflow's target map; it found `FuzzLexer_AgreesWithTheLexerItReplaced` in `internal/mask`, which had never run nightly.
+
+### Not shipped
+
+A report-only law for a package that has a round-trip pair (Format and Parse, Marshal and Unmarshal, Encode and Decode) and no rapid or Fuzz test. The ratchet engine cannot say it as data: a law has one trigger and one excusing marker, it cannot require a second half, and it cannot match `Format<X>` with `Parse<X>` on the same name. A trigger on the writer half alone reported only false positives here (`FormatBytes` and the like). It needs a pair matcher in the engine first.
