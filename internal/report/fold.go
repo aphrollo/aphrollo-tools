@@ -87,6 +87,10 @@ func backgroundVerdict(e stamped) bool {
 }
 
 func (c *counts) addSecs(e stamped) {
+	if strings.HasSuffix(e.Kind, "_result") {
+		// A whole run's total: its stages already carry the seconds.
+		return
+	}
 	if backgroundVerdict(e) {
 		c.background += e.Secs
 		return
