@@ -38,7 +38,10 @@ func webFixture() Report {
 			Briefs:  []measure.BriefLine{{Name: "managed CLAUDE.md block", Bytes: 1463, Tokens: 366, Cap: 400}, {Name: "tdd skill", Bytes: 1700, Tokens: 425, Cap: 400, Over: true}},
 			Biggest: []GateLine{{Name: "commit_gate:precommit:mutants-passed", N: 96, Tokens: 900, Refs: refs}},
 		},
-		Speed:     webSpeed(),
+		Speed: webSpeed(),
+		TestCost: TestCost{Merges: 6, SuiteP50: 410,
+			Stages:  []CostStage{{Stage: "local merge gate", P50: 180, N: 6}, {Stage: "CI", P50: 600, N: 9}, {Stage: "queue wait", P50: 240, N: 5}},
+			Slowest: []CostTest{{Test: "m/a.TestSlow", Secs: 21, Delta: 1}, {Test: "m/b.TestFresh", Secs: 12, New: true}}},
 		Proposals: []Proposal{{Rule: "disabled-test", Numbers: "5 denies, 3 waived", Change: "lower the rule from block to guide", Refs: refs}},
 		Usage: &Usage{
 			Repo: "aphrollo-tools", Sessions: 3,

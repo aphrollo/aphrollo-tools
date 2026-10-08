@@ -12,6 +12,12 @@ Speed (seconds per run, green or not; change is the p50 against the window befor
   PR lead time                                 n 3    p50 1.5h    p90 2.0h    max 2.0h
   not derivable: CI pipeline: a ci event carries no run duration
 
+Test cost (merge-gate suite runs recorded: 6, p50 6.8m)
+  merge time by stage (p50): local merge gate 3.0m, CI 10.0m, queue wait 4.0m
+  slowest tests (change against the run before; new = no earlier run in the window states it)
+    m/a.TestSlow                                                 21s     +1s
+    m/b.TestFresh                                                12s     new
+
 1. Friction per rule (denies, overrides, refusals, not-tested runs, time lost)
   ratchet:module_size                          denies 4  overrides 1  refusals 0  not tested 0  time lost 2.2m  seq 12,14 (+3 more)
   gate:lint-blocked                            denies 0  overrides 0  refusals 3  not tested 0  time lost 40s  seq 30

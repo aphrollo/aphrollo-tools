@@ -34,6 +34,8 @@ func (r Report) Text() string {
 
 	p("")
 	r.Speed.text(p, more)
+	p("")
+	b.WriteString(r.TestCost.Text())
 	r.Expectations.text(p)
 
 	p("")

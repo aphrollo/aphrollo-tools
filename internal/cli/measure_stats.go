@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/measure"
+	"github.com/aphrollo/aphrollo-tools/internal/report"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
@@ -27,7 +28,7 @@ named earlier, over the window (the one to trend to 0). Read-only.
   --lane <name>    only that lane's events
   --week           only the last 7 days
   --since <dur>    only the last <dur> (7d, 12h)
-  --json           the report as JSON
+  --json           the report as JSON (the test cost section is in the text, and in report --json)
   --by-version     read each binary version on its own, under a heading per version: a lane
                    goes with the version that opened it (every readout names the versions
                    its window spans)
@@ -116,6 +117,9 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 		return printJSON(value, stdout, stderr)
 	}
 	fmt.Fprint(stdout, text)
+	if !*abSection && !*shadowSection {
+		fmt.Fprint(stdout, "\n"+report.BuildTestCost(events, time.Now().UTC(), window).Text())
+	}
 	fmt.Fprint(stdout, versions)
 	if note != "" && !*abSection {
 		fmt.Fprintln(stdout, note)
