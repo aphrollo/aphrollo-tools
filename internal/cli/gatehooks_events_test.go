@@ -154,3 +154,23 @@ func TestGatePremerge_StampsTheRunsElapsedSecondsOnItsResultEvent(t *testing.T) 
 		t.Fatalf("merge_gate_result = %+v, want one with secs 17", results)
 	}
 }
+
+// The clock is read before the first stage runs: a stage that takes 30s of the
+// fake clock (the premerge routine seam stands in for it) is inside the run's
+// seconds, so a start taken after the stages would read 0.
+func TestGatePremerge_TheRunsSecondsIncludeTheStagesThatRunInsideIt(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	managedBlockCommit(t, true)
+	now := time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)
+	oldClock, oldSeam := gateClock, premergeRoutineSeam
+	t.Cleanup(func() { gateClock, premergeRoutineSeam = oldClock, oldSeam })
+	gateClock = func() time.Time { return now }
+	premergeRoutineSeam = func(string) { now = now.Add(30 * time.Second) }
+
+	Run([]string{"gate", "premerge"}, strings.NewReader(""), &bytes.Buffer{}, &bytes.Buffer{})
+
+	results := eventsOfKind(loggedEvents(t), "merge_gate_result")
+	if len(results) != 1 || results[0].Secs != 30 {
+		t.Fatalf("merge_gate_result = %+v, want one with secs 30", results)
+	}
+}
