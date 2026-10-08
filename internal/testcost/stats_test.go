@@ -104,3 +104,67 @@ func TestLookup_FindsATestByItsBareNameInTheNewestRunThatHasIt(t *testing.T) {
 		t.Fatal("a prefix of a test name matched it")
 	}
 }
+
+func TestMerge_AddsTheSecondsKeepsTheLargerFigureAndTheLatestTime(t *testing.T) {
+	a := Run{At: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), Secs: 60, Tests: map[string]float64{"m.A": 5, "m.B": 9}}
+	b := Run{At: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC), Secs: 30, Tests: map[string]float64{"m.A": 7}, Pkgs: map[string]float64{"m": 3}}
+	got := Merge(a, b)
+	want := Run{At: b.At, Secs: 90, Tests: map[string]float64{"m.A": 7, "m.B": 9}, Pkgs: map[string]float64{"m": 3}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("merge = %+v, want %+v", got, want)
+	}
+}
+
+func TestDetail_ATestAtExactlyTheFloorIsKeptAndJustUnderItIsNot(t *testing.T) {
+	got := FromDetail(1, time.Time{}, Run{Tests: map[string]float64{"m.AtFloor": MinRecordSecs, "m.Under": MinRecordSecs - 0.01}}.Detail())
+	if _, ok := got.Tests["m.AtFloor"]; !ok {
+		t.Error("a test at exactly the floor was dropped")
+	}
+	if _, ok := got.Tests["m.Under"]; ok {
+		t.Error("a test under the floor was kept")
+	}
+}
+
+func TestDetail_ExactlyMaxTestsAreAllKept(t *testing.T) {
+	tests := map[string]float64{}
+	for i := range MaxTests {
+		tests["m.T"+string(rune('A'+i%26))+string(rune('a'+i/26))] = float64(2 + i)
+	}
+	if got := FromDetail(1, time.Time{}, Run{Tests: tests}.Detail()); len(got.Tests) != MaxTests {
+		t.Fatalf("kept %d of exactly %d tests", len(got.Tests), MaxTests)
+	}
+}
+
+func TestDetail_TestsOfEqualSecondsLoseTheLaterNameFirst(t *testing.T) {
+	tests := map[string]float64{}
+	for i := range MaxTests + 1 {
+		tests["m.T"+string(rune('A'+i%26))+string(rune('a'+i/26))] = 5
+	}
+	got := FromDetail(1, time.Time{}, Run{Tests: tests}.Detail())
+	if _, ok := got.Tests["m.TZa"]; ok {
+		t.Fatal("the alphabetically last of equal tests survived the cut")
+	}
+	if _, ok := got.Tests["m.TAa"]; !ok {
+		t.Fatal("the alphabetically first of equal tests was cut")
+	}
+}
+
+func TestSlowest_EqualSecondsAreOrderedByNameAndKReturnsExactlyK(t *testing.T) {
+	runs := []Run{runAt(1, 1, map[string]float64{"m.B": 5, "m.A": 5, "m.C": 5})}
+	got := Slowest(runs, 3)
+	if len(got) != 3 || got[0].ID != "m.A" || got[1].ID != "m.B" || got[2].ID != "m.C" {
+		t.Fatalf("slowest = %+v, want A, B, C in name order", got)
+	}
+	if got := Slowest(runs, 2); len(got) != 2 {
+		t.Fatalf("k = 2 returned %d rows", len(got))
+	}
+}
+
+func TestOverP50_NoRunsAndTooFewRunsAreNoJudgement(t *testing.T) {
+	if _, ok := OverP50(nil, 3, 1, 10); ok {
+		t.Error("no runs judged")
+	}
+	if _, ok := OverP50([]Run{runAt(1, 1, nil)}, 3, 2, 10); ok {
+		t.Error("one run judged with a floor of two")
+	}
+}
