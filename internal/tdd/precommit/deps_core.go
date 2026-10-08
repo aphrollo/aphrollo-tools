@@ -15,6 +15,8 @@ const HeadWorktreePrefix = core.HeadWorktreePrefix
 
 const Source = core.Source
 
+const StateSchema = core.StateSchema
+
 const Test = core.Test
 
 const premergeDisplayName = core.PremergeDisplayName
@@ -37,6 +39,10 @@ func AppendGateLog(p0 string, p1 string, p2 string, p3 string, p4 time.Duration)
 	core.AppendGateLog(p0, p1, p2, p3, p4)
 }
 
+func AppendGateLogDetail(p0 string, p1 string, p2 string, p3 string, p4 time.Duration, p5 map[string]string) {
+	core.AppendGateLogDetail(p0, p1, p2, p3, p4, p5)
+}
+
 func ClassifyFile(p0 string) Kind { return core.ClassifyFile(p0) }
 
 func StateDir() string { return core.StateDir() }
@@ -51,6 +57,8 @@ func quotedWords(p0 string) []string { return core.QuotedWords(p0) }
 
 func readGateEntries(p0 string, p1 time.Time) []gateEntry { return core.ReadGateEntries(p0, p1) }
 
+func readStateJSON(p0 string, p1 any) (bool, bool) { return core.ReadStateJSON(p0, p1) }
+
 func removeGateWorktree(p0 string, p1 string) { core.RemoveGateWorktree(p0, p1) }
 
 func samePath(p0 string, p1 string) bool { return core.SamePath(p0, p1) }
@@ -58,3 +66,5 @@ func samePath(p0 string, p1 string) bool { return core.SamePath(p0, p1) }
 func sameProject(p0 string, p1 string) bool { return core.SameProject(p0, p1) }
 
 func stripQuoted(p0 string) string { return core.StripQuoted(p0) }
+
+func writeFileAtomic(p0 string, p1 []byte) error { return core.WriteFileAtomic(p0, p1) }

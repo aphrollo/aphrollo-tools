@@ -210,6 +210,9 @@ func matchGlob(pattern, path string) bool {
 	return matchSegments(strings.Split(pattern, "/"), strings.Split(path, "/"))
 }
 
+// MatchGlob is matchGlob for a caller outside the package.
+func MatchGlob(pattern, path string) bool { return matchGlob(pattern, path) }
+
 func matchSegments(pat, seg []string) bool {
 	// walk-terminates: each turn either returns or consumes the leading pattern segment
 	for len(pat) > 0 {
