@@ -479,10 +479,11 @@ func phaseArgv(r Runner, phase string) []string {
 	// are lost (deferred_verdict.go, issue #571). Only cargo is splittable,
 	// so a go run never reaches the build branch above.
 	argv = withDeferredGoTimeout(argv)
-	if r.Cached && !cacheableAsOne(r) {
-		// The detached phase starts one command from an argv and the mark does
-		// not travel with it: a list go's cache cannot answer whole runs
-		// measured, as the gate's own runs do.
+	if isGoTestInvocation(argv[0], argv[1:]) && !slices.Contains(argv, "-count=1") && (!r.Cached || !cacheableAsOne(r)) {
+		// Every go test the gate runs carries -count=1 (#421). The detached
+		// phase starts one command from an argv and the cache mark does not
+		// travel with it, so only a run go's cache may answer whole goes
+		// without; any other, the key off included, is measured.
 		argv = slices.Insert(argv, 2, "-count=1")
 	}
 	return argv

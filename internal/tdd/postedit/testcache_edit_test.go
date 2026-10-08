@@ -99,10 +99,14 @@ func TestPhaseArgv_ACachedRunWithAnImpurePackageRunsUncachedInTheDeferredPhase(t
 		{"cached, nothing impure in the list", Runner{Cmd: "go", Args: []string{"test", "./a"}, Cached: true, Impure: impure}, false},
 		{"cached, an impure package in the list", Runner{Cmd: "go", Args: []string{"test", "./a", "./internal/git"}, Cached: true, Impure: impure}, true},
 		{"cached, the whole module", Runner{Cmd: "go", Args: []string{"test", "./..."}, Cached: true, Impure: impure}, true},
-		{"not marked, as it always was", Runner{Cmd: "go", Args: []string{"test", "./a", "./internal/git"}}, false},
+		{"not marked (key off): measured like every gate run, #421", Runner{Cmd: "go", Args: []string{"test", "./a", "./internal/git"}}, true},
+		{"not marked, -count=1 already named", Runner{Cmd: "go", Args: []string{"test", "-count=1", "./a"}}, true},
 	}
 	for _, c := range cases {
 		got := strings.Contains(strings.Join(phaseArgv(c.r, "run"), " "), "-count=1")
+		if n := strings.Count(strings.Join(phaseArgv(c.r, "run"), " "), "-count=1"); n > 1 {
+			t.Errorf("%s: -count=1 named %d times", c.name, n)
+		}
 		if got != c.want {
 			t.Errorf("%s: -count=1 present = %v, want %v (argv %v)", c.name, got, c.want, phaseArgv(c.r, "run"))
 		}
