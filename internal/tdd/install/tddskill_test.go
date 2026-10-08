@@ -251,3 +251,5 @@ func TestTDDSkill_NamesTheRouteThatRestoresAMutationProof(t *testing.T) {
 		}
 	}
 }
+
+// ratchet: test_removed TestTDDSkill_NamesWhenAPropertyTestPays: the property test guide moved to docs/property-tests.md, out of the token-capped skill
