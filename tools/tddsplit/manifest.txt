@@ -985,6 +985,7 @@ precommit_splitcommit.go                           precommit
 precommit_splitcommit_test.go                      precommit
 precommit_svelte_test.go                           precommit
 precommit_test.go                                  precommit
+precommit_vitesthang_test.go                       precommit
 precommit_wsmanifest.go                            precommit
 precommit_wsmanifest_test.go                       precommit
 precommit_zig_test.go                              precommit
@@ -1117,6 +1118,7 @@ runsuite_cap_test.go                               suite
 runsuite_killtree_test.go                          suite
 runsuite_related.go                                suite
 runsuite_related_test.go                           suite
+runsuite_vitestoutput_test.go                      suite
 runsuite_waitdelay_test.go                         suite
 runverdict.go                                      postedit
 runverdict_test.go                                 postedit
