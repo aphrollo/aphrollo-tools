@@ -190,11 +190,13 @@ func (c shareCtx) Deadline() (time.Time, bool) { return c.deadline, true }
 
 func (c *shareClock) install(t *testing.T) {
 	t.Helper()
-	prevTimeout, prevUntil, prevNow := coverTimeoutFn, coverUntilFn, commitNowFn
+	prevTimeout, prevUntil, prevNow, prevCover := coverTimeoutFn, coverUntilFn, commitNowFn, coverNowFn
 	coverTimeoutFn = c.timeout
 	coverUntilFn = func(d time.Time) time.Duration { return d.Sub(c.read()) }
-	commitNowFn = c.read
-	t.Cleanup(func() { coverTimeoutFn, coverUntilFn, commitNowFn = prevTimeout, prevUntil, prevNow })
+	commitNowFn, coverNowFn = c.read, c.read
+	t.Cleanup(func() {
+		coverTimeoutFn, coverUntilFn, commitNowFn, coverNowFn = prevTimeout, prevUntil, prevNow, prevCover
+	})
 }
 
 func (c *shareClock) read() time.Time {
