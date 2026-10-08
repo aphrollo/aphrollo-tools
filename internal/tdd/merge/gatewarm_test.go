@@ -52,12 +52,19 @@ func warmDeadPid(t *testing.T) int {
 // ignored build output.
 func TestWarmGate_SecondUseReusesThePathAndLeaksNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	root, trunk := makeForkedRepo(t)
-	trunkRev := warmRev(t, root, trunk)
+	root, _ := makeForkedRepo(t)
 	write(t, root, ".gitignore", "out/\n")
+	write(t, root, "lane-only.txt", "tracked on the lane, absent on the next tree\n")
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "ignore out")
 	laneRev := warmRev(t, root, "HEAD")
+	// the next merge's tree keeps the .gitignore (so out/ stays an ignored
+	// directory the reset must clear with -x) but lacks lane-only.txt
+	gitDo(t, root, "rm", "-q", "lane-only.txt")
+	write(t, root, "next.txt", "the next merge's own file\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "next merge tree")
+	trunkRev := warmRev(t, root, "HEAD")
 
 	first, err := prGateCheckoutAt(root, prGateWarmName, laneRev)
 	if err != nil {
@@ -69,6 +76,7 @@ func TestWarmGate_SecondUseReusesThePathAndLeaksNothing(t *testing.T) {
 	warmTreeIs(t, first.Path, laneRev)
 	write(t, first.Path, "untracked.txt", "left by merge one\n")
 	write(t, first.Path, "out/build.bin", "ignored output of merge one\n")
+	write(t, first.Path, "newdir/inner.txt", "an untracked directory of merge one\n")
 	first.Release()
 
 	second, err := prGateCheckoutAt(root, prGateWarmName, trunkRev)
@@ -78,6 +86,11 @@ func TestWarmGate_SecondUseReusesThePathAndLeaksNothing(t *testing.T) {
 	defer second.Remove()
 	if second.Path != first.Path {
 		t.Fatalf("second merge built %s, want the first merge's checkout %s", second.Path, first.Path)
+	}
+	for _, p := range []string{"untracked.txt", "out/build.bin", "newdir/inner.txt", "lane-only.txt"} {
+		if _, err := os.Stat(filepath.Join(second.Path, p)); !os.IsNotExist(err) {
+			t.Errorf("%s survived into the second merge (stat err: %v)", p, err)
+		}
 	}
 	warmTreeIs(t, second.Path, trunkRev)
 	if got := strings.TrimSpace(gitOutT(t, root, "diff", "--name-only", laneRev, trunkRev)); got == "" {
@@ -443,5 +456,48 @@ func TestWarmClaim_ALinkThatCannotBeMadeIsSaidOnce(t *testing.T) {
 	}
 	if len(notes) != 1 || !strings.Contains(notes[0], "operation not supported") || !strings.Contains(notes[0], claim) {
 		t.Fatalf("notes = %q, want one line naming the claim and the link error", notes)
+	}
+}
+
+// The reset never initialises or updates submodules, the same as the fresh
+// checkout it replaces (`git worktree add` leaves a gitlink path empty): a
+// submodule populated by one merge is emptied for the next, and the checkout
+// stays warm. Pinned so a later change that starts updating them does so on
+// purpose, and the gate's tree stays exactly the merge tree.
+func TestWarmGate_SubmodulePathsStayEmptyLikeAFreshCheckout(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, trunk := makeForkedRepo(t)
+	rev := warmRev(t, root, trunk)
+	gitDo(t, root, "update-index", "--add", "--cacheinfo", "160000,"+rev+",vendor/sub")
+	gitDo(t, root, "commit", "-qm", "a gitlink")
+	withLink := warmRev(t, root, "HEAD")
+
+	first, err := prGateCheckoutAt(root, prGateWarmName, withLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := filepath.Join(first.Path, "vendor", "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gitDo(t, sub, "init", "-q")
+	write(t, sub, "populated.txt", "left by a submodule update\n")
+	first.Release()
+
+	second, err := prGateCheckoutAt(root, prGateWarmName, withLink)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Remove()
+	if !second.Warm || second.Path != first.Path {
+		t.Fatalf("a populated submodule path made the reset give up: got %s warm=%v", second.Path, second.Warm)
+	}
+	entries, _ := os.ReadDir(filepath.Join(second.Path, "vendor", "sub"))
+	if len(entries) != 0 {
+		var names []string
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		t.Fatalf("the submodule path holds %v after the reset, want it empty as in a fresh checkout", names)
 	}
 }

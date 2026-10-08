@@ -147,8 +147,34 @@ func resetWarm(lane, path, rev string) bool {
 	for _, k := range prGateKeep {
 		args = append(args, "-e", k)
 	}
-	_, err := git(path, args...)
-	return err == nil
+	if _, err := git(path, args...); err != nil {
+		return false
+	}
+	return emptyGitlinks(path)
+}
+
+// emptyGitlinks empties every submodule path of the tree at path. The gate
+// never initialises or updates submodules, the same as the fresh checkout
+// `git worktree add` makes, which leaves a gitlink path an empty directory; but
+// git clean skips a populated nested repository, so a submodule something
+// populated during one merge would otherwise reach the next. false on any
+// doubt.
+func emptyGitlinks(path string) bool {
+	out, err := git(path, "ls-files", "-z", "--stage")
+	if err != nil {
+		return false
+	}
+	for _, rec := range strings.Split(out, "\x00") {
+		meta, name, ok := strings.Cut(rec, "\t")
+		if !ok || !strings.HasPrefix(meta, "160000 ") {
+			continue
+		}
+		dir := filepath.Join(path, filepath.FromSlash(name))
+		if os.RemoveAll(dir) != nil || os.MkdirAll(dir, 0o755) != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // warmClaimJudged runs once a taker has judged a claim stale and before it
