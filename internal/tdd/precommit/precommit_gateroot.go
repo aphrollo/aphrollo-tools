@@ -51,6 +51,14 @@ func gateRoot(gateName, repoRoot string, g rootGroup, run SuiteRunner, failFirst
 	// full suite at submit as the authoritative gate. A runner with no
 	// related mode (or an unknown command) falls back to the full suite
 	// unchanged.
+	if gateName == premergeDisplayName && isNpmRoot(g.Root, runner) {
+		if _, err := premergeJSFull(repoRoot); err != nil {
+			return verdictFor(gateName, "mechanical", g.Root, cmdString(runner), stageOutcome{
+				Kind: outcomeCheckError, Err: err,
+				Message: fmt.Sprintf("gate %s: %v, so the suite of %s was not chosen and the merge is refused", gateName, err, g.Root),
+			})
+		}
+	}
 	rootRelFiles := toRootRelative(repoRoot, g.Root, rootFiles)
 	runner, _ = groupSuiteRunner(gateName, repoRoot, g, runner)
 	// This root's suite is the ground the commit owes, whether the branch
@@ -135,7 +143,9 @@ func rootChecksStage(gateName, repoRoot, root string, runner Runner, touched []s
 // staged files' packages, with CI's flags on a Go run, and an npm test tool
 // run as `node <its installed bin entry>` wherever that resolves.
 func rootSuiteRunner(gateName, repoRoot, root string, runner Runner, files []string) Runner {
-	runner = narrowedRunner(runner, repoRoot, root, files)
+	if !wantsFullJSSuite(gateName, repoRoot, root, runner) {
+		runner = narrowedRunner(runner, repoRoot, root, files)
+	}
 	if runner.Cmd == "go" {
 		atMerge := gateName == premergeDisplayName
 		// test-cache lets the commit's suite be served by go's cache; the
@@ -147,6 +157,18 @@ func rootSuiteRunner(gateName, repoRoot, root string, runner Runner, files []str
 		runner = node
 	}
 	return runner
+}
+
+// wantsFullJSSuite is whether the merge gate runs root's whole vitest suite
+// where it would run the related tests: the repo said `premerge-js = "full"`.
+// The commit gate runs no suite, and an unreadable value was refused ahead of
+// this, so it reads as the default here.
+func wantsFullJSSuite(gateName, repoRoot, root string, runner Runner) bool {
+	if gateName != premergeDisplayName || !isNpmRoot(root, runner) || runner.Cmd != "npx" {
+		return false
+	}
+	full, _ := premergeJSFull(repoRoot)
+	return full
 }
 
 // groupSuiteRunner is the suite g owes on a non-cargo root, and whether it

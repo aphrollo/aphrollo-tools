@@ -393,6 +393,7 @@ failfirst_split_test.go                            failfirst
 failfirst_testmain_test.go                         failfirst
 failfirstinputs.go                                 failfirst
 features.go                                        install
+features_premergejs_test.go                        install
 features_readme_test.go                            tdd
 features_test.go                                   install
 feedback.go                                        escape
@@ -973,6 +974,8 @@ precommit_npmbaseline.go                           precommit
 precommit_npmbaseline_test.go                      precommit
 precommit_npmplan.go                               precommit
 precommit_npmtypecheck_test.go                     precommit
+precommit_premergejs.go                            precommit
+precommit_premergejs_test.go                       precommit
 precommit_pytest_merge.go                          precommit
 precommit_pytest_merge_test.go                     precommit
 precommit_quality.go                               precommit
