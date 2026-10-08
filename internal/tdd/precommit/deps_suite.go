@@ -25,6 +25,8 @@ const outcomeTimeout = suite.OutcomeTimeout
 
 const outcomeVacuous = suite.OutcomeVacuous
 
+type CostRecorder = suite.CostRecorder
+
 type GoTestPlan = suite.GoTestPlan
 
 type SuiteResult = suite.SuiteResult
@@ -38,6 +40,8 @@ type suiteProofLedger = suite.SuiteProofLedger
 func DetectRunner(p0 string) (Runner, bool) { return suite.DetectRunner(p0) }
 
 func ExtractFailingTests(p0 string) []string { return suite.ExtractFailingTests(p0) }
+
+func NewCostRecorder() *CostRecorder { return suite.NewCostRecorder() }
 
 func PlanGoTestRun(p0 Runner, p1 string, p2 time.Duration) GoTestPlan {
 	return suite.PlanGoTestRun(p0, p1, p2)

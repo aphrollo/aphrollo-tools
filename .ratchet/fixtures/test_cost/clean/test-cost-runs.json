@@ -1,0 +1,4 @@
+[
+  {"secs": 400, "tests": {"m.TestSlowOne": 12}},
+  {"secs": 420, "tests": {"m.TestSlowOne": 14}}
+]

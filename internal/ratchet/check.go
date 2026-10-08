@@ -239,7 +239,7 @@ func Check(opts Options) (Result, error) {
 	migrated := map[string]bool{}
 	graph := graphTreeOf(opts)
 	for _, law := range laws {
-		if disarmed(law) {
+		if disarmed(law) || costUnjudgeable(opts.Root, law) {
 			continue
 		}
 		hits := scan.byLaw[law.Name]
@@ -273,7 +273,7 @@ func Check(opts Options) (Result, error) {
 			}
 		case KindIdentResolves:
 			hits = identResolvesHits(law, scan.files, scan.content)
-		case KindJSONNumberCeiling, KindGoBenchCeiling:
+		case KindJSONNumberCeiling, KindGoBenchCeiling, KindTestCost:
 			if hits, err = ceilingHits(viewOf(opts), law, true, cargoTargetDir()); err != nil {
 				return Result{}, err
 			}

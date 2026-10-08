@@ -6,9 +6,13 @@ import (
 	suite "github.com/aphrollo/aphrollo-tools/internal/tdd/suite"
 )
 
+type CostRecorder = suite.CostRecorder
+
 type SuiteRunner = suite.SuiteRunner
 
 type mutantsConfigTable = suite.MutantsConfigTable
+
+func NewCostRecorder() *CostRecorder { return suite.NewCostRecorder() }
 
 func cargoAphrolloPackages(p0 string, p1 string) []string { return suite.CargoAphrolloPackages(p0, p1) }
 

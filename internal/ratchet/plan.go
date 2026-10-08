@@ -92,7 +92,7 @@ func GroupOf(kind MatcherKind) Group {
 		return GroupGraph
 	case KindRegistryBothWays:
 		return GroupRegistry
-	case KindIdentResolves, KindFileSetContainment, KindJSONNumberCeiling, KindGoBenchCeiling:
+	case KindIdentResolves, KindFileSetContainment, KindJSONNumberCeiling, KindGoBenchCeiling, KindTestCost:
 		return GroupWholeTree
 	case KindSymbolRemoved:
 		return GroupRemoved

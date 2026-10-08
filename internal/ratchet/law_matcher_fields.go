@@ -37,6 +37,7 @@ var matcherKeys = map[MatcherKind][]matcherKeySpec{
 	KindFileSetContainment: {{"kind", true}, {"superset_file", true}, {"subset_file", true}, {"capture", false}, {"subset_capture", false}, {"superset_capture", false}},
 	KindJSONNumberCeiling:  {{"kind", true}, {"files", true}, {"path", true}, {"tolerance_pct", false}, {"enabled_env", false}},
 	KindGoBenchCeiling:     {{"kind", true}, {"files", true}, {"tolerance_pct", false}, {"enabled_env", false}},
+	KindTestCost:           {{"kind", true}, {"window", false}, {"min_runs", false}, {"threshold_secs", false}, {"tolerance_pct", false}},
 	KindSymbolRemoved:      {{"kind", true}, {"pattern", false}},
 	KindCoChange:           {{"kind", true}},
 	KindHunkRegex:          {{"kind", true}, {"removed", false}, {"added", false}, {"paired", false}, {"mode", false}, {"name_group", false}},
@@ -504,6 +505,11 @@ func parseMatcher(doc *tomlDoc, newer bool, lawName string) (Matcher, error) {
 		m.Key = KeyFile
 		m.Files = doc.str("matcher", "files")
 		if ferr := setCeilingCommonFields(doc, &m); ferr != nil {
+			return Matcher{}, ferr
+		}
+	case KindTestCost:
+		m.Key = KeyFile
+		if ferr := setTestCostFields(doc, &m); ferr != nil {
 			return Matcher{}, ferr
 		}
 	case KindSymbolRemoved:

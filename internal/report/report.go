@@ -181,6 +181,8 @@ type Report struct {
 	Previous *Previous `json:"previous,omitempty"`
 	// Speed is how long the gate's stages, CI, the queue and the whole PR took.
 	Speed Speed `json:"speed"`
+	// TestCost is the suite's recorded cost at merge, the merge time by stage and the slowest tests.
+	TestCost TestCost `json:"test_cost"`
 	// Expectations are the merged PRs' expect: lines read against the log; empty when none was recorded.
 	Expectations Expectations `json:"expectations"`
 	// Usage is the session usage section; nil when no transcripts were read.
@@ -223,6 +225,7 @@ func Build(in Input) Report {
 	}
 
 	r.Speed = buildSpeed(evs, since, since.Add(-in.Window), r.Previous != nil)
+	r.TestCost = buildTestCost(evs, since, r.Speed)
 	r.Expectations = buildExpectations(evs)
 
 	o := measure.Options{Window: in.Window}

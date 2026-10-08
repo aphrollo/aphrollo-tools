@@ -325,6 +325,8 @@ func fixtureWholeTreeHits(base string, law Law, files []string, content map[stri
 		return identResolvesHits(law, files, content), nil
 	case KindJSONNumberCeiling, KindGoBenchCeiling:
 		return ceilingHits(diskView(base), law, false, "")
+	case KindTestCost:
+		return testCostHits(fixtureCostRuns(base), law, false)
 	case KindSymbolRemoved:
 		if baseTree == nil {
 			return nil, nil

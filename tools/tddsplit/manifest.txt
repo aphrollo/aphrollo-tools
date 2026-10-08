@@ -221,6 +221,8 @@ commitmsg_verify.go                                merge
 commitmsg_verify_test.go                           merge
 commitowed_test.go                                 precommit
 config_git_own_test.go                             suite
+costrecord.go                                       suite
+costrecord_test.go                                  suite
 data.go                                            tddtest
 deferred.go                                        postedit
 deferred_attribution_test.go                       postedit
@@ -634,6 +636,8 @@ memcap_run_unix_own_test.go                        lock
 memcap_run_windows.go                              lock
 memcap_run_windows_own_test.go                      lock
 mergeaware_test.go                                 precommit
+mergecost.go                                        merge
+mergecost_test.go                                   merge
 mergelongpaths_test.go                             precommit
 mergeprune.go                                      merge
 mergeprune_squash.go                               merge
@@ -1276,6 +1280,8 @@ testcache.go                                        suite
 testcache_edit_test.go                              postedit
 testcache_stage_test.go                             precommit
 testcache_test.go                                   suite
+testcostinfo.go                                     precommit
+testcostinfo_test.go                                precommit
 testdata/cargo_mutants_outcomes.json               mutation
 testdata/covershape/                               mutation
 testdata/fuzz/FuzzBashWriteTargets/                shell

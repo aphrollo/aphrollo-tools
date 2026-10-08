@@ -1,0 +1,14 @@
+name        = "test_cost"
+description = "What the suite costs at merge may only fall: the median suite seconds, and the median count of tests at or over threshold_secs, each over the newest recorded merges. Read from the per-repo history the merge gate records (no runner flag, no extra run); a median and the tolerance keep one slow run from failing anything, and a repo with fewer than min_runs recorded merges is not judged. See docs/test-cost.md."
+severity    = "deny"
+baseline    = ".ratchet/baselines/test_cost.txt"
+
+[scope]
+include = [".ratchet/laws/test_cost.toml"]
+
+[matcher]
+kind           = "test-cost"
+window         = 10
+min_runs       = 3
+threshold_secs = 10
+tolerance_pct  = 25
