@@ -86,6 +86,40 @@ func TestPostEdit_AbandonedDeferredJobIsReportedNotSwallowed(t *testing.T) {
 	}
 }
 
+// A job recorded before it started has no start time; its abandonment ran for
+// no time, not for the largest duration there is.
+func TestPostEdit_AnAbandonedJobThatNeverStartedLogsNoTime(t *testing.T) {
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("APHROLLO_POSTEDIT_BUDGET_SECS", "0")
+	root := mkProject(t, "Cargo.toml")
+	target := filepath.Join(root, "src", "widget.rs")
+	fakePhases(t)
+	saveDeferredJob(DeferredJob{
+		Project: root, Session: "sess-post", Phase: "run", Dir: root,
+		HeadSHA: headSHAFor(root), FileHash: sourceIdentity(root, target),
+		Runner: []string{"cargo", "test"},
+	})
+
+	got := PostEdit(postPayload("Edit", target), fakeRun(true, "ok"))
+
+	if !strings.Contains(got, DeferredAbandoned) {
+		t.Fatalf("advisory = %q, want the abandonment", got)
+	}
+	logged := false
+	for _, e := range readGateEntries(root, time.Time{}) {
+		if e.Verdict == DeferredAbandoned {
+			logged = true
+			if e.Secs != 0 {
+				t.Errorf("abandonment logged %vs, want 0: the job never started", e.Secs)
+			}
+		}
+	}
+	if !logged {
+		t.Fatal("no abandonment in the gate log")
+	}
+}
+
 // TestPhaseArgv_GoTestCarriesATimeoutAboveTheDeferralCeiling pins the
 // measured cause behind "deferred-abandoned 600.4s / 601.8s" in this box's
 // own gate log: a deferred `go test` inherits go's DEFAULT 10-minute test
@@ -218,5 +252,15 @@ func TestStaleVerdictLabel_SaysWhatTheEarlierRunActuallyFound(t *testing.T) {
 		if !strings.Contains(got, c.want) || strings.Contains(got, c.mustNot) {
 			t.Errorf("%s: label = %q, want %q and never %q", c.name, got, c.want, c.mustNot)
 		}
+	}
+}
+
+func TestAbandonedElapsed_AJobThatNeverStartedRanForNoTime(t *testing.T) {
+	now := time.Date(2026, 10, 8, 3, 0, 0, 0, time.UTC)
+	if got := abandonedElapsed(DeferredJob{}, now); got != 0 {
+		t.Errorf("elapsed of a job with no start = %v, want 0 (time.Since of the zero time overflows to 292 years)", got)
+	}
+	if got := abandonedElapsed(DeferredJob{Started: now.Add(-90 * time.Second)}, now); got != 90*time.Second {
+		t.Errorf("elapsed = %v, want 90s", got)
 	}
 }

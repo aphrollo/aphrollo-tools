@@ -360,3 +360,13 @@ func decodeJob(data []byte) (DeferredJob, bool) {
 func PostEditBudget() time.Duration {
 	return config.Box().Seconds("budgets.edit_s")
 }
+
+// abandonedElapsed is how long an abandoned job ran: none when it never
+// started, since the time since the zero time overflows to the largest
+// duration there is.
+func abandonedElapsed(j DeferredJob, now time.Time) time.Duration {
+	if j.Started.IsZero() {
+		return 0
+	}
+	return now.Sub(j.Started)
+}
