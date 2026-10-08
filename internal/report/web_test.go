@@ -368,3 +368,13 @@ func TestRenderHTML_NothingChangedIsOneLine(t *testing.T) {
 		t.Error("the one line is missing")
 	}
 }
+
+func TestRenderHTML_AVersionCellSaysTheVersionBeforeAndTheNoteSaysWhoIsLeftOut(t *testing.T) {
+	page := render(t, webFixture())
+	if !strings.Contains(page, `title="10s the version before">−6s`) {
+		t.Error("a version's change cell does not name the version before")
+	}
+	if !strings.Contains(page, "no binary version are left out of the version split") || !strings.Contains(page, "first version with fewer than four runs stays on its own") {
+		t.Error("the note does not say which runs the version split leaves out")
+	}
+}

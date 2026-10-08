@@ -401,21 +401,21 @@ func frictionRowOf(p webPage, f Friction) frictionLine {
 // speedDeltaCell is a stage's p50 change against the window before as a table
 // cell: a slower p50 reads as worse, a faster one as better, no comparison as a dash.
 func speedDeltaCell(r SpeedRow) template.HTML {
-	return speedCell(r.Change, r.Clear, r.PrevP50)
+	return speedCell(r.Change, r.Clear, r.PrevP50, "the window before")
 }
 
 func versionDeltaCell(v SpeedVersion) template.HTML {
-	return speedCell(v.Change, v.Clear, v.PrevP50)
+	return speedCell(v.Change, v.Clear, v.PrevP50, "the version before")
 }
 
 // speedCell is the change cell of a stage or a version: a clear change with its
 // direction, an unclear one as ~ (no clear change), as benchstat prints it.
-func speedCell(change *float64, clear bool, prevP50 float64) template.HTML {
+func speedCell(change *float64, clear bool, prevP50 float64, before string) template.HTML {
 	if change == nil {
 		return template.HTML(`<td class="n muted">–</td>`)
 	}
-	title := html.EscapeString(secsText(prevP50)) + " the window before"
-	if !clear {
+	title := html.EscapeString(secsText(prevP50)) + " " + before
+	if !clear || *change == 0 {
 		return template.HTML(fmt.Sprintf(`<td class="n muted" title="%s">~</td>`, title))
 	}
 	class := "n"

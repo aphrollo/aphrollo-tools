@@ -62,12 +62,12 @@ var speedClasses = []speedClass{
 	{name: "edit suite"},
 	{name: "edit to verdict"},
 	{name: "commit gate"},
-	{name: "commit gate total", gap: "commit gate total: commit_gate_result carries no secs; stamp the run's elapsed seconds on it in internal/cli/gatehooks.go"},
+	{name: "commit gate total"},
 	{name: "merge gate"},
-	{name: "merge gate total", gap: "merge gate total: merge_gate_result carries no secs; stamp the run's elapsed seconds on it in internal/cli/gatehooks.go"},
+	{name: "merge gate total"},
 	{name: "mutation (commit)", gap: "mutation at commit: the mutants stage line is written with 0 seconds; pass the measured duration at the AppendGateLog call in internal/tdd/mutation/mutants_measure_judge.go"},
 	{name: "merge queue"},
-	{name: "CI pipeline", gap: "CI pipeline: a ci event carries no run duration (its time is when the result was read, or the run's creation); add detail secs (completed minus created) in internal/workspace/cievent.go and firstrun.go"},
+	{name: "CI pipeline"},
 	{name: "PR lead time"},
 }
 
@@ -151,15 +151,13 @@ func pairedSpeed(evs []stamped) []speedSample {
 				opened[pr] = e.at
 			}
 		case e.Kind == "merge" && e.Verdict == "queued":
-			if _, ok := queued[pr]; !ok {
-				queued[pr] = e.at
-			}
+			queued[pr] = e.at // the last enqueue is the one the merge waited on
 		case e.Kind == "merge" && e.Verdict == "ok" && !done[pr]:
 			done[pr] = true
-			if t, ok := opened[pr]; ok {
+			if t, ok := opened[pr]; ok && e.at.After(t) {
 				out = append(out, speedSample{"PR lead time", e.at, e.at.Sub(t).Seconds(), e.BinVer})
 			}
-			if t, ok := queued[pr]; ok && e.Detail["method"] == "merge queue" {
+			if t, ok := queued[pr]; ok && e.at.After(t) && e.Detail["method"] == "merge queue" {
 				out = append(out, speedSample{"merge queue", e.at, e.at.Sub(t).Seconds(), e.BinVer})
 			}
 		}
@@ -265,17 +263,17 @@ func changeText(change *float64, clear bool) string {
 	switch {
 	case change == nil:
 		return ""
-	case !clear:
+	case !clear, *change == 0:
 		return "change ~"
 	}
 	return "change " + signedSecs(*change)
 }
 
 func secsText(s float64) string {
-	if s >= 10 {
-		return dur(s)
+	if r := math.Round(s*10) / 10; r < 10 {
+		return strconv.FormatFloat(r, 'f', -1, 64) + "s"
 	}
-	return strconv.FormatFloat(s, 'f', -1, 64) + "s"
+	return dur(s)
 }
 
 func signedSecs(s float64) string {

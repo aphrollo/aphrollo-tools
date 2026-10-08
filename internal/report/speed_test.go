@@ -151,7 +151,7 @@ func TestSpeed_NoTimedRunSaysNoRunsAndNamesWhatCannotBeDerived(t *testing.T) {
 		t.Errorf("text lacks \"no runs\":\n%s", text)
 	}
 	joined := strings.Join(r.Speed.Gaps, "\n")
-	for _, want := range []string{"commit gate total", "CI pipeline", "mutation"} {
+	for _, want := range []string{"mutation at commit"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("gaps lack %q: %q", want, joined)
 		}
@@ -226,7 +226,65 @@ func TestSecsText_AndSignedSecsReadLiteralValues(t *testing.T) {
 
 func TestSpeedDeltaCell_NoChangeIsNeitherBetterNorWorse(t *testing.T) {
 	zero := 0.0
-	if got, want := string(speedDeltaCell(SpeedRow{Change: &zero, Clear: true, PrevP50: 4})), `<td class="n" title="4s the window before">0s</td>`; got != want {
+	if got, want := string(speedDeltaCell(SpeedRow{Change: &zero, Clear: true, PrevP50: 4})), `<td class="n muted" title="4s the window before">~</td>`; got != want {
 		t.Errorf("cell = %s, want %s", got, want)
+	}
+}
+
+func TestSecsText_RoundsToATenthBelowTenSecondsAndTrimsTheZero(t *testing.T) {
+	for _, c := range []struct{ got, want string }{
+		{signedSecs(4.1 - 3.6), "+0.5s"},
+		{secsText(0.5000000000000004), "0.5s"},
+		{secsText(3), "3s"},
+		{secsText(9.96), "10s"},
+		{signedSecs(-(4.1 - 3.6)), "-0.5s"},
+	} {
+		if c.got != c.want {
+			t.Errorf("got %q, want %q", c.got, c.want)
+		}
+	}
+}
+
+func TestSpeed_APairWhoseEndsAreEqualOrBackwardsIsNoDuration(t *testing.T) {
+	evs := []tdd.Event{
+		evAt(1, 100, "pr_opened", "l", "ok", "pr", "1"),
+		evAt(2, 100, "merge", "l", "ok", "pr", "1", "method", "squash"),
+		evAt(3, 90, "pr_opened", "l", "ok", "pr", "2"),
+		evAt(4, 95, "merge", "l", "ok", "pr", "2", "method", "squash"),
+		evAt(5, 80, "merge", "l", "queued", "pr", "3", "method", "merge queue"),
+		evAt(6, 80, "merge", "l", "ok", "pr", "3", "method", "merge queue"),
+	}
+	if rows := build(evs).Speed.Rows; len(rows) != 0 {
+		t.Errorf("rows = %+v, want none: a zero or negative span is a skewed clock, not a run", rows)
+	}
+}
+
+func TestSpeed_MergeQueueCountsFromTheLastEnqueueBeforeTheMerge(t *testing.T) {
+	evs := []tdd.Event{
+		evAt(1, 90, "merge", "l", "queued", "pr", "5", "method", "merge queue"),
+		evAt(2, 30, "merge", "l", "queued", "pr", "5", "method", "merge queue"),
+		evAt(3, 10, "merge", "l", "ok", "pr", "5", "method", "merge queue"),
+	}
+	if row := speedRow(t, build(evs), "merge queue"); row.P50 != 1200 {
+		t.Errorf("merge queue = %+v, want 1200s from the re-queue", row)
+	}
+}
+
+func TestSpeed_AClearChangeOfExactlyZeroReadsAsNoChangeEverywhere(t *testing.T) {
+	zero := 0.0
+	row := SpeedRow{Stage: "edit suite", N: 5, P50: 4, PrevN: 5, PrevP50: 4, Change: &zero, Clear: true, P: 0.01}
+	if got := row.changeText(); got != "change ~" {
+		t.Errorf("text = %q, want change ~", got)
+	}
+	r := Report{Window: "last 7d", Previous: &Previous{Window: "last 7d"}, Speed: Speed{Rows: []SpeedRow{row}}}
+	if got := r.Changes(); len(got) != 1 || !strings.HasPrefix(got[0], "no clear change") {
+		t.Errorf("changes = %q, want the no-change line", got)
+	}
+}
+
+func TestSpeed_OnlyMutationAtCommitIsStillNotDerivable(t *testing.T) {
+	gaps := strings.Join(build(nil).Speed.Gaps, "\n")
+	if !strings.Contains(gaps, "mutation at commit") || strings.Contains(gaps, "commit gate total") || strings.Contains(gaps, "CI pipeline") || strings.Contains(gaps, "merge gate total") {
+		t.Errorf("gaps = %q, want only mutation at commit", gaps)
 	}
 }

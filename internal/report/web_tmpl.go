@@ -104,7 +104,7 @@ figcaption { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
 
 <section id="speed">
 <h2>Speed</h2>
-<p class="note">Seconds per run, green or not, over the window. Change is the p50 against the window before; a slower p50 is worse, and ~ is no clear change (it shows only with four runs on each side and a Mann-Whitney p under 0.05). Indented rows are the binary versions of the window; a version is confounded with the work done that week.</p>
+<p class="note">Seconds per run, green or not, over the window. Change is the p50 against the window before; a slower p50 is worse, and ~ is no clear change (it shows only with four runs on each side and a Mann-Whitney p under 0.05). Indented rows are the binary versions of the window; a version is confounded with the work done that week. Runs of no binary version are left out of the version split (they stay in the row above), and a first version with fewer than four runs stays on its own.</p>
 {{if .R.Speed.Rows}}<div class="scroll"><table><tr><th>Stage</th><th class="n">Runs</th><th class="n">p50</th><th class="n">p90</th><th class="n">Max</th><th class="n">Change</th></tr>
 {{range .R.Speed.Rows}}<tr><td>{{.Stage}}</td><td class="n">{{num .N}}</td><td class="n">{{secs .P50}}</td><td class="n">{{secs .P90}}</td><td class="n">{{secs .Max}}</td>{{speedDelta .}}</tr>
 {{range .Versions}}<tr class="ver"><td>&nbsp;&nbsp;{{.Label}}</td><td class="n">{{num .N}}</td><td class="n">{{secs .P50}}</td><td class="n">{{secs .P90}}</td><td class="n">{{secs .Max}}</td>{{versionDelta .}}</tr>

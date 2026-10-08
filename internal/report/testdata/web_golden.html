@@ -106,11 +106,11 @@ figcaption { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
 
 <section id="speed">
 <h2>Speed</h2>
-<p class="note">Seconds per run, green or not, over the window. Change is the p50 against the window before; a slower p50 is worse, and ~ is no clear change (it shows only with four runs on each side and a Mann-Whitney p under 0.05). Indented rows are the binary versions of the window; a version is confounded with the work done that week.</p>
+<p class="note">Seconds per run, green or not, over the window. Change is the p50 against the window before; a slower p50 is worse, and ~ is no clear change (it shows only with four runs on each side and a Mann-Whitney p under 0.05). Indented rows are the binary versions of the window; a version is confounded with the work done that week. Runs of no binary version are left out of the version split (they stay in the row above), and a first version with fewer than four runs stays on its own.</p>
 <div class="scroll"><table><tr><th>Stage</th><th class="n">Runs</th><th class="n">p50</th><th class="n">p90</th><th class="n">Max</th><th class="n">Change</th></tr>
 <tr><td>edit suite</td><td class="n">120</td><td class="n">4s</td><td class="n">18s</td><td class="n">1.5m</td><td class="n down" title="10s the window before">−6s</td></tr>
 <tr class="ver"><td>&nbsp;&nbsp;since v1.0.0, 2026-10-01</td><td class="n">60</td><td class="n">10s</td><td class="n">20s</td><td class="n">1.5m</td><td class="n muted">–</td></tr>
-<tr class="ver"><td>&nbsp;&nbsp;since v1.1.0, 2026-10-05</td><td class="n">60</td><td class="n">4s</td><td class="n">18s</td><td class="n">1.3m</td><td class="n down" title="10s the window before">−6s</td></tr>
+<tr class="ver"><td>&nbsp;&nbsp;since v1.1.0, 2026-10-05</td><td class="n">60</td><td class="n">4s</td><td class="n">18s</td><td class="n">1.3m</td><td class="n down" title="10s the version before">−6s</td></tr>
 <tr><td>commit gate: go test ./...</td><td class="n">14</td><td class="n">1.6m</td><td class="n">3.5m</td><td class="n">4.0m</td><td class="n up" title="1.5m the window before">+5s</td></tr>
 <tr><td>PR lead time</td><td class="n">3</td><td class="n">1.5h</td><td class="n">2.0h</td><td class="n">2.0h</td><td class="n muted">–</td></tr>
 </table></div>
