@@ -107,6 +107,7 @@ bashsuite_suite.go                                 suite     # created by P2
 bashsuite_test.go                                  postedit
 behind.go                                          tdd
 behind_test.go                                     tdd
+boxload_own_test.go                                lock
 briefs.go                                          install
 briefs_test.go                                     install
 budgetconfig_test.go                               postedit
@@ -223,6 +224,8 @@ config_git_own_test.go                             suite
 data.go                                            tddtest
 deferred.go                                        postedit
 deferred_attribution_test.go                       postedit
+deferred_budget.go                                 postedit
+deferred_budget_test.go                            postedit
 deferred_buildform_test.go                         postedit
 deferred_checkout_test.go                          tdd       # prefix says postedit; its test body reaches tdd
 deferred_coalesce.go                               postedit
@@ -256,6 +259,7 @@ deferred_supersede_test.go                         postedit
 deferred_sweep.go                                  postedit
 deferred_sweep_test.go                             gc        # prefix says postedit; its test body reaches gc
 deferred_test.go                                   postedit
+deferred_treemoved_test.go                         postedit
 deferred_unix.go                                   postedit
 deferred_unix_test.go                              postedit
 deferred_verdict.go                                postedit

@@ -52,7 +52,12 @@ type DeferredJob struct {
 	// posture the rest of this file takes.
 	PIDCreatedAt time.Time `json:"pid_created_at"`
 	HeadSHA      string    `json:"head_sha"`
-	FileHash     string    `json:"file_hash"`
+	// BudgetSecs is the ceiling this job was sized to (deferred_budget.go) and
+	// BudgetNote the line that says where it came from. Zero on a record from
+	// before budgets, which keeps the flat ceiling.
+	BudgetSecs int    `json:"budget_s,omitempty"`
+	BudgetNote string `json:"budget_note,omitempty"`
+	FileHash   string `json:"file_hash"`
 	// File is the edited path this phase was started for, absolute. The
 	// harvest runs in a LATER hook, which otherwise knows only the project:
 	// it is what lets a link failure be attributed to a crate ("did this
@@ -315,7 +320,7 @@ func deferredLog(j DeferredJob) string {
 // everything shorter is left alone, because killing a warm build to start
 // the same build again is pure loss.
 func deferredExpired(j DeferredJob, now time.Time) bool {
-	return now.Sub(j.Started) > deferredMax()
+	return now.Sub(j.Started) > deferredCeiling(j)
 }
 
 // deferredMatchesSource reports whether a job's result would describe the

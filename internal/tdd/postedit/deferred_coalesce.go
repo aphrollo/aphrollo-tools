@@ -2,7 +2,6 @@ package postedit
 
 import (
 	"fmt"
-	"slices"
 	"time"
 )
 
@@ -25,7 +24,7 @@ func liveTwin(j DeferredJob) (DeferredJob, bool) {
 	for _, o := range allDeferredJobRecords() {
 		if o.Dirty || o.Phase != j.Phase || o.Dir != j.Dir ||
 			o.HeadSHA != j.HeadSHA || o.FileHash != j.FileHash ||
-			!slices.Equal(o.Runner, j.Runner) || normalizeProjectPath(o.Project) != project {
+			!sameRunArgv(o.Runner, j.Runner) || normalizeProjectPath(o.Project) != project {
 			continue
 		}
 		if _, done := deferredResult(o); done || !deferredJobMaybeLive(o, now) {

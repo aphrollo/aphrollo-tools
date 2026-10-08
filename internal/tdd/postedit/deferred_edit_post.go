@@ -3,7 +3,6 @@ package postedit
 import (
 	"cmp"
 	"fmt"
-	"slices"
 	"time"
 )
 
@@ -82,6 +81,13 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 		return line, false
 	}
 	outcome := classifyRunOutcome(snap.runner, root, res, snap.prevFailing)
+	if outcome == WritingTest && before != "" && worktreeStateHash(root) != before {
+		// A run that ran no test over a tree that changed under it (a rebase, a
+		// merge, another writer) proves nothing about either state; calling it
+		// writing-test blames the session's own scaffolding for it.
+		AppendGateLog("postedit", root, cmdString(snap.runner), TreeMoved, res.Duration)
+		return treeMovedLine(snap.runner, root, res.Duration), false
+	}
 	if snap.state != nil {
 		snap.state.Stamp(root, projectState{
 			Outcome:      string(outcome),
@@ -143,7 +149,7 @@ func activeRunLine(snap stateSnapshot, root, target, session, fileHash string) (
 		return "", false
 	}
 	moved := j.FileHash != fileHash
-	sameRun := slices.Equal(active, phaseArgv(snap.runner, "run")) && j.Dir == dir
+	sameRun := sameRunArgv(active, phaseArgv(snap.runner, "run")) && j.Dir == dir
 	if moved {
 		// Only the edit's own run goes on to judge it: another run restarting on the
 		// newer tree says nothing about this edit (issue #1213).
