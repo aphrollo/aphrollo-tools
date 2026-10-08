@@ -155,6 +155,8 @@ func DropLeadingEnvAssignmentWords(p0 []shellWord) []shellWord {
 	return dropLeadingEnvAssignmentWords(p0)
 }
 
+func EditSelectMode(p0 string) string { return editSelectMode(p0) }
+
 func EffectiveRunRoot(p0 string, p1 string) string { return effectiveRunRoot(p0, p1) }
 
 func FilesUnderRoot(p0 string, p1 string, p2 []string) []string { return filesUnderRoot(p0, p1, p2) }
@@ -219,6 +221,10 @@ func LogLockWait(p0 string, p1 string, p2 Runner, p3 time.Duration) { logLockWai
 
 func LogSuiteVerdict(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult) {
 	logSuiteVerdict(p0, p1, p2, p3, p4)
+}
+
+func LogSuiteVerdictWith(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult, p5 map[string]string) {
+	logSuiteVerdictWith(p0, p1, p2, p3, p4, p5)
 }
 
 func MechCacheAdd(p0 string) { mechCacheAdd(p0) }
@@ -340,6 +346,10 @@ func VerdictFor(p0 string, p1 string, p2 string, p3 string, p4 stageOutcome) Gat
 func WholeRunScope() runScope { return wholeRunScope() }
 
 func WithGateProfile(p0 Runner, p1 string) Runner { return withGateProfile(p0, p1) }
+
+func WithSelectedTests(p0 Runner, p1 []string, p2 int, p3 []string) Runner {
+	return withSelectedTests(p0, p1, p2, p3)
+}
 
 func WithTestCache(p0 Runner, p1 string, p2 string) Runner { return withTestCache(p0, p1, p2) }
 

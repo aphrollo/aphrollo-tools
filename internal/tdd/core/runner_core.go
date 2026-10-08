@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -47,6 +48,41 @@ type Runner struct {
 	// cannot vouch for (test-cache-impure): RunSuite runs those apart with
 	// -count=1. nil when the run is not Cached.
 	Impure []string
+	// Select says how a `go test` run was narrowed to the tests that cover an
+	// edit (test-select in aphrollo.toml, suite.withSelectedTests), or why it
+	// was not. nil for every runner the setting did not look at.
+	Select *Selection
+}
+
+// Selection is the account of one edit-time test selection. Reason set means
+// the package ran whole and says why; otherwise Run of Total tests were named,
+// the ones covering Funcs.
+type Selection struct {
+	Run, Total int
+	Funcs      []string
+	Reason     string
+}
+
+// selectionNamedFuncs is how many covered functions a gate line names; the
+// rest are a count.
+const selectionNamedFuncs = 3
+
+// Note is the clause a gate line carries for the selection: "selected M of K
+// tests: covering F1, F2" or "full suite: <reason>", "" for no selection.
+func (s *Selection) Note() string {
+	switch {
+	case s == nil:
+		return ""
+	case s.Reason != "":
+		return "full suite: " + s.Reason
+	}
+	named := s.Funcs
+	more := ""
+	if len(named) > selectionNamedFuncs {
+		more = fmt.Sprintf(" and %d more", len(named)-selectionNamedFuncs)
+		named = named[:selectionNamedFuncs]
+	}
+	return fmt.Sprintf("selected %d of %d tests: covering %s%s", s.Run, s.Total, strings.Join(named, ", "), more)
 }
 
 // cargoPackageName reads a Cargo.toml's `[package]` name, "" when the file is

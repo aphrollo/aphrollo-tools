@@ -107,3 +107,25 @@ func TestDedupeSorted_DropsEmptyDuplicatesAndSorts(t *testing.T) {
 		t.Fatalf("dedupeSorted(nil) = %#v, want nil", got)
 	}
 }
+
+// The gate line states what ran: a selection says M of K and the functions it
+// covers, a refusal says the whole package ran and why, and no selection says
+// nothing at all (a nil selection is the setting being off).
+func TestSelectionNote_SaysWhatRanAndNeverCallsASelectionFull(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		s    *Selection
+		want string
+	}{
+		{"none", nil, ""},
+		{"selected", &Selection{Run: 3, Total: 40, Funcs: []string{"Parse", "T.Run"}}, "selected 3 of 40 tests: covering Parse, T.Run"},
+		{"many functions are counted", &Selection{Run: 2, Total: 9, Funcs: []string{"A", "B", "C", "D", "E"}}, "selected 2 of 9 tests: covering A, B, C and 2 more"},
+		{"refused", &Selection{Total: 40, Reason: "no coverage store for internal/p yet"}, "full suite: no coverage store for internal/p yet"},
+	}
+	for _, c := range cases {
+		if got := c.s.Note(); got != c.want {
+			t.Errorf("%s: Note() = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
