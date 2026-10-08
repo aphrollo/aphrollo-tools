@@ -2,7 +2,9 @@ package merge
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -160,6 +162,16 @@ var warmResetting = func(string) {}
 // through a generated call-through no test can assign.
 var warmIdentityFn = func(pid int) (string, bool) { return processIdentityFn(pid) }
 
+// warmLink makes the claim; a seam so a test can fail it the way a file system
+// without hard links does.
+var warmLink = os.Link
+
+// warmNotef tells the operator why a merge builds cold when that is not the
+// ordinary "another merge holds it". One line, to stderr.
+var warmNotef = func(format string, args ...any) {
+	fmt.Fprintf(os.Stderr, "gate: "+format+"\n", args...)
+}
+
 var warmClaimSeq atomic.Int64
 
 var warmClaimJudged = func() {}
@@ -175,8 +187,13 @@ func takeWarmClaim(claim string) bool {
 	}
 	defer os.Remove(tmp)
 	for range 2 {
-		if os.Link(tmp, claim) == nil {
+		err := warmLink(tmp, claim)
+		if err == nil {
 			return true
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			warmNotef("the warm checkout claim %s could not be made (%v): building in a fresh, cold checkout", claim, err)
+			return false
 		}
 		data, err := os.ReadFile(claim)
 		if err != nil {

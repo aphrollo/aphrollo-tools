@@ -1,6 +1,8 @@
 package merge
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -424,5 +426,22 @@ func TestWarmGate_ATsbuildinfoDoesNotOutliveTheOutputItDescribes(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(second.Path, p)); !os.IsNotExist(err) {
 			t.Errorf("%s survived the reset (stat err: %v), so tsc would skip an emit the reset deleted", p, err)
 		}
+	}
+}
+
+// A file system that cannot hard-link (FAT, some network mounts) makes every
+// merge cold; the gate says so once, with the reason, instead of going quiet.
+func TestWarmClaim_ALinkThatCannotBeMadeIsSaidOnce(t *testing.T) {
+	var notes []string
+	oldLink, oldNote := warmLink, warmNotef
+	t.Cleanup(func() { warmLink, warmNotef = oldLink, oldNote })
+	warmLink = func(string, string) error { return errors.New("operation not supported") }
+	warmNotef = func(format string, args ...any) { notes = append(notes, fmt.Sprintf(format, args...)) }
+	claim := filepath.Join(t.TempDir(), "gate.claim")
+	if takeWarmClaim(claim) {
+		t.Fatal("a claim was taken although the link failed")
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "operation not supported") || !strings.Contains(notes[0], claim) {
+		t.Fatalf("notes = %q, want one line naming the claim and the link error", notes)
 	}
 }
