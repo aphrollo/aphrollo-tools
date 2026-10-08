@@ -4,6 +4,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -32,7 +33,9 @@ var testSelectQuery = CoveringTests
 // target, narrowed to the tests that cover it when test-select is "edit" and
 // the edit can be mapped. r comes back with its argv as it was and the reason
 // in Select when it cannot, and untouched when the key is off or r is not a Go
-// test run. touched is every other file the same write changed.
+// test run. touched is every other file the same write changed: Go files of
+// the same package are mapped with the target and their tests run together,
+// and anything else leaves the package whole.
 func withTestSelect(r Runner, root, target string, touched []string) Runner {
 	if editSelectMode(root) != "edit" || !isGoTestInvocation(r.Cmd, r.Args) {
 		return r
@@ -41,42 +44,59 @@ func withTestSelect(r Runner, root, target string, touched []string) Runner {
 		r.Select = &Selection{Total: total, Reason: reason}
 		return r
 	}
-	if len(touched) > 0 {
-		return whole("the write changed several files", 0)
-	}
 	if len(r.Args) != 2 || !strings.HasPrefix(r.Args[1], "./") {
+		if len(touched) > 0 {
+			return whole("the write changed several files", 0)
+		}
 		return whole("the run is not one go package", 0)
 	}
 	pkg := strings.TrimPrefix(r.Args[1], "./")
-	rel, err := filepath.Rel(root, target)
-	if err != nil {
-		return whole("the edited file is outside the project", 0)
-	}
-	rel = filepath.ToSlash(rel)
-	if !strings.HasSuffix(rel, ".go") || path.Dir(rel) != pkg {
-		return whole("the edited file is not a go file of the package", 0)
-	}
-	src, err := os.ReadFile(target)
-	if err != nil {
-		return whole("the edited file could not be read", 0)
-	}
-	isTest := strings.HasSuffix(rel, "_test.go")
-	diff := DiffFuncs(testSelectOldSource(root, rel), src, isTest)
-	if isTest {
-		// An edit to a test file runs the file's tests: the production code did
-		// not change with it, so no coverage is asked, only the package's count.
-		total := testSelectQuery(root, pkg, nil).Total
-		if diff.Unmappable != "" {
-			return whole(diff.Unmappable, total)
+	var (
+		funcs, tests, shown []string
+		prodEdited          bool
+	)
+	for _, file := range append([]string{target}, touched...) {
+		rel, err := filepath.Rel(root, file)
+		if err != nil {
+			return whole("the edited file is outside the project", 0)
 		}
-		return withSelectedTests(r, diff.Tests, total, []string{path.Base(rel)})
+		rel = filepath.ToSlash(rel)
+		if !strings.HasSuffix(rel, ".go") || path.Dir(rel) != pkg {
+			if file != target {
+				return whole("the write changed several files", 0)
+			}
+			return whole("the edited file is not a go file of the package", 0)
+		}
+		src, err := os.ReadFile(file)
+		if err != nil {
+			return whole("the edited file could not be read", 0)
+		}
+		isTest := strings.HasSuffix(rel, "_test.go")
+		diff := DiffFuncs(testSelectOldSource(root, rel), src, isTest)
+		switch {
+		case diff.Unmappable != "" && isTest:
+			// The package's count still says how much of it runs whole.
+			return whole(diff.Unmappable, testSelectQuery(root, pkg, nil).Total)
+		case diff.Unmappable != "":
+			return whole(diff.Unmappable, 0)
+		case isTest:
+			// An edit to a test file runs the file's tests: the production code
+			// did not change with it, so no coverage is asked for it.
+			tests = append(tests, diff.Tests...)
+			shown = append(shown, path.Base(rel))
+		default:
+			prodEdited = true
+			funcs = append(funcs, diff.Funcs...)
+			shown = append(shown, diff.Funcs...)
+		}
 	}
-	if diff.Unmappable != "" {
-		return whole(diff.Unmappable, 0)
+	if !prodEdited {
+		return withSelectedTests(r, tests, testSelectQuery(root, pkg, nil).Total, shown)
 	}
-	q := testSelectQuery(root, pkg, diff.Funcs)
+	slices.Sort(funcs)
+	q := testSelectQuery(root, pkg, slices.Compact(funcs))
 	if !q.Fresh {
 		return whole(q.Reason, q.Total)
 	}
-	return withSelectedTests(r, q.Tests, q.Total, diff.Funcs)
+	return withSelectedTests(r, append(tests, q.Tests...), q.Total, shown)
 }
