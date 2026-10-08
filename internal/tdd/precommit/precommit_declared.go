@@ -79,8 +79,8 @@ func declaredChecksStage(gateName, repoRoot, root string, cmds []declaredCommand
 	}
 	for _, c := range cmds {
 		r := Runner{Cmd: c.Argv[0], Args: c.Argv[1:]}
-		key, short, keyed := declaredReuseKey(root, c)
-		if declaredReuse(gateName, root, r, key, short, keyed) {
+		k := declaredKeying(root, c)
+		if declaredReuse(gateName, root, r, k) {
 			continue
 		}
 		var last SuiteResult
@@ -95,7 +95,7 @@ func declaredChecksStage(gateName, repoRoot, root string, cmds []declaredCommand
 		} else {
 			res = goCheckStage(gateName, "declared", root, r, judged)
 		}
-		recordDeclaredRun(root, c, key, keyed, res, last, ran)
+		recordDeclaredRun(root, c, k.key, k.takes && k.err == nil, res, last, ran)
 		if res.Blocked {
 			return res
 		}
