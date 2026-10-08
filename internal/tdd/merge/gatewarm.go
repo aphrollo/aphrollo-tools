@@ -1,12 +1,15 @@
 package merge
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
@@ -139,12 +142,18 @@ func resetWarm(lane, path, rev string) bool {
 	return err == nil
 }
 
+// warmClaimJudged runs once a taker has judged a claim stale and before it
+// acts; a test uses it to let another taker in at that instant.
+var warmClaimSeq atomic.Int64
+
+var warmClaimJudged = func() {}
+
 // takeWarmClaim takes the exclusive claim on a warm checkout: a file naming
 // this pid, created whole and linked into place so a second process sees all
 // of it or none. A claim naming a live process is held; one naming a dead
 // process is stale and replaced. Never waits.
 func takeWarmClaim(claim string) bool {
-	tmp := fmt.Sprintf("%s.%d.tmp", claim, os.Getpid())
+	tmp := fmt.Sprintf("%s.%d.%d.tmp", claim, os.Getpid(), warmClaimSeq.Add(1))
 	if err := os.WriteFile(tmp, []byte("pid="+strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
 		return false
 	}
@@ -161,7 +170,38 @@ func takeWarmClaim(claim string) bool {
 		if perr != nil || pidRunningFn(pid) {
 			return false
 		}
-		_ = os.Remove(claim)
+		if !replaceStaleClaim(claim, data) {
+			return false
+		}
 	}
 	return false
+}
+
+// warmTakeoverStale is how old a takeover lock must be before it is taken for
+// the leftover of a process that died inside the takeover.
+const warmTakeoverStale = time.Minute
+
+// replaceStaleClaim removes the claim holding stale, and only that content. The
+// removal runs under a lock only one taker can create, and re-reads the claim
+// under it: a taker that judged the claim stale a moment ago cannot remove the
+// live claim another taker has put there since. A busy lock is not waited for:
+// the caller builds a fresh checkout.
+func replaceStaleClaim(claim string, stale []byte) bool {
+	lock := claim + ".takeover"
+	if err := os.Mkdir(lock, 0o755); err != nil {
+		if fi, serr := os.Stat(lock); serr == nil && time.Since(fi.ModTime()) > warmTakeoverStale {
+			_ = os.Remove(lock) // a taker that died inside its takeover; the next try is clean
+		}
+		return false
+	}
+	defer os.Remove(lock)
+	warmClaimJudged()
+	now, err := os.ReadFile(claim)
+	if err != nil {
+		return true // already gone: the link may go ahead
+	}
+	if !bytes.Equal(now, stale) {
+		return false
+	}
+	return os.Remove(claim) == nil
 }

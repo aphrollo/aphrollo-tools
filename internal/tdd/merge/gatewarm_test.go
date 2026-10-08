@@ -267,3 +267,31 @@ func TestWarmGate_GoBuildInTheReusedCheckoutAddsNoCacheEntries(t *testing.T) {
 	}
 	t.Logf("GOCACHE files after the first build: %d, after the second: %d", after1, count())
 }
+
+// Two takers meet one stale claim: exactly one wins. The second arrives while
+// the first has judged the claim stale and not yet replaced it; a takeover that
+// removes whatever it finds would take the first one's live claim away.
+func TestWarmClaim_TwoTakersOnOneStaleClaimExactlyOneWins(t *testing.T) {
+	claim := filepath.Join(t.TempDir(), "gate.claim")
+	if err := os.WriteFile(claim, []byte("pid="+strconv.Itoa(warmDeadPid(t))+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wins := 0
+	inner := false
+	warmClaimJudged = func() {
+		if inner {
+			return
+		}
+		inner = true
+		if takeWarmClaim(claim) {
+			wins++
+		}
+	}
+	t.Cleanup(func() { warmClaimJudged = func() {} })
+	if takeWarmClaim(claim) {
+		wins++
+	}
+	if wins != 1 {
+		t.Fatalf("%d takers won one stale claim, want exactly 1", wins)
+	}
+}
