@@ -66,3 +66,23 @@ func TestNightlyFuzzWorkflow_FailsOnNoFuzzTestsWarning(t *testing.T) {
 		t.Fatalf("nightly-fuzz.yml checks for %q but does not set overall=1 near it -- the job must FAIL when a target matches no fuzz test, not merely log it", noFuzzTestsWarning)
 	}
 }
+
+// TestNightlyFuzzWorkflow_CapsParallelCachesCorpusAndUploadsReproducers pins
+// the three things that keep a nightly fuzz run affordable and useful: the
+// worker count is capped (an uncapped -fuzz takes every core of the runner),
+// the fuzz corpus go grows survives between nights (actions/cache over the
+// GOCACHE fuzz dir), and a crasher's testdata/fuzz file is uploaded as an
+// artifact so it can be committed as a regression.
+func TestNightlyFuzzWorkflow_CapsParallelCachesCorpusAndUploadsReproducers(t *testing.T) {
+	wf := repoFile(t, ".github", "workflows", "nightly-fuzz.yml")
+	for _, want := range []string{
+		"-fuzztime=60s -parallel=2",
+		"actions/cache@",
+		"go env GOCACHE",
+		"testdata/fuzz/**",
+	} {
+		if !strings.Contains(wf, want) {
+			t.Errorf("nightly-fuzz.yml lacks %q", want)
+		}
+	}
+}
