@@ -865,6 +865,7 @@ mutants_zerotested_test.go                         tdd
 mutationhold.go                                    mutation
 mutationhold_test.go                               mutation
 nightlyflakehunt_workflow_pin_test.go              tdd
+nightlyfuzz_script_pin_test.go                      tdd
 nightlyfuzz_targets_test.go                        tdd
 nightlyfuzz_workflow_pin_test.go                   tdd
 nightlymutants_base_pin_test.go                    tdd

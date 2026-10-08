@@ -75,7 +75,10 @@ jobs:
               # signal, and comparing directory listings avoids the mtime
               # race a `-newer` marker has against the log file this run is
               # itself still writing.
-              before=$(find "$corpus_dir" -type f 2>/dev/null | sort)
+              # A fresh checkout has no corpus directory: that is an empty
+              # corpus, not a failure (find exits 1, and pipefail would make
+              # the assignment fail and -e end the step before go ran).
+              before=$( (find "$corpus_dir" -type f 2>/dev/null || true) | sort)
               if go test "./${pkg}" -run=NONE -fuzz="^${name}\$" -fuzztime=60s -parallel=2 >"$log" 2>&1; then
                 if grep -q 'testing: warning: no fuzz tests to fuzz' "$log"; then
                   overall=1
@@ -86,8 +89,8 @@ jobs:
                 echo "$name: no crash"
                 continue
               fi
-              after=$(find "$corpus_dir" -type f 2>/dev/null | sort)
-              repro=$(comm -13 <(echo "$before") <(echo "$after") | head -1)
+              after=$( (find "$corpus_dir" -type f 2>/dev/null || true) | sort)
+              repro=$( (comm -13 <(echo "$before") <(echo "$after") || true) | head -1)
               # A build/vet/toolchain failure exits nonzero with NEITHER a
               # native-fuzzing "--- FAIL:" line NOR a new corpus entry — that
               # is an infra problem for a human to read in the job log, not
