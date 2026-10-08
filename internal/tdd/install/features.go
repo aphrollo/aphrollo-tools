@@ -147,6 +147,12 @@ var features = []Feature{
 		Enable: "go-trimpath = \"false\"",
 	},
 	{
+		Key: "premerge-js", Default: "related",
+		Effect: "what the merge gate runs of an npm root's vitest suite: \"related\" runs the tests that reach the merged files, \"full\" runs the whole suite",
+		Cost:   "\"full\" runs every test at every merge that touches the root (117s against 82-88s on one 3,850-test app), and replaces a full run the repo scripts itself",
+		Enable: "premerge-js = \"full\"",
+	},
+	{
 		Key: "retro-prompt", Default: "off",
 		Effect: "the post-merge retro: after a landed merge with friction, the session's next hook prints the facts and one question per class",
 		Cost:   "text in the session's context after a merge, and the gh calls that collect it",
@@ -224,6 +230,9 @@ func featureValues(repoRoot string) map[string]string {
 	}
 	if cfg.Shards > 0 {
 		values["mutants-shards"] = strconv.Itoa(cfg.Shards)
+	}
+	if v, set := aphrolloTomlString(repoRoot, "premerge-js"); set && strings.TrimSpace(v) != "" {
+		values["premerge-js"] = strings.TrimSpace(v)
 	}
 	values["undercover"] = onOff(blockFlagsFor(repoRoot).Undercover)
 	prompts := config.ForDir(repoRoot)

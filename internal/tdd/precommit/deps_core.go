@@ -49,6 +49,8 @@ func StateDir() string { return core.StateDir() }
 
 func addGateWorktree(p0 string) (string, error) { return core.AddGateWorktree(p0) }
 
+func aphrolloTomlString(p0 string, p1 string) (string, bool) { return core.AphrolloTomlString(p0, p1) }
+
 func dedupeSorted(p0 []string) []string { return core.DedupeSorted(p0) }
 
 func maskTokens(p0 string, p1 bool, p2 bool, p3 bool) string { return core.MaskTokens(p0, p1, p2, p3) }
