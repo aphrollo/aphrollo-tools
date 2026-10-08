@@ -344,3 +344,28 @@ func TestSpeed_MergeQueueAlsoCountsFromAnEnqueueTheVerbWaitedOn(t *testing.T) {
 		t.Errorf("merge queue = %+v, want 1800s from the enqueue", row)
 	}
 }
+
+func TestGateStage_ABareCommandOrNoneStillNamesARow(t *testing.T) {
+	cases := map[[2]string]string{
+		{"ran", ""}:              "(unnamed)",
+		{"ran", "go"}:            "go",
+		{"ran", "go vet ./..."}:  "go vet",
+		{"green", "go test ./a"}: "go test",
+	}
+	for in, want := range cases {
+		if got := gateStage(in[0], in[1]); got != want {
+			t.Errorf("gateStage(%q, %q) = %q, want %q", in[0], in[1], got, want)
+		}
+	}
+}
+
+func TestSpeed_ThirtyDaysExactlyIsKeptAndNothingDroppedSaysNothing(t *testing.T) {
+	evs := []tdd.Event{timed(evAt(1, 50, "stage.timing", "l", "green"), "postedit", "go test", maxSpeedSecs)}
+	r := build(evs)
+	if row := speedRow(t, r, "edit suite"); row.N != 1 || row.Max != maxSpeedSecs {
+		t.Errorf("edit suite = %+v, want the 30-day sample kept", row)
+	}
+	if r.Speed.Dropped != 0 || strings.Contains(strings.Join(r.Speed.Gaps, "\n"), "longer than 30 days") {
+		t.Errorf("dropped = %d, gaps %q, want nothing dropped and no line about it", r.Speed.Dropped, r.Speed.Gaps)
+	}
+}
