@@ -175,6 +175,15 @@ const coverageShare = 2
 // ones its mutants need may start in.
 const fillShare = 2
 
+// coverTimeoutFn and coverUntilFn are how the coverage phase cuts its budget
+// into shares: a deadline and the time left to it. Seams, so a test that says
+// how the shares divide does so on a clock of its own, not on how long the box
+// takes to get to the second package.
+var (
+	coverTimeoutFn = context.WithTimeout
+	coverUntilFn   = time.Until
+)
+
 // measureTestMaps gives each plan the map of its package, each package within
 // an equal share of the coverage phase: what the store holds and still holds,
 // plus the tests measured now for the functions the mutants sit in, in the
@@ -194,7 +203,7 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 	sort.Strings(dirs)
 	phase, endPhase := ctx, context.CancelFunc(func() {})
 	if deadline, ok := ctx.Deadline(); ok {
-		phase, endPhase = context.WithTimeout(ctx, time.Until(deadline)/coverageShare)
+		phase, endPhase = coverTimeoutFn(ctx, coverUntilFn(deadline)/coverageShare)
 	}
 	defer endPhase()
 	for i, dir := range dirs {
@@ -202,7 +211,7 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 		// first one cannot spend it all and leave the rest no time.
 		pctx, cancel := phase, context.CancelFunc(func() {})
 		if deadline, ok := phase.Deadline(); ok {
-			pctx, cancel = context.WithTimeout(phase, time.Until(deadline)/time.Duration(len(dirs)-i))
+			pctx, cancel = coverTimeoutFn(phase, coverUntilFn(deadline)/time.Duration(len(dirs)-i))
 		}
 		req := covRequest{Dir: dir, Workers: workers}
 		if deadline, ok := pctx.Deadline(); ok {
@@ -210,7 +219,7 @@ func measureTestMaps(ctx context.Context, root string, cfg MutantsConfig, plans 
 			// share; the rest of the package is measured only in the first half of
 			// it, so a commit that has to compile anyway also builds toward a
 			// complete map without spending its whole budget on one.
-			req.FillBy = time.Now().Add(time.Until(deadline) / fillShare)
+			req.FillBy = commitNowFn().Add(coverUntilFn(deadline) / fillShare)
 		}
 		if len(boxes) > 0 {
 			req.Box = boxes[0]
