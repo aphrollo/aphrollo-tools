@@ -148,6 +148,9 @@ func TestRecorded_ChecksOfACommitCarryEachRunsIdentityAndConclusion(t *testing.T
 	if idx < 0 || checks[idx].App != "github-actions" || checks[idx].Conclusion != "success" || checks[idx].ID == 0 {
 		t.Errorf("the build check = %+v, want a github-actions success with its id", checks[idx])
 	}
+	if idx >= 0 && (checks[idx].CompletedAt == "" || checks[idx].CompletedAt < checks[idx].StartedAt) {
+		t.Errorf("the build check = %+v, want its completion time, after its start", checks[idx])
+	}
 }
 
 func TestRecorded_ABaseWithAMergeQueueRuleHasAQueue(t *testing.T) {

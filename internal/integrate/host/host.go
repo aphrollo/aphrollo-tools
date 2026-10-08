@@ -192,6 +192,9 @@ type Check struct {
 	Status      string `json:"status"`     // queued | in_progress | completed
 	Conclusion  string `json:"conclusion"` // success | failure | ... once completed
 	StartedAt   string `json:"started_at"` // RFC 3339; empty for a commit status
+	// CompletedAt is when the check finished, RFC 3339; empty while it runs and
+	// for a commit status.
+	CompletedAt string `json:"completed_at"`
 	URL         string `json:"html_url"`
 }
 

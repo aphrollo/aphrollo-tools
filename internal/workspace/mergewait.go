@@ -207,7 +207,7 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 			last = state
 		}
 		if len(failed) > 0 {
-			recordSettledCI(t.Worktree, head.HeadSHA, head.Number, "red", ciCause(checkNames(failed)))
+			recordSettledRun(t.Worktree, head.HeadSHA, head.Number, "red", ciCause(checkNames(failed)), checks)
 			return failedChecksError(t.Branch, head, failed)
 		}
 		if len(notStarted) > 0 {
@@ -216,7 +216,7 @@ func waitForGreen(t *Target, o WaitOpts, stdout io.Writer) error {
 			}
 		}
 		if done {
-			recordSettledCI(t.Worktree, head.HeadSHA, head.Number, "green", "")
+			recordSettledRun(t.Worktree, head.HeadSHA, head.Number, "green", "", checks)
 			return nil
 		}
 		if !waitNow().Add(o.Interval).Before(deadline) {

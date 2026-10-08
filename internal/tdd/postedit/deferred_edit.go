@@ -218,7 +218,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 				state.StampTimeout(root, headSHA)
 				_ = state.Save(statePath)
 			}
-			elapsed := time.Since(j.Started)
+			elapsed := abandonedElapsed(j, time.Now())
 			AppendGateLog("postedit", root, strings.Join(j.Runner, " "), DeferredAbandoned, elapsed)
 			// The abandonment is the VERDICT for that work, and the only one
 			// it will ever get: an inconclusive one. It used to be written to

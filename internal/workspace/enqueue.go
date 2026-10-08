@@ -102,6 +102,7 @@ func (m *Merge) landOnBase(pr *PRInfo, head, base string, subject, body string, 
 		return nil, err
 	}
 	q := &Enqueued{PR: pr.Number, URL: pr.URL, Branch: m.Target.Branch, Base: base, Repo: pr.BaseRepo}
+	m.enqueuedAt = waitNow()
 	switch {
 	case landed.Already:
 		fmt.Fprintf(stdout, "PR #%d is already in the %s merge queue at %s: %s\n", pr.Number, base, landed.Entry, pr.URL)

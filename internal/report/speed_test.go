@@ -2,10 +2,12 @@ package report
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
@@ -67,13 +69,13 @@ func TestSpeed_ClassifiesEveryTimedRunOfAStageGreenOrNot(t *testing.T) {
 	if row := speedRow(t, r, "edit suite"); row.N != 2 || row.Max != 90 || row.P50 != 4 {
 		t.Errorf("edit suite = %+v, want n 2 p50 4 max 90 (a timed-out run counts, preedit does not)", row)
 	}
-	if row := speedRow(t, r, "commit gate: go test ./..."); row.N != 1 || row.P50 != 30 {
+	if row := speedRow(t, r, "commit gate: go test"); row.N != 1 || row.P50 != 30 {
 		t.Errorf("commit gate stage = %+v", row)
 	}
-	if row := speedRow(t, r, "commit gate: golangci-lint"); row.N != 1 || row.P50 != 8 {
+	if row := speedRow(t, r, "commit gate: lint"); row.N != 1 || row.P50 != 8 {
 		t.Errorf("a refused stage must count: %+v", row)
 	}
-	if row := speedRow(t, r, "merge gate: go test ./..."); row.P50 != 100 {
+	if row := speedRow(t, r, "merge gate: go test"); row.P50 != 100 {
 		t.Errorf("merge gate stage = %+v", row)
 	}
 	if row := speedRow(t, r, "commit gate total"); row.P50 != 41 {
@@ -282,9 +284,90 @@ func TestSpeed_AClearChangeOfExactlyZeroReadsAsNoChangeEverywhere(t *testing.T) 
 	}
 }
 
-func TestSpeed_OnlyMutationAtCommitIsStillNotDerivable(t *testing.T) {
-	gaps := strings.Join(build(nil).Speed.Gaps, "\n")
-	if !strings.Contains(gaps, "mutation at commit") || strings.Contains(gaps, "commit gate total") || strings.Contains(gaps, "CI pipeline") || strings.Contains(gaps, "merge gate total") {
-		t.Errorf("gaps = %q, want only mutation at commit", gaps)
+// ratchet: test_removed TestSpeed_OnlyMutationAtCommitIsStillNotDerivable: replaced by TestSpeed_AnEmptyClassSaysWhatWouldFillIt, which also names CI and the queue
+
+func TestSpeed_AGateStageIsItsToolNotItsWholeCommandLine(t *testing.T) {
+	evs := []tdd.Event{
+		timed(evAt(1, 50, "commit_gate", "l", "ratchet-clean"), "precommit", "ratchet check", 8),
+		timed(evAt(2, 49, "commit_gate", "l", "ran"), "precommit", "go test ./internal/a ./internal/b", 30),
+		timed(evAt(3, 48, "commit_gate", "l", "ran"), "precommit", "go test -count=1 ./internal/c -run ^TestX$", 20),
+		timed(evAt(4, 47, "commit_gate", "l", "red-proven"), "precommit", "go test ./internal/a -run ^(TestA)$", 2),
+		timed(evAt(5, 46, "commit_gate", "l", "green-proven"), "precommit", "go test ./internal/a -run ^(TestA)$", 3),
+		timed(evAt(6, 45, "commit_gate", "l", "tddsplit-blocked"), "precommit", "go test -count=1 ./tools/tddsplit -run ^TestDrift$", 4),
+		timed(evAt(7, 44, "commit_gate", "l", "mutants-passed:tested=1"), "precommit", "mutants", 40),
+		timed(evAt(8, 43, "commit_gate", "l", "lint-blocked"), "precommit", "", 5),
+	}
+	var got []string
+	for _, row := range build(evs).Speed.Rows {
+		got = append(got, fmt.Sprintf("%s n=%d", row.Stage, row.N))
+	}
+	want := []string{
+		"commit gate: fail-first n=2", "commit gate: go test n=2", "commit gate: lint n=1",
+		"commit gate: mutants n=1", "commit gate: ratchet check n=1", "commit gate: tddsplit n=1",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
 	}
 }
+
+func TestSpeed_AnImpossibleDurationIsDroppedAndCounted(t *testing.T) {
+	evs := []tdd.Event{
+		timed(evAt(1, 50, "run.result", "l", "deferred-abandoned"), "postedit", "go test", 9223372036.854776),
+		timed(evAt(2, 49, "stage.timing", "l", "green"), "postedit", "go test", 4),
+	}
+	r := build(evs)
+	if row := speedRow(t, r, "edit suite"); row.N != 1 || row.Max != 4 {
+		t.Errorf("edit suite = %+v, want the one real run", row)
+	}
+	if r.Speed.Dropped != 1 || !strings.Contains(strings.Join(r.Speed.Gaps, "\n"), "1 duration longer than 30 days") {
+		t.Errorf("dropped = %d, gaps %q, want the impossible sample counted and named", r.Speed.Dropped, r.Speed.Gaps)
+	}
+}
+
+func TestSpeed_AnEmptyClassSaysWhatWouldFillIt(t *testing.T) {
+	gaps := strings.Join(build(nil).Speed.Gaps, "\n")
+	for _, want := range []string{"mutation at commit", "CI pipeline", "merge queue"} {
+		if !strings.Contains(gaps, want) {
+			t.Errorf("gaps = %q, want a line for %s", gaps, want)
+		}
+	}
+	if strings.Contains(gaps, "AppendGateLog") {
+		t.Errorf("gaps = %q: the mutation duration is recorded now; the line must not ask for the fix", gaps)
+	}
+}
+
+func TestGateStage_ABareCommandOrNoneStillNamesARow(t *testing.T) {
+	cases := map[[2]string]string{
+		{"ran", ""}:              "(unnamed)",
+		{"ran", "go"}:            "go",
+		{"ran", "go vet ./..."}:  "go vet",
+		{"green", "go test ./a"}: "go test",
+	}
+	for in, want := range cases {
+		if got := gateStage(in[0], in[1]); got != want {
+			t.Errorf("gateStage(%q, %q) = %q, want %q", in[0], in[1], got, want)
+		}
+	}
+}
+
+func TestSpeed_ThirtyDaysExactlyIsKeptAndNothingDroppedSaysNothing(t *testing.T) {
+	evs := []tdd.Event{timed(evAt(1, 50, "stage.timing", "l", "green"), "postedit", "go test", maxSpeedSecs)}
+	r := build(evs)
+	if row := speedRow(t, r, "edit suite"); row.N != 1 || row.Max != maxSpeedSecs {
+		t.Errorf("edit suite = %+v, want the 30-day sample kept", row)
+	}
+	if r.Speed.Dropped != 0 || strings.Contains(strings.Join(r.Speed.Gaps, "\n"), "longer than 30 days") {
+		t.Errorf("dropped = %d, gaps %q, want nothing dropped and no line about it", r.Speed.Dropped, r.Speed.Gaps)
+	}
+}
+
+func TestSpeed_MergeQueueCountsFromTheEnqueueTheMergeRecordCarries(t *testing.T) {
+	merged := evAt(2, 30, "merge", "l", "ok", "pr", "5", "method", "merge queue")
+	at, _ := time.Parse(time.RFC3339, merged.At)
+	merged.Detail["enqueued_at"] = at.Add(-30 * time.Minute).Format(time.RFC3339)
+	if row := speedRow(t, build([]tdd.Event{merged}), "merge queue"); row.N != 1 || row.P50 != 1800 {
+		t.Errorf("merge queue = %+v, want 1800s from the enqueue the merge record names", row)
+	}
+}
+
+// ratchet: test_removed TestSpeed_MergeQueueAlsoCountsFromAnEnqueueTheVerbWaitedOn: the merge record now carries enqueued_at instead of a separate enqueued event; TestSpeed_MergeQueueCountsFromTheEnqueueTheMergeRecordCarries pins it

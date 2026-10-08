@@ -5,6 +5,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
@@ -100,6 +101,10 @@ type Merge struct {
 	// commit the merge record names, so a later sweep can tell the lane's own
 	// commits from any it made after.
 	judgedHead string
+	// enqueuedAt is when GitHub's merge queue took the PR, zero when it was
+	// merged directly: the merge record carries it, so the time the queue took
+	// is known.
+	enqueuedAt time.Time
 }
 
 // MergePlan validates the merge without touching gh; the PR is resolved at Apply
@@ -382,6 +387,9 @@ func (m *Merge) mergeDetail(number int, via string) map[string]string {
 	d := map[string]string{"pr": strconv.Itoa(number), "method": via}
 	if m.judgedHead != "" {
 		d["head"] = m.judgedHead
+	}
+	if !m.enqueuedAt.IsZero() {
+		d["enqueued_at"] = m.enqueuedAt.UTC().Format(time.RFC3339)
 	}
 	return d
 }
