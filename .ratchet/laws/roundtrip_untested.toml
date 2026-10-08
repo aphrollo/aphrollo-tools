@@ -1,0 +1,14 @@
+name        = "roundtrip_untested"
+description = "Info-level report, never a block: a Go package that writes a value out (a Format, Marshal or Encode function, or the same with a suffix) is half of a round-trip pair, and the pair is where a property test or a fuzz target pays (Parse(Format(x)) == x). This one has no test file importing pgregory.net/rapid and no `func Fuzz` in the package. The trigger is the writer half because a line matcher cannot see the pair; the reader is nearly always beside it. Excused by a rapid test or a Fuzz target anywhere in the package, or by `// roundtrip-ok: <why>` on the line."
+severity    = "warn"
+escape      = "// roundtrip-ok:"
+code_only   = true
+
+[scope]
+include = ["cmd/**/*.go", "internal/**/*.go"]
+exclude = ["**/testdata/**", "**/*_unix.go", "**/*_windows.go"]
+
+[matcher]
+kind    = "marker-in-package"
+trigger = "^func (\\([^)]*\\) )?(Format|Marshal|Encode)\\w*\\("
+marker  = "pgregory\\.net/rapid|(?m)^func Fuzz"
