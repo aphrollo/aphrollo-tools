@@ -195,7 +195,7 @@ func isOverrideVerdict(verdict string) bool {
 
 // notTestedCause says why a run proved nothing, "" when the verdict is not one
 // of the not-tested ones. The causes are the ones the gate line already names:
-// timeout, skipped, queued, deferred, infra, no-tests.
+// timeout, skipped, queued, deferred, infra, no-tests, tree-moved.
 func notTestedCause(verdict string) string {
 	switch {
 	case isQueueBookkeeping(verdict):
@@ -212,6 +212,8 @@ func notTestedCause(verdict string) string {
 		return "infra"
 	case verdict == "no-tests-selected":
 		return "no-tests"
+	case verdict == "tree-moved":
+		return "tree-moved"
 	case strings.HasPrefix(verdict, "env-missing"):
 		return "env-missing"
 	}

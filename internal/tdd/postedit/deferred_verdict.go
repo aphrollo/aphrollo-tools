@@ -13,7 +13,7 @@ import (
 //     dropped, "deferred-abandoned" written to the gate log — and the hook
 //     returned the FRESH run's BUILDING line, so the session read "in
 //     progress" where the truth was "the previous run died without ever
-//     testing your code". deferredAbandonedLine and joinDeferredAdvisory are
+//     testing your code". deferredAbandonedLineFor and joinDeferredAdvisory are
 //     what make that verdict arrive at the session, in the one line a hook
 //     gets, without hiding what is running now.
 //  2. A `go test` phase inherited go's DEFAULT 10-minute timeout, which lands
@@ -33,14 +33,32 @@ import (
 // the log and a reader of the hook line see one name for one fact.
 const DeferredAbandoned = "deferred-abandoned"
 
-// deferredAbandonedLine is what a session is told about a job that ran out of
+// TreeMoved is the verdict for a run that ran no test while the tree it was
+// started on changed under it. Inconclusive family: the code was NOT tested.
+const TreeMoved = "tree-moved"
+
+// treeMovedLine is what a session is told about such a run.
+func treeMovedLine(r Runner, root string, dur time.Duration) string {
+	return fmt.Sprintf("gate: %s in %s → tree moved during the run, not tested (the run ran no test in %.1fs and the tree changed while it ran — the code was NOT tested)",
+		cmdString(r), root, dur.Seconds())
+}
+
+// deferredAbandonedLineFor is what a session is told about a job that ran out of
 // ceiling. It names the phase, the project and how long the job lived, so
 // "killed after 601s" reads as a suite that could not fit, distinct from
 // "killed after 3s", which would be a clock or ceiling problem rather than a
 // slow suite.
-func deferredAbandonedLine(root, phase string, elapsed time.Duration) string {
-	return fmt.Sprintf("gate: → %s (the deferred %s phase in %s was killed after %.0fs with no result — that edit's code was NOT tested)",
-		DeferredAbandoned, phase, root, elapsed.Seconds())
+//
+// It also says what the budget was and where it came from (the job's own
+// BudgetNote), so a reader can tell a ceiling that was sized from a measurement
+// from one that was only the floor.
+func deferredAbandonedLineFor(root string, j DeferredJob, elapsed time.Duration) string {
+	why := ""
+	if j.BudgetNote != "" {
+		why = "; " + j.BudgetNote
+	}
+	return fmt.Sprintf("gate: → %s (the deferred %s phase in %s was killed after %.0fs with no result — that edit's code was NOT tested%s)",
+		DeferredAbandoned, j.Phase, root, elapsed.Seconds(), why)
 }
 
 // infraFailureLine reports a phase that DID spawn and finish, but whose own
@@ -128,17 +146,14 @@ func joinDeferredAdvisory(carried, line string) string {
 // compiling.
 const deferredGoTimeoutSlack = 5 * time.Minute
 
-// deferredGoTimeout is the value that phase names. Derived from the ceiling,
-// never a copied constant: raising APHROLLO_DEFERRED_MAX_SECS must move this
-// with it, or the collision this exists to remove comes straight back.
-func deferredGoTimeout() time.Duration { return deferredMax() + deferredGoTimeoutSlack }
+// deferredGoTimeoutFor is the -timeout for a job whose ceiling is budget.
+func deferredGoTimeoutFor(budget time.Duration) time.Duration { return budget + deferredGoTimeoutSlack }
 
-// withDeferredGoTimeout inserts that -timeout into a `go test` argv, right
-// after "test". A no-op for anything that is not `go test`, and for a caller
-// that already named a -timeout of its own (in either spelling `go test`
-// accepts): doubling the flag is a go error, and a caller that tuned the
-// value meant it.
-func withDeferredGoTimeout(argv []string) []string {
+// withGoTimeoutFor inserts a -timeout into a `go test` argv, right after
+// "test". A no-op for anything that is not `go test`, and for a caller that
+// already named a -timeout of its own (in either spelling `go test` accepts):
+// doubling the flag is a go error, and a caller that tuned the value meant it.
+func withGoTimeoutFor(argv []string, timeout time.Duration) []string {
 	if len(argv) == 0 || !isGoTestInvocation(argv[0], argv[1:]) {
 		return argv
 	}
@@ -148,7 +163,7 @@ func withDeferredGoTimeout(argv []string) []string {
 		}
 	}
 	out := make([]string, 0, len(argv)+1)
-	out = append(out, argv[0], argv[1], "-timeout="+deferredGoTimeout().String())
+	out = append(out, argv[0], argv[1], "-timeout="+timeout.String())
 	return append(out, argv[2:]...)
 }
 

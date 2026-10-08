@@ -22,6 +22,8 @@ type CapResult = lock.CapResult
 
 type SlotWait = lock.SlotWait
 
+func BoxLoadPct() (float64, bool) { return lock.BoxLoadPct() }
+
 func ReadBuildSlotOwner(p0 string) (BuildLockOwner, bool) { return lock.ReadBuildSlotOwner(p0) }
 
 func RunSlotSpec(p0 run.Spec, p1 string) (CapResult, error) { return lock.RunSlotSpec(p0, p1) }

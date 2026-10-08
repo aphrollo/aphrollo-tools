@@ -180,9 +180,11 @@ func runEditPhases(runner Runner, root, target, headSHA, fileHash, session, edit
 // runner that cannot build without running (only cargo can; `go test
 // --no-run` is not a flag) — the one run phase, still deferrable.
 func firstEditPhase(runner Runner, root, target, headSHA, fileHash, session, editID string, touched ...string) DeferredJob {
+	sized := sizeDeferredBudget(root, runnerArgv(runner))
 	j := DeferredJob{
 		Project: root, Phase: "build", Dir: runnerDir(runner, root),
-		Runner: phaseArgv(runner, "build"), RunRunner: phaseArgv(runner, "run"),
+		Runner: phaseArgvFor(runner, "build", sized.Budget), RunRunner: phaseArgvFor(runner, "run", sized.Budget),
+		BudgetSecs: int(sized.Budget / time.Second), BudgetNote: sized.Note(),
 		HeadSHA: headSHA, FileHash: fileHash, File: target, Session: session, EditID: editID,
 		Touched: touched, Agent: HookAgent(), Select: runner.Select,
 	}
@@ -226,7 +228,7 @@ func harvestDeferred(root, headSHA, fileHash, session string, budget time.Durati
 			// fresh run's BUILDING line and read "in progress" where the
 			// truth was "the previous run died without testing your code"
 			// (issue #571).
-			return deferredAbandonedLine(root, j.Phase, elapsed), true
+			return deferredAbandonedLineFor(root, j, elapsed), true
 		}
 		// Still working: never kill it, just record that the source moved on.
 		if j.FileHash != fileHash {
@@ -466,7 +468,11 @@ func splittable(r Runner) bool { return r.Cmd == "cargo" }
 // is the queue shim's own build form (suite.CargoBuildOnlyArgv: --no-run,
 // without the run-only flags nextest refuses beside it), the run phase is
 // the command itself.
-func phaseArgv(r Runner, phase string) []string {
+func phaseArgv(r Runner, phase string) []string { return phaseArgvFor(r, phase, deferredMax()) }
+
+// phaseArgvFor is phaseArgv for a job whose ceiling is budget: a go test run's
+// own -timeout sits above that, not above the flat default.
+func phaseArgvFor(r Runner, phase string, budget time.Duration) []string {
 	argv := append([]string{r.Cmd}, r.Args...)
 	if phase == "build" {
 		if hasNoRunFlag(argv) {
@@ -478,7 +484,7 @@ func phaseArgv(r Runner, phase string) []string {
 	// go's default 10m otherwise collides with that ceiling and both answers
 	// are lost (deferred_verdict.go, issue #571). Only cargo is splittable,
 	// so a go run never reaches the build branch above.
-	argv = withDeferredGoTimeout(argv)
+	argv = withGoTimeoutFor(argv, deferredGoTimeoutFor(budget))
 	if isGoTestInvocation(argv[0], argv[1:]) && !slices.Contains(argv, "-count=1") && (!r.Cached || !cacheableAsOne(r)) {
 		// Every go test the gate runs carries -count=1 (#421). The detached
 		// phase starts one command from an argv and the cache mark does not

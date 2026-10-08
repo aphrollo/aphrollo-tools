@@ -257,3 +257,18 @@ func foreignLoadReport(selfPID int) string {
 		return "box: load unavailable (sampling exceeded its own budget)"
 	}
 }
+
+// BoxLoadPct is how busy the box is right now, in percent of its CPU, read
+// through the same probe a timeout rejection reports from. ok is false when the
+// probe has no reading (or none on this OS), and when another sample is already
+// running: a caller sizing a budget then goes without a load factor rather than
+// stacking a second enumeration of every process on a box that may be the
+// reason it asks.
+func BoxLoadPct() (pct float64, ok bool) {
+	if !machineLoadMu.TryLock() {
+		return 0, false
+	}
+	defer machineLoadMu.Unlock()
+	_, pct, _, ok = machineLoadSampleFn(make(chan struct{}))
+	return pct, ok
+}

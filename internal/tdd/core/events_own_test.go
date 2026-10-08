@@ -204,6 +204,7 @@ func TestAppendGateLog_NotTestedRunsCarryTheirCause(t *testing.T) {
 		{"deferred-abandoned", "deferred"},
 		{"infra-failed", "infra"},
 		{"no-tests-selected", "no-tests"},
+		{"tree-moved", "tree-moved"},
 	}
 	for _, c := range cases {
 		AppendGateLog("postedit", "/r", "go test", c.verdict, 2*time.Second)
