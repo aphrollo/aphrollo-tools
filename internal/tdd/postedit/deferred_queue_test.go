@@ -44,7 +44,7 @@ func TestPostEditDeferred_AnEditBehindARunGetsItsOwnQueuedLine(t *testing.T) {
 
 	line := editOf(t, root, session, "b", "package b\n")
 
-	for _, want := range []string{"go test ./b", "QUEUED", `"go test ./a" is still going`, "place 1 of 1", "not tested yet"} {
+	for _, want := range []string{"go test ./b", "QUEUED", `"go test -count=1 ./a" is still going`, "place 1 of 1", "not tested yet"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("line %q does not carry %q", line, want)
 		}
@@ -70,7 +70,7 @@ func TestPostEditDeferred_ANewerEditOfTheSameRunReplacesTheWaitingOne(t *testing
 		t.Fatalf("line %q must say it replaced the waiting b and now stands behind c", line)
 	}
 	q := readQueue(queuePath(session, root))
-	if len(q.Runs) != 2 || q.Runs[0].Runner[1] != "test" || q.Runs[0].Runner[2] != "./c" || q.Runs[1].Runner[2] != "./b" {
+	if len(q.Runs) != 2 || q.Runs[0].Runner[1] != "test" || q.Runs[0].Runner[3] != "./c" || q.Runs[1].Runner[3] != "./b" {
 		t.Fatalf("queue = %+v, want c then the newer b", q.Runs)
 	}
 }
@@ -142,7 +142,7 @@ func TestHarvestSessionJobs_StartsTheOldestWaitingRunWhenTheSlotFrees(t *testing
 	if !ok || !strings.HasSuffix(strings.Join(next.Runner, " "), " ./b") {
 		t.Fatalf("running job = %+v, want the oldest waiting run, ./b", next)
 	}
-	if q := readQueue(queuePath(session, root)); len(q.Runs) != 1 || q.Runs[0].Runner[2] != "./c" {
+	if q := readQueue(queuePath(session, root)); len(q.Runs) != 1 || q.Runs[0].Runner[3] != "./c" {
 		t.Fatalf("queue = %+v, want only c still waiting", q.Runs)
 	}
 	if joined := tddtest.Pathless(t, strings.Join(lines, "\n")); !strings.Contains(joined, "go test") || !strings.Contains(joined, "./b") || !strings.Contains(joined, "the queued run started") {
@@ -189,7 +189,7 @@ func TestHarvestSessionJobs_ReportsAQueuedRunThatCouldNotStart(t *testing.T) {
 	lines := harvestSessionJobs(session)
 
 	joined := tddtest.Pathless(t, strings.Join(lines, "\n"))
-	if !strings.Contains(joined, "go test ./b") || !strings.Contains(joined, "could not be started") || !strings.Contains(joined, "NOT tested") {
+	if !strings.Contains(joined, "go test -count=1 ./b") || !strings.Contains(joined, "could not be started") || !strings.Contains(joined, "NOT tested") {
 		t.Fatalf("the sweep must say the queued run could not start:\n%s", joined)
 	}
 	if q := readQueue(queuePath(session, root)); len(q.Runs) != 0 {
@@ -252,7 +252,7 @@ func TestRunEditPhases_AFreshStartBehindARunTheSlotHoldsQueuesInstead(t *testing
 	if *started != 1 {
 		t.Errorf("runs started = %d, want the running one only", *started)
 	}
-	if got := readQueue(queuePath(session, root)); len(got.Runs) != 1 || got.Runs[0].Runner[2] != "./b" {
+	if got := readQueue(queuePath(session, root)); len(got.Runs) != 1 || got.Runs[0].Runner[3] != "./b" {
 		t.Errorf("queue = %+v, want ./b waiting", got.Runs)
 	}
 }

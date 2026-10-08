@@ -101,7 +101,9 @@ func goWideningSteps(r Runner, target, root string) []Runner {
 		}
 		args = append(args, "./"+dir)
 	}
-	return []Runner{{Cmd: "go", Args: args, Dir: r.Dir}}
+	rung := r
+	rung.Args = args
+	return []Runner{rung}
 }
 
 // goOwnTestRun reports whether r is the run a Go TEST edit owes: the edited

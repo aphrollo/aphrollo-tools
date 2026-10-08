@@ -62,7 +62,13 @@ func mechCachePath() string {
 // Go modules each running `go test ./pkg`) otherwise share a key, and one
 // root's green answered the other's lookup: a red suite read as cache-hit.
 func mechKey(root, stateHash string, r Runner) string {
-	return mechKeyPrefix(root, stateHash) + r.Cmd + " " + strings.Join(r.Args, " ")
+	key := mechKeyPrefix(root, stateHash) + r.Cmd + " " + strings.Join(r.Args, " ")
+	if r.Cached {
+		// go's test cache may have answered part of this green: it is not the
+		// measured run an uncached lookup of the same argv asks for.
+		key += " [go test cache served]"
+	}
+	return key
 }
 
 // mechKeyPrefix is every mechKey for root at stateHash, up to the command:

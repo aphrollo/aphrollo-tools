@@ -31,7 +31,7 @@ type scriptedPhase struct {
 func phaseKey(argv []string) string {
 	var kept []string
 	for _, a := range argv {
-		if !strings.HasPrefix(a, "-timeout=") {
+		if !strings.HasPrefix(a, "-timeout=") && a != "-count=1" {
 			kept = append(kept, a)
 		}
 	}

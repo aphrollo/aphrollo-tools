@@ -25,7 +25,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	// This edit's run starts now and reads the tree as it stands: a request for
 	// the same run still waiting has nothing to add. Whatever else waits starts
 	// when the slot frees, which the hook's session sweep sees to.
-	snap.editID = joinEditIDs(dropQueuedRun(session, root, runnerArgv(snap.runner), runnerDir(snap.runner, root)), snap.editID)
+	snap.editID = joinEditIDs(dropQueuedRun(session, root, withoutTimeout(phaseArgv(snap.runner, "run")), runnerDir(snap.runner, root)), snap.editID)
 	// Every line below has to carry whatever the harvest already concluded —
 	// today only an abandonment, which is a verdict about work this session
 	// asked for and has to hear about even though a fresh run is starting
@@ -127,7 +127,7 @@ func activeRunLine(snap stateSnapshot, root, target, session, fileHash string) (
 	if _, done := deferredResult(j); done || !deferredJobMaybeLive(j, time.Now()) {
 		return "", false
 	}
-	argv, dir := runnerArgv(snap.runner), runnerDir(snap.runner, root)
+	dir := runnerDir(snap.runner, root)
 	active := j.Runner
 	if j.Phase == "build" {
 		active = runArgvAfterBuild(j)
@@ -163,7 +163,7 @@ func activeRunLine(snap stateSnapshot, root, target, session, fileHash string) (
 		updateDeferredJob(session, root, func(j *DeferredJob) { j.EditID = joinEditIDs(j.EditID, snap.editID) })
 		return runningRunLine(snap.runner, root, j), true
 	}
-	out := enqueueRun(session, root, queuedRun{Runner: argv, Dir: dir, File: target, EditID: snap.editID, Touched: snap.touched, At: time.Now()})
+	out := enqueueRun(session, root, queuedRun{Runner: withoutTimeout(phaseArgv(snap.runner, "run")), Dir: dir, File: target, EditID: snap.editID, Touched: snap.touched, At: time.Now()})
 	if out.full {
 		AppendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
 		return queueFullLine(snap.runner, root), true

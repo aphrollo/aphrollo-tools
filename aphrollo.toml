@@ -31,6 +31,71 @@ go-test-reads = [
   "CHANGELOG.md -> internal/release",
 ]
 
+# Go's test cache, off here until the owner has seen the numbers. With
+# test-cache = "edit" or "commit" the post-edit suite (and, at "commit", the
+# commit's suite) lets go serve a package whose sources and test inputs did not
+# change, where every gate run carries -count=1 today; the merge and CI never
+# do.
+#
+# Go keys a cached result on the test binary, the cacheable flags, the env
+# variables the test read and the files it opened or stat'd, but only files
+# inside the module, GOPATH or GOROOT are rechecked. Probed on this box: a
+# package whose tests exec git on a temp repo is `(cached)` on its second plain
+# run, go's test log lists git.exe among the opened files, yet a copy of an
+# exec'd tool outside the module that is grown by a byte afterwards is still
+# served `(cached)`. So an upgraded git, gopls or gremlins does not invalidate a
+# result, and neither does anything a subprocess reads on its own. A package is
+# therefore listed in test-cache-impure when its tests run git, or depend on
+# what go cannot see: a language server or gremlins, the machine's processes,
+# ports and memory, ~/.gitconfig and the user's other config, or the git history
+# of this very repo. Found by grep over the test files and by reading the hits.
+# Unlisted: pure Go over files in the module and its own temp dirs (buildinfo,
+# config/decl, diff, guardrail, integrate/host and its github adapter, lang,
+# lsp, mask, oracle, rootseam, tomlsubset, tdd/shell, tddarm, release, report,
+# render, store, shfake, engine, kernel, measure, shadow, compat, cireuse,
+# ciwhy, depinstall, tools/flakehunt, tools/replay). A new package whose tests
+# run git or any binary, or read the network or the clock, goes in this list.
+test-cache = "off"
+test-cache-impure = [
+  "./internal/argvbatch",
+  "./internal/cli",
+  "./internal/commitrecord",
+  "./internal/config",
+  "./internal/dev",
+  "./internal/docs",
+  "./internal/ghworkflow",
+  "./internal/git",
+  "./internal/gitenv",
+  "./internal/gitiso",
+  "./internal/integrate/host/github/ghtransport",
+  "./internal/msys",
+  "./internal/proc",
+  "./internal/ratchet",
+  "./internal/refactor",
+  "./internal/run",
+  "./internal/sqlc",
+  "./internal/tdd",
+  "./internal/tdd/core",
+  "./internal/tdd/escape",
+  "./internal/tdd/failfirst",
+  "./internal/tdd/gc",
+  "./internal/tdd/gitx",
+  "./internal/tdd/install",
+  "./internal/tdd/internal/tddtest",
+  "./internal/tdd/lawgate",
+  "./internal/tdd/lock",
+  "./internal/tdd/merge",
+  "./internal/tdd/mutation",
+  "./internal/tdd/postedit",
+  "./internal/tdd/precommit",
+  "./internal/tdd/smell",
+  "./internal/tdd/suite",
+  "./internal/undercover",
+  "./internal/userbin",
+  "./internal/workspace",
+  "./tools/tddsplit",
+]
+
 # The post-merge retro `aphrollo workspace merge` runs once the PR has landed.
 # It reads the PR's journey (one bounded gh batch), the lane's gate.log
 # entries and the lane branch's reflog, and records a retro for the session

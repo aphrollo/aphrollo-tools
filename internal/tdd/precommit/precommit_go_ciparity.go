@@ -9,7 +9,9 @@ package precommit
 // a test that quietly depends on another's leftover state — a lock file, a
 // job record, a state dir — cannot pass here by declaration-order
 // construction and then fail on whatever seed CI happens to pick). These
-// two run at EVERY mechanical stage — precommit and premerge alike.
+// two run at EVERY mechanical stage — precommit and premerge alike — except a
+// precommit run the repo's test-cache setting lets go's cache serve, which
+// carries neither (goParityFlagsFor); the premerge always carries both.
 //
 // CI's remaining flag, -timeout=180s, is deliberately NOT here. It was
 // copied onto this box verbatim in an earlier version of this fix and
@@ -53,9 +55,11 @@ func withGoCIParity(r Runner, atMerge bool) Runner {
 	if r.Cmd != "go" || len(r.Args) == 0 || r.Args[0] != "test" {
 		return r
 	}
-	flags := goCIParityFlags
+	flags := goParityFlagsFor(atMerge, r.Cached)
 	if atMerge {
-		flags = append([]string{goRaceFlag}, goCIParityFlags...)
+		// The merged tree is tested once, in full, with no cache whatever the
+		// runner was marked.
+		r.Cached, r.Impure = false, nil
 	}
 	present := make(map[string]bool, len(r.Args))
 	for _, a := range r.Args[1:] {
@@ -69,5 +73,21 @@ func withGoCIParity(r Runner, atMerge bool) Runner {
 		}
 	}
 	args = append(args, r.Args[1:]...)
-	return Runner{Cmd: r.Cmd, Args: args, Dir: r.Dir, Deadline: r.Deadline}
+	r.Args = args
+	return r
+}
+
+// goParityFlagsFor is the flag set a go suite carries, picked by the stage and
+// whether go's test cache may serve it (the repo's test-cache setting). The
+// merge always carries -race and CI's two. A cached run elsewhere carries
+// neither -count=1 nor -shuffle=on: -shuffle is not one of the flags go's
+// cache accepts, so a run with it never reads the cache.
+func goParityFlagsFor(atMerge, cached bool) []string {
+	switch {
+	case atMerge:
+		return append([]string{goRaceFlag}, goCIParityFlags...)
+	case cached:
+		return nil
+	}
+	return goCIParityFlags
 }

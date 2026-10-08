@@ -173,11 +173,20 @@ func ensureGoTestArg(args []string, flag string) []string {
 // Idempotent in both flags, and a no-op for anything that is not
 // `go test ...`.
 func goExecArgs(cmd string, args []string) []string {
-	if !isGoTestInvocation(cmd, args) {
-		return args
+	return goExecArgsFor(Runner{Cmd: cmd, Args: args})
+}
+
+// goExecArgsFor is goExecArgs for a whole Runner. A runner marked Cached (the
+// repo's test-cache setting at this stage, see testcache.go) is left without
+// -count=1 so go's cache can serve a package it vouches for.
+func goExecArgsFor(r Runner) []string {
+	if !isGoTestInvocation(r.Cmd, r.Args) {
+		return r.Args
 	}
-	args = ensureGoTestArg(args, "-json")
-	args = ensureGoTestArg(args, "-count=1")
+	args := ensureGoTestArg(r.Args, "-json")
+	if !r.Cached {
+		args = ensureGoTestArg(args, "-count=1")
+	}
 	return args
 }
 
