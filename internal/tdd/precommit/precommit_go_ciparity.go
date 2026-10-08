@@ -9,7 +9,9 @@ package precommit
 // a test that quietly depends on another's leftover state — a lock file, a
 // job record, a state dir — cannot pass here by declaration-order
 // construction and then fail on whatever seed CI happens to pick). These
-// two run at EVERY mechanical stage — precommit and premerge alike.
+// two run at EVERY mechanical stage — precommit and premerge alike — except a
+// precommit run the repo's test-cache setting lets go's cache serve, which
+// carries neither (goParityFlagsFor); the premerge always carries both.
 //
 // CI's remaining flag, -timeout=180s, is deliberately NOT here. It was
 // copied onto this box verbatim in an earlier version of this fix and

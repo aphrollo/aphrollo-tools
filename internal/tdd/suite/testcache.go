@@ -1,6 +1,8 @@
 package suite
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -14,7 +16,7 @@ import (
 // only the whole truth for a test go's cache cannot vouch for. Go keys a
 // cached result on the test binary (every compiled source and dependency), the
 // cacheable flags, the environment variables the test read and the files it
-// opened, so a package whose test depends on nothing else is served the same
+// opened or stat'd (an exec'd binary found through PATH is among them), so a package whose test depends on nothing else is served the same
 // answer it would measure. A repo that knows its tests are like that opts in
 // with `test-cache` under [aphrollo], per stage:
 //
@@ -23,8 +25,9 @@ import (
 //	"commit" the post-edit suite and the commit's mechanical stage do
 //
 // The merge and CI never do: the merged tree is tested once, in full, with no
-// cache. Mutation keeps its own -count=1. -shuffle is not a cacheable flag, so
-// a stage that serves from the cache also runs without it.
+// cache. Mutation keeps its own -count=1. -shuffle is not a cacheable flag: the
+// commit stage, whose CI-parity flags include it, drops it too when it serves
+// from the cache; the post-edit run never carried it.
 //
 // A package whose tests go cannot see all the inputs of (they exec git,
 // gopls or another binary, or read the network) is named in
@@ -63,9 +66,43 @@ func withTestCache(r Runner, repoRoot, stage string) Runner {
 	if !testCacheServes[[2]string{stage, strings.ToLower(strings.TrimSpace(setting))}] {
 		return r
 	}
+	impure := tomlStringsIn(path, "[aphrollo]", testCacheImpureKey)
+	for _, entry := range impure {
+		if !impurePatternShape(entry) {
+			// An entry that matches nothing would leave its package cached:
+			// refuse the cache for this run, loudly, until the entry is fixed.
+			testCacheWarn(fmt.Sprintf("gate: aphrollo.toml %s entry %q is not a package pattern, expected ./dir or ./dir/... such as ./internal/git/...; test-cache is off for this run (-count=1) until it is fixed", testCacheImpureKey, entry))
+			return r
+		}
+	}
 	r.Cached = true
-	r.Impure = tomlStringsIn(path, "[aphrollo]", testCacheImpureKey)
+	r.Impure = impure
 	return r
+}
+
+// testCacheWarn says a test-cache problem on stderr; a seam for the test.
+var testCacheWarn = func(line string) { fmt.Fprintln(os.Stderr, line) }
+
+// setTestCacheWarn swaps the warning sink and returns the undo.
+func setTestCacheWarn(f func(string)) func() {
+	old := testCacheWarn
+	testCacheWarn = f
+	return func() { testCacheWarn = old }
+}
+
+// impurePatternShape reports whether entry is "." or "./dir" or "./dir/...",
+// the only forms impureMatches can match against the "./dir" packages a
+// narrowed run names.
+func impurePatternShape(entry string) bool {
+	if entry == "." || entry == "./..." {
+		return true
+	}
+	rest, ok := strings.CutPrefix(entry, "./")
+	if !ok {
+		return false
+	}
+	rest = strings.TrimSuffix(rest, "/...")
+	return rest != "" && !strings.ContainsAny(rest, "*?[") && !strings.Contains(rest, "...")
 }
 
 // impureMatches reports whether package pkg ("./dir") is named by pattern
@@ -125,6 +162,15 @@ func impureListed(patterns []string, pkg string) bool {
 		}
 	}
 	return false
+}
+
+// cacheableAsOne reports whether r, marked Cached, runs as the one cacheable
+// command: no package of its list is impure and the list reads back as plain
+// packages. A caller that can only start one command (the detached run phase)
+// runs anything else whole with -count=1.
+func cacheableAsOne(r Runner) bool {
+	runs := splitImpureRuns(r)
+	return r.Cached && len(runs) == 1 && runs[0].Cached
 }
 
 // runImpureSplit is r run as splitImpureRuns cuts it, one after the other under one

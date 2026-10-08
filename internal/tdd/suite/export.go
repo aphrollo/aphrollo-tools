@@ -83,6 +83,8 @@ func BuildOnlyTerminal(p0 Runner, p1 string, p2 SuiteResult) string {
 	return buildOnlyTerminal(p0, p1, p2)
 }
 
+func CacheableAsOne(p0 Runner) bool { return cacheableAsOne(p0) }
+
 func CachedGoPackages(p0 string) int { return cachedGoPackages(p0) }
 
 func CargoAlwaysRunPackages(p0 string) []string { return cargoAlwaysRunPackages(p0) }

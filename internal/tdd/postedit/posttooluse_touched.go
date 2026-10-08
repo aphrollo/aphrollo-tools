@@ -38,7 +38,8 @@ func withTouchedTestTargets(r, base Runner, root string, touched []string) Runne
 	if len(add) == 0 {
 		return r
 	}
-	wide := Runner{Cmd: r.Cmd, Args: append([]string{}, r.Args...), Dir: r.Dir}
+	wide := r
+	wide.Args = append([]string{}, r.Args...)
 	if unfiltered, dropped := dropCargoNameFilter(r); dropped {
 		wide = unfiltered
 	}

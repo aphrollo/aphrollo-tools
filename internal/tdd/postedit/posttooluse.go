@@ -359,11 +359,21 @@ func greenLabel(outcome Outcome, output string, dur time.Duration) string {
 	}
 	if n, ok := parsePassedCount(output); ok {
 		if cached := cachedGoPackages(output); cached > 0 {
-			return fmt.Sprintf("%s (%d passed (%d cached), %.1fs)", outcome, n, cached, dur.Seconds())
+			return fmt.Sprintf("%s (%d passed (%s), %.1fs)", outcome, n, cachedPackagesNote(cached), dur.Seconds())
 		}
 		return fmt.Sprintf("%s (%d passed, %.1fs)", outcome, n, dur.Seconds())
 	}
 	return fmt.Sprintf("%s (%.1fs)", outcome, dur.Seconds())
+}
+
+// cachedPackagesNote says how many packages go served from its test cache,
+// in packages: "N passed" counts tests, and a note in the same unit would read
+// as N of them cached.
+func cachedPackagesNote(n int) string {
+	if n == 1 {
+		return "1 package cached"
+	}
+	return fmt.Sprintf("%d packages cached", n)
 }
 
 // passAdvisory composes the one-line advisory for a run that resolved to a

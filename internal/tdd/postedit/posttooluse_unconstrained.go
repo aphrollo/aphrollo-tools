@@ -27,7 +27,7 @@ func unconstrainedGreen(kind Kind, outcome Outcome, snap stateSnapshot, root str
 func unconstrainedLine(r Runner, root string, passed, cached int, dur time.Duration) string {
 	count := fmt.Sprintf("%d passed", passed)
 	if cached > 0 {
-		count = fmt.Sprintf("%d passed (%d cached)", passed, cached)
+		count = fmt.Sprintf("%d passed (%s)", passed, cachedPackagesNote(cached))
 	}
 	return withTargetsNotRun(fmt.Sprintf("gate: %s in %s %s (%s; no test changed with this edit — mutation proof owed)",
 		cmdString(r), root, GreenUnconstrained, count), r, root)

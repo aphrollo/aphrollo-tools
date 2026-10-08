@@ -228,3 +228,44 @@ func TestLogSuiteVerdict_RecordsTheCachedPackagesOnTheEvent(t *testing.T) {
 		t.Fatalf("events = %q, want %q", got, want)
 	}
 }
+
+// An entry that is not a "./dir" or "./dir/..." package pattern would match
+// nothing and leave its package cached, so it is refused: the cache stays off
+// for the runner and the line says which entry and what form is expected.
+func TestWithTestCache_RefusesAnImpureEntryNotShapedLikeAPackagePattern(t *testing.T) {
+	for _, bad := range []string{"internal/git/...", "...", "example.com/m/internal/git", "./internal/*", "./a/.../b"} {
+		var warned []string
+		undo := setTestCacheWarn(func(s string) { warned = append(warned, s) })
+		root := writeCacheConfig(t, fmt.Sprintf("test-cache = \"edit\"\ntest-cache-impure = [\"./ok\", %q]\n", bad))
+		got := withTestCache(Runner{Cmd: "go", Args: []string{"test", "./a"}}, root, "edit")
+		undo()
+		if got.Cached {
+			t.Errorf("entry %q: the run was left cacheable", bad)
+		}
+		if len(warned) != 1 || !strings.Contains(warned[0], fmt.Sprintf("%q", bad)) || !strings.Contains(warned[0], "./internal/git/...") {
+			t.Errorf("entry %q: warning = %q, want one naming the entry and the form ./dir or ./dir/...", bad, warned)
+		}
+	}
+	for _, ok := range []string{"./a", "./a/b/...", "./...", "."} {
+		root := writeCacheConfig(t, fmt.Sprintf("test-cache = \"edit\"\ntest-cache-impure = [%q]\n", ok))
+		if got := withTestCache(Runner{Cmd: "go", Args: []string{"test", "./a"}}, root, "edit"); !got.Cached {
+			t.Errorf("entry %q was refused", ok)
+		}
+	}
+}
+
+// A green that go's cache helped to would otherwise satisfy a later lookup of
+// the same argv that wants a measured run. The key tells them apart, and an
+// uncached runner keeps the key it always had.
+func TestMechKey_SeparatesACachedRunFromAnUncachedOne(t *testing.T) {
+	root := t.TempDir()
+	plain := Runner{Cmd: "go", Args: []string{"test", "./a"}}
+	cached := plain
+	cached.Cached = true
+	if mechKey(root, "h", plain) == mechKey(root, "h", cached) {
+		t.Fatal("a cached run and an uncached one share a mech-cache key")
+	}
+	if got, want := mechKey(root, "h", plain), mechKeyPrefix(root, "h")+"go test ./a"; got != want {
+		t.Fatalf("uncached key = %q, want %q", got, want)
+	}
+}

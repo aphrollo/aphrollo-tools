@@ -3,6 +3,7 @@ package postedit
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -477,7 +478,14 @@ func phaseArgv(r Runner, phase string) []string {
 	// go's default 10m otherwise collides with that ceiling and both answers
 	// are lost (deferred_verdict.go, issue #571). Only cargo is splittable,
 	// so a go run never reaches the build branch above.
-	return withDeferredGoTimeout(argv)
+	argv = withDeferredGoTimeout(argv)
+	if r.Cached && !cacheableAsOne(r) {
+		// The detached phase starts one command from an argv and the mark does
+		// not travel with it: a list go's cache cannot answer whole runs
+		// measured, as the gate's own runs do.
+		argv = slices.Insert(argv, 2, "-count=1")
+	}
+	return argv
 }
 
 // runArgvAfterBuild is the run phase a finished build record goes on to:
