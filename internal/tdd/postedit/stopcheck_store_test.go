@@ -181,7 +181,7 @@ func TestLaneRedVerdict_NoSessionNeverBlocks(t *testing.T) {
 	root, _ := laneAt(t, "aaa111")
 	endRun(t, root, "aaa111", 1, failingGoLog)
 
-	if got := laneRedVerdict("", root); got.Block {
+	if got := laneRedVerdict("", root, ""); got.Block {
 		t.Fatalf("verdict = %+v, want an allow", got)
 	}
 }

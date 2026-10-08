@@ -183,7 +183,7 @@ func firstEditPhase(runner Runner, root, target, headSHA, fileHash, session, edi
 		Project: root, Phase: "build", Dir: runnerDir(runner, root),
 		Runner: phaseArgv(runner, "build"), RunRunner: phaseArgv(runner, "run"),
 		HeadSHA: headSHA, FileHash: fileHash, File: target, Session: session, EditID: editID,
-		Touched: touched,
+		Touched: touched, Agent: HookAgent(),
 	}
 	if !splittable(runner) {
 		j.Phase, j.Runner, j.RunRunner = "run", j.RunRunner, nil

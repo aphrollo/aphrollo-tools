@@ -1184,6 +1184,7 @@ statusline_test.go                                 tdd
 statusline_unproven_test.go                        tdd
 stderrsink.go                                      precommit
 stopcheck.go                                       postedit
+stopcheck_agent_test.go                            postedit
 stopcheck_store_test.go                            postedit
 stopcheck_task_test.go                             postedit
 stopcheck_test.go                                  postedit

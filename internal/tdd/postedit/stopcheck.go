@@ -58,6 +58,8 @@ type stopInput struct {
 	SessionID      string `json:"session_id"`
 	Cwd            string `json:"cwd"`
 	StopHookActive bool   `json:"stop_hook_active"`
+	// AgentID names the subagent a SubagentStop is for, "" at a Stop.
+	AgentID string `json:"agent_id"`
 }
 
 // stopTreeFn resolves the checkout a hook's cwd stands in: the lane a subagent
@@ -80,15 +82,15 @@ func DecideStop(event StopEvent, raw []byte) StopVerdict {
 	}
 	// The unseen-red fact is read before the check, which marks what it tells seen.
 	var red bool
-	var trees []string
+	var trees, where []string
 	if event != StopHookTaskCompleted {
-		red, trees = unseenRedFact(event, in.SessionID, in.Cwd)
+		red, trees, where = unseenRedFact(event, in.SessionID, in.Cwd, in.AgentID)
 	}
 	var v StopVerdict
 	switch stopMode(in.Cwd) {
 	case modeOff:
 	case modeWarn:
-		v = warnStop(event, in, red)
+		v = warnStop(event, in, red, where)
 	default:
 		v = decideStop(event, in)
 	}
@@ -101,12 +103,12 @@ func DecideStop(event StopEvent, raw []byte) StopVerdict {
 // unseenRedFact says whether the actor has a red it has not been told of: a lane
 // red the store holds for the tree cwd stands in (its tree key is returned), or a
 // finished deferred run of the session (the whole session for a Stop, the cwd's
-// checkout for a SubagentStop). It marks and removes nothing.
-func unseenRedFact(event StopEvent, session, cwd string) (bool, []string) {
+// checkout for a SubagentStop), of the agent that is stopping. where names the
+// roots the reds are in. It marks and removes nothing.
+func unseenRedFact(event StopEvent, session, cwd, agent string) (red bool, trees, where []string) {
 	if session == "" {
-		return false, nil
+		return false, nil, nil
 	}
-	var trees []string
 	if cwd != "" && anyLaneRed() {
 		tree := stopTreeFn(cwd)
 		// The pointers' own keys, unchecked against the tree as it is now: that is a
@@ -114,17 +116,43 @@ func unseenRedFact(event StopEvent, session, cwd string) (bool, []string) {
 		for _, p := range laneRedsWithin(tree) {
 			if !redSeen(session, p.Key) && !slices.Contains(trees, p.Key) {
 				trees = append(trees, p.Key)
+				where = appendRoot(where, p.Root)
 			}
 		}
 	}
 	if len(trees) > 0 {
-		return true, trees
+		return true, trees, where
 	}
-	reds := finishedReds(session)
+	reds := agentReds(session, agent)
 	if len(reds) > 0 && event == StopHookSubagentStop && cwd != "" {
 		reds = redsWithin(reds, stopTreeFn(cwd))
 	}
-	return len(reds) > 0, nil
+	for _, j := range reds {
+		where = appendRoot(where, j.Project)
+	}
+	return len(reds) > 0, nil, where
+}
+
+func appendRoot(list []string, s string) []string {
+	if slices.Contains(list, s) {
+		return list
+	}
+	return append(list, s)
+}
+
+// agentReds is finishedReds of the one agent a stop is for. A subagent's hooks
+// carry its session's id, so the session's records hold every builder's reds
+// too, a deliberate RED mid-lane among them: the session's own stop judges the
+// jobs no subagent started, and a subagent's stop its own and those no agent is
+// named on (a record written before jobs named their agent).
+func agentReds(session, agent string) []DeferredJob {
+	var kept []DeferredJob
+	for _, j := range finishedReds(session) {
+		if j.Agent == agent || (agent != "" && j.Agent == "") {
+			kept = append(kept, j)
+		}
+	}
+	return kept
 }
 
 // decideStop is DecideStop's check, over a payload already read.
@@ -138,18 +166,18 @@ func decideStop(event StopEvent, in stopInput) StopVerdict {
 		if in.StopHookActive {
 			return StopVerdict{}
 		}
-		if v := laneRedVerdict(in.SessionID, in.Cwd); v.Block {
+		if v := laneRedVerdict(in.SessionID, in.Cwd, in.AgentID); v.Block {
 			return v
 		}
-		return unseenRedVerdict(in.SessionID, "")
+		return unseenRedVerdict(in.SessionID, "", in.AgentID)
 	case StopHookSubagentStop:
 		if in.StopHookActive || in.Cwd == "" {
 			return StopVerdict{}
 		}
-		if v := laneRedVerdict(in.SessionID, in.Cwd); v.Block {
+		if v := laneRedVerdict(in.SessionID, in.Cwd, in.AgentID); v.Block {
 			return v
 		}
-		return unseenRedVerdict(in.SessionID, in.Cwd)
+		return unseenRedVerdict(in.SessionID, in.Cwd, in.AgentID)
 	case StopHookTaskCompleted:
 		if in.Cwd == "" {
 			return StopVerdict{}
@@ -179,7 +207,7 @@ func stopMode(cwd string) string {
 // same fact the shadow record does and consumes nothing, so the red is still
 // there for the agent's next hook to report. TaskCompleted is not held open
 // and has nothing to say.
-func warnStop(event StopEvent, in stopInput, red bool) StopVerdict {
+func warnStop(event StopEvent, in stopInput, red bool, where []string) StopVerdict {
 	state, _ := loadSession(in.SessionID)
 	if !stopCheckEnforced(state) || !red || in.StopHookActive {
 		return StopVerdict{}
@@ -193,7 +221,18 @@ func warnStop(event StopEvent, in stopInput, red bool) StopVerdict {
 	default:
 		return StopVerdict{}
 	}
-	return StopVerdict{Guidance: "gate (tdd = warn): this turn ends with a red its agent has not been told of; the next hook reports it. tdd = enforce blocks the stop on it."}
+	return StopVerdict{Guidance: warnGuidance(where)}
+}
+
+// warnGuidance names where each red is and how to read it, so the person the
+// message reaches can act on it.
+func warnGuidance(where []string) string {
+	var b strings.Builder
+	b.WriteString("gate (tdd = warn): this turn ends with a red its agent has not been told of; the next hook reports it. tdd = enforce blocks the stop on it.")
+	for _, root := range where {
+		fmt.Fprintf(&b, "\n  red in %s: cd %s && aphrollo gate output", root, root)
+	}
+	return b.String()
 }
 
 // stopCheckEnforced says whether the stop checks run for this session: the
@@ -214,7 +253,7 @@ const (
 // payload with no session has nobody to tell. The block is the telling for the
 // session's own finished-red job records of that tree too, so the fallback does
 // not block the same run a second time.
-func laneRedVerdict(session, cwd string) StopVerdict {
+func laneRedVerdict(session, cwd, agent string) StopVerdict {
 	if session == "" || cwd == "" || !anyLaneRed() {
 		return StopVerdict{}
 	}
@@ -223,7 +262,7 @@ func laneRedVerdict(session, cwd string) StopVerdict {
 	if reason == "" {
 		return StopVerdict{}
 	}
-	if lines := deliverReds(session, redsWithin(finishedReds(session), tree)); len(lines) > 0 {
+	if lines := deliverReds(session, redsWithin(agentReds(session, agent), tree)); len(lines) > 0 {
 		reason += "\n" + strings.Join(lines, "\n")
 	}
 	return StopVerdict{Block: true, Reason: reason, Red: true}
@@ -232,8 +271,8 @@ func laneRedVerdict(session, cwd string) StopVerdict {
 // unseenRedVerdict blocks once with the verdict line of every unseen red:
 // those of the whole session when lane is empty, otherwise only those in the
 // checkout lane stands in.
-func unseenRedVerdict(session, lane string) StopVerdict {
-	reds := finishedReds(session)
+func unseenRedVerdict(session, lane, agent string) StopVerdict {
+	reds := agentReds(session, agent)
 	if len(reds) > 0 && lane != "" {
 		reds = redsWithin(reds, stopTreeFn(lane))
 	}

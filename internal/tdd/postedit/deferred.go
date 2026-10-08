@@ -63,6 +63,10 @@ type DeferredJob struct {
 	// EditID names the edit-ledger record this run judges, so a verdict
 	// harvested at a later hook still lands on the edit it was started for.
 	EditID string `json:"edit_id,omitempty"`
+	// Agent is the subagent whose edit started this job, "" for the session's
+	// own agent: a subagent's hooks carry its session's id, so the stop checks
+	// tell a builder's red from the session's by this field.
+	Agent string `json:"agent,omitempty"`
 	// Touched is every other file the same write changed under the project: with
 	// File, the files the run was built for, which a later hook needs to know
 	// whether they were all generated code (generated_edit.go).
