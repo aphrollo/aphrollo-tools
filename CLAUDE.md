@@ -3,7 +3,7 @@
 One Go binary, **`aphrollo`**, that moves deterministic developer work out of
 the agent's token stream into code: gates, laws, lanes, merges. Standard
 library plus `golang.org/x/sys` (Windows process calls) and `pgregory.net/rapid`
-(property tests). Module `github.com/aphrollo/aphrollo-tools`, go 1.26.6;
+(property tests). Module `github.com/aphrollo/aphrollo-tools`, go 1.26.9;
 build with `go build -o aphrollo ./cmd/aphrollo`. Usage lives in
 `aphrollo <verb> --help` and `README.md`; this file is developer context only.
 
