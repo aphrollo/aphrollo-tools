@@ -70,7 +70,9 @@ func GatePRMerge(laneWorktree, head string, run SuiteRunner, log io.Writer) erro
 // merge in a throwaway checkout and hand it to Mechanical. tips, when the
 // caller already resolved them, are not resolved again.
 func judgeMergedTree(laneWorktree, head string, run SuiteRunner, log io.Writer, tips *prGateTips) error {
-	return judgeMergedTreeWith(laneWorktree, head, run, log, tips, func(wt string) GateResult { return Mechanical(wt, run) })
+	return judgeAndRecordCost(laneWorktree, run, func(run SuiteRunner) error {
+		return judgeMergedTreeWith(laneWorktree, head, run, log, tips, func(wt string) GateResult { return Mechanical(wt, run) })
+	})
 }
 
 // judgeMergedTreeWith is judgeMergedTree with the judgment of the built
