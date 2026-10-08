@@ -283,3 +283,20 @@ func TestRenderFeatures_ShowsTheTestTagCount(t *testing.T) {
 		t.Errorf("none: row %q, want the value none", featureLine(RenderFeatures(none), "mutants-test-tags"))
 	}
 }
+
+// Test selection at the edit stage can miss a test the store does not see, so
+// it stays off until a repo asks, and the table says how to ask and that the
+// gates past the edit run everything (it is a row of the table like test-cache).
+func TestRenderFeatures_TestSelectIsOffUntilARepoAsksForIt(t *testing.T) {
+	t.Parallel()
+	text := RenderFeatures(t.TempDir())
+	line := featureLine(text, "test-select")
+	if f := strings.Fields(line); len(f) < 2 || f[1] != "off" {
+		t.Fatalf("test-select row %q, want the value off", line)
+	}
+	for _, want := range []string{`enable: test-select = "edit"`, "merge, CI and mutation always run everything"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the table does not carry %q", want)
+		}
+	}
+}

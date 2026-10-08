@@ -123,6 +123,12 @@ var features = []Feature{
 		Enable: "test-cache-impure = [\"./internal/git/...\"]",
 	},
 	{
+		Key: "test-select", Default: "off",
+		Effect: "the post-edit Go suite runs only the tests the coverage store says cover the edited functions, plus every test in a test file the edit changed and every test the store does not know, where an edit used to rerun the whole package; the line reads \"N passed, selected M of K tests: covering F\" or \"full suite: <reason>\", and the event records selected and total; the precommit fail-first, the merge, CI and mutation always run everything",
+		Cost:   "the store is built by the commit-time mutation flow, never at the edit, so a repo or package without a fresh one, an edit to a var, const, type, init or test helper, or a test file edit, runs the package whole; a selected green is a green of those tests only, and a test that reaches the edited function through a file, the clock or another package can be missed until the commit and merge gates run everything",
+		Enable: "test-select = \"edit\"",
+	},
+	{
 		Key: "gocache-cap", Default: "20GB",
 		Effect: "the size `aphrollo gate gc` trims the Go build cache (`go env GOCACHE`) down to, taking the files unused longest first, only go's own entries, and none used within the last two hours",
 		Cost:   "a smaller cap rebuilds more of what the next build needs",
