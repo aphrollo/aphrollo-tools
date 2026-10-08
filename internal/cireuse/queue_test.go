@@ -17,9 +17,13 @@ func queuedPRSource() *fakeSource {
 	return src
 }
 
+// queueCommit is the group the queue builds for #42. The sha in its head ref is
+// the group's base, not the pull request's head: the run that queued #1270
+// carried head ref gh-readonly-queue/main/pr-1270-1ad36c34... with base sha
+// 1ad36c34....
 func queueCommit() Commit {
 	return Commit{Repo: "o/r", SHA: pushSHA, Tree: pushTree, Workflow: wfPath, Event: "merge_group",
-		HeadRef: "gh-readonly-queue/main/pr-42-" + headSHA, BaseSHA: baseSHA, Parent: baseSHA}
+		HeadRef: "gh-readonly-queue/main/pr-42-" + baseSHA, BaseSHA: baseSHA, Parent: baseSHA}
 }
 
 func decideGroup(src *fakeSource, edit func(*Commit)) Verdict {
@@ -64,8 +68,9 @@ func TestDecideQueue_RunsEverythingWhenAnyEvidenceIsMissing(t *testing.T) {
 		{"the group's parent is unknown", nil, func(c *Commit) { c.Parent = "" }, "more than one", "pull"},
 		{"the group's base is unknown", nil, func(c *Commit) { c.BaseSHA = "" }, "more than one", "pull"},
 		{"the head ref names no pull request", nil, func(c *Commit) { c.HeadRef = "refs/heads/lane/x" }, "head ref", "pull"},
-		{"the head ref names a pull request without a number", nil, func(c *Commit) { c.HeadRef = "gh-readonly-queue/main/pr-x-" + headSHA }, "head ref", "pull"},
-		{"the pull request moved on since it was queued", func(s *fakeSource) { s.pull.HeadSHA = "9" + headSHA[1:] }, nil, "moved", "runs:pull_request"},
+		{"the head ref names a pull request without a number", nil, func(c *Commit) { c.HeadRef = "gh-readonly-queue/main/pr-x-" + baseSHA }, "head ref", "pull"},
+		{"the head ref names another base than the group's", nil, func(c *Commit) { c.HeadRef = "gh-readonly-queue/main/pr-42-" + headSHA }, "base", "pull"},
+		{"the pull request moved on, so its newest run tested another tree", func(s *fakeSource) { s.pull.HeadSHA = "9" + headSHA[1:] }, nil, "no pipeline run", "jobs"},
 		{"no pipeline run on the head", func(s *fakeSource) { s.runs = nil }, nil, "no pipeline run", "jobs"},
 		{"the run was re-run", func(s *fakeSource) { s.runs[0].Attempt = 2 }, nil, "attempt", "jobs"},
 		{"the run is red", func(s *fakeSource) { s.runs[0].Conclusion = "failure" }, nil, "not success", "jobs"},
@@ -123,12 +128,12 @@ func TestDecide_APushIsUnchangedByTheQueueFields(t *testing.T) {
 func TestDecideQueue_ReadsTheSmallestPullRequestNumberAndRefusesZero(t *testing.T) {
 	t.Parallel()
 	src := queuedPRSource()
-	got := decideGroup(src, func(c *Commit) { c.HeadRef = "gh-readonly-queue/main/pr-1-" + headSHA })
+	got := decideGroup(src, func(c *Commit) { c.HeadRef = "gh-readonly-queue/main/pr-1-" + baseSHA })
 	if !got.Reuse || src.pullAsked != 1 {
 		t.Errorf("pr-1: reuse %v (%s), pull #%d asked, want reuse of pull #1", got.Reuse, got.Reason, src.pullAsked)
 	}
 	zero := queuedPRSource()
-	got = decideGroup(zero, func(c *Commit) { c.HeadRef = "gh-readonly-queue/main/pr-0-" + headSHA })
+	got = decideGroup(zero, func(c *Commit) { c.HeadRef = "gh-readonly-queue/main/pr-0-" + baseSHA })
 	if got.Reuse || zero.asked["pull"] {
 		t.Errorf("pr-0: reuse %v, pull looked up %v, want a refusal before any lookup", got.Reuse, zero.asked["pull"])
 	}
