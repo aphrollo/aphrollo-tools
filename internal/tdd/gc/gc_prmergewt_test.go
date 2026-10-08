@@ -207,3 +207,38 @@ func TestGCOrphanGatePRMergeWorktrees_WarmCheckoutIsReapedOnlyWhenIdle(t *testin
 		t.Fatalf("a live holder's warm checkout was proposed: %+v", got)
 	}
 }
+
+// Between a taker's claim and its holder rewrite, the holder still names the
+// old dead pid; the claim names the live taker. gc must not reap a warm
+// checkout a live claim holds, however idle its holder record looks.
+func TestGCOrphanGatePRMergeWorktrees_WarmCheckoutWithALiveClaimIsKept(t *testing.T) {
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	now := time.Now()
+	p := filepath.Join(wtParent, "gate-prmerge-warm")
+	gitDo(t, repo, "worktree", "add", "--detach", p, "HEAD")
+	writeHolder(t, p, deadPidForTest(t))
+	old := now.Add(-DefaultGCAge - time.Hour)
+	if err := os.Chtimes(filepath.Join(p, gatePRMergeHolderFile), old, old); err != nil {
+		t.Fatal(err)
+	}
+	mkFile(t, p+".claim", "pid="+strconv.Itoa(os.Getpid())+"\n", 0)
+	if got := gcOrphanGatePRMergeWorktreesAt(repo, now); len(got) != 0 {
+		t.Fatalf("a checkout under a live claim was proposed: %+v", got)
+	}
+}
+
+// Reaping a warm checkout removes its claim file too, so no claim outlives it.
+func TestRemoveGatePRMergeWorktree_RemovesTheClaimFile(t *testing.T) {
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	p := filepath.Join(wtParent, "gate-prmerge-warm")
+	gitDo(t, repo, "worktree", "add", "--detach", p, "HEAD")
+	mkFile(t, p+".claim", "pid="+strconv.Itoa(deadPidForTest(t))+"\n", 0)
+	if err := removeGatePRMergeWorktree(p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(p + ".claim"); !os.IsNotExist(err) {
+		t.Fatalf("the claim file outlived the reaped checkout (stat err: %v)", err)
+	}
+}

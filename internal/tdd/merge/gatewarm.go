@@ -79,6 +79,11 @@ func warmCheckoutAt(lane, path, rev string) (prGateCheckout, bool) {
 	if !takeWarmClaim(claim) {
 		return prGateCheckout{}, false
 	}
+	// name this process in the holder record before touching the tree: the claim
+	// is held, but a sweep reads the record, and it still names the last merge's
+	// dead pid until this write.
+	prGateWriteHolder(path)
+	warmResetting(path)
 	if !resetWarm(lane, path, rev) {
 		prGateRemoveCheckout(lane, path)
 		_, _ = git(lane, "worktree", "prune")
@@ -144,6 +149,10 @@ func resetWarm(lane, path, rev string) bool {
 
 // warmClaimJudged runs once a taker has judged a claim stale and before it
 // acts; a test uses it to let another taker in at that instant.
+// warmResetting runs as the reset of a reused checkout begins, so a test can
+// look at what a sweep would see at that instant.
+var warmResetting = func(string) {}
+
 var warmClaimSeq atomic.Int64
 
 var warmClaimJudged = func() {}

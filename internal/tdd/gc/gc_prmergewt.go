@@ -59,6 +59,11 @@ func gcOrphanGatePRMergeWorktreesAt(repoRoot string, now time.Time) []GCCandidat
 			continue
 		}
 		if slices.Contains(gatePRMergeWarmNames, base) {
+			// a taker holds the claim before it rewrites the holder record, so a
+			// live claim means the checkout is in use whatever the holder says
+			if cp, ok := readGatePRMergeClaimPID(path); ok && pidRunningFn(cp) {
+				continue
+			}
 			info, err := os.Stat(filepath.Join(path, gatePRMergeHolderFile))
 			if err != nil || now.Sub(info.ModTime()) < DefaultGCAge {
 				continue
@@ -93,6 +98,23 @@ func readGatePRMergeHolderPID(wt string) (int, bool) {
 	return 0, false
 }
 
+// readGatePRMergeClaimPID reads the pid of wt's claim file (wt + ".claim"),
+// the exclusive claim a warm checkout's taker holds for the whole use.
+func readGatePRMergeClaimPID(wt string) (int, bool) {
+	data, err := os.ReadFile(wt + ".claim")
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "pid="); ok {
+			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
+				return n, true
+			}
+		}
+	}
+	return 0, false
+}
+
 // removeGatePRMergeWorktree removes a registered gate-prmerge checkout. A
 // GCCandidate carries no repo root, so the shared git directory is asked of the
 // worktree itself, and the removal then runs from there: a process whose
@@ -114,5 +136,6 @@ func removeGatePRMergeWorktree(path string) error {
 	if err != nil {
 		return fmt.Errorf("%v: %s", err, strings.TrimSpace(string(out)))
 	}
+	_ = os.Remove(path + ".claim") // a warm checkout's claim goes with it; none for a fresh one
 	return nil
 }

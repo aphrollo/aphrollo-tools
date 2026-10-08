@@ -295,3 +295,35 @@ func TestWarmClaim_TwoTakersOnOneStaleClaimExactlyOneWins(t *testing.T) {
 		t.Fatalf("%d takers won one stale claim, want exactly 1", wins)
 	}
 }
+
+// While a reused checkout is being reset it already names the process doing it:
+// a sweep that reads the holder record at that instant must see a live pid, not
+// the dead one of the last merge.
+func TestWarmGate_HolderNamesTheTakerBeforeTheReset(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, trunk := makeForkedRepo(t)
+	rev := warmRev(t, root, trunk)
+	first, err := prGateCheckoutAt(root, prGateWarmName, rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holder := filepath.Join(first.Path, PRGateHolderFile)
+	first.Release()
+	if err := os.WriteFile(holder, []byte("pid="+strconv.Itoa(warmDeadPid(t))+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var seen string
+	warmResetting = func(string) {
+		b, _ := os.ReadFile(holder)
+		seen = string(b)
+	}
+	t.Cleanup(func() { warmResetting = func(string) {} })
+	again, err := prGateCheckoutAt(root, prGateWarmName, rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Remove()
+	if want := "pid=" + strconv.Itoa(os.Getpid()) + "\n"; !strings.HasPrefix(seen, want) {
+		t.Fatalf("at the start of the reset the holder record reads %q, want it to begin %q", seen, want)
+	}
+}
