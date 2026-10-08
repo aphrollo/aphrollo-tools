@@ -252,24 +252,4 @@ func TestTDDSkill_NamesTheRouteThatRestoresAMutationProof(t *testing.T) {
 	}
 }
 
-// A property test pays only for some shapes of code; the skill names them so
-// an agent neither skips them where they fit nor adds them everywhere.
-func TestTDDSkill_NamesWhenAPropertyTestPays(t *testing.T) {
-	t.Parallel()
-	body := TDDSkill()
-	for _, want := range []string{
-		"## Property tests",
-		"round-trip",
-		"idempotence",
-		"reference implementation",
-		"model-based",
-		"untrusted bytes",
-		"never a blanket rule",
-		"-rapid.seed=<n>",
-		"real bug",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("skill body missing %q", want)
-		}
-	}
-}
+// ratchet: test_removed TestTDDSkill_NamesWhenAPropertyTestPays: the property test guide moved to docs/property-tests.md, out of the token-capped skill

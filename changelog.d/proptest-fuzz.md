@@ -1,6 +1,6 @@
 level: minor
 
-The tdd skill gains a short Property tests section: when a property test pays, and what to do with a rapid red. A rapid failure prints its seed, a gate red from rapid is a real bug and not a flake, and you reproduce it with `-rapid.seed=<n>` on the same test.
+A guide, docs/property-tests.md, says when a property test pays and what to do with a rapid red: a rapid failure prints its seed, a gate red from rapid is a real bug and not a flake, and `-rapid.seed=<n>` on the same test replays it. It is a doc, not a section of the tdd skill, because the skill is injected text already at its 400-token cap.
 
 ### What you will notice
 

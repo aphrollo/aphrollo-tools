@@ -34,11 +34,3 @@ never by ending the turn. A Bash script is a fine multi-file edit: it gets the E
 No natural RED: a **mutation proof**. Name the one test that should fail, introduce one error
 (`aphrollo gate mutants prove` restores), confirm that test moved. By hand,
 `aphrollo gate mutants hold <file>` first, then `MUTATION=1 git checkout -- <file>` restores.
-
-## Property tests
-
-A property test pays for some code, never a blanket rule: a round-trip pair (Parse/Format,
-Marshal/Unmarshal), idempotence (f(f(x)) == f(x)), a reference implementation to compare with,
-a model-based test for stateful code, a fuzz target for untrusted bytes. Else an example test.
-A rapid failure prints its seed. A gate red from rapid is a real bug, not a flake: reproduce it
-with `-rapid.seed=<n>` on the same test.
