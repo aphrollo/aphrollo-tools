@@ -21,6 +21,11 @@ var prGateSignals = []os.Signal{syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP}
 // delivered signal proves cleanup ran without killing the test binary.
 var prGateSignalExit = os.Exit
 
+// prGateSignalStderr is where the handler says why the process is about to
+// exit. The run's log may be discarded; a test binary that exits through
+// here otherwise ends "FAIL pkg" with no failing test and no reason.
+var prGateSignalStderr io.Writer = os.Stderr
+
 // prGateSignalChan is where watchPRGateSignals gets the channel it reads its
 // one signal from. Production arms a real OS channel; a test swaps this for
 // a channel it owns and a no-op stop, so proving the handler's own cleanup
@@ -54,7 +59,9 @@ func watchPRGateSignals(cleanup func(), log io.Writer) (stop func()) {
 		case sig := <-ch:
 			fmt.Fprintf(log, "gate %s: %v — cleaning up the throwaway checkout before exit\n", premergeDisplayName, sig)
 			cleanup()
-			prGateSignalExit(prGateSignalExitCode(sig))
+			code := prGateSignalExitCode(sig)
+			fmt.Fprintf(prGateSignalStderr, "gate %s: exiting %d on signal %v\n", premergeDisplayName, code, sig)
+			prGateSignalExit(code)
 		case <-done:
 		}
 	}()
