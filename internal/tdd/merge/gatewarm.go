@@ -30,10 +30,12 @@ const (
 )
 
 // prGateKeep is what a reset leaves in the checkout (git clean -e): the holder
-// record, and tsc's incremental state, which it validates by content hash and
-// which is the one cache that lives in the tree. Build output (dist, .next,
-// target) and node_modules are not kept: a stale one is a leak between merges.
-var prGateKeep = []string{PRGateHolderFile, "*.tsbuildinfo"}
+// record only. Build output (dist, .next, target), node_modules and tsc's
+// *.tsbuildinfo are not kept. tsc --incremental trusts its tsbuildinfo to say
+// what it already emitted, so one kept beside the deleted output would make the
+// next tsc skip the emit and fail the build on files the reset removed. That is
+// a false red, so the cold tsc run is the price of a reset that is exact.
+var prGateKeep = []string{PRGateHolderFile}
 
 // prGateCheckout is a checkout to judge a tree in. Release hands it back after
 // a normal use; Remove deletes it outright (a signal, a failed merge).

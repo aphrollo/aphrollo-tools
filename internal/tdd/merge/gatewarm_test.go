@@ -391,3 +391,38 @@ func TestWarmClaim_TheClaimWrittenCarriesPidStartAndIdentity(t *testing.T) {
 		t.Fatalf("claim reads %q, want pid, started and id lines", lines)
 	}
 }
+
+// tsc --incremental trusts its tsbuildinfo to say what was already emitted. The
+// reset deletes the build output, so a tsbuildinfo left behind would make the
+// next tsc skip the emit and the build run against missing files: a false red.
+// It goes with the output, whether it sits in the output dir or beside the
+// tsconfig.
+func TestWarmGate_ATsbuildinfoDoesNotOutliveTheOutputItDescribes(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	root, _ := makeForkedRepo(t)
+	write(t, root, ".gitignore", "dist/\n*.tsbuildinfo\n")
+	gitDo(t, root, "add", ".")
+	gitDo(t, root, "commit", "-qm", "ignore tsc output")
+	rev := warmRev(t, root, "HEAD")
+
+	first, err := prGateCheckoutAt(root, prGateWarmName, rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, first.Path, "tsconfig.tsbuildinfo", "{}\n")
+	write(t, first.Path, "pkg/tsconfig.tsbuildinfo", "{}\n")
+	write(t, first.Path, "dist/tsconfig.tsbuildinfo", "{}\n")
+	write(t, first.Path, "dist/index.js", "x\n")
+	first.Release()
+
+	second, err := prGateCheckoutAt(root, prGateWarmName, rev)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Remove()
+	for _, p := range []string{"tsconfig.tsbuildinfo", "pkg/tsconfig.tsbuildinfo", "dist/tsconfig.tsbuildinfo", "dist/index.js"} {
+		if _, err := os.Stat(filepath.Join(second.Path, p)); !os.IsNotExist(err) {
+			t.Errorf("%s survived the reset (stat err: %v), so tsc would skip an emit the reset deleted", p, err)
+		}
+	}
+}
