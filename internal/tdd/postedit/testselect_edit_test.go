@@ -210,8 +210,8 @@ func TestSelectionNote_SitsBesideTheCachedPackages(t *testing.T) {
 	if got := selectionDetail(r); got["selected"] != "1" || got["total"] != "3" {
 		t.Fatalf("detail = %v", got)
 	}
-	if got := selectionDetail(Runner{Select: &Selection{Total: 3, Reason: "x"}}); got != nil {
-		t.Fatalf("a run that was not narrowed records %v", got)
+	if got := selectionDetail(Runner{}); got != nil {
+		t.Fatalf("a run test-select did not look at records %v", got)
 	}
 }
 
@@ -234,5 +234,86 @@ func TestPostEdit_ASelectionThatRanNoTestRunsThePackageWhole(t *testing.T) {
 	}
 	if !strings.Contains(line, "full suite: the selected tests ran none") || strings.Contains(line, "selected 1 of 3") {
 		t.Fatalf("line = %q", line)
+	}
+}
+
+// The deferred path persists the selection with the job: a harvested green
+// still says which tests it ran, the event records selected and total, and a
+// run that fell back to the whole package records why.
+func TestPostEdit_ADeferredSelectedRunKeepsItsSelection(t *testing.T) {
+	root, target := selectProject(t, "edit", "p.go", strings.Replace(selectOld, "return 1", "return 11", 1))
+	selectSeams(t, selectOld, CoverQuery{Fresh: true, Tests: []string{"TestOne"}, Total: 3})
+	selected := Runner{Cmd: "go", Args: []string{"test", "./internal/p", "-run=^(TestOne)$"}}
+	key := phaseKey(phaseArgv(selected, "run"))
+	scriptedPhases(t, map[string]scriptedPhase{
+		key: {out: &PhaseOutcome{ExitCode: 0}, log: "=== RUN   TestOne\n--- PASS: TestOne (0.00s)\nPASS\nok  \texample.com/p\t0.01s\n"},
+	})
+	line := PostEdit(postPayload("Edit", target), fakeRun(true, "the foreground runner must not be used"))
+	if !strings.Contains(line, "selected 1 of 3 tests: covering F1") {
+		t.Fatalf("deferred line = %q, want the selection named", line)
+	}
+	var recorded bool
+	for _, e := range ReadEvents(root) {
+		if e.Detail["selected"] == "1" && e.Detail["total"] == "3" {
+			recorded = true
+		}
+	}
+	if !recorded {
+		t.Fatalf("no event records the deferred selection: %+v", ReadEvents(root))
+	}
+}
+
+func TestSelectionDetail_ARefusedSelectionRecordsWhyItRanWhole(t *testing.T) {
+	got := selectionDetail(Runner{Select: &Selection{Total: 3, Reason: "no coverage store for p yet"}})
+	if got["full_reason"] != "no coverage store for p yet" || got["selected"] != "" {
+		t.Fatalf("detail = %v", got)
+	}
+}
+
+// The stale-result label of a selected run names the selection as well.
+func TestStaleVerdictLabel_NamesASelection(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "run.log")
+	mustWrite(t, log, "=== RUN   TestOne\n--- PASS: TestOne (0.00s)\nPASS\nok  \texample.com/p\t0.01s\n")
+	j := DeferredJob{Phase: "run", Log: log, Runner: []string{"go", "test", "./p", "-run=^(TestOne)$"}, Select: &Selection{Run: 1, Total: 3, Funcs: []string{"F1"}}}
+	if got := staleVerdictLabel(j, PhaseOutcome{ExitCode: 0}); !strings.Contains(got, "selected 1 of 3") {
+		t.Fatalf("label = %q", got)
+	}
+}
+
+// A selected run harvested at a LATER hook is judged from the stored job alone:
+// the job must carry the selection, or the green reads as a full one.
+func TestEditResultAdvisory_AHarvestedJobKeepsItsSelection(t *testing.T) {
+	root, target := selectProject(t, "edit", "p.go", selectOld)
+	selected := Runner{Cmd: "go", Args: []string{"test", "./internal/p", "-run=^(TestOne)$"}, Select: &Selection{Run: 1, Total: 3, Funcs: []string{"F1"}}}
+	j := firstEditPhase(selected, root, target, "head", "hash", "sess-harvest", "")
+	saveDeferredJob(j)
+	j, ok := loadDeferredJob("sess-harvest", root)
+	if !ok || j.Select == nil || j.Select.Run != 1 {
+		t.Fatalf("the stored job lost its selection: %+v", j.Select)
+	}
+	mustWrite(t, j.Log, "=== RUN   TestOne\n--- PASS: TestOne (0.00s)\nPASS\nok  \texample.com/p\t0.01s\n")
+	line := editResultAdvisory(j, PhaseOutcome{ExitCode: 0}, root, nil, "", "head")
+	if !strings.Contains(line, "selected 1 of 3 tests: covering F1") {
+		t.Fatalf("harvested line = %q", line)
+	}
+	var recorded bool
+	for _, e := range ReadEvents(root) {
+		if e.Detail["selected"] == "1" && e.Detail["total"] == "3" {
+			recorded = true
+		}
+	}
+	if !recorded {
+		t.Fatalf("no event records the harvested selection: %+v", ReadEvents(root))
+	}
+}
+
+// A queued run carries its selection to the job it becomes.
+func TestEnqueueRun_ASelectionSurvivesTheQueue(t *testing.T) {
+	root, _ := selectProject(t, "edit", "p.go", selectOld)
+	sel := &Selection{Run: 1, Total: 3, Funcs: []string{"F1"}}
+	enqueueRun("sess-queue", root, queuedRun{Runner: []string{"go", "test", "./internal/p", "-run=^(TestOne)$"}, Dir: root, File: "p.go", Select: sel, At: time.Now()})
+	q := readQueue(queuePath("sess-queue", root))
+	if len(q.Runs) != 1 || q.Runs[0].Select == nil || q.Runs[0].Select.Run != 1 {
+		t.Fatalf("queue = %+v", q)
 	}
 }

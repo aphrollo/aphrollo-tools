@@ -246,6 +246,7 @@ deferred_run.go                                    postedit
 deferred_run_batched_test.go                       postedit
 deferred_run_test.go                               postedit
 deferred_seams_test.go                             postedit
+deferred_select.go                                  postedit
 deferred_selfspawn_test.go                          postedit
 deferred_session_test.go                           tdd       # prefix says postedit; its test body reaches tdd
 deferred_status.go                                 postedit

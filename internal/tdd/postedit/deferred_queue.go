@@ -34,8 +34,9 @@ type queuedRun struct {
 	File   string   `json:"file"`
 	EditID string   `json:"edit_id,omitempty"`
 	// Touched is every other file the same write changed under the project.
-	Touched []string  `json:"touched,omitempty"`
-	At      time.Time `json:"at"`
+	Touched []string   `json:"touched,omitempty"`
+	Select  *Selection `json:"select,omitempty"`
+	At      time.Time  `json:"at"`
 }
 
 // runQueue is the waiting runs of one session in one project.
@@ -219,7 +220,7 @@ func pumpQueue(session, root string) []string {
 	req := q.Runs[0]
 	q.Runs = q.Runs[1:]
 	writeQueue(path, q)
-	runner := runnerFromArgv(req.Runner, req.Dir)
+	runner := withSelect(runnerFromArgv(req.Runner, req.Dir), req.Select)
 	first := firstEditPhase(runner, root, req.File, headSHAFor(root), sourceIdentity(root, req.File), session, req.EditID, req.Touched...)
 	if _, ok := spawnPhaseFn(first); !ok {
 		clearDeferredJob(first.Session, first.Project)

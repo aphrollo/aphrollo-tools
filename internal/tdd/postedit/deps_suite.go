@@ -109,10 +109,6 @@ func isEnvAssignment(p0 string) bool { return suite.IsEnvAssignment(p0) }
 
 func isGoTestInvocation(p0 string, p1 []string) bool { return suite.IsGoTestInvocation(p0, p1) }
 
-func logSuiteVerdict(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult) {
-	suite.LogSuiteVerdict(p0, p1, p2, p3, p4)
-}
-
 func logSuiteVerdictWith(p0 string, p1 string, p2 string, p3 string, p4 SuiteResult, p5 map[string]string) {
 	suite.LogSuiteVerdictWith(p0, p1, p2, p3, p4, p5)
 }

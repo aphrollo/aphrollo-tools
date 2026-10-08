@@ -229,7 +229,7 @@ func restartDeferredEditJob(stale DeferredJob, headSHA, identity string) bool {
 	if len(runArgv) == 0 {
 		return false
 	}
-	first := firstEditPhase(runnerFromArgv(runArgv, stale.Dir), stale.Project, stale.File, headSHA, identity, stale.Session, stale.EditID, stale.Touched...)
+	first := firstEditPhase(withSelect(runnerFromArgv(runArgv, stale.Dir), stale.Select), stale.Project, stale.File, headSHA, identity, stale.Session, stale.EditID, stale.Touched...)
 	if _, ok := spawnPhaseFn(first); !ok {
 		clearDeferredJob(first.Session, first.Project)
 		return false

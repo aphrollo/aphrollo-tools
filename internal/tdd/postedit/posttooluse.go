@@ -387,11 +387,14 @@ func greenLabelFor(r Runner, outcome Outcome, output string, dur time.Duration) 
 	return fmt.Sprintf("%s (%s, %.1fs)", outcome, note, dur.Seconds())
 }
 
-// selectionDetail is what a selected run adds to its event: how many tests ran
-// of how many the package has. Nothing for a run test-select did not narrow.
+// selectionDetail is what a selection adds to its event: how many tests ran
+// of how many the package has, or why the package ran whole. Nothing for a run test-select did not look at.
 func selectionDetail(r Runner) map[string]string {
-	if r.Select == nil || r.Select.Reason != "" {
+	if r.Select == nil {
 		return nil
+	}
+	if r.Select.Reason != "" {
+		return map[string]string{"full_reason": r.Select.Reason}
 	}
 	return map[string]string{"selected": strconv.Itoa(r.Select.Run), "total": strconv.Itoa(r.Select.Total)}
 }

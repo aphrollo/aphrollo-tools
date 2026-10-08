@@ -81,7 +81,7 @@ func harvestAdvisory(j DeferredJob, out PhaseOutcome, root string, state *sessio
 	if treatAsEmptyPass(res) {
 		res.Passed = true
 	}
-	runner := runnerFromArgv(j.Runner, j.Dir)
+	runner := runnerFromJob(j)
 	if out.SetupFailed || !postEditSelectedZero(runner, j.File, res) {
 		return markDeferred(editResultAdvisory(j, out, root, state, statePath, j.HeadSHA))
 	}

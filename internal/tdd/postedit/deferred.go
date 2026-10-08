@@ -71,6 +71,10 @@ type DeferredJob struct {
 	// File, the files the run was built for, which a later hook needs to know
 	// whether they were all generated code (generated_edit.go).
 	Touched []string `json:"touched,omitempty"`
+	// Select is the test selection the run was narrowed by, if any: the argv
+	// carries the -run pattern, and this is what keeps a harvested green from
+	// reading as a full one.
+	Select *Selection `json:"select,omitempty"`
 	// RunRunner is, on a build record, the argv of the run phase that
 	// follows it. The build form drops the run-only flags nextest refuses
 	// beside --no-run (issue #798), so the build's own argv no longer says

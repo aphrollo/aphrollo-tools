@@ -94,7 +94,7 @@ func postEditDeferred(snap stateSnapshot, root, target, headSHA, session string)
 	if res.Passed {
 		mechCacheAddUnmoved(root, before, snap.runner)
 	}
-	logSuiteVerdict("postedit", root, cmdString(snap.runner), string(outcome), res)
+	logSuiteVerdictWith("postedit", root, cmdString(snap.runner), string(outcome), res, selectionDetail(snap.runner))
 	if widened {
 		queueForegroundRun(kernelRes, root, session, snap.editID, out.phase.TreeKey, runnerArgv(snap.runner), string(outcome))
 	} else {
@@ -163,7 +163,7 @@ func activeRunLine(snap stateSnapshot, root, target, session, fileHash string) (
 		updateDeferredJob(session, root, func(j *DeferredJob) { j.EditID = joinEditIDs(j.EditID, snap.editID) })
 		return runningRunLine(snap.runner, root, j), true
 	}
-	out := enqueueRun(session, root, queuedRun{Runner: withoutTimeout(phaseArgv(snap.runner, "run")), Dir: dir, File: target, EditID: snap.editID, Touched: snap.touched, At: time.Now()})
+	out := enqueueRun(session, root, queuedRun{Runner: withoutTimeout(phaseArgv(snap.runner, "run")), Dir: dir, File: target, EditID: snap.editID, Touched: snap.touched, Select: snap.runner.Select, At: time.Now()})
 	if out.full {
 		AppendGateLog("postedit", root, cmdString(snap.runner), "queued-skipped", 0)
 		return queueFullLine(snap.runner, root), true
