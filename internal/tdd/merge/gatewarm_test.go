@@ -51,6 +51,7 @@ func TestWarmGate_SecondUseReusesThePathAndLeaksNothing(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	root, _ := makeForkedRepo(t)
 	write(t, root, ".gitignore", "out/\n")
+	write(t, root, "shared.txt", "as committed\n")
 	write(t, root, "lane-only.txt", "tracked on the lane, absent on the next tree\n")
 	gitDo(t, root, "add", ".")
 	gitDo(t, root, "commit", "-qm", "ignore out")
@@ -73,6 +74,9 @@ func TestWarmGate_SecondUseReusesThePathAndLeaksNothing(t *testing.T) {
 	warmTreeIs(t, first.Path, laneRev)
 	write(t, first.Path, "untracked.txt", "left by merge one\n")
 	write(t, first.Path, "out/build.bin", "ignored output of merge one\n")
+	write(t, first.Path, "shared.txt", "edited by merge one\n")
+	write(t, first.Path, "nested/inner.txt", "a nested repository of merge one\n")
+	gitDo(t, filepath.Join(first.Path, "nested"), "init", "-q")
 	write(t, first.Path, "newdir/inner.txt", "an untracked directory of merge one\n")
 	first.Release()
 
@@ -84,10 +88,13 @@ func TestWarmGate_SecondUseReusesThePathAndLeaksNothing(t *testing.T) {
 	if second.Path != first.Path {
 		t.Fatalf("second merge built %s, want the first merge's checkout %s", second.Path, first.Path)
 	}
-	for _, p := range []string{"untracked.txt", "out/build.bin", "newdir/inner.txt", "lane-only.txt"} {
+	for _, p := range []string{"untracked.txt", "out/build.bin", "newdir/inner.txt", "nested/inner.txt", "lane-only.txt"} {
 		if _, err := os.Stat(filepath.Join(second.Path, p)); !os.IsNotExist(err) {
 			t.Errorf("%s survived into the second merge (stat err: %v)", p, err)
 		}
+	}
+	if b, err := os.ReadFile(filepath.Join(second.Path, "shared.txt")); err != nil || string(b) != "as committed\n" {
+		t.Errorf("a tracked file edited by merge one reads %q (err %v), want it restored", b, err)
 	}
 	warmTreeIs(t, second.Path, trunkRev)
 	if got := strings.TrimSpace(gitOutT(t, root, "diff", "--name-only", laneRev, trunkRev)); got == "" {
