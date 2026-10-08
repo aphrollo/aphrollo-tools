@@ -180,6 +180,9 @@ func provenCovers(have []runScope, want runScope) bool {
 func reportSuitesNotRun(gateName, root, noun string, runner Runner, touched []string) {
 	cmd := cmdString(runner)
 	shown, clause := cmd, notRunClause(touched, noun)
+	if npmTestToolOf(runner) != "" {
+		clause = jsNotRunClause(touched)
+	}
 	var detail map[string]string
 	if len(touched) > notRunNamedMax {
 		// A wide commit named every package twice, in the command and in the
@@ -227,6 +230,19 @@ func notRunClause(names []string, noun string) string {
 	}
 	return fmt.Sprintf("NOT RUN — %s not tested here; a touched %s's suite runs at the merge gate, so this pass is not a green for it",
 		strings.Join(names, ", "), noun)
+}
+
+// jsNotRunClause is the NOT RUN wording of an npm root's commit gate. A
+// component, a fixture or a JSON file is no "package", and "not tested here"
+// beside its name read like a pass: it says the commit did not test them and
+// that the merge gate runs their vitest or jest tests.
+func jsNotRunClause(files []string) string {
+	const lead = "NOT RUN — not tested at commit — the merge gate tests it: "
+	if len(files) > notRunNamedMax {
+		return fmt.Sprintf("%s%d files (e.g. %s; the whole list is on the gate log's event, `aphrollo why`); this pass is not a green for them",
+			lead, len(files), files[0])
+	}
+	return lead + strings.Join(files, ", ") + "; this pass is not a green for them"
 }
 
 // suiteNoun names a root's own suite scope in its own language, for

@@ -866,6 +866,7 @@ nightlyfuzz_workflow_pin_test.go                   tdd
 nightlymutants_base_pin_test.go                    tdd
 nightlyproc_workflow_pin_test.go                   tdd
 notrun_collapse_test.go                            suite
+notrun_vitest_test.go                              suite
 nowindow_windows_test.go                           postedit
 npmbin.go                                          suite
 npmbin_test.go                                     suite
