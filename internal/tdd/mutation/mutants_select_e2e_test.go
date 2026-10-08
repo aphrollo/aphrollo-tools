@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -77,14 +78,14 @@ func TestSelectE2E_AMutantInF1RunsExactlyItsTestAndTheOneInQThatReachesIt(t *tes
 		t.Errorf("coverage of %d packages, %d beyond the mutated one, want 2 and 1 (q imports p)", r.stats.Packages, r.stats.Extra)
 	}
 
-	plan := planSelection(r.sets, root, "p/p.go", selE2EF1Line)
+	plan := planSelection(r.sets, root, "p/p.go", selE2EF1Line, selE2ECol)
 	if plan.Full != "" || plan.NotCovered || len(plan.Stages) != 1 {
 		t.Fatalf("plan for F1 = %+v", plan)
 	}
 	if got := selE2ENames(plan.Stages[0]); len(got) != 2 || !slices.Equal(got["p"], []string{"TestF1"}) || !slices.Equal(got["q"], []string{"TestQReachesF1"}) {
 		t.Errorf("F1 runs %v, want exactly p.TestF1 and q.TestQReachesF1", got)
 	}
-	if plan := planSelection(r.sets, root, "p/p.go", selE2EF2Line); len(plan.Stages) != 1 || len(plan.Stages[0].Runs) != 1 || !slices.Equal(plan.Stages[0].Runs[0].Names, []string{"TestF2"}) {
+	if plan := planSelection(r.sets, root, "p/p.go", selE2EF2Line, selE2ECol); len(plan.Stages) != 1 || len(plan.Stages[0].Runs) != 1 || !slices.Equal(plan.Stages[0].Runs[0].Names, []string{"TestF2"}) {
 		t.Errorf("F2 plan = %+v, want only p.TestF2", plan)
 	}
 
@@ -149,5 +150,40 @@ func TestSelectE2E_AStoredIndexIsReadNotRebuiltAndAStaleOneFallsBackToTheFullSui
 	}
 	if want := "1 ran the full suite (1 stale-shape)"; !strings.Contains(second.summary(), want) {
 		t.Errorf("summary %q lacks %q", second.summary(), want)
+	}
+}
+
+func selSettleOutcome(line int, status string) MutantOutcome {
+	return MutantOutcome{File: "p/p.go", Line: line, Col: selE2ECol, Mutation: "CONDITIONALS_NEGATION",
+		Name: "p/p.go:" + strconv.Itoa(line), Status: status, NewLine: true}
+}
+
+func TestSettle_UsesTheSelectionForAMutantItsIndexCoversAndSaysSoInTheSummary(t *testing.T) {
+	root := selE2ERepo(t)
+	var log strings.Builder
+	in := []MutantOutcome{selSettleOutcome(selE2EF1Line, gremlinsScopeUnknown), selSettleOutcome(selE2EF3Line, gremlinsNotCovered)}
+	out := resolveGapMutants(context.Background(), root, MutantsConfig{}, goReachOnce(root), in, []int{0, 1}, &log)
+	if out[0].Status != "caught" || !strings.Contains(out[0].Note, "TestF1") {
+		t.Errorf("the F1 mutant = %+v, want caught by the selected tests, named", out[0])
+	}
+	if out[1].Status != gremlinsNotCovered || !strings.Contains(out[1].Note, "no test") {
+		t.Errorf("the F3 mutant = %+v, want it left not covered with the reason", out[1])
+	}
+	if want := "mutants: selection — 1 ran selected tests (1 test(s) per mutant on average), 0 ran the full suite, 1 not-covered; coverage of 2 package(s), 1 beyond the mutated one, built in "; !strings.Contains(log.String(), want) {
+		t.Errorf("the log lacks the summary %q:\n%s", want, log.String())
+	}
+}
+
+func TestSettle_AMutantWithNoSelectionRunsTheFullSuiteAsItDidAndTheSummaryCountsWhy(t *testing.T) {
+	// the package's tests stand the coverage build down, so no index exists
+	root := gateKindModule(t, "\tif Kind(10) != \"small\" || Kind(11) != \"big\" {\n\t\tt.Fatal(\"wrong kind\")\n\t}\n")
+	var log strings.Builder
+	out := resolveGapMutants(context.Background(), root, fanOutFixturesCfg, goReachOnce(root),
+		[]MutantOutcome{caseBoundary()}, []int{0}, &log)
+	if out[0].Status != "caught" {
+		t.Fatalf("the mutant = %+v, want caught by the full suite as before", out[0])
+	}
+	if want := "0 ran selected tests, 1 ran the full suite (1 build-failed), 0 not-covered"; !strings.Contains(log.String(), want) {
+		t.Errorf("the log lacks %q:\n%s", want, log.String())
 	}
 }

@@ -56,10 +56,10 @@ type selPlan struct {
 	Full string
 }
 
-// planSelection decides what a mutant on the line of file (module-relative)
+// planSelection decides what a mutant at the line and column of file (module-relative)
 // runs. root is the tree the file is read from, to check the index's lines
 // still hold for it.
-func planSelection(sets []selSet, root, file string, line int) selPlan {
+func planSelection(sets []selSet, root, file string, line, col int) selPlan {
 	pkg := goMutantPackageDir(file)
 	type found struct {
 		set   selSet
@@ -75,7 +75,7 @@ func planSelection(sets []selSet, root, file string, line int) selPlan {
 		if why := s.Idx.Doubt[pkg]; why != "" {
 			return selPlan{Full: why}
 		}
-		tests, listed := s.Idx.testsAt(file, line)
+		tests, listed := s.Idx.testsAt(file, line, col)
 		if listed {
 			anyListed = true
 			if s.Idx.stale(root, file) != "" {
@@ -97,7 +97,13 @@ func planSelection(sets []selSet, root, file string, line int) selPlan {
 	for _, f := range all {
 		stage := selStage{Label: f.set.Label, Tags: f.set.Tags}
 		byPkg := map[string][]string{}
-		for _, t := range f.tests {
+		tests := slices.Clone(f.tests)
+		for dir, names := range f.set.Idx.Always {
+			for _, name := range names {
+				tests = append(tests, selTest{Pkg: dir, Name: name})
+			}
+		}
+		for _, t := range tests {
 			if !ran[t] {
 				byPkg[t.Pkg] = append(byPkg[t.Pkg], t.Name)
 			}

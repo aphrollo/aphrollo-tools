@@ -11,6 +11,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // selFake is a toolchain for the selection build: `go list`, `go test -c`, the
@@ -204,12 +205,12 @@ func TestBuildSelIndex_CompilesEachTestPackageWithCoverpkgAndRunsEveryTestAlone(
 			}
 		}
 	}
-	got, listed := b.Idx.testsAt("p/p.go", 4)
+	got, listed := b.Idx.testsAt("p/p.go", 4, 9)
 	want := []selTest{{Pkg: "p", Name: "TestP1"}, {Pkg: "q", Name: "TestQ"}}
 	if !listed || !slices.Equal(got, want) {
 		t.Errorf("line 4 = %v, want %v: the test of q reaches p through -coverpkg", got, want)
 	}
-	if got, listed := b.Idx.testsAt("p/p.go", 8); !listed || len(got) != 0 {
+	if got, listed := b.Idx.testsAt("p/p.go", 8, 9); !listed || len(got) != 0 {
 		t.Errorf("line 8 = %v listed %v, want listed and run by none", got, listed)
 	}
 	if b.Idx.stale(root, "p/p.go") != "" || len(b.Idx.Doubt) != 0 {
@@ -300,13 +301,68 @@ func TestBuildSelIndex_AListingThatFailsLeavesNoIndex(t *testing.T) {
 	}
 }
 
-func TestBuildSelIndex_ATestThatStartsTheBinaryAgainIsADoubtAboutItsPackage(t *testing.T) {
+// ratchet: test_removed TestBuildSelIndex_ATestThatStartsTheBinaryAgainIsADoubtAboutItsPackage: a test that starts the binary again is no longer a doubt that runs its package whole; it joins every selection of it
+func TestBuildSelIndex_ATestThatStartsTheBinaryAgainJoinsEverySelectionOfItsPackage(t *testing.T) {
 	f := &selFake{}
 	root := selBuildRepo(t, f)
 	mustWrite(t, filepath.Join(root, "q", "q_test.go"),
 		"package q_test\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestQ(t *testing.T) { _, _ = os.Executable() }\n")
 	b := selBuildAsk(t, root, selUnit, 2)
-	if b.Idx == nil || b.Idx.Doubt["q"] != selWhyReexec || len(b.Idx.Doubt) != 1 {
-		t.Fatalf("index = %+v, want only q in doubt for starting the test binary again", b.Idx)
+	if b.Idx == nil || len(b.Idx.Doubt) != 0 || !slices.Equal(b.Idx.Always["q"], []string{"TestQ"}) || len(b.Idx.Always) != 1 {
+		t.Fatalf("index = %+v, want no doubt and q's TestQ always run: what a child of it executes is in no profile", b.Idx)
+	}
+}
+
+func TestBuildSelIndex_SaysHowLongTheBuildTook(t *testing.T) {
+	f := &selFake{}
+	root := selBuildRepo(t, f)
+	now := time.Unix(1000, 0)
+	prev := commitNowFn
+	t.Cleanup(func() { commitNowFn = prev })
+	commitNowFn = func() time.Time { now = now.Add(5 * time.Second); return now }
+	if b := selBuildAsk(t, root, selUnit, 2); b.Took != 5*time.Second {
+		t.Errorf("took %s, want 5s on a clock that steps 5s a reading", b.Took)
+	}
+}
+
+func TestBuildSelIndex_NamesTheTestsThatMakeAPackageRunWhole(t *testing.T) {
+	f := &selFake{exit: map[string]int{"q/TestQ": 1}}
+	root := selBuildRepo(t, f)
+	var log strings.Builder
+	b := buildSelIndex(context.Background(), root, MutantsConfig{}, selUnit, []string{"p"}, 2, nil, &log)
+	if b.Idx == nil {
+		t.Fatal(b.Why)
+	}
+	if want := "mutants: 1 test(s) of q (unit) failed alone or wrote no profile, so the package runs whole (e.g. TestQ)"; !strings.Contains(log.String(), want) {
+		t.Errorf("the log lacks %q:\n%s", want, log.String())
+	}
+}
+
+// A doubt is often the box's own: a path too long, a port taken, a full disk.
+// An index that names one is used for this run and measured again by the next,
+// in whatever the box is then.
+func TestBuildSelIndex_AnIndexWithADoubtOfTheBoxIsNotKept(t *testing.T) {
+	f := &selFake{exit: map[string]int{"q/TestQ": 1}}
+	root := selBuildRepo(t, f)
+	if b := selBuildAsk(t, root, selUnit, 2); b.Idx == nil || len(b.Idx.Doubt) != 1 {
+		t.Fatalf("first build = %+v", b)
+	}
+	f.exit = nil
+	second := selBuildAsk(t, root, selUnit, 2)
+	if second.Hit || second.Idx == nil || len(second.Idx.Doubt) != 0 {
+		t.Errorf("second build = hit %v doubt %v, want it measured again, with the doubt gone", second.Hit, second.Idx.Doubt)
+	}
+}
+
+// A package whose tests start the test binary again always does: that is a
+// fact of the source, so the index is kept.
+func TestBuildSelIndex_AnIndexWithASelfStartingTestIsKept(t *testing.T) {
+	f := &selFake{}
+	root := selBuildRepo(t, f)
+	mustWrite(t, filepath.Join(root, "q", "q_test.go"),
+		"package q_test\n\nimport (\n\t\"os\"\n\t\"testing\"\n)\n\nfunc TestQ(t *testing.T) { _, _ = os.Executable() }\n")
+	selBuildAsk(t, root, selUnit, 2)
+	if second := selBuildAsk(t, root, selUnit, 2); !second.Hit {
+		t.Error("an index whose only doubt is of the source was measured again")
 	}
 }

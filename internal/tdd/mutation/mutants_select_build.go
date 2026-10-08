@@ -157,17 +157,12 @@ func selTestPackages(infos map[string]selPkgInfo, module string, targets []strin
 // selWhyCut is the reason of an index the deadline ended before it was done.
 const selWhyCut = "cut-off"
 
-// selWhyReexec is the doubt about a package whose tests start the test binary
-// again: what a child executes is in no profile of the parent.
-const selWhyReexec = "starts-binary-again"
-
 // buildSelIndex answers the index of one tag set for the packages under
 // mutation: the kept one if its content key still holds, else one built now.
 // box is the disposable copy the build runs in, shared with the mutant runs;
 // nil makes the build its own.
-func buildSelIndex(ctx context.Context, root string, cfg MutantsConfig, set selTagSet, targets []string, workers int, box *commitBox, log io.Writer) selBuild {
+func buildSelIndex(ctx context.Context, root string, cfg MutantsConfig, set selTagSet, targets []string, workers int, box *commitBox, log io.Writer) (b selBuild) {
 	start := commitNowFn()
-	b := selBuild{}
 	defer func() { b.Took = commitNowFn().Sub(start) }()
 	module := modulePath(root)
 	if module == "" {
@@ -207,7 +202,9 @@ func buildSelIndex(ctx context.Context, root string, cfg MutantsConfig, set selT
 	for file := range idx.Files {
 		idx.FileHash[file] = selFileHash(root, file)
 	}
-	if err := idx.save(root); err != nil {
+	if why := idx.boxDoubt(); why != "" {
+		logf(log, "mutants: the coverage of %s is not kept: %s", set.Label, why)
+	} else if err := idx.save(root); err != nil {
 		logf(log, "mutants: the coverage of %s is not kept for the next run: %v", set.Label, err)
 	}
 	b.Idx, b.Packages, b.Extra = idx, len(idx.Pkgs), selExtra(idx.Pkgs, targets)
@@ -252,7 +249,7 @@ func measureSelIndex(ctx context.Context, root string, cfg MutantsConfig, set se
 	for i, dir := range targets {
 		coverpkg[i] = selImportPath(module, dir)
 	}
-	idx := &selIndex{Schema: selSchema, Tags: slices.Clone(set.Tags), Doubt: map[string]string{}, PkgTests: map[string]int{}, FileHash: map[string]string{}, Pkgs: pkgs}
+	idx := &selIndex{Schema: selSchema, Tags: slices.Clone(set.Tags), Doubt: map[string]string{}, Always: map[string][]string{}, PkgTests: map[string]int{}, FileHash: map[string]string{}, Pkgs: pkgs}
 	per := map[selTest]map[selBlockKey]bool{}
 	for n, dir := range pkgs {
 		blocks, why := measureSelPackage(ctx, root, boxRoot, work, strconv.Itoa(n), set, dir, coverpkg, selWorkers(set, workers), env, module, log)
@@ -262,6 +259,9 @@ func measureSelIndex(ctx context.Context, root string, cfg MutantsConfig, set se
 		idx.PkgTests[dir] = len(blocks.names)
 		if why != "" {
 			idx.Doubt[dir] = why
+		}
+		if len(blocks.always) > 0 {
+			idx.Always[dir] = blocks.always
 		}
 		for name, covered := range blocks.per {
 			per[selTest{Pkg: dir, Name: name}] = covered
@@ -275,7 +275,9 @@ func measureSelIndex(ctx context.Context, root string, cfg MutantsConfig, set se
 // selMeasured is what one package's tests executed.
 type selMeasured struct {
 	names []string
-	per   map[string]map[selBlockKey]bool
+	// always are the tests that start the test binary again.
+	always []string
+	per    map[string]map[selBlockKey]bool
 }
 
 // measureSelPackage compiles the test binary of dir with coverage of coverpkg
@@ -315,6 +317,7 @@ func measureSelPackage(ctx context.Context, root, boxRoot, work, id string, set 
 	}
 	res.names = listedTests(out.String())
 	why := ""
+	var unsure []string
 	var mu sync.Mutex
 	doubt := func(w string) {
 		mu.Lock()
@@ -332,6 +335,9 @@ func measureSelPackage(ctx context.Context, root, boxRoot, work, id string, set 
 				covered, w := soloSelCoverage(ctx, absDir, env, binary, filepath.Join(work, id+"-"+strconv.Itoa(i)+".out"), name, module)
 				if w != "" {
 					doubt(w)
+					mu.Lock()
+					unsure = append(unsure, name)
+					mu.Unlock()
 					continue
 				}
 				mu.Lock()
@@ -350,11 +356,14 @@ feed:
 	}
 	close(jobs)
 	wg.Wait()
-	switch {
-	case scanErr != nil:
+	if len(unsure) > 0 {
+		slices.Sort(unsure)
+		logf(log, "mutants: %d test(s) of %s (%s) failed alone or wrote no profile, so the package runs whole (e.g. %s)", len(unsure), dir, set.Label, strings.Join(unsure[:min(len(unsure), 3)], ", "))
+	}
+	if scanErr != nil {
 		doubt(selWhyBuild)
-	case len(scan.reexecTests()) > 0:
-		doubt(selWhyReexec)
+	} else {
+		res.always = scan.reexecTests()
 	}
 	return res, why
 }
@@ -377,4 +386,19 @@ func soloSelCoverage(ctx context.Context, absDir string, env []string, binary, p
 		return nil, selWhyNoProfile
 	}
 	return parseSelProfile(string(data), module), ""
+}
+
+// boxDoubt says why the index is not worth keeping: it names a doubt that may
+// be the box's (a build, a listing or a solo run that failed, a test that wrote
+// no profile), which the next run, on a box in better order, measures away.
+func (x *selIndex) boxDoubt() string {
+	if len(x.Doubt) == 0 {
+		return ""
+	}
+	dirs := make([]string, 0, len(x.Doubt))
+	for dir := range x.Doubt {
+		dirs = append(dirs, dir)
+	}
+	slices.Sort(dirs)
+	return "it names a doubt about " + strings.Join(dirs, ", ") + " that the next run measures again"
 }

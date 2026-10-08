@@ -77,7 +77,7 @@ func selIndexOf(tests map[int][]selTest, doubt map[string]string) *selIndex {
 		all = append(all, ts...)
 	}
 	idx := &selIndex{Schema: selSchema, Tests: all, Doubt: doubt, PkgTests: map[string]int{"p": 5, "q": 9},
-		Files: map[string][]selBlock{"p/p.go": {{From: 4, To: 4}, {From: 5, To: 5}}}}
+		Files: map[string][]selBlock{"p/p.go": {{From: 4, FromCol: 1, To: 4, ToCol: 80}, {From: 5, FromCol: 1, To: 5, ToCol: 80}}}}
 	for i := range all {
 		idx.Files["p/p.go"][0].Tests = append(idx.Files["p/p.go"][0].Tests, i)
 	}
@@ -240,7 +240,8 @@ func TestSelRunner_TheSummaryCountsSelectedFullAndNotCoveredAndSaysWhatTheCovera
 	r.record(selResult{Mode: selModeFull, Why: selWhyStale})
 	r.record(selResult{Mode: selModeFull, Why: selWhyNoEntry})
 	r.record(selResult{Mode: selModeFull, Why: selWhyStale})
-	want := "mutants: selection — 3 ran selected tests (4.7 tests each on average), 3 ran the full suite (1 no-entry, 2 stale-shape), 1 not-covered, 1 flaky; " +
+	// expectation-changed: the summary reads "test(s) per mutant on average", not "tests each", which was wrong for one test
+	want := "mutants: selection — 3 ran selected tests (4.7 test(s) per mutant on average), 3 ran the full suite (1 no-entry, 2 stale-shape), 1 not-covered, 1 flaky; " +
 		"coverage of 4 package(s), 3 beyond the mutated one, built in 12s"
 	if got := r.summary(); got != want {
 		t.Errorf("summary =\n%q\nwant\n%q", got, want)
@@ -276,5 +277,39 @@ func TestSelRunner_AMutantThatDoesNotCompileIsUnviableAndRunsNothingMore(t *test
 	}
 	if n := len(f.mutated()); n != 1 {
 		t.Errorf("%d mutated runs, want the one that did not build", n)
+	}
+}
+
+func TestSettledBySelection_EveryVerdictBecomesTheOutcomeItNames(t *testing.T) {
+	m := MutantOutcome{File: "p/p.go", Line: 4, Status: gremlinsNotCovered}
+	cases := map[string]struct {
+		res     selResult
+		status  string
+		noteHas string
+	}{
+		"caught":      {selResult{Status: "caught", Killer: "q: TestQ"}, "caught", "killed by q: TestQ"},
+		"unviable":    {selResult{Status: "unviable"}, "unviable", "does not compile"},
+		"survived":    {selResult{Status: "missed", Note: "survived the 3 test(s) run for its line in p"}, "missed", "survived the 3 test(s) run for its line in p, every test that executes its line"},
+		"flaky":       {selResult{Gap: commitGap{gapFlaky, "failed once"}}, gremlinsNotCovered, "UNRESOLVED: failed once"},
+		"budget":      {selResult{Gap: commitGap{gapBudget, "no time"}}, gremlinsNotCovered, "UNRESOLVED: no time"},
+		"not covered": {selResult{Gap: commitGap{gapNotCovered, "no test executes it"}}, gremlinsNotCovered, "no test executes it"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := settledBySelection(m, c.res)
+			if got.Status != c.status || !strings.Contains(got.Note, c.noteHas) {
+				t.Errorf("outcome = %+v, want status %q and a note holding %q", got, c.status, c.noteHas)
+			}
+		})
+	}
+}
+
+func TestSelTagSets_TheUnitTestsFirstAndTheRepoTagsOnlyWhenDeclared(t *testing.T) {
+	if got := selTagSets(MutantsConfig{}); len(got) != 1 || got[0].Label != "unit" || len(got[0].Tags) != 0 {
+		t.Errorf("no tags declared gave %+v, want the unit set alone", got)
+	}
+	got := selTagSets(MutantsConfig{TestTags: []string{"integration", "pg"}})
+	if len(got) != 2 || got[0].Label != "unit" || len(got[0].Tags) != 0 || got[1].Label != "tags" || !slices.Equal(got[1].Tags, []string{"integration", "pg"}) {
+		t.Errorf("declared tags gave %+v, want unit then the declared tag set", got)
 	}
 }

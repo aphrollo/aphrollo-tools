@@ -87,6 +87,7 @@ func resolveGapMutants(ctx context.Context, root string, cfg MutantsConfig, reac
 	perMutant := resolveBudgetFn(root)
 	start := resolveClock()
 	logf(log, "mutants: settling %d mutant(s) on lines this diff adds by running each against the tests that reach it", len(idx))
+	sel := newSettleSelection(ctx, root, cfg, out, idx, gerr, log)
 	for n, i := range idx {
 		m := out[i]
 		if gerr != nil {
@@ -98,6 +99,15 @@ func resolveGapMutants(ctx context.Context, root string, cfg MutantsConfig, reac
 			out[i] = unresolved(m, fmt.Sprintf("the run's settle time cap of %s was reached before this mutant was run", resolveTotalCap))
 			logf(log, "mutants: %s %s", plainName(out[i]), out[i].Note)
 			continue
+		}
+		if sel != nil {
+			res, ok := sel.judge(ctx, selMutant{File: m.File, Line: m.Line, Col: m.Col, Mutation: m.Mutation}, budget,
+				filepath.Join(measureTempDir(root), "resolve", strconv.Itoa(n)))
+			if ok {
+				out[i] = settledBySelection(m, res)
+				logf(log, "mutants: %s %s", plainName(out[i]), out[i].Note)
+				continue
+			}
 		}
 		dir := goMutantPackageDir(m.File)
 		stages, reaching := resolveStages(g, cfg, dir, m.Status)
@@ -118,6 +128,10 @@ func resolveGapMutants(ctx context.Context, root string, cfg MutantsConfig, reac
 		}
 		out[i] = resolveInCopy(ctx, root, env, m, stages, reaching, budget, filepath.Join(measureTempDir(root), "resolve", strconv.Itoa(n)))
 		logf(log, "mutants: %s %s", plainName(out[i]), out[i].Note)
+	}
+	if sel != nil {
+		logf(log, "%s", sel.summary())
+		sel.close()
 	}
 	logf(log, "mutants: settled %d mutant(s) in %s", len(idx), resolveClock().Sub(start).Round(time.Second))
 	return out

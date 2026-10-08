@@ -18,7 +18,7 @@ func selPlanSet(t *testing.T, root, label string, tags []string, tests ...selTes
 	}
 	return selSet{Label: label, Tags: tags, Idx: &selIndex{
 		Schema: selSchema, Tests: tests,
-		Files:    map[string][]selBlock{"p/p.go": {{From: 4, To: 4, Tests: ran}, {From: 8, To: 8}, {From: 12, To: 12}}},
+		Files:    map[string][]selBlock{"p/p.go": {{From: 4, FromCol: 1, To: 4, ToCol: 80, Tests: ran}, {From: 8, FromCol: 1, To: 8, ToCol: 80}, {From: 12, FromCol: 1, To: 12, ToCol: 80}}},
 		FileHash: map[string]string{"p/p.go": selFileHash(root, "p/p.go")},
 	}}
 }
@@ -42,7 +42,7 @@ func TestPlanSelection_UnitTestsFirstThenOnlyTheTaggedTestsNotAlreadyRun(t *test
 	root := selPlanTree(t)
 	unit := selPlanSet(t, root, "unit", nil, selTest{"a", "TestA"}, selTest{"p", "TestP1"}, selTest{"q", "TestQ"})
 	tagged := selPlanSet(t, root, "tags", []string{"integration"}, selTest{"p", "TestInteg"}, selTest{"p", "TestP1"})
-	plan := planSelection([]selSet{unit, tagged}, root, "p/p.go", 4)
+	plan := planSelection([]selSet{unit, tagged}, root, "p/p.go", 4, 7)
 	if plan.Full != "" || plan.NotCovered || len(plan.Stages) != 2 {
 		t.Fatalf("plan = %+v, want two selected stages", plan)
 	}
@@ -68,7 +68,7 @@ func TestPlanSelection_ALineNoTestExecutesIsNotCoveredAndRunsNothing(t *testing.
 	root := selPlanTree(t)
 	unit := selPlanSet(t, root, "unit", nil, selTest{"p", "TestP1"})
 	tagged := selPlanSet(t, root, "tags", []string{"integration"}, selTest{"p", "TestInteg"})
-	plan := planSelection([]selSet{unit, tagged}, root, "p/p.go", 8)
+	plan := planSelection([]selSet{unit, tagged}, root, "p/p.go", 8, 7)
 	if !plan.NotCovered || len(plan.Stages) != 0 || plan.Full != "" {
 		t.Fatalf("plan = %+v, want not-covered with nothing to run", plan)
 	}
@@ -101,7 +101,7 @@ func TestPlanSelection_EveryDoubtRunsTheFullSuiteAndNamesItsReason(t *testing.T)
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			plan := planSelection(c.sets, root, "p/p.go", c.line)
+			plan := planSelection(c.sets, root, "p/p.go", c.line, 7)
 			if plan.Full != c.want || plan.NotCovered || len(plan.Stages) != 0 {
 				t.Errorf("plan = %+v, want the full suite for %q and nothing selected", plan, c.want)
 			}
@@ -114,7 +114,7 @@ func TestPlanSelection_ADoubtfulImporterRunsWholeAndTheRestStaysSelected(t *test
 	s := selPlanSet(t, root, "unit", nil, selTest{"p", "TestP1"})
 	s.Idx.Doubt = map[string]string{"q": selWhyFailed}
 	s.Idx.PkgTests = map[string]int{"p": 3, "q": 7}
-	plan := planSelection([]selSet{s}, root, "p/p.go", 4)
+	plan := planSelection([]selSet{s}, root, "p/p.go", 4, 7)
 	if plan.Full != "" || len(plan.Stages) != 1 {
 		t.Fatalf("plan = %+v", plan)
 	}
@@ -135,7 +135,7 @@ func TestPlanSelection_APlanOutsideTheSourceDirIsStaleNotTrusted(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "p", "p.go"), []byte("package p\n\n// moved\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if plan := planSelection([]selSet{s}, root, "p/p.go", 4); plan.Full != selWhyStale {
+	if plan := planSelection([]selSet{s}, root, "p/p.go", 4, 7); plan.Full != selWhyStale {
 		t.Errorf("plan = %+v, want stale-shape after the file changed", plan)
 	}
 }
@@ -160,5 +160,21 @@ func TestSelRunExtra_AnAnchoredDeterministicPatternThatNeverMatchesAPrefixSiblin
 	}
 	if got := selRunExtra(nil, selRun{Pkg: "p", Names: long}); slices.Contains(got, "-run") {
 		t.Error("a pattern too long for a command line must run the package whole")
+	}
+}
+
+func TestPlanSelection_ATestWhoseChildCoverageIsInNoProfileJoinsEverySelectionOfItsPackage(t *testing.T) {
+	root := selPlanTree(t)
+	s := selPlanSet(t, root, "unit", nil, selTest{"p", "TestP1"})
+	s.Idx.Always = map[string][]string{"q": {"TestQSelfStart"}}
+	covered := planSelection([]selSet{s}, root, "p/p.go", 4, 7)
+	if got := selRunsOf(covered.Stages[0]); !slices.Equal(got["p"], []string{"TestP1"}) || !slices.Equal(got["q"], []string{"TestQSelfStart"}) || len(got) != 2 {
+		t.Errorf("a covered line runs %v, want p:[TestP1] and q:[TestQSelfStart]", got)
+	}
+	// What it executes is unknown, so a line no measured test runs is not
+	// called uncovered on the strength of it.
+	uncovered := planSelection([]selSet{s}, root, "p/p.go", 8, 7)
+	if uncovered.NotCovered || len(uncovered.Stages) != 1 || !slices.Equal(selRunsOf(uncovered.Stages[0])["q"], []string{"TestQSelfStart"}) {
+		t.Errorf("an uncovered line = %+v, want q's self-starting test run all the same", uncovered)
 	}
 }

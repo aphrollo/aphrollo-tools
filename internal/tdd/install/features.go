@@ -70,7 +70,7 @@ var features = []Feature{
 	},
 	{
 		Key: "mutants-test-tags", Default: "none",
-		Effect: "build tags the repo's tests need (an integration tier), passed to the commit-time run's coverage build and every mutant run; a tagged suite that cannot run leaves its mutants NOT MEASURED, never survivors",
+		Effect: "build tags the repo's tests need (an integration tier), passed to the commit-time run's coverage build and every mutant run, and the settle run's per-test coverage runs the tagged tests that execute a mutant's line after the unit tests, only for a survivor, one test at a time; a tagged suite that cannot run leaves its mutants NOT MEASURED, never survivors",
 		Cost:   "the tagged suites run for every mutant they cover, so a slow suite spends the commit budget sooner",
 		Enable: "mutants-test-tags = [\"integration\"]",
 	},

@@ -24,16 +24,20 @@ type selTest struct {
 // selBlockKey is one block of statements a profile names: the module-relative
 // file and its first and last line.
 type selBlockKey struct {
-	File     string
-	From, To int
+	File string
+	// From and To are the block's first and last line, FromCol and ToCol the
+	// columns they start and end at (the end is the first position after it).
+	From, FromCol, To, ToCol int
 }
 
 // selBlock is a block and the indexes into the index's Tests of the tests that
 // executed it; none says the block was instrumented and no test ran it.
 type selBlock struct {
-	From  int   `json:"a"`
-	To    int   `json:"b"`
-	Tests []int `json:"t,omitempty"`
+	From    int   `json:"a"`
+	FromCol int   `json:"ac"`
+	To      int   `json:"b"`
+	ToCol   int   `json:"bc"`
+	Tests   []int `json:"t,omitempty"`
 }
 
 // selIndex is the per-test coverage of one tag set.
@@ -53,14 +57,18 @@ type selIndex struct {
 	// starts the test binary again, or the package could not be built). Such a
 	// package runs whole.
 	Doubt map[string]string `json:"doubt,omitempty"`
+	// Always names, per package directory, the tests whose children execute what no
+	// profile of theirs shows (they start the test binary again): they run in every
+	// selection of their package, since what they execute is not known.
+	Always map[string][]string `json:"always,omitempty"`
 	// PkgTests is how many tests each measured package has.
 	PkgTests map[string]int `json:"pkg_tests,omitempty"`
 	// Pkgs are the package directories whose test binaries were measured.
 	Pkgs []string `json:"pkgs,omitempty"`
 }
 
-// selBlockRe reads a profile block's position, `import/path/file.go:12.3,14.2`.
-var selBlockRe = regexp.MustCompile(`^(.+):(\d+)\.\d+,(\d+)\.\d+$`)
+// selBlockRe reads a profile block's position, `import/path/file.go:12.3,14.2`: its first line and column, then its last.
+var selBlockRe = regexp.MustCompile(`^(.+):(\d+)\.(\d+),(\d+)\.(\d+)$`)
 
 // parseSelProfile is every block a cover profile names, true for the ones it
 // executed, with the file made relative to the module: the profile writes
@@ -80,16 +88,20 @@ func parseSelProfile(profile, module string) map[selBlockKey]bool {
 		if m == nil {
 			continue
 		}
-		from, err1 := strconv.Atoi(m[2])
-		to, err2 := strconv.Atoi(m[3])
-		if err1 != nil || err2 != nil {
+		var n [4]int
+		var bad bool
+		for i := range n {
+			v, err := strconv.Atoi(m[2+i])
+			n[i], bad = v, bad || err != nil
+		}
+		if bad {
 			continue
 		}
 		file := path.Clean(m[1])
 		if module != "" {
 			file = strings.TrimPrefix(file, module+"/")
 		}
-		k := selBlockKey{File: file, From: from, To: to}
+		k := selBlockKey{File: file, From: n[0], FromCol: n[1], To: n[2], ToCol: n[3]}
 		blocks[k] = blocks[k] || count > 0
 	}
 	return blocks
@@ -117,22 +129,26 @@ func assembleSelIndex(per map[selTest]map[selBlockKey]bool) selIndex {
 	}
 	idx := selIndex{Schema: selSchema, Tests: tests, Files: map[string][]selBlock{}}
 	for b, hit := range ran {
-		idx.Files[b.File] = append(idx.Files[b.File], selBlock{From: b.From, To: b.To, Tests: hit})
+		idx.Files[b.File] = append(idx.Files[b.File], selBlock{From: b.From, FromCol: b.FromCol, To: b.To, ToCol: b.ToCol, Tests: hit})
 	}
 	for _, blocks := range idx.Files {
-		slices.SortFunc(blocks, func(a, b selBlock) int { return cmp.Or(cmp.Compare(a.From, b.From), cmp.Compare(a.To, b.To)) })
+		slices.SortFunc(blocks, func(a, b selBlock) int {
+			return cmp.Or(cmp.Compare(a.From, b.From), cmp.Compare(a.FromCol, b.FromCol), cmp.Compare(a.To, b.To), cmp.Compare(a.ToCol, b.ToCol))
+		})
 	}
 	return idx
 }
 
-// testsAt is the tests that executed a block holding the line of the file, in
-// the index's order, and whether any block holds it at all. A line in no block
-// is not one the profile can speak for; a line in blocks no test ran is listed
-// with no tests.
-func (x *selIndex) testsAt(file string, line int) (tests []selTest, listed bool) {
+// testsAt is the tests that executed a block holding the position (line and
+// column) in the file, in the index's order, and whether any block holds it at
+// all. A position in no block is not one the profile can speak for, though a
+// block may hold other positions of its line: a case clause's counter starts
+// at its colon, so the clause's condition is in the block before it. A position
+// in blocks no test ran is listed with no tests.
+func (x *selIndex) testsAt(file string, line, col int) (tests []selTest, listed bool) {
 	seen := map[int]bool{}
 	for _, b := range x.Files[file] {
-		if line < b.From || line > b.To {
+		if line < b.From || line == b.From && col < b.FromCol || line > b.To || line == b.To && col >= b.ToCol {
 			continue
 		}
 		listed = true
@@ -153,4 +169,4 @@ func (x *selIndex) testsAt(file string, line int) (tests []selTest, listed bool)
 
 // selSchema is the shape of the index on disk. An index of another schema is
 // no index.
-const selSchema = 1
+const selSchema = 3

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -45,6 +46,8 @@ type selResult struct {
 	Status string
 	Note   string
 	Gap    commitGap
+	// Killer names the run whose failure caught it, as "pkg: TestA, TestB".
+	Killer string
 	// Mode is how it was run, Why the reason it ran the full suite.
 	Mode string
 	Why  string
@@ -119,7 +122,7 @@ func newSelRunner(ctx context.Context, root string, cfg MutantsConfig, targets [
 // selection cannot be made: res then says why (Mode full) and the caller runs
 // the full suite, as it would with no selection.
 func (r *selRunner) judge(ctx context.Context, m selMutant, budget time.Duration, work string) (res selResult, ok bool) {
-	plan := planSelection(r.sets, r.root, m.File, m.Line)
+	plan := planSelection(r.sets, r.root, m.File, m.Line, m.Col)
 	switch {
 	case plan.Full != "":
 		res = selResult{Mode: selModeFull, Why: plan.Full}
@@ -205,6 +208,7 @@ func (r *selRunner) execPlan(ctx context.Context, m selMutant, plan selPlan, bud
 					res.Gap = commitGap{gapFlaky, "the tests of " + run.Pkg + " failed under the mutant once and passed on a second run, so the kill is not trusted"}
 				default:
 					res.Status = "caught"
+					res.Killer = selRunName(run)
 				}
 				return res
 			}
@@ -261,7 +265,7 @@ func (r *selRunner) summary() string {
 	fmt.Fprintf(&b, "mutants: selection — %d ran selected tests", s.Selected)
 	if s.Selected > 0 {
 		mean := float64(s.Tests) / float64(s.Selected)
-		fmt.Fprintf(&b, " (%s tests each on average)", strconv.FormatFloat(float64(int(mean*10+0.5))/10, 'f', -1, 64))
+		fmt.Fprintf(&b, " (%s test(s) per mutant on average)", strconv.FormatFloat(float64(int(mean*10+0.5))/10, 'f', -1, 64))
 	}
 	fmt.Fprintf(&b, ", %d ran the full suite", s.Full)
 	if s.Full > 0 {
@@ -285,4 +289,54 @@ func (r *selRunner) summary() string {
 		fmt.Fprintf(&b, " (%d tag set(s) read from the kept coverage)", s.Kept)
 	}
 	return b.String()
+}
+
+// selRunName names a run for a note: the package and the tests it ran.
+func selRunName(run selRun) string {
+	if run.Whole {
+		return run.Pkg + ": every test"
+	}
+	return run.Pkg + ": " + strings.Join(run.Names, ", ")
+}
+
+// selSettleWorkers is how many tests of the unit set run at once while the
+// coverage of a settle run is built.
+func selSettleWorkers() int { return max(1, min(4, runtime.NumCPU())) }
+
+// newSettleSelection builds the per-test coverage the settle of the mutants at
+// idx is judged on, for the packages they sit in, within the run's settle cap.
+// It answers nil when there is no selection to make: the module's package
+// graph could not be read, which the settle refuses on its own account.
+func newSettleSelection(ctx context.Context, root string, cfg MutantsConfig, outcomes []MutantOutcome, idx []int, graphErr error, log io.Writer) *selRunner {
+	if graphErr != nil {
+		return nil
+	}
+	var targets []string
+	for _, i := range idx {
+		if dir := goMutantPackageDir(outcomes[i].File); !slices.Contains(targets, dir) {
+			targets = append(targets, dir)
+		}
+	}
+	slices.Sort(targets)
+	ctx, cancel := context.WithTimeout(ctx, resolveTotalCap)
+	defer cancel()
+	return newSelRunner(ctx, root, cfg, targets, selSettleWorkers(), log)
+}
+
+// settledBySelection is the outcome m becomes when a selection judged it. A
+// mutant left without a verdict keeps its status and says why.
+func settledBySelection(m MutantOutcome, res selResult) MutantOutcome {
+	switch {
+	case res.Gap.Kind == gapNotCovered:
+		m.Note = res.Gap.Why
+	case res.Gap.Why != "":
+		return unresolved(m, res.Gap.Why)
+	case res.Status == "caught":
+		m.Status, m.Note = "caught", "killed by "+res.Killer+" (settled by running the tests that execute its line)"
+	case res.Status == "unviable":
+		m.Status, m.Note = "unviable", "does not compile, so no test can run it (settled by running this one mutant)"
+	default:
+		m.Status, m.Note = "missed", res.Note+", every test that executes its line"
+	}
+	return m
 }
