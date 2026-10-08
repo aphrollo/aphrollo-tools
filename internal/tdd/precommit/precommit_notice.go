@@ -2,6 +2,7 @@ package precommit
 
 import (
 	"fmt"
+	"io"
 	"time"
 )
 
@@ -19,17 +20,23 @@ func setStartNoticeAfter(d time.Duration) (restore func()) {
 	return func() { startNoticeAfter = prev }
 }
 
-// runNoticed runs r in root through run, and when it is still running after
-// startNoticeAfter prints one line saying so, naming the stage and the command.
-// The line is written before runNoticed returns, never after.
-func runNoticed(gateName, stage, root string, r Runner, run SuiteRunner) SuiteResult {
+// runNoticedTo runs r in root through run, and when it is still running after
+// startNoticeAfter prints one line to w saying so, naming the stage and the
+// command. The line is written before runNoticedTo returns, never after.
+func runNoticedTo(w io.Writer, gateName, stage, root string, r Runner, run SuiteRunner) SuiteResult {
+	// A caller that holds its lines back may keep this notice live.
+	if n, ok := w.(interface{ noticeWriter() io.Writer }); ok {
+		w = n.noticeWriter()
+	}
+	// The line is printed after the threshold, so its stamp is not the start.
+	after := startNoticeAfter
 	done := make(chan struct{})
 	finished := make(chan struct{})
 	go func() {
 		defer close(finished)
 		select {
-		case <-time.After(startNoticeAfter):
-			fmt.Fprintf(stderrFor(root), "gate %s: %s in %s → running %s …\n", gateName, stage, root, cmdString(r))
+		case <-time.After(after):
+			fmt.Fprintf(w, "gate %s: %s in %s → running %s (started %.0fs ago) …\n", gateName, stage, root, cmdString(r), after.Seconds())
 		case <-done:
 		}
 	}()

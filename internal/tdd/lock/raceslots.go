@@ -68,6 +68,13 @@ func SetRaceMachineForTest(cores int, availMB int64) (restore func()) {
 	return func() { raceMachineFn = prev }
 }
 
+// boxHeavyCapacity is how many heavy children (about 8 threads and 8 GB each)
+// the box carries at once now: the race rule, without the slot pool's bound.
+func boxHeavyCapacity() int {
+	cores, availMB := raceMachineFn()
+	return raceCapacity(cores, availMB)
+}
+
 // raceSlotCapacity is the number of race keys on offer right now: the box's
 // capacity, held to the shared slot pool.
 func raceSlotCapacity() int {

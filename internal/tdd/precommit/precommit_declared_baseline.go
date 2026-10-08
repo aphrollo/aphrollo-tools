@@ -2,6 +2,7 @@ package precommit
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -21,28 +22,33 @@ import (
 // counted.
 const maxQuotedLines = 20
 
-// declaredLinesStage runs r in root and judges a failure against HEAD's
-// output.
-func declaredLinesStage(gateName, repoRoot, root string, r Runner, run SuiteRunner) GateResult {
-	return linesStage(gateName, "declared", repoRoot, root, nil, r, run)
+// declaredLinesStageTo runs r in root and judges a failure against HEAD's
+// output, its lines going to w.
+func declaredLinesStageTo(w io.Writer, gateName, repoRoot, root string, r Runner, run SuiteRunner) GateResult {
+	return linesStageTo(w, gateName, "declared", repoRoot, root, nil, r, run)
 }
 
 // linesStage runs r in root and judges a failure against the lines the same
 // run printed on HEAD's tree, after prelude ran there. stage names it.
 func linesStage(gateName, stage, repoRoot, root string, prelude []Runner, r Runner, run SuiteRunner) GateResult {
-	res := runNoticed(gateName, stage, root, r, run)
+	return linesStageTo(stderrFor(root), gateName, stage, repoRoot, root, prelude, r, run)
+}
+
+// linesStageTo is linesStage with its lines going to w.
+func linesStageTo(w io.Writer, gateName, stage, repoRoot, root string, prelude []Runner, r Runner, run SuiteRunner) GateResult {
+	res := runNoticedTo(w, gateName, stage, root, r, run)
 	ran := func(Runner, string) SuiteResult { return res }
 	if res.Passed || res.TimedOut {
-		return goCheckStage(gateName, stage, root, r, ran)
+		return goCheckStageTo(w, gateName, stage, root, r, ran)
 	}
 	fresh, err := newLinesSinceHead(repoRoot, root, prelude, r, res.Output, run)
 	if err != nil {
-		blocked := goCheckStage(gateName, stage, root, r, ran)
+		blocked := goCheckStageTo(w, gateName, stage, root, r, ran)
 		blocked.Message += fmt.Sprintf("no baseline at HEAD (%v), so the whole failure is held against this commit.\n", err)
 		return blocked
 	}
 	if len(fresh) == 0 {
-		fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → failed, but printed no line HEAD's run did not; not held against this commit\n",
+		fmt.Fprintf(w, "[%s] gate %s: %s in %s → failed, but printed no line HEAD's run did not; not held against this commit\n",
 			stage, gateName, cmdString(r), root)
 		AppendGateLog(gateName, root, cmdString(r), stage+"-head-only", res.Duration)
 		return verdictFor(gateName, stage, root, cmdString(r), stageOutcome{Kind: outcomePass})

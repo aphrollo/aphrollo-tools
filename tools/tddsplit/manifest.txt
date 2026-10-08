@@ -916,9 +916,14 @@ precommit_core.go                                  core      # created by P2
 precommit_declared.go                              precommit
 precommit_declared_baseline.go                     precommit
 precommit_declared_baseline_test.go                precommit
+precommit_declared_lines.go                        precommit
+precommit_declared_lines_test.go                   precommit
 precommit_declared_miss.go                         precommit
 precommit_declared_miss_test.go                    precommit
 precommit_declared_notice_test.go                  precommit
+precommit_declared_parallel.go                     precommit
+precommit_declared_parallel_run_test.go            precommit
+precommit_declared_parallel_test.go                precommit
 precommit_declared_reuse.go                        precommit
 precommit_declared_reuse_inputs_test.go            precommit
 precommit_declared_reuse_test.go                   precommit

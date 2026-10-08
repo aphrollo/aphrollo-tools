@@ -96,3 +96,29 @@ func TestDeclaredPrecommit_ACommandRunningPastTheThresholdPrintsOneStartLine(t *
 		t.Errorf("the fast command printed a start line:\n%s", got)
 	}
 }
+
+// The line is stamped when it is printed, which is the threshold after the
+// command began; it says so, so a reader does not take the stamp for the start.
+func TestDeclaredPrecommit_TheStartLineSaysHowLongAgoTheCommandStarted(t *testing.T) {
+	repo, frontend := makeFrontendRepo(t, declaredFrontend)
+	sink := newNoticeSink()
+	t.Cleanup(rootseam.SetStderr(repo, sink))
+	t.Cleanup(rootseam.SetStderr(frontend, sink))
+	t.Cleanup(setStartNoticeAfter(2 * time.Second))
+	slow := func(r Runner, dir string) SuiteResult {
+		if dir == frontend && cmdLine(r) == "npx eslint src" {
+			select {
+			case <-sink.running:
+			case <-time.After(30 * time.Second):
+				t.Error("no start line was printed for a command that outran the threshold")
+			}
+		}
+		return SuiteResult{Passed: true}
+	}
+	if res := Precommit(repo, slow); res.Blocked {
+		t.Fatalf("unexpected block: %s", res.Message)
+	}
+	if want := "→ running npx eslint src (started 2s ago) …\n"; !strings.Contains(sink.text(), want) {
+		t.Errorf("stderr lacks %q:\n%s", want, sink.text())
+	}
+}

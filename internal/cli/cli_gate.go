@@ -153,7 +153,14 @@ HEAD baseline: any failure blocks, including one HEAD already had, unless the
 command is written { argv = [...], baseline = "lines" }. Then a failure is run
 again on HEAD's tree and blocks only over output lines HEAD's run did not print
 (each checkout's path and trailing whitespace aside), or when HEAD's run cannot
-be made.
+be made. An inline table may also carry parallel = true and weight = n (default
+1): a command without parallel is a barrier that runs alone, in declared order;
+consecutive parallel commands form a group whose members start in declared order
+while their running weights fit parallel-budget, a key of [aphrollo.precommit]
+(default: what the box carries at 8 threads and 8 GB each, at least 1). A
+command heavier than the budget runs alone. Every command of a group runs to its
+end, each writes its whole block as it finishes, and the refusal lists every red
+in declared order.
 premerge (alias: premergecommit) runs ONLY the mechanical stage over the
 merge's staged files — no fail-first (a fresh test's RED/GREEN belongs to the
 authoring commit, already proven by precommit there) and no anti-cheat

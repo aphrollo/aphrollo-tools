@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode"
 )
@@ -20,7 +21,8 @@ import (
 // The key is the root's path from the repo root ("." for the root itself),
 // the value its commands as argv arrays. They run in that root, in order,
 // with no shell between them and the process — so a declaration means the
-// same thing on Windows — and the first to fail refuses the commit. A root
+// same thing on Windows — and the first to fail refuses the commit (but see
+// parallel below: a group of those runs to its end first). A root
 // that declares commands gets those and none of the built-in checks: the
 // declaration is the repo saying how that root is checked.
 //
@@ -31,6 +33,11 @@ import (
 // baseline is "none" by default: any failure refuses. With "lines" a failure
 // is run again on HEAD's tree, and refuses only over the output lines HEAD's
 // run did not print (precommit_declared_baseline.go).
+//
+// parallel = true and weight = n are also keys of the table: neighbouring
+// commands then run side by side within the repo's parallel-budget, every one
+// to its end, so the refusal lists every red. A command without parallel runs
+// alone, in order (precommit_declared_parallel.go).
 
 const declaredPrecommitTable = "[aphrollo.precommit]"
 
@@ -67,6 +74,10 @@ func declaredEntry(repoRoot, root, table string) (value string, declared bool) {
 // over a declaration it cannot read: falling back to the built-in checks
 // would quietly judge the root by the rules its repo asked to replace.
 func declaredChecksStage(gateName, repoRoot, root string, cmds []declaredCommand, err error, run SuiteRunner) GateResult {
+	budget := 0
+	if err == nil && slices.ContainsFunc(cmds, func(c declaredCommand) bool { return c.Parallel }) {
+		budget, err = declaredParallelBudget(repoRoot, boxHeavyCapacity())
+	}
 	if err != nil {
 		return verdictFor(gateName, "declared", root, "aphrollo.toml", stageOutcome{
 			Kind: outcomeCheckError,
@@ -77,28 +88,17 @@ func declaredChecksStage(gateName, repoRoot, root string, cmds []declaredCommand
 				gateName, declaredPrecommitTable, err, root),
 		})
 	}
-	for _, c := range cmds {
-		r := Runner{Cmd: c.Argv[0], Args: c.Argv[1:]}
-		k := declaredKeying(root, c)
-		if declaredReuse(gateName, root, r, k) {
-			continue
+	for i := 0; i < len(cmds); {
+		j := i + 1
+		if cmds[i].Parallel {
+			for j < len(cmds) && cmds[j].Parallel {
+				j++
+			}
 		}
-		var last SuiteResult
-		ran := false
-		judged := func(rr Runner, dir string) SuiteResult {
-			last, ran = run(rr, dir), true
-			return last
-		}
-		var res GateResult
-		if c.Baseline == baselineLines {
-			res = declaredLinesStage(gateName, repoRoot, root, r, judged)
-		} else {
-			res = goCheckStage(gateName, "declared", root, r, judged)
-		}
-		recordDeclaredRun(root, c, k.key, k.takes && k.err == nil, res, last, ran)
-		if res.Blocked {
+		if res := declaredGroup(gateName, repoRoot, root, cmds[i:j], budget, run); res.Blocked {
 			return res
 		}
+		i = j
 	}
 	return verdictFor(gateName, "declared", root, "", stageOutcome{Kind: outcomePass})
 }
@@ -109,7 +109,13 @@ type declaredCommand struct {
 	Argv     []string `json:"argv"`
 	Baseline string   `json:"baseline"`
 	Inputs   []string `json:"inputs"`
+	Parallel bool     `json:"parallel"`
+	Weight   int      `json:"weight"`
 }
+
+// The weight of a parallel command with none declared: one share of the
+// root's parallel-budget.
+const defaultDeclaredWeight = 1
 
 // The baselines a declared command can name; "" reads as "none".
 const (
@@ -151,6 +157,8 @@ func decodeDeclaredCommand(e json.RawMessage, c *declaredCommand) error {
 		return err
 	case len(c.Argv) == 0 || c.Argv[0] == "":
 		return errors.New("a command with no program")
+	case c.Weight < 0:
+		return fmt.Errorf("weight %d, want a positive whole number", c.Weight)
 	case c.Baseline != "" && c.Baseline != baselineNone && c.Baseline != baselineLines:
 		return fmt.Errorf("baseline %q, want %q or %q", c.Baseline, baselineNone, baselineLines)
 	}
@@ -163,7 +171,16 @@ func decodeDeclaredCommand(e json.RawMessage, c *declaredCommand) error {
 func tomlInlineTablesAsJSON(value string) string {
 	var b strings.Builder
 	inString, escaped, inKey := false, false, false
-	for _, c := range value {
+	rs := []rune(value)
+	for i := 0; i < len(rs); i++ {
+		c := rs[i]
+		if !inString && !inKey && unicode.IsLower(c) {
+			if lit, n := bareLiteral(rs[i:]); n > 0 {
+				b.WriteString(lit)
+				i += n - 1
+				continue
+			}
+		}
 		if bare := !inString && unicode.IsLower(c); bare != inKey {
 			b.WriteByte('"')
 			inKey = bare

@@ -404,3 +404,25 @@ func TestSpeed_DeclaredReuseCountsEachSkipAndSumsTheSavedSeconds(t *testing.T) {
 		t.Errorf("declared reuse saved = n %d sum %v, want n 2 sum 120.5 (an unreadable saved_secs counts nothing)", row.N, row.Sum)
 	}
 }
+
+// A parallel block of declared commands is counted by what it saved: the sum
+// of its parts less its wall time. It is a class of its own, not a row of the
+// gate it ran in, and a block that saved nothing counts nothing.
+func TestSpeed_DeclaredParallelSumsWhatEachBlockSaved(t *testing.T) {
+	evs := []tdd.Event{
+		evAt(1, 50, "commit_gate", "l", "declared-parallel", "commands", "2", "sum_secs", "150", "wall_secs", "90"),
+		evAt(2, 49, "merge_gate", "l", "declared-parallel", "commands", "3", "sum_secs", "100", "wall_secs", "40"),
+		evAt(3, 48, "merge_gate", "l", "declared-parallel", "commands", "2", "sum_secs", "10", "wall_secs", "30"),
+		evAt(4, 47, "merge_gate", "l", "declared-parallel", "commands", "2", "sum_secs", "bogus", "wall_secs", "30"),
+	}
+	r := build(evs)
+	row := speedRow(t, r, "declared parallel saved")
+	if row.N != 2 || row.Sum != 120 {
+		t.Errorf("declared parallel saved = n %d sum %v, want n 2 sum 120", row.N, row.Sum)
+	}
+	for _, other := range r.Speed.Rows {
+		if strings.Contains(other.Stage, "parallel") && other.Stage != "declared parallel saved" {
+			t.Errorf("row %q: a parallel block made a row of its gate", other.Stage)
+		}
+	}
+}
