@@ -1,6 +1,7 @@
 package gc
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -61,7 +62,7 @@ func gcOrphanGatePRMergeWorktreesAt(repoRoot string, now time.Time) []GCCandidat
 		if slices.Contains(gatePRMergeWarmNames, base) {
 			// a taker holds the claim before it rewrites the holder record, so a
 			// live claim means the checkout is in use whatever the holder says
-			if cp, ok := readGatePRMergeClaimPID(path); ok && pidRunningFn(cp) {
+			if gatePRMergeClaimLive(path, now) {
 				continue
 			}
 			info, err := os.Stat(filepath.Join(path, gatePRMergeHolderFile))
@@ -98,21 +99,50 @@ func readGatePRMergeHolderPID(wt string) (int, bool) {
 	return 0, false
 }
 
-// readGatePRMergeClaimPID reads the pid of wt's claim file (wt + ".claim"),
-// the exclusive claim a warm checkout's taker holds for the whole use.
-func readGatePRMergeClaimPID(wt string) (int, bool) {
+// gatePRMergeClaimMaxAge matches the merge gate's bound (merge.warmClaimMaxAge):
+// a claim past it that names no readable identity is stale.
+const gatePRMergeClaimMaxAge = 12 * time.Hour
+
+// gatePRMergeClaimLive reports whether wt's claim file (wt + ".claim", the
+// exclusive claim a warm checkout's taker holds for the whole use) still names
+// the process that took it, judged as the merge gate judges it: a dead pid, or
+// a live pid whose identity differs from the one stamped in the claim, is not
+// live; where no identity can be compared, a claim older than the bound is not
+// live either. No claim, or one with no pid, is not live: the holder record
+// decides then.
+func gatePRMergeClaimLive(wt string, now time.Time) bool {
 	data, err := os.ReadFile(wt + ".claim")
 	if err != nil {
-		return 0, false
+		return false
 	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "pid="); ok {
-			if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil {
-				return n, true
+	var pid int
+	var id string
+	var started time.Time
+	havePid := false
+	sc := bufio.NewScanner(strings.NewReader(string(data)))
+	for sc.Scan() {
+		k, v, ok := strings.Cut(strings.TrimSpace(sc.Text()), "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "pid":
+			if n, err := strconv.Atoi(v); err == nil {
+				pid, havePid = n, true
 			}
+		case "id":
+			id = v
+		case "started":
+			started, _ = time.Parse(time.RFC3339Nano, v)
 		}
 	}
-	return 0, false
+	if !havePid || !pidRunningFn(pid) {
+		return false
+	}
+	if cur, ok := processIdentityFn(pid); ok && id != "" {
+		return cur == id
+	}
+	return started.IsZero() || now.Sub(started) < gatePRMergeClaimMaxAge
 }
 
 // removeGatePRMergeWorktree removes a registered gate-prmerge checkout. A

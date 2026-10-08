@@ -242,3 +242,46 @@ func TestRemoveGatePRMergeWorktree_RemovesTheClaimFile(t *testing.T) {
 		t.Fatalf("the claim file outlived the reaped checkout (stat err: %v)", err)
 	}
 }
+
+// A claim judged by pid alone keeps a dead checkout forever once the system
+// gives that pid to another process. The claim's identity is compared (and its
+// age, where it names none), as the merge gate itself judges it.
+func TestGCOrphanGatePRMergeWorktrees_AClaimUnderAReusedPidDoesNotKeepTheCheckout(t *testing.T) {
+	repo := makeCargoRepo(t)
+	wtParent := filepath.Join(filepath.Dir(repo), ".worktrees", filepath.Base(repo))
+	now := time.Now()
+	realID, ok := processIdentityFn(os.Getpid())
+	if !ok {
+		t.Fatal("this host cannot name its own process identity")
+	}
+	old := now.Add(-DefaultGCAge - time.Hour)
+	mk := func(name, claim string) string {
+		p := filepath.Join(wtParent, name)
+		gitDo(t, repo, "worktree", "add", "--detach", p, "HEAD")
+		writeHolder(t, p, deadPidForTest(t))
+		if err := os.Chtimes(filepath.Join(p, gatePRMergeHolderFile), old, old); err != nil {
+			t.Fatal(err)
+		}
+		mkFile(t, p+".claim", claim, 0)
+		return p
+	}
+	pid := "pid=" + strconv.Itoa(os.Getpid()) + "\n"
+	stamp := func(ago time.Duration) string {
+		return "started=" + now.Add(-ago).UTC().Format(time.RFC3339Nano) + "\n"
+	}
+	reused := mk("gate-prmerge-warm", pid+stamp(time.Minute)+"id=other-boot:1\n")
+	sameProcess := mk("gate-prmerge-localci", pid+stamp(time.Minute)+"id="+realID+"\n")
+
+	got := gcOrphanGatePRMergeWorktreesAt(repo, now)
+	if len(got) != 1 || got[0].Path != reused {
+		t.Fatalf("want only the checkout whose claim pid was reused (%s), got %+v (the live claim's %s must stay)", reused, got, sameProcess)
+	}
+
+	// no identity in the claim: past the age bound the claim is stale
+	mkFile(t, reused+".claim", pid+stamp(13*time.Hour), 0)
+	mkFile(t, sameProcess+".claim", pid+stamp(13*time.Hour)+"id="+realID+"\n", 0)
+	got = gcOrphanGatePRMergeWorktreesAt(repo, now)
+	if len(got) != 1 || got[0].Path != reused {
+		t.Fatalf("want the old identity-less claim's checkout %s alone (a matching identity is never aged out), got %+v", reused, got)
+	}
+}
