@@ -153,6 +153,11 @@ func resetWarm(lane, path, rev string) bool {
 // look at what a sweep would see at that instant.
 var warmResetting = func(string) {}
 
+// warmIdentityFn names the process holding a pid; a seam so a test can say a
+// pid was reused. A var of this package, because the shared one is reached
+// through a generated call-through no test can assign.
+var warmIdentityFn = func(pid int) (string, bool) { return processIdentityFn(pid) }
+
 var warmClaimSeq atomic.Int64
 
 var warmClaimJudged = func() {}
@@ -163,7 +168,7 @@ var warmClaimJudged = func() {}
 // process is stale and replaced. Never waits.
 func takeWarmClaim(claim string) bool {
 	tmp := fmt.Sprintf("%s.%d.%d.tmp", claim, os.Getpid(), warmClaimSeq.Add(1))
-	if err := os.WriteFile(tmp, []byte("pid="+strconv.Itoa(os.Getpid())+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(tmp, []byte(warmClaimBody()), 0o644); err != nil {
 		return false
 	}
 	defer os.Remove(tmp)
@@ -175,8 +180,7 @@ func takeWarmClaim(claim string) bool {
 		if err != nil {
 			continue // vanished between the two: try again
 		}
-		pid, perr := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(data)), "pid=")))
-		if perr != nil || pidRunningFn(pid) {
+		if warmClaimLive(string(data)) {
 			return false
 		}
 		if !replaceStaleClaim(claim, data) {
@@ -184,6 +188,57 @@ func takeWarmClaim(claim string) bool {
 		}
 	}
 	return false
+}
+
+// warmClaimMaxAge bounds how long a live pid keeps a claim where the process
+// identity cannot be read: no merge gate runs this long.
+const warmClaimMaxAge = 12 * time.Hour
+
+// warmClaimBody is the claim this process writes: its pid, when it took the
+// claim, and the process identity (boot id and start time) that tells it from
+// another process the system gives the same pid later.
+func warmClaimBody() string {
+	body := fmt.Sprintf("pid=%d\nstarted=%s\n", os.Getpid(), time.Now().UTC().Format(time.RFC3339Nano))
+	if id, ok := warmIdentityFn(os.Getpid()); ok {
+		body += "id=" + id + "\n"
+	}
+	return body
+}
+
+// warmClaimLive reports whether a claim still names the process that took it.
+// A claim that cannot be read is held (unproven means protected); a dead pid, a
+// live pid with another identity, and a claim past warmClaimMaxAge are stale.
+func warmClaimLive(claim string) bool {
+	var pid int
+	var id string
+	var started time.Time
+	havePid := false
+	for _, line := range strings.Split(claim, "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "pid":
+			if n, err := strconv.Atoi(v); err == nil {
+				pid, havePid = n, true
+			}
+		case "id":
+			id = v
+		case "started":
+			started, _ = time.Parse(time.RFC3339Nano, v)
+		}
+	}
+	if !havePid {
+		return true
+	}
+	if !pidRunningFn(pid) {
+		return false
+	}
+	if cur, ok := warmIdentityFn(pid); ok && id != "" && cur != id {
+		return false
+	}
+	return started.IsZero() || time.Since(started) < warmClaimMaxAge
 }
 
 // warmTakeoverStale is how old a takeover lock must be before it is taken for

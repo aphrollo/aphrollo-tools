@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // warmRev is the commit sha a ref names in repo.
@@ -325,5 +326,68 @@ func TestWarmGate_HolderNamesTheTakerBeforeTheReset(t *testing.T) {
 	defer again.Remove()
 	if want := "pid=" + strconv.Itoa(os.Getpid()) + "\n"; !strings.HasPrefix(seen, want) {
 		t.Fatalf("at the start of the reset the holder record reads %q, want it to begin %q", seen, want)
+	}
+}
+
+func warmWriteClaim(t *testing.T, body string) string {
+	t.Helper()
+	claim := filepath.Join(t.TempDir(), "gate.claim")
+	if err := os.WriteFile(claim, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return claim
+}
+
+// A pid the system handed out again after the claimant died names a different
+// process: the claim carries the identity it was stamped with, and a live pid
+// with another identity is stale. The same identity is still held.
+func TestWarmClaim_ReusedPidWithAnotherIdentityIsStale(t *testing.T) {
+	pid := strconv.Itoa(os.Getpid())
+	body := "pid=" + pid + "\nstarted=" + time.Now().UTC().Format(time.RFC3339Nano) + "\nid=boot:111\n"
+	old := warmIdentityFn
+	t.Cleanup(func() { warmIdentityFn = old })
+
+	warmIdentityFn = func(int) (string, bool) { return "boot:111", true }
+	if takeWarmClaim(warmWriteClaim(t, body)) {
+		t.Fatal("a claim whose pid and identity both match a live process was taken")
+	}
+	warmIdentityFn = func(int) (string, bool) { return "boot:222", true }
+	if !takeWarmClaim(warmWriteClaim(t, body)) {
+		t.Fatal("a claim whose pid now belongs to another process held the checkout")
+	}
+}
+
+// Where no identity can be read, a live pid keeps a claim only for a bounded
+// time: a claim older than the bound is stale, a recent one is held.
+func TestWarmClaim_LivePidWithAnOldClaimIsStale(t *testing.T) {
+	pid := strconv.Itoa(os.Getpid())
+	at := func(ago time.Duration) string {
+		return "pid=" + pid + "\nstarted=" + time.Now().Add(-ago).UTC().Format(time.RFC3339Nano) + "\n"
+	}
+	if takeWarmClaim(warmWriteClaim(t, at(time.Minute))) {
+		t.Fatal("a recent claim of a live pid was taken")
+	}
+	if !takeWarmClaim(warmWriteClaim(t, at(warmClaimMaxAge+time.Hour))) {
+		t.Fatal("a claim older than the bound still held the checkout")
+	}
+}
+
+// The claim a taker writes carries what the stale checks read: its pid, when it
+// took the claim, and its process identity.
+func TestWarmClaim_TheClaimWrittenCarriesPidStartAndIdentity(t *testing.T) {
+	old := warmIdentityFn
+	t.Cleanup(func() { warmIdentityFn = old })
+	warmIdentityFn = func(int) (string, bool) { return "boot:777", true }
+	claim := filepath.Join(t.TempDir(), "gate.claim")
+	if !takeWarmClaim(claim) {
+		t.Fatal("a free claim was not taken")
+	}
+	b, err := os.ReadFile(claim)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 3 || lines[0] != "pid="+strconv.Itoa(os.Getpid()) || !strings.HasPrefix(lines[1], "started=") || lines[2] != "id=boot:777" {
+		t.Fatalf("claim reads %q, want pid, started and id lines", lines)
 	}
 }
