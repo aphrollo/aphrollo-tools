@@ -39,6 +39,7 @@ var Metrics = []Metric{
 	{"merge-queue", "merge queue", speedStats, "down"},
 	{"ci-pipeline", "CI pipeline", speedStats, "down"},
 	{"pr-lead-time", "PR lead time", speedStats, "down"},
+	{"declared-reuse-saved", "declared reuse saved", speedStats, "up"},
 	{"wrong-blocks", SourceWrongBlocks, []string{"rate"}, "down"},
 }
 

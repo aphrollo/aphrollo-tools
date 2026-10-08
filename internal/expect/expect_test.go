@@ -74,3 +74,13 @@ func TestFind_ReadsEveryRowOfTheTableIncludingTheFirst(t *testing.T) {
 		t.Error("Find accepted a name no row has")
 	}
 }
+
+func TestParse_DeclaredReuseSavedIsBetterUp(t *testing.T) {
+	got, err := Parse("expect: declared-reuse-saved p50 up")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("Parse = %v, %v", got, err)
+	}
+	if m, _ := Find("declared-reuse-saved"); m.Better != "up" {
+		t.Errorf("Better = %q, want up", m.Better)
+	}
+}
