@@ -33,24 +33,8 @@ func staleBranchOrigin(t *testing.T) (realGit, origin, seed string) {
 	isolateGitConfigCLI(t)
 	withDirectGitShim(t)
 	realGit = realGitForTest(t)
-	run := func(dir string, args ...string) {
-		cmd := exec.Command(realGit, append([]string{"-C", dir}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-
-	origin = filepath.Join(t.TempDir(), "origin")
-	run(t.TempDir(), "init", "-q", "--bare", "-b", "main", origin)
-
-	seed = filepath.Join(t.TempDir(), "seed")
-	run(t.TempDir(), "clone", "-q", origin, seed)
-	run(seed, "config", "user.email", "t@example.com")
-	run(seed, "config", "user.name", "t")
-	mustWriteFile(t, filepath.Join(seed, "base.go"), "package base\n")
-	run(seed, "add", "-A")
-	run(seed, "commit", "-q", "-m", "init")
-	run(seed, "push", "-q", "origin", "main")
+	origin, seed = filepath.Join(t.TempDir(), "origin"), filepath.Join(t.TempDir(), "seed")
+	copyTrio(t, staleBranchTrio(), origin, seed, "")
 	return realGit, origin, seed
 }
 
