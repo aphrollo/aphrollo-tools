@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -214,8 +215,11 @@ func TestGatePRMerge_TwoMergesJudgeInOneWarmCheckout(t *testing.T) {
 	// The measurement is stubbed: a runner without cargo-mutants (Linux CI)
 	// must judge this test the same as one with it.
 	var seen []gateRun
+	var seenMu sync.Mutex // the shards call the stand-in at once
 	stubMutantsExec(t, func(_ context.Context, _ int, c measuredCall) (int, error) {
+		seenMu.Lock()
 		seen = append(seen, gateRun{Dir: c.Dir})
+		seenMu.Unlock()
 		writeOutcomesIn(t, argvValueOf(t, c.Argv, "--output"), MutantOutcome{
 			File: "crates/a/src/lib.rs", Line: 1, Col: 36,
 			Mutation: "replace - with +", Package: "a", Status: "caught"})
