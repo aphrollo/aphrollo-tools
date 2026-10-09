@@ -12,6 +12,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/measure"
 	"github.com/aphrollo/aphrollo-tools/internal/report"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/tddarm"
 )
 
 const measureStatsUsage = `usage: aphrollo stats [--repo <path>] [--lane <name>] [--week | --since <dur>] [--json] [--by-version] [--briefs | --shadow | --ab]
@@ -90,7 +91,7 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 	}
 	note := horizonNote(*repo)
 	events := tdd.ReadEvents(*repo)
-	opts := measure.Options{Lane: *lane, Window: window}
+	opts := measure.Options{Lane: *lane, Window: window, RepoKey: tddarm.RepoKey(*repo)}
 	section := func(evs []tdd.Event) (string, any) {
 		now := time.Now().UTC()
 		switch {

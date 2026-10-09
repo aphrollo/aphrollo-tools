@@ -21,6 +21,10 @@ import (
 type Options struct {
 	Lane   string
 	Window time.Duration
+	// RepoKey is the repo's identity for the A/B arm hash (tddarm.RepoKey). With it
+	// the A/B puts a lane that recorded no arm in the arm its name hashes to; "" leaves
+	// such a lane out.
+	RepoKey string
 }
 
 // Report is every measure the v1 events can answer today.

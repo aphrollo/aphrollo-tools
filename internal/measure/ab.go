@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/tddarm"
 )
 
 // MinABLanes is the lanes each arm needs before the A/B may decide anything
@@ -83,14 +84,56 @@ func ComputeAB(events []tdd.Event, now time.Time, o Options) AB {
 		}
 		return f
 	}
+	canon := mergeLanes(s.evs)
 	for _, e := range s.evs {
 		if e.Lane == "" || !s.in(e.at) {
 			continue
 		}
-		get(e.Lane).versions[binVersion(e.Event)] = true
-		foldABEvent(get(e.Lane), e)
+		lane := canon(e.Lane)
+		get(lane).versions[binVersion(e.Event)] = true
+		foldABEvent(get(lane), e)
+	}
+	if o.RepoKey != "" {
+		for lane, f := range lanes {
+			if f.arm == "" && !abTrunk(lane) {
+				f.arm = tddarm.Of(o.RepoKey, lane) // a pure function of repo and lane: no event needed
+			}
+		}
 	}
 	return summariseAB(lanes)
+}
+
+// abTrunk is a lane name that is trunk, which no arm covers (tddarm.Resolve).
+func abTrunk(lane string) bool {
+	switch lane {
+	case "main", "master", "@trunk":
+		return true
+	}
+	return false
+}
+
+// mergeSuffix is the branch suffix a merge branch carries after its lane's name
+// (ariadne: `git switch -c <lane>-merge`, its premerge gate firing there).
+const mergeSuffix = "-merge"
+
+// mergeLanes returns the lane a branch counts as. A `<lane>-merge` branch is its lane's
+// merge when its base lane has events of its own or when a merge gate fired on it; any
+// other lane that merely ends in -merge keeps its name.
+func mergeLanes(evs []stamped) func(string) string {
+	seen, gated := map[string]bool{}, map[string]bool{}
+	for _, e := range evs {
+		seen[e.Lane] = true
+		if e.Kind == "merge_gate" {
+			gated[e.Lane] = true
+		}
+	}
+	return func(lane string) string {
+		base, ok := strings.CutSuffix(lane, mergeSuffix)
+		if !ok || base == "" || (!seen[base] && !gated[lane]) {
+			return lane
+		}
+		return base
+	}
 }
 
 // foldABEvent adds one event to its lane's facts.
@@ -249,8 +292,8 @@ func (ab AB) Text() string {
 		p("%-8s %d of %d lanes (%s)", a.Arm, a.Lanes, MinABLanes, reachedText(a.Reached))
 		p("  denies %d  warnings %d  overrides %d  dropped for the budget %d  held out %d", a.Denies, a.Warnings, a.Overrides, a.Dropped, a.HeldOut)
 		p("  escapes %d (escape records %d, CI red after a local green %d)", a.Escapes, a.EscapeRecords, a.CIRedAfterGreen)
-		p("  friction: denies %d + overrides %d; time to green n %d  p50 %s  p90 %s",
-			a.Denies, a.Overrides, a.TimeToGreen.N, secs(a.TimeToGreen.P50), secs(a.TimeToGreen.P90))
+		p("  friction: denies %d + overrides %d; time to green n %d%s  p50 %s  p90 %s",
+			a.Denies, a.Overrides, a.TimeToGreen.N, a.noGreenNote(), secs(a.TimeToGreen.P50), secs(a.TimeToGreen.P90))
 		if len(a.Versions) > 1 {
 			p("  note: %s lanes ran under different versions: %s", a.Arm, strings.Join(a.Versions, ", "))
 		}
@@ -272,4 +315,18 @@ func reachedText(ok bool) string {
 		return "enough"
 	}
 	return "too few"
+}
+
+// noGreenNote says why an arm's time to green has no sample, where it has none: a log
+// that holds no red at all is a different finding from one that dropped its decisions.
+func (a ABArm) noGreenNote() string {
+	switch {
+	case a.TimeToGreen.N > 0:
+		return ""
+	case a.Denies+a.Warnings > 0:
+		return " (red recorded, no green after it yet)"
+	case a.Dropped > 0:
+		return fmt.Sprintf(" (not recorded: %d decision(s) dropped for the budget, so a red may have gone unseen)", a.Dropped)
+	}
+	return " (no red occurred: no deny or warning)"
 }
