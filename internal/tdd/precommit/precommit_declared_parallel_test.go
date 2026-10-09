@@ -35,6 +35,9 @@ type dparFake struct {
 	peakWeight      int
 	entered         chan string
 	exited          chan string
+	// gateEnded closes when the gate returns: a wait fails then, not on a clock.
+	gateEnded chan struct{}
+	endOnce   sync.Once
 }
 
 func newDparFake(names ...string) *dparFake {
@@ -43,6 +46,7 @@ func newDparFake(names ...string) *dparFake {
 		dur: map[string]time.Duration{}, seq: map[string][]SuiteResult{}, timeout: map[string]bool{}, running: map[string]bool{},
 		finishedAtStart: map[string][]string{}, runningAtStart: map[string][]string{},
 		entered: make(chan string, 64), exited: make(chan string, 64),
+		gateEnded: make(chan struct{}),
 	}
 	for _, n := range names {
 		f.hold[n] = make(chan struct{})
@@ -113,8 +117,8 @@ func (f *dparFake) run(r Runner, _ string) SuiteResult {
 	return res
 }
 
-// waitEntered is the n names that began next, sorted; a run that never
-// reaches them fails the test instead of hanging it.
+// waitEntered is the n names that began next, sorted; a gate that returns
+// without reaching them fails the test. No clock bounds the wait.
 func (f *dparFake) waitEntered(t *testing.T, n int) []string {
 	t.Helper()
 	var got []string
@@ -122,8 +126,13 @@ func (f *dparFake) waitEntered(t *testing.T, n int) []string {
 		select {
 		case name := <-f.entered:
 			got = append(got, name)
-		case <-time.After(10 * time.Second):
-			t.Fatalf("only %v began, want %d commands running", got, n)
+		case <-f.gateEnded:
+			select {
+			case name := <-f.entered:
+				got = append(got, name)
+			default:
+				t.Fatalf("the gate returned with only %v begun, want %d commands running", got, n)
+			}
 		}
 	}
 	sort.Strings(got)
@@ -137,8 +146,15 @@ func (f *dparFake) waitExited(t *testing.T, name string) {
 		if got != name {
 			t.Fatalf("%s ended, want %s", got, name)
 		}
-	case <-time.After(10 * time.Second):
-		t.Fatalf("%s never ended", name)
+	case <-f.gateEnded:
+		select {
+		case got := <-f.exited:
+			if got != name {
+				t.Fatalf("%s ended, want %s", got, name)
+			}
+		default:
+			t.Fatalf("the gate returned and %s never ended", name)
+		}
 	}
 }
 
@@ -168,6 +184,8 @@ type dparSink struct {
 	mu      sync.Mutex
 	buf     bytes.Buffer
 	changed chan struct{}
+	// ended closes when the gate returns: nothing more is written.
+	ended chan struct{}
 }
 
 func (s *dparSink) Write(p []byte) (int, error) {
@@ -187,17 +205,17 @@ func (s *dparSink) String() string {
 	return s.buf.String()
 }
 
-// waitFor returns once the text holds want; a line that never comes fails the
-// test instead of hanging it.
+// waitFor returns once the text holds want; a line the gate never writes
+// fails the test when it returns. No clock bounds the wait.
 func (s *dparSink) waitFor(t *testing.T, want string) {
 	t.Helper()
-	// real-time: a failure bound only; the wait ends on the sink's signal, never on the clock
-	deadline := time.After(10 * time.Second)
 	for !strings.Contains(s.String(), want) {
 		select {
 		case <-s.changed:
-		case <-deadline:
-			t.Fatalf("%q never written; got:\n%s", want, s.String())
+		case <-s.ended:
+			if !strings.Contains(s.String(), want) {
+				t.Fatalf("%q never written; got:\n%s", want, s.String())
+			}
 		}
 	}
 }
@@ -216,7 +234,7 @@ func dparStart(t *testing.T, toml string, f *dparFake) *dparRun {
 	write(t, root, "aphrollo.toml", toml)
 	write(t, root, "widget.go", "package m\n\nfunc Widget() int { return 1 }\n")
 	gitDo(t, root, "add", "-A")
-	d := &dparRun{res: make(chan GateResult, 1), root: root, sink: &dparSink{changed: make(chan struct{}, 1)}}
+	d := &dparRun{res: make(chan GateResult, 1), root: root, sink: &dparSink{changed: make(chan struct{}, 1), ended: f.gateEnded}}
 	t.Cleanup(rootseam.SetStderr(root, d.sink))
 	t.Cleanup(func() {
 		f.mu.Lock()
@@ -229,19 +247,17 @@ func dparStart(t *testing.T, toml string, f *dparFake) *dparRun {
 			f.free(n)
 		}
 	})
-	go func() { d.res <- Precommit(root, f.run) }()
+	go func() {
+		d.res <- Precommit(root, f.run)
+		f.endOnce.Do(func() { close(f.gateEnded) })
+	}()
 	return d
 }
 
 func (d *dparRun) wait(t *testing.T) GateResult {
 	t.Helper()
-	select {
-	case r := <-d.res:
-		return r
-	case <-time.After(20 * time.Second):
-		t.Fatal("the gate never finished")
-		return GateResult{}
-	}
+	// no clock: a gate that hangs is stopped by the test binary's own timeout
+	return <-d.res
 }
 
 // Commands marked parallel run at the same time: both are inside the runner

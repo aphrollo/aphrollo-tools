@@ -206,6 +206,9 @@ func TestWarmGate_PurposesKeepSeparateCheckouts(t *testing.T) {
 // Through the real gate: two merges judge in one directory.
 func TestGatePRMerge_TwoMergesJudgeInOneWarmCheckout(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	// The mutants stage budgets against the drive; this test is about the
+	// checkout, so the free space is injected and never the box's.
+	t.Cleanup(SetFreeSpaceForTest(999, true))
 	root, _ := prGateLane(t)
 	declareMutantsAtMergeCommitted(t, root)
 	// The measurement is stubbed: a runner without cargo-mutants (Linux CI)
