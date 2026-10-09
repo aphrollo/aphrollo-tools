@@ -157,3 +157,18 @@ func TestIntervalRanks_AreTheFifthAndNinetyFifthNearestRank(t *testing.T) {
 		t.Errorf("ranks of 20 = %d, %d, want 0 and 18", lo, hi)
 	}
 }
+
+func TestVersionAtLeast_ComparesNumericallyAndTakesEqualAsEnough(t *testing.T) {
+	for _, c := range []struct {
+		v, min string
+		want   bool
+	}{
+		{"1.30.1", "1.30.1", true}, {"1.30.2", "1.30.1", true}, {"1.30.0", "1.30.1", false},
+		{"1.9.9", "1.30.1", false}, {"2.0.0", "1.30.1", true}, {"1.31.0", "1.30.9", true},
+		{"v1.31.0-rc1", "1.30.1", true}, {"unknown", "1.30.1", false}, {"", "1.30.1", false},
+	} {
+		if got := versionAtLeast(c.v, c.min); got != c.want {
+			t.Errorf("versionAtLeast(%q, %q) = %v, want %v", c.v, c.min, got, c.want)
+		}
+	}
+}
