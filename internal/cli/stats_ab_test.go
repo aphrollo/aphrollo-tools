@@ -57,10 +57,13 @@ func TestStatsAB_ExcludesTheOtherSections(t *testing.T) {
 }
 
 // ariadne's lanes come from a plain `git worktree add` and record no lane-arm event;
-// the read still puts each in its arm, from the repo's key and the lane's name.
+// the read still puts each in its arm, from the repo's key and the lane's name, once
+// the repo's A/B has started (its first lane-arm event, here another lane's).
 func TestStatsAB_CountsALaneThatRecordedNoArm(t *testing.T) {
 	repo := statsRepo(t, map[time.Duration]tdd.Event{
-		time.Hour: {Kind: "commit_gate", Lane: "calc-split", Verdict: "green"},
+		2 * time.Hour: {Kind: "lane-arm", Lane: "starter", BinVer: "1.40.0",
+			Detail: map[string]string{"why": "pinned", "mode": "enforce"}},
+		time.Hour: {Kind: "commit_gate", Lane: "calc-split", Verdict: "green", BinVer: "1.40.0"},
 	})
 	code, out, errOut := runStatsCmd(t, "--repo", repo, "--ab", "--json")
 	if code != 0 {
