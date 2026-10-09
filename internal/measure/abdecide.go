@@ -28,6 +28,10 @@ const TooSmall = "too small to measure — decide on friction and cost"
 // TooFewEvents is what it adds when the maximum is reached with too little evidence to judge.
 const TooFewEvents = "too few events to measure — decide on friction and cost"
 
+// abDroppedMajority is the share of an arm's red-green decisions that, when exceeded by the
+// ones the hook dropped for its budget, keeps the readout at deciding.
+const abDroppedMajority = 0.5
+
 // abBootstrapDraws and the seed fix the bootstrap: one log, one set of bytes.
 const abBootstrapDraws = 2000
 

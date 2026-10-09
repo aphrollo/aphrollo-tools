@@ -56,6 +56,17 @@ type World struct {
 	ProjectRoot func(file string) string                // the edit hook's project root of a file
 	Edits       func(root string) []LedgerEdit          // the edit ledger of the checkout, oldest first
 	Open        func(root string) (*store.Store, error) // the repo's store
+	// StateDir is the repo's state directory, where the live hook keeps the times its
+	// decisions took (SizedBudget). Nil, or "", is no history: the wait is the floor.
+	StateDir func(root string) string
+}
+
+// stateDirOf is the state directory of the checkout a call's first file lands in.
+func (w World) stateDirOf(files []string) string {
+	if w.StateDir == nil || len(files) == 0 {
+		return ""
+	}
+	return w.StateDir(filepath.Dir(files[0]))
 }
 
 func (w World) unitOf() func(string) (Unit, bool) {

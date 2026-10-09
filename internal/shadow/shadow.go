@@ -36,6 +36,7 @@ package shadow
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -114,6 +115,10 @@ type Record struct {
 	UnitRoot string // a project-root unit's project root, slashes, what a proof run in it is joined by (no package pattern says what such a proof covered)
 	Lang     string // the unit's language (LangOfUnit), or a run's runner's (LangOfCommand), for the per-language rows of stats
 	Root     string // the checkout the record is about, "" for the call's own
+	// For a decision the live hook dropped for its budget: the file it was about, and the
+	// time it had spent and the wait it was given.
+	File          string
+	Spent, Budget time.Duration
 	// For a run: the verdict classes each side read, and the cause.
 	TrellisVerdict, ActualVerdict, Cause, ActualCause string
 }
@@ -321,6 +326,11 @@ func (r Record) event(s Source, lane string) core.Event {
 	set("trellis_verdict", r.TrellisVerdict)
 	set("aphrollo_verdict", r.ActualVerdict)
 	set("cause", r.Cause)
+	set("file", r.File)
+	if r.Budget > 0 {
+		d["spent_secs"] = strconv.FormatFloat(r.Spent.Seconds(), 'f', 3, 64)
+		d["budget_secs"] = strconv.FormatFloat(r.Budget.Seconds(), 'f', 3, 64)
+	}
 	set("aphrollo_cause", r.ActualCause)
 	if r.Rule == RuleRedGreen {
 		set("arm", s.Arm)

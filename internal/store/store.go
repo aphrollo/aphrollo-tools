@@ -30,6 +30,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -63,6 +64,11 @@ const (
 	// the log (a commit of no events logs nothing), and a holder of one of those
 	// versions must not find its token valid again.
 	rebuildGap = 1 << 20
+
+	// refreshLag is how many bytes of log a Load may read past its checkpoint before it
+	// moves the checkpoint on: the log is one file for every lane and hook of the repo, so
+	// a lane that does not commit would otherwise read all of its growth at every question.
+	refreshLag = 64 << 10
 )
 
 // ErrConflict is what Commit answers when the lane's version is no longer the
@@ -173,16 +179,60 @@ type view struct {
 	// replace is whether Commit may replace the checkpoint: not when a newer
 	// fold wrote it.
 	replace bool
+	// lag is how much log the read had to go through past the checkpoint it started from,
+	// and base the checkpoint's bytes as read (nil when it was missing or unreadable): what
+	// Load needs to move the checkpoint on.
+	lag  int64
+	base []byte
 }
 
-// Load implements the engine's Store. It takes no lock: a checkpoint is
-// replaced whole, and a commit in flight shows as the log's tail.
+// Load implements the engine's Store. It waits for no lock: a checkpoint is
+// replaced whole, and a commit in flight shows as the log's tail. A read that had to
+// go through refreshLag or more of log moves the checkpoint past it when the lane's lock
+// is free at that moment, so the next question does not read it again (advance).
 func (s *Store) Load(ctx context.Context, lane string) (Record, uint64, error) {
 	if err := ctx.Err(); err != nil {
 		return Record{}, 0, err
 	}
 	v, err := s.current(lane, false)
+	if err == nil && v.replace && v.lag >= refreshLag {
+		s.advance(lane, v)
+	}
 	return v.rec, v.ver, err
+}
+
+// advance saves v, a view of the lane just read, as its checkpoint, if the lane's lock is
+// free and the checkpoint is still the one v was read from. Everything v folded is in the
+// log up to v.pos, so the saved file says what the log up to there says, whichever other
+// reader moves it too. It is a cache and never waits: a held lock, a changed checkpoint
+// or a failed write leave the next Load to do the same read again.
+func (s *Store) advance(lane string, v view) {
+	f, err := core.OpenLockFile(s.lockPath(lane))
+	if err != nil {
+		return
+	}
+	defer f.Close() // closing drops the lock on both platforms
+	if !core.TryLockExclusive(f) {
+		return
+	}
+	now, err := core.ReadFileShared(s.checkpointPath(lane))
+	if (err == nil) != (v.base != nil) || !bytes.Equal(now, v.base) {
+		return
+	}
+	_ = s.save(lane, v.ver, v.pos, v.rec)
+}
+
+// lagOf is how much log lies between two places in it, the zero place being the start of the
+// log; a place in a newer month file is
+// taken as past the bound.
+func lagOf(from, to logPos) int64 {
+	if from.File == "" {
+		return to.Off
+	}
+	if from.File != to.File {
+		return refreshLag
+	}
+	return to.Off - from.Off
 }
 
 // Commit implements the engine's Store: under the lane's lock, if the lane is
@@ -278,7 +328,7 @@ func (s *Store) current(lane string, force bool) (view, error) {
 	unreadable := err != nil && !missing
 	if !unreadable && !missing && ck.Fold == FoldVersion && !force {
 		logs, end := s.scan(lane, ck.Log)
-		v := view{rec: ck.Rec, ver: ck.Ver, pos: end, replace: true}
+		v := view{rec: ck.Rec, ver: ck.Ver, pos: end, replace: true, lag: lagOf(ck.Log, end), base: data}
 		for _, l := range logs {
 			if l.ver > ck.Ver {
 				v.rec, v.ver = s.fold(v.rec, l.ev), max(v.ver, l.ver)
@@ -287,7 +337,7 @@ func (s *Store) current(lane string, force bool) (view, error) {
 		return v, nil
 	}
 	logs, end := s.scan(lane, logPos{})
-	v := view{pos: end, replace: missing || unreadable || ck.Fold <= FoldVersion}
+	v := view{pos: end, replace: missing || unreadable || ck.Fold <= FoldVersion, lag: end.Off, base: data}
 	if !missing && !unreadable {
 		v.rec.Guided = ck.Rec.Guided
 	}

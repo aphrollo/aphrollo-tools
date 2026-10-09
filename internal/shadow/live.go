@@ -9,9 +9,10 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tdd/core"
 )
 
-// LiveBudget is how long a PreToolUse hook waits for the kernel's answer to the
+// LiveBudget is the least a PreToolUse hook waits for the kernel's answer to the
 // red→green question before it says nothing (docs/trellis-architecture.md §4:
-// 50 ms, with no law check). Past it the question is dropped and told so
+// 50 ms, with no law check). A repo whose decisions take longer on this box waits
+// longer, up to BudgetCap (SizedBudget). Past it the question is dropped and told so
 // (LiveResult.Overran), never guessed.
 var LiveBudget = 50 * time.Millisecond
 
@@ -47,21 +48,28 @@ func (l Live) Action() Action {
 type LiveResult struct {
 	Asked   []Live
 	Overran bool
+	// Spent is what the question had cost when it was answered or dropped, and Budget the
+	// wait it was given.
+	Spent, Budget time.Duration
 	// Waived is set by the caller when the session had waived the deny the answer holds:
 	// the hook allowed the write, and the record says so rather than a block.
 	Waived bool
 }
 
 // RedGreenLive asks the kernel, under cfg, the red→green question of each code file a
-// PreToolUse call is about to write, inside LiveBudget. It reads the lane's record
+// PreToolUse call is about to write, inside the wait SizedBudget gives (LiveBudget at
+// least). It reads the lane's record
 // and the edit ledger and spawns nothing. A question that does not finish inside the
 // budget has no answer: the result says it overran and carries none.
 func (w World) RedGreenLive(p Payload, files []string, cfg kernel.Config) LiveResult {
 	clk := clock
-	deadline := clk.Now().Add(LiveBudget)
+	dir := w.stateDirOf(files)
+	budget := SizedBudget(LiveBudget, readDecisions(dir))
+	start := clk.Now()
+	deadline := start.Add(budget)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	expired, release := clk.Timer(LiveBudget)
+	expired, release := clk.Timer(budget)
 	defer release()
 	done := make(chan []askedFile, 1)
 	go func() {
@@ -69,15 +77,33 @@ func (w World) RedGreenLive(p Payload, files []string, cfg kernel.Config) LiveRe
 		defer func() { _ = recover(); done <- asked }() // a panic is no answer
 		asked = w.askCodeFiles(ctx, p, files, cfg)
 	}()
+	var asked []askedFile
+	answered := false
 	select {
-	case asked := <-done:
-		if !clk.Now().Before(deadline) {
-			return LiveResult{Overran: true}
-		}
-		return LiveResult{Asked: liveOf(asked)}
+	case asked = <-done:
+		answered = true
 	case <-expired:
-		return LiveResult{Overran: true}
 	}
+	now := clk.Now()
+	spent := now.Sub(start)
+	noteDecision(dir, spent) // a dropped one took at least the budget
+	res := LiveResult{Spent: spent, Budget: budget}
+	if !answered || !now.Before(deadline) {
+		res.Overran = true
+		return res
+	}
+	res.Asked = liveOf(asked)
+	return res
+}
+
+// firstCodeFile is the first code file of a call's files, the one a dropped decision names.
+func firstCodeFile(files []string) string {
+	for _, f := range files {
+		if FileClassOf(f) == kernel.ClassCode {
+			return f
+		}
+	}
+	return ""
 }
 
 func liveOf(asked []askedFile) []Live {
@@ -124,7 +150,9 @@ func RedGreenStepsLive(wd World, s Source, p Payload, files []string, live LiveR
 		run: func(ctx context.Context) []core.Event {
 			if live.Overran {
 				Overruns.Add(1)
-				return []core.Event{unjudgedFor(CauseBudget)}
+				r := unjudged(HookPre, RuleRedGreen, "", CauseBudget)
+				r.File, r.Spent, r.Budget = firstCodeFile(files), live.Spent, live.Budget
+				return []core.Event{r.event(s, wd.Lane(s.Root))}
 			}
 			recs := wd.RedGreenAs(ctx, p, files, actual)
 			evs := make([]core.Event, 0, len(recs))

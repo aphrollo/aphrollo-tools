@@ -56,6 +56,10 @@ type AB struct {
 	Metrics   []ABMetric `json:"metrics"`
 	Verdict   string     `json:"verdict"`
 	Decidable bool       `json:"decidable"`
+	// DroppedArms are the arms of which more than abDroppedMajority of the red-green
+	// decisions were dropped for the hook's budget. The readout is then deciding, however
+	// the other metrics read: a repo never looks decided on data its hook did not record.
+	DroppedArms []string `json:"dropped_arms,omitempty"`
 }
 
 // abLaneFacts is what the log says of one lane.
@@ -294,6 +298,14 @@ func summariseAB(lanes map[string]*abLaneFacts) AB {
 		out.Arms = append(out.Arms, *a)
 	}
 	out.Metrics, out.Verdict, out.Decidable = foldMetrics(armLanes)
+	for _, a := range out.Arms {
+		if a.droppedMajority() {
+			out.DroppedArms = append(out.DroppedArms, a.Arm)
+		}
+	}
+	if len(out.DroppedArms) > 0 {
+		out.Verdict, out.Decidable = VerdictDeciding, false
+	}
 	if out.Verdict == VerdictMaxReached {
 		out.Advice = TooSmall
 		if out.Metrics[0].Why != "" {
@@ -338,6 +350,7 @@ func (ab AB) Text() string {
 	for _, a := range ab.Arms {
 		p("%-8s %d lanes (a decision is forced at %d per arm)", a.Arm, a.Lanes, MaxABLanes)
 		p("  denies %d  warnings %d  overrides %d  dropped for the budget %d  held out %d", a.Denies, a.Warnings, a.Overrides, a.Dropped, a.HeldOut)
+		p("  %d decisions unmeasured of %d (dropped for the budget, so a red may have gone unseen)", a.Dropped, a.decisions())
 		p("  escapes %d (escape records %d, CI red after a local green %d)", a.Escapes, a.EscapeRecords, a.CIRedAfterGreen)
 		p("  friction: denies %d + overrides %d; time to green n %d%s  p50 %s  p90 %s",
 			a.Denies, a.Overrides, a.TimeToGreen.N, a.noGreenNote(), secs(a.TimeToGreen.P50), secs(a.TimeToGreen.P90))
@@ -358,11 +371,25 @@ func (ab AB) Text() string {
 	for _, m := range ab.Metrics {
 		p("  %s", m.text())
 	}
-	p("verdict (%s): %s", abMetrics[0].Name, ab.Verdict)
+	verdict := ab.Verdict
+	if len(ab.DroppedArms) > 0 {
+		verdict += " (decisions dropped)"
+	}
+	p("verdict (%s): %s", abMetrics[0].Name, verdict)
 	if ab.Advice != "" {
 		p("  %s", ab.Advice)
 	}
 	return b.String()
+}
+
+// decisions is the arm's red-green decisions the log holds: those the hook answered with a
+// deny, a warning or a holdout guide, and those it dropped.
+func (a ABArm) decisions() int { return a.Denies + a.Warnings + a.HeldOut + a.Dropped }
+
+// droppedMajority reports whether more than abDroppedMajority of the arm's decisions were
+// dropped for the budget.
+func (a ABArm) droppedMajority() bool {
+	return float64(a.Dropped) > abDroppedMajority*float64(a.decisions())
 }
 
 // noGreenNote says why an arm's time to green has no sample, where it has none: a log
