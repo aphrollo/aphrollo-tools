@@ -399,3 +399,26 @@ func TestIsolate_StartsTheMSYSAnchorBeforeMovingTheTempDir(t *testing.T) {
 		t.Fatal("Isolate must have called msys.Anchor")
 	}
 }
+
+// A fixture's git is the box's own git, not the queue shim in front of it: the
+// shim costs a process of its own on every spawn, and the queue it guards
+// serves a session's work, never a throwaway repo.
+func TestWithoutQueueShims_DropsTheShimDirsAndKeepsTheOrder(t *testing.T) {
+	sep := string(os.PathListSeparator)
+	in := strings.Join([]string{"/usr/bin", filepath.Join("home", "u", "aphrollo", "cargo-queue"), "/opt/git/cmd", "cargo-queue" + string(filepath.Separator)}, sep)
+	want := strings.Join([]string{"/usr/bin", "/opt/git/cmd"}, sep)
+	if got := withoutQueueShims(in); got != want {
+		t.Errorf("withoutQueueShims(%q) = %q, want %q", in, got, want)
+	}
+	if got := withoutQueueShims("/a/cargo-queue-not" + sep + "/b"); got != "/a/cargo-queue-not"+sep+"/b" {
+		t.Errorf("a dir that merely starts with cargo-queue was dropped: %q", got)
+	}
+}
+
+func TestIsolate_LeavesTheQueueShimOffPath(t *testing.T) {
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if filepath.Base(filepath.Clean(dir)) == "cargo-queue" {
+			t.Errorf("PATH still holds the queue shim dir %q", dir)
+		}
+	}
+}

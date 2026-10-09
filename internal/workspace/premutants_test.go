@@ -68,22 +68,9 @@ func cargoLane(t *testing.T, beforePR bool) string {
 // the pin that makes a finding refuse, or "" for the default report.
 func cargoLaneLevel(t *testing.T, beforePR bool, level string) string {
 	t.Helper()
-	repo := repoWithRemote(t)
-	manifest := "[workspace]\nmembers = [\"crates/a\"]\n"
-	if beforePR {
-		manifest += "\n[workspace.metadata.aphrollo]\nmutants-before-pr = true\n" + level
-	}
-	writeRel(t, repo, "Cargo.toml", manifest)
-	writeRel(t, repo, "crates/a/Cargo.toml", "[package]\nname = \"a\"\nversion = \"0.1.0\"\n")
-	writeRel(t, repo, "crates/a/src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b }\n")
-	gitIn(t, repo, "add", ".")
-	gitIn(t, repo, "commit", "-qm", "trunk")
-	gitIn(t, repo, "push", "-q", "origin", "main")
-	gitIn(t, repo, "checkout", "-q", "-b", "lane")
-	writeRel(t, repo, "crates/a/src/lib.rs", "pub fn add(a: i32, b: i32) -> i32 { a + b + 0 }\n")
-	gitIn(t, repo, "add", ".")
-	gitIn(t, repo, "commit", "-qm", "lane")
-	gitIn(t, repo, "push", "-q", "-u", "origin", "lane")
+	fixtureGitEnv(t)
+	repo := t.TempDir()
+	copyOriginPair(t, cargoLaneTemplate(beforePR, level), repo, filepath.Join(t.TempDir(), "origin.git"))
 	return repo
 }
 

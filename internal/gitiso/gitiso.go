@@ -154,7 +154,26 @@ func Isolate(root string) (home string, err error) {
 		_ = os.Setenv(name, value) // fails only on an empty or malformed name, and these are literals
 	}
 	gitenv.DisableMaintenanceAndHooks(filepath.Join(root, "nohooks"), func(k, v string) { _ = os.Setenv(k, v) })
+	_ = os.Setenv("PATH", withoutQueueShims(os.Getenv("PATH")))
 	return home, nil
+}
+
+// queueShimDir is the name of the directory the box's queue shims (git, cargo)
+// live in.
+const queueShimDir = "cargo-queue"
+
+// withoutQueueShims is a PATH list without the queue shim directories, order
+// kept. A fixture's git is git itself: the shim costs a process of its own on
+// every spawn, and the queue it guards serves a session's work, never a
+// throwaway repo. A box with no shim, and CI, has nothing to drop.
+func withoutQueueShims(path string) string {
+	var keep []string
+	for _, dir := range filepath.SplitList(path) {
+		if filepath.Base(filepath.Clean(dir)) != queueShimDir {
+			keep = append(keep, dir)
+		}
+	}
+	return strings.Join(keep, string(os.PathListSeparator))
 }
 
 // MustIsolate is Isolate for a TestMain that has setup of its own: it panics

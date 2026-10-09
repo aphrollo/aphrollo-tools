@@ -27,34 +27,8 @@ import (
 func updateFixture(t *testing.T) (origin, clone, seed string) {
 	t.Helper()
 	isolateGitConfigCLI(t)
-	git := realGitForTest(t)
-	run := func(dir string, args ...string) {
-		t.Helper()
-		cmd := exec.Command(git, append([]string{"-C", dir}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-
-	origin = filepath.Join(t.TempDir(), "origin")
-	run(t.TempDir(), "init", "-q", "--bare", "-b", "main", origin)
-
-	seed = t.TempDir()
-	run(seed, "init", "-q")
-	run(seed, "config", "user.email", "t@example.com")
-	run(seed, "config", "user.name", "t")
-	run(seed, "checkout", "-q", "-B", "main")
-	mustWriteFile(t, filepath.Join(seed, "go.mod"), "module github.com/aphrollo/aphrollo-tools\n\ngo 1.26.6\n")
-	run(seed, "add", "-A")
-	run(seed, "commit", "-q", "-m", "init")
-	run(seed, "remote", "add", "origin", origin)
-	run(seed, "tag", "v99.0.0")
-	run(seed, "push", "-q", "origin", "main", "v99.0.0")
-
-	clone = filepath.Join(t.TempDir(), "clone")
-	run(t.TempDir(), "clone", "-q", origin, clone)
-	run(clone, "config", "user.email", "t@example.com")
-	run(clone, "config", "user.name", "t")
+	origin, seed, clone = filepath.Join(t.TempDir(), "origin"), t.TempDir(), filepath.Join(t.TempDir(), "clone")
+	copyTrio(t, updateTrio(), origin, seed, clone)
 	return origin, clone, seed
 }
 

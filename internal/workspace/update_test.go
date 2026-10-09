@@ -23,29 +23,10 @@ func gitRun(t *testing.T, dir string, args ...string) {
 // initRepo (no global hooks/config leak into the fixture).
 func repoWithOrigin(t *testing.T) string {
 	t.Helper()
-	scrubGitEnv(t)
-	t.Setenv("GIT_CONFIG_GLOBAL", filepath.Join(t.TempDir(), "gitconfig"))
-	t.Setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+	fixtureGitEnv(t)
 
-	origin := t.TempDir()
-	gitRun(t, origin, "init", "-q", "--bare", "-b", "main")
-
-	seed := t.TempDir()
-	gitRun(t, seed, "init", "-q", "-b", "main")
-	gitRun(t, seed, "config", "user.email", "t@t")
-	gitRun(t, seed, "config", "user.name", "t")
-	if err := os.WriteFile(filepath.Join(seed, "base.txt"), []byte("base\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	gitRun(t, seed, "add", ".")
-	gitRun(t, seed, "commit", "-q", "-m", "seed")
-	gitRun(t, seed, "remote", "add", "origin", origin)
-	gitRun(t, seed, "push", "-q", "origin", "main")
-
-	clone := t.TempDir()
-	gitRun(t, clone, "clone", "-q", origin, clone)
-	gitRun(t, clone, "config", "user.email", "t@t")
-	gitRun(t, clone, "config", "user.name", "t")
+	origin, clone := t.TempDir(), t.TempDir()
+	copyOriginPair(t, cloneTemplate(), clone, origin)
 	return clone
 }
 
@@ -58,9 +39,7 @@ func advanceOrigin(t *testing.T, clone, file, content string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gitRun(t, tmp, "clone", "-q", strings.TrimSpace(string(origin)), tmp)
-	gitRun(t, tmp, "config", "user.email", "t@t")
-	gitRun(t, tmp, "config", "user.name", "t")
+	gitRun(t, tmp, "clone", "-q", "--config", "user.email=t@t", "--config", "user.name=t", strings.TrimSpace(string(origin)), tmp)
 	if err := os.WriteFile(filepath.Join(tmp, file), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}

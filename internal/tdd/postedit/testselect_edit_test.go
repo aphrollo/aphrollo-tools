@@ -142,16 +142,65 @@ func TestPostEdit_TestSelectRunsTheWholePackageForATestHelperEdit(t *testing.T) 
 	}
 }
 
-func TestPostEdit_TestSelectLeavesAWriteOfSeveralFilesWhole(t *testing.T) {
+// ratchet: test_removed TestPostEdit_TestSelectLeavesAWriteOfSeveralFilesWhole: its whole-package case lives on as the "a file that is not go" case of TestPostEdit_TestSelectLeavesAWriteWholeWhenAFileOfItCannotBeMapped, and a write of Go files in one package now selects (TestPostEdit_TestSelectUnionsTheEditsOfAWriteInOnePackage)
+
+// A write that changed several files of one package runs the tests of all of
+// them together: the covering tests of each edited function, and every test of
+// each edited test file.
+func TestPostEdit_TestSelectUnionsTheEditsOfAWriteInOnePackage(t *testing.T) {
 	root, target := selectProject(t, "edit", "p.go", strings.Replace(selectOld, "return 1", "return 11", 1))
-	asked := selectSeams(t, selectOld, CoverQuery{Fresh: true, Tests: []string{"TestOne"}, Total: 3})
-	base := Runner{Cmd: "go", Args: []string{"test", "./internal/p"}}
-	got := withTestSelect(base, root, target, []string{filepath.Join(filepath.Dir(target), "q.go")})
-	if !slices.Equal(got.Args, base.Args) || got.Select == nil || !strings.Contains(got.Select.Reason, "several files") {
-		t.Fatalf("args = %q, select = %+v", got.Args, got.Select)
+	testFile := filepath.Join(filepath.Dir(target), "p_test.go")
+	mustWrite(t, testFile, strings.Replace(selectTestsOld, "_ = F2()", "_ = F2() + 1", 1))
+	asked := selectSeams(t, selectOld, CoverQuery{Fresh: true, Tests: []string{"TestOne", "TestZero"}, Total: 9})
+	prev := testSelectOldSource
+	testSelectOldSource = func(root, rel string) []byte {
+		if strings.HasSuffix(rel, "_test.go") {
+			return []byte(selectTestsOld)
+		}
+		return prev(root, rel)
 	}
-	if len(*asked) != 0 {
-		t.Fatalf("queried %v", *asked)
+	base := Runner{Cmd: "go", Args: []string{"test", "./internal/p"}}
+	got := withTestSelect(base, root, target, []string{testFile})
+	if want := []string{"test", "./internal/p", "-run=^(TestOne|TestTwo|TestZero)$"}; !slices.Equal(got.Args, want) {
+		t.Fatalf("args = %q, want %q (select = %+v)", got.Args, want, got.Select)
+	}
+	if got.Select == nil || got.Select.Run != 3 || got.Select.Total != 9 || !slices.Equal(got.Select.Funcs, []string{"F1", "p_test.go"}) {
+		t.Fatalf("select = %+v, want 3 of 9 covering F1 and p_test.go", got.Select)
+	}
+	if want := [][]string{{"internal/p", "F1"}}; !slices.EqualFunc(*asked, want, slices.Equal) {
+		t.Fatalf("queries = %v, want one for the edited function of the production file", *asked)
+	}
+}
+
+// A write whose other file cannot be reduced to tests of the package stays
+// whole, saying why, and asks the store nothing.
+func TestPostEdit_TestSelectLeavesAWriteWholeWhenAFileOfItCannotBeMapped(t *testing.T) {
+	cases := []struct {
+		name    string
+		file    string
+		content string
+		reason  string
+	}{
+		{"a file that is not go", "notes.md", "text\n", "several files"},
+		{"a file of another package", filepath.Join("..", "q", "q.go"), "package q\n", "several files"},
+		{"a file that is gone", "gone.go", "", "could not be read"},
+		{"a var edit in the other file", "q.go", "package p\n\nvar limit = 4\n", "non-function declaration"},
+	}
+	for _, c := range cases {
+		root, target := selectProject(t, "edit", "p.go", strings.Replace(selectOld, "return 1", "return 11", 1))
+		other := filepath.Join(filepath.Dir(target), c.file)
+		if c.content != "" {
+			mustWrite(t, other, c.content)
+		}
+		asked := selectSeams(t, selectOld, CoverQuery{Fresh: true, Tests: []string{"TestOne"}, Total: 3})
+		base := Runner{Cmd: "go", Args: []string{"test", "./internal/p"}}
+		got := withTestSelect(base, root, target, []string{other})
+		if !slices.Equal(got.Args, base.Args) || got.Select == nil || !strings.Contains(got.Select.Reason, c.reason) {
+			t.Errorf("%s: args = %q, select = %+v, want the argv whole for %q", c.name, got.Args, got.Select, c.reason)
+		}
+		if len(*asked) != 0 {
+			t.Errorf("%s: queried %v", c.name, *asked)
+		}
 	}
 }
 
