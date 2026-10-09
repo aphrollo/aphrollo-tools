@@ -3,6 +3,8 @@ package precommit
 import (
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -100,16 +102,19 @@ func TestSetPrecommitLockWait_BoundsTheCommitGatesWait(t *testing.T) {
 	}
 	defer release()
 
-	start := time.Now()
 	res := Precommit(root, func(Runner, string) SuiteResult { return SuiteResult{Passed: true} })
-	elapsed := time.Since(start)
 
 	if !res.Blocked {
 		t.Fatalf("an untestable commit must be rejected, got: %s", res.Message)
 	}
-	// The production default is 300s; anything near that means the setter
-	// was ignored.
-	if elapsed > 10*time.Second {
-		t.Fatalf("the commit gate waited %s against an 80ms configured wait — the knob is not wired", elapsed)
+	// The wait the refusal reports, not the clock around the whole gate: the
+	// gate's other stages take as long as a loaded box makes them. The
+	// production default is 300s; a wait near that means the setter was ignored.
+	m := regexp.MustCompile("waited: ([0-9]+)s").FindStringSubmatch(res.Message)
+	if m == nil {
+		t.Fatalf("the refusal does not report how long it waited: %s", res.Message)
+	}
+	if waited, _ := strconv.Atoi(m[1]); waited > 60 {
+		t.Fatalf("the commit gate waited %ds against an 80ms configured wait — the knob is not wired", waited)
 	}
 }

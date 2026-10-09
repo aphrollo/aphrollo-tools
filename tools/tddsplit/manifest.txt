@@ -640,6 +640,7 @@ mergecost.go                                        merge
 mergecost_test.go                                   merge
 mergelongpaths_test.go                             precommit
 mergeprune.go                                      merge
+mergeprune_generated_test.go                       merge
 mergeprune_squash.go                               merge
 mergeprune_squash_test.go                          merge
 mergeprune_subject_test.go                         merge
@@ -658,6 +659,8 @@ mergetip_test.go                                   gitx
 misc_own_test.go                                   core
 missing_module.go                                   suite
 missing_module_test.go                              suite
+moduledup.go                                       precommit
+moduledup_test.go                                  precommit
 mutants.go                                         tddtest
 mutants_accept_column_test.go                      mutation
 mutants_accept_kind.go                             mutation
@@ -797,6 +800,8 @@ mutants_prove_sandbox.go                           mutation
 mutants_prove_sandbox_test.go                      mutation
 mutants_prove_scope.go                             mutation
 mutants_prove_scope_test.go                        mutation
+mutants_prove_setup.go                             mutation
+mutants_prove_setup_test.go                        mutation
 mutants_prove_signal.go                            mutation
 mutants_prove_test.go                              mutation
 mutants_prove_untracked_test.go                    mutation
@@ -1009,6 +1014,7 @@ precommitmarker.go                                 precommit
 precommitmarker_test.go                            precommit
 premerge.go                                        core
 premergepr.go                                      merge
+premergepr_deps_test.go                            merge
 premergepr_npm.go                                  merge
 premergepr_npm_test.go                             merge
 premergepr_realsignal_test.go                      merge

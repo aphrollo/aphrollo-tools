@@ -152,6 +152,15 @@ func runSuiteStage(gateName, stage, repoRoot, root string, runner Runner, run Su
 			AppendGateLog(gateName, root, cmdString(runner), EnvMissingRejected, res.Duration)
 			return GateResult{Blocked: true, Message: fmt.Sprintf("gate %s: %s → NOT TESTED — %s; nothing was tested, so the merge is refused", gateName, cmdString(runner), cause)}
 		}
+		if sig, outside := moduleDuplication(repoRoot, root, res); sig != "" {
+			// The run died of one module loaded from two places: the install
+			// is mixed, the code was not measured. Refused as not tested, with
+			// the paths that resolved outside the checkout, not as failing tests.
+			cause := duplicationCause(sig, outside)
+			fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → NOT TESTED — %s\n", stage, gateName, cmdString(runner), root, cause)
+			AppendGateLog(gateName, root, cmdString(runner), "infra-failed", res.Duration)
+			return GateResult{Blocked: true, Message: fmt.Sprintf("gate %s: %s → NOT TESTED — %s; nothing was tested, so the merge is refused", gateName, cmdString(runner), cause)}
+		}
 		fmt.Fprintf(stderrFor(root), "[%s] gate %s: %s in %s → blocked\n", stage, gateName, cmdString(runner), root)
 		logSuiteVerdict(gateName, root, cmdString(runner), blockedVerdict(stage, res.Output), res)
 		return GateResult{Blocked: true, Message: mechRejectMessage(runner, res)}

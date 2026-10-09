@@ -78,6 +78,8 @@ type npmRun struct {
 	// Linked is true when node_modules there was a link rather than a
 	// directory of its own.
 	Linked bool
+	// Real is where that node_modules really is, links followed.
+	Real string
 }
 
 func (r npmRun) isInstall() bool {
@@ -97,6 +99,7 @@ func npmFakeRun(t *testing.T, seen *[]npmRun, install SuiteResult) SuiteRunner {
 		call := npmRun{Runner: r, Dir: d}
 		if fi, err := os.Lstat(filepath.Join(d, "node_modules")); err == nil {
 			call.Linked = fi.Mode().Type() != os.ModeDir
+			call.Real, _ = depinstall.RealPath(filepath.Join(d, "node_modules"))
 		}
 		*seen = append(*seen, call)
 		if call.isInstall() {
@@ -199,8 +202,8 @@ func TestGatePRMerge_NpmRootInstallsWhenTheMergedLockfileDiffers(t *testing.T) {
 		t.Fatalf("no suite ran in the merged checkout's npm root: %+v", seen)
 	}
 	for _, r := range runs {
-		if r.Linked {
-			t.Fatalf("linked the lane's node_modules although its lockfile differs: %+v", r)
+		if realLane, _ := depinstall.RealPath(lane); underDir(t, r.Real, realLane) {
+			t.Fatalf("used the lane's node_modules although its lockfile differs: %+v", r)
 		}
 	}
 	requireLaneNodeModulesIntact(t, lane)

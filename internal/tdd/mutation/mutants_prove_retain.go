@@ -40,6 +40,8 @@ func proveVerdictWord(code int) string {
 		return "mutant-no-tests-selected"
 	case ExitMutantsProveScopeUnknown:
 		return "mutant-scope-unknown"
+	case ExitMutantsProveSetupFailed:
+		return "mutant-setup-failed"
 	default:
 		return "mutant-refused"
 	}

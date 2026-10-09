@@ -311,7 +311,9 @@ func copyRepository(lane, root string) error {
 	if err := copyFileOver(filepath.Join(common, "config"), filepath.Join(gitDir, "config")); err != nil {
 		return err
 	}
-	for _, args := range [][]string{{"config", "core.bare", "false"}, {"config", "--unset-all", "core.worktree"}} {
+	// The copy sits deeper than the lane, and a git call inside it on a long
+	// path fails on Windows without this.
+	for _, args := range [][]string{{"config", "core.bare", "false"}, {"config", "core.longpaths", "true"}, {"config", "--unset-all", "core.worktree"}} {
 		_, _ = git(root, args...)
 	}
 	for _, remote := range strings.Fields(gitOut(root, "remote")) {

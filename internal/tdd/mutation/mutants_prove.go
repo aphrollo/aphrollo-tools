@@ -72,6 +72,11 @@ const (
 	// the line, which a proof that cannot see what reaches the line has no
 	// standing to make (#691).
 	ExitMutantsProveScopeUnknown = 8
+	// ExitMutantsProveSetupFailed: the mutation was verified applied and the
+	// named test failed, but on its own setup (a git call of its fixture that
+	// the copy's path depth broke), not on the mutated line. Inconclusive, in
+	// the family of the unreadable red: never a kill.
+	ExitMutantsProveSetupFailed = 9
 )
 
 // matchWantFail picks the failing test the prediction named, or "" when none
@@ -412,6 +417,17 @@ func RunMutantsProve(opts MutantsProveOptions, run SuiteRunner, stdout, stderr i
 
 	failing := ExtractFailingTests(res.Output)
 	matched := matchWantFail(failing, opts.WantFail)
+
+	// The named test failed, but a failure of its own setup is no evidence
+	// about the mutated line: never a kill.
+	if !res.Passed && matched != "" {
+		if sig := proveSetupFailure(res.Output); sig != "" {
+			fmt.Fprintf(stdout, "gate: mutant SETUP FAILED — %s failed on its own setup (%q in its output), not on the mutation: "+
+				"this is not a kill and proves nothing about %q (mutation verified applied: %s; restored)\n",
+				matched, sig, opts.WantFail, landed)
+			return retainProveRun(laneRoot, runner, res, ExitMutantsProveSetupFailed)
+		}
+	}
 
 	switch {
 	case !res.Passed && matched != "":
