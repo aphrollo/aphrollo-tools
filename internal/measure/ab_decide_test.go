@@ -76,7 +76,7 @@ func TestComputeAB_EnforceWithFewerEscapesIsDecidedEnforceBetter(t *testing.T) {
 }
 
 func TestComputeAB_AnIntervalInsideTheBandIsNoMeaningfulDifference(t *testing.T) {
-	ab := computeAB(abCat(abEscapeLanes("enforce", 12, 0), abEscapeLanes("warn", 12, 0)), Options{})
+	ab := computeAB(abCat(abEscapeLanes("enforce", 100, 3), abEscapeLanes("warn", 100, 3)), Options{})
 	if m := metricRow(t, ab, "escapes per lane"); m.Verdict != VerdictNoDifference || !ab.Decidable {
 		t.Errorf("verdict = %q decidable %v, want %q", m.Verdict, ab.Decidable, VerdictNoDifference)
 	}
@@ -139,10 +139,10 @@ func TestAB_TextAlwaysPrintsLanguageRows(t *testing.T) {
 	}
 }
 
-// One escape in forty lanes moves the mean by 0.025, but the interval around it reaches
+// Three escapes against two in forty lanes move the mean by 0.025, but the interval around it reaches
 // past the 0.05 band: that is not "no meaningful difference", it is not yet known.
 func TestComputeAB_AnIntervalWiderThanTheBandIsNotNoMeaningfulDifference(t *testing.T) {
-	ab := computeAB(abCat(abEscapeLanes("enforce", 40, 1), abEscapeLanes("warn", 40, 0)), Options{})
+	ab := computeAB(abCat(abEscapeLanes("enforce", 40, 3), abEscapeLanes("warn", 40, 2)), Options{})
 	if m := metricRow(t, ab, "escapes per lane"); m.Verdict != VerdictDeciding {
 		t.Errorf("verdict = %q [%v, %v], want %q", m.Verdict, m.Lo, m.Hi, VerdictDeciding)
 	}
@@ -170,5 +170,94 @@ func TestVersionAtLeast_ComparesNumericallyAndTakesEqualAsEnough(t *testing.T) {
 		if got := versionAtLeast(c.v, c.min); got != c.want {
 			t.Errorf("versionAtLeast(%q, %q) = %v, want %v", c.v, c.min, got, c.want)
 		}
+	}
+}
+
+func TestAB_AllZeroEscapesAtEightLanesAnArmIsDeciding(t *testing.T) {
+	ab := computeAB(abCat(abEscapeLanes("enforce", 8, 0), abEscapeLanes("warn", 8, 0)), Options{})
+	m := metricRow(t, ab, "escapes per lane")
+	if m.Verdict != VerdictDeciding || m.Why != "lanes 8 vs 8, needs 10" || ab.Decidable {
+		t.Errorf("verdict %q why %q decidable %v, want deciding for lack of lanes", m.Verdict, m.Why, ab.Decidable)
+	}
+}
+
+func TestAB_NoEventsAtTwelveLanesAnArmIsDecidingNotNoDifference(t *testing.T) {
+	ab := computeAB(abCat(abEscapeLanes("enforce", 12, 0), abEscapeLanes("warn", 12, 0)), Options{})
+	m := metricRow(t, ab, "escapes per lane")
+	if m.Verdict != VerdictDeciding || m.Why != "0 events, needs 5" {
+		t.Errorf("verdict %q why %q, want deciding (0 events, needs 5)", m.Verdict, m.Why)
+	}
+	if !strings.Contains(ab.Text(), "deciding (0 events, needs 5)") {
+		t.Errorf("text lacks the shortfall:\n%s", ab.Text())
+	}
+}
+
+// The thresholds are inclusive: 10 lanes an arm, 5 events across both, decide; one less does not.
+func TestAB_TheLaneAndEventThresholdsAreInclusive(t *testing.T) {
+	for _, c := range []struct {
+		e, w, bad int
+		want      string
+	}{
+		{10, 10, 5, VerdictWarnBetter}, {9, 10, 5, VerdictDeciding}, {10, 9, 5, VerdictDeciding},
+		{10, 10, 4, VerdictDeciding}, {12, 12, 5, VerdictWarnBetter},
+	} {
+		ab := computeAB(abCat(abEscapeLanes("enforce", c.e, c.bad), abEscapeLanes("warn", c.w, 0)), Options{})
+		if m := metricRow(t, ab, "escapes per lane"); m.Verdict != c.want {
+			t.Errorf("%d vs %d lanes, %d events: %q (%s), want %q", c.e, c.w, c.bad, m.Verdict, m.Why, c.want)
+		}
+	}
+}
+
+// ttgLanes is n lanes of arm, each with one deny and a green dur seconds later.
+func ttgLanes(arm string, n int, dur float64) []tdd.Event {
+	var out []tdd.Event
+	for i := range n {
+		lane := fmt.Sprintf("%s-t%d", arm, i)
+		out = append(out, abLane(float64(i), lane, arm, "go", "block")...)
+		out = append(out, gateAt(float64(i)+1+dur, lane, "commit_gate", "green"))
+	}
+	return out
+}
+
+func TestAB_TimeToGreenAtSixAgainstTwoIsDeciding(t *testing.T) {
+	ab := computeAB(abCat(ttgLanes("enforce", 6, 600), plainTimeless("enforce", 4), ttgLanes("warn", 2, 10), plainTimeless("warn", 8)), Options{})
+	m := metricRow(t, ab, "time to green p50")
+	if m.Verdict != VerdictDeciding || m.Why != "n 6 vs 2, needs 10" {
+		t.Errorf("verdict %q why %q, want deciding", m.Verdict, m.Why)
+	}
+	ab = computeAB(abCat(ttgLanes("enforce", 12, 600), ttgLanes("warn", 12, 10)), Options{})
+	if m := metricRow(t, ab, "time to green p50"); m.Verdict != VerdictWarnBetter {
+		t.Errorf("12 vs 12 sampled: %q (%s), want decided: warn better", m.Verdict, m.Why)
+	}
+}
+
+// Enough lanes in each arm, but only some of them have a time to green.
+func TestAB_TimeToGreenNeedsTenSampledLanesInEachArm(t *testing.T) {
+	for _, c := range []struct {
+		e, w int
+		want string
+	}{{10, 10, VerdictWarnBetter}, {9, 10, VerdictDeciding}, {10, 9, VerdictDeciding}} {
+		events := abCat(ttgLanes("enforce", c.e, 600), ttgLanes("warn", c.w, 10),
+			plainTimeless("enforce", 10-c.e), plainTimeless("warn", 10-c.w))
+		ab := computeAB(events, Options{})
+		if m := metricRow(t, ab, "time to green p50"); m.Verdict != c.want {
+			t.Errorf("sampled %d vs %d: %q (%s), want %q", c.e, c.w, m.Verdict, m.Why, c.want)
+		}
+	}
+}
+
+// plainTimeless is n lanes of arm with no red, so no time to green.
+func plainTimeless(arm string, n int) []tdd.Event {
+	var out []tdd.Event
+	for i := range max(n, 0) {
+		out = append(out, ev(float64(i), fmt.Sprintf("%s-p%d", arm, i), "lane-arm", detail("arm", arm, "why", "assigned", "mode", arm)))
+	}
+	return out
+}
+
+func TestAB_TheMaximumWithTooFewEventsSaysSo(t *testing.T) {
+	ab := computeAB(abCat(abEscapeLanes("enforce", MaxABLanes, 0), abEscapeLanes("warn", MaxABLanes, 0)), Options{})
+	if ab.Verdict != VerdictMaxReached || !strings.Contains(ab.Text(), "too few events to measure — decide on friction and cost") {
+		t.Errorf("verdict %q, text:\n%s", ab.Verdict, ab.Text())
 	}
 }

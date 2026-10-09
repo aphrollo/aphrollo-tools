@@ -25,6 +25,9 @@ const (
 // TooSmall is what the readout adds when the maximum is reached with nothing decided.
 const TooSmall = "too small to measure — decide on friction and cost"
 
+// TooFewEvents is what it adds when the maximum is reached with too little evidence to judge.
+const TooFewEvents = "too few events to measure — decide on friction and cost"
+
 // abBootstrapDraws and the seed fix the bootstrap: one log, one set of bytes.
 const abBootstrapDraws = 2000
 
@@ -37,24 +40,43 @@ type abMetricDef struct {
 	Name   string
 	Role   string
 	Band   float64
+	Need   abEvidence
 	Format func(float64) string
 	Stat   func([]float64) float64
 	Sample func(*abLaneFacts) (float64, bool)
 }
 
+// abEvidence is the least a metric needs before it may say anything but deciding: lanes in
+// each arm, events summed over both arms (rates), and sampled lanes in each arm (times).
+// An interval over less is not evidence: an all-zero sample has an interval of exactly 0.
+type abEvidence struct{ Lanes, Events, N int }
+
+// short says what is missing, "" when the evidence suffices.
+func (e abEvidence) short(lanesE, lanesW int, events float64, nE, nW int) string {
+	switch {
+	case lanesE < e.Lanes || lanesW < e.Lanes:
+		return fmt.Sprintf("lanes %d vs %d, needs %d", lanesE, lanesW, e.Lanes)
+	case int(events) < e.Events:
+		return fmt.Sprintf("%d events, needs %d", int(events), e.Events)
+	case nE < e.N || nW < e.N:
+		return fmt.Sprintf("n %d vs %d, needs %d", nE, nW, e.N)
+	}
+	return ""
+}
+
 // abMetrics is the table the A/B is judged by, fixed before the data: the primary
 // metric first. Adding a metric is a row, not control flow.
 var abMetrics = []abMetricDef{
-	{"escapes per lane", "primary", 0.05, perLane, meanOf,
+	{"escapes per lane", "primary", 0.05, abEvidence{Lanes: 10, Events: 5}, perLane, meanOf,
 		func(f *abLaneFacts) (float64, bool) { return float64(f.records + f.ciRed), true }},
-	{"time to green p50", "guardrail", 60, secs, medianOf,
+	{"time to green p50", "guardrail", 60, abEvidence{Lanes: 10, N: 10}, secs, medianOf,
 		func(f *abLaneFacts) (float64, bool) {
 			if f.greenAfter.IsZero() {
 				return 0, false
 			}
 			return f.greenAfter.Sub(f.firstAt).Seconds(), true
 		}},
-	{"denies per lane", "guardrail", 0.5, perLane, meanOf,
+	{"denies per lane", "guardrail", 0.5, abEvidence{Lanes: 10, Events: 5}, perLane, meanOf,
 		func(f *abLaneFacts) (float64, bool) { return float64(f.denies), true }},
 }
 
@@ -75,6 +97,8 @@ type ABMetric struct {
 	Hi          float64 `json:"hi"`
 	HasInterval bool    `json:"has_interval"`
 	Verdict     string  `json:"verdict"`
+	// Why is what evidence is missing while the verdict is deciding or max reached.
+	Why string `json:"why,omitempty"`
 }
 
 func meanOf(s []float64) float64 {
@@ -118,8 +142,8 @@ func bootstrapDiff(a, b []float64, stat func([]float64) float64) (diff, lo, hi f
 
 // judge is the stop rule: decided when the interval excludes 0 or lies inside the band;
 // at the maximum lanes an arm with neither is "max reached"; otherwise still deciding.
-func judge(m ABMetric, lanesE, lanesW int) string {
-	if m.HasInterval {
+func judge(m ABMetric, lanesE, lanesW int, enough bool) string {
+	if m.HasInterval && enough {
 		switch {
 		case m.Lo > 0:
 			return VerdictWarnBetter
@@ -161,7 +185,16 @@ func foldMetrics(lanes map[string][]*abLaneFacts) ([]ABMetric, string, bool) {
 		} else {
 			m.Diff = m.Enforce - m.Warn
 		}
-		m.Verdict = judge(m, len(lanes[abArms[0]]), len(lanes[abArms[1]]))
+		events := 0.0
+		for _, v := range append(append([]float64(nil), s[0]...), s[1]...) {
+			events += v
+		}
+		lE, lW := len(lanes[abArms[0]]), len(lanes[abArms[1]])
+		if def.Need.Events == 0 {
+			events = 0
+		}
+		m.Why = def.Need.short(lE, lW, events, len(s[0]), len(s[1]))
+		m.Verdict = judge(m, lE, lW, m.Why == "")
 		out = append(out, m)
 	}
 	primary := out[0].Verdict
@@ -177,6 +210,10 @@ func signed(f func(float64) string, v float64) string {
 
 // text is the metric as the line `stats --ab` prints.
 func (m ABMetric) text() string {
+	verdict := m.Verdict
+	if m.Why != "" {
+		verdict += " (" + m.Why + ")"
+	}
 	format := perLane
 	for _, def := range abMetrics {
 		if def.Name == m.Name {
@@ -186,10 +223,10 @@ func (m ABMetric) text() string {
 	head := fmt.Sprintf("%s (%s): enforce %s (n %d), warn %s (n %d)", m.Name, m.Role,
 		format(m.Enforce), m.NEnforce, format(m.Warn), m.NWarn)
 	if !m.HasInterval {
-		return head + "; no interval under 2 per arm; " + m.Verdict
+		return head + "; no interval under 2 per arm; " + verdict
 	}
 	return fmt.Sprintf("%s; enforce minus warn %s, 90%% interval [%s, %s]; %s", head,
-		signed(format, m.Diff), signed(format, m.Lo), signed(format, m.Hi), m.Verdict)
+		signed(format, m.Diff), signed(format, m.Lo), signed(format, m.Hi), verdict)
 }
 
 // abFallbackVersion is the first release that records the arm of a lane: where a log holds

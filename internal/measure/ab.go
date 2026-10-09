@@ -48,6 +48,9 @@ type AB struct {
 	// BeforeStart is the lanes that ran before the A/B started in the repo, or on a binary
 	// without it: the arm never acted there, so they are in neither arm.
 	BeforeStart int `json:"before_start_lanes"`
+	// Advice is what to do when the maximum is reached with no decision: the experiment is
+	// too small, or has too few events, to measure.
+	Advice string `json:"advice,omitempty"`
 	// Metrics are the pre-registered metrics (abMetrics), primary first. Verdict is the
 	// primary metric's; Decidable is whether it is anything but deciding.
 	Metrics   []ABMetric `json:"metrics"`
@@ -291,6 +294,12 @@ func summariseAB(lanes map[string]*abLaneFacts) AB {
 		out.Arms = append(out.Arms, *a)
 	}
 	out.Metrics, out.Verdict, out.Decidable = foldMetrics(armLanes)
+	if out.Verdict == VerdictMaxReached {
+		out.Advice = TooSmall
+		if out.Metrics[0].Why != "" {
+			out.Advice = TooFewEvents
+		}
+	}
 	out.Languages = zeroFilledLanguages(langs)
 	return out
 }
@@ -350,8 +359,8 @@ func (ab AB) Text() string {
 		p("  %s", m.text())
 	}
 	p("verdict (%s): %s", abMetrics[0].Name, ab.Verdict)
-	if ab.Verdict == VerdictMaxReached {
-		p("  %s", TooSmall)
+	if ab.Advice != "" {
+		p("  %s", ab.Advice)
 	}
 	return b.String()
 }
