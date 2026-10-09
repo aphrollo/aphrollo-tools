@@ -10,10 +10,6 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/tddarm"
 )
 
-// MinABLanes is the lanes each arm needs before the A/B may decide anything
-// (docs/trellis-architecture.md §5).
-const MinABLanes = 30
-
 // abArms are the two arms, in the order the report lists them.
 var abArms = [...]string{"enforce", "warn"}
 
@@ -30,7 +26,6 @@ type ABArm struct {
 	Dropped         int    `json:"dropped"`
 	HeldOut         int    `json:"held_out"`
 	TimeToGreen     Dist   `json:"time_to_green_secs"`
-	Reached         bool   `json:"reached_min_lanes"`
 	// Versions are the binary versions the arm's lanes ran under, listed only when
 	// there is more than one: a mixed arm is a comparison to read with care.
 	Versions []string `json:"versions,omitempty"`
@@ -50,7 +45,11 @@ type AB struct {
 	Arms      []ABArm  `json:"arms"`
 	Languages []ABLang `json:"languages"`
 	Pinned    int      `json:"pinned_lanes"`
-	Decidable bool     `json:"decidable"`
+	// Metrics are the pre-registered metrics (abMetrics), primary first. Verdict is the
+	// primary metric's; Decidable is whether it is anything but deciding.
+	Metrics   []ABMetric `json:"metrics"`
+	Verdict   string     `json:"verdict"`
+	Decidable bool       `json:"decidable"`
 }
 
 // abLaneFacts is what the log says of one lane.
@@ -215,6 +214,7 @@ func foldABDecision(f *abLaneFacts, e stamped) {
 func summariseAB(lanes map[string]*abLaneFacts) AB {
 	arms := map[string]*ABArm{}
 	armVersions := map[string]versionSet{}
+	armLanes := map[string][]*abLaneFacts{}
 	samples := map[string][]float64{}
 	langs := map[string]*ABLang{}
 	for _, name := range abArms {
@@ -231,6 +231,7 @@ func summariseAB(lanes map[string]*abLaneFacts) AB {
 			continue
 		}
 		a.Lanes++
+		armLanes[f.arm] = append(armLanes[f.arm], f)
 		if armVersions[f.arm] == nil {
 			armVersions[f.arm] = versionSet{}
 		}
@@ -260,22 +261,38 @@ func summariseAB(lanes map[string]*abLaneFacts) AB {
 			l.Warnings += c[1]
 		}
 	}
-	out.Decidable = true
 	for _, name := range abArms {
 		a := arms[name]
 		a.TimeToGreen = dist(samples[name])
 		if vs := armVersions[name].list(); len(vs) > 1 {
 			a.Versions = vs
 		}
-		a.Reached = a.Lanes >= MinABLanes
-		out.Decidable = out.Decidable && a.Reached
 		out.Arms = append(out.Arms, *a)
 	}
+	out.Metrics, out.Verdict, out.Decidable = foldMetrics(armLanes)
+	out.Languages = zeroFilledLanguages(langs)
+	return out
+}
+
+// zeroFilledLanguages is one row per arm for every language either arm met, an arm
+// that met none showing zeros, sorted by arm then language.
+func zeroFilledLanguages(langs map[string]*ABLang) []ABLang {
+	seen := map[string]bool{}
 	for _, l := range langs {
-		out.Languages = append(out.Languages, *l)
+		seen[l.Lang] = true
 	}
-	sort.Slice(out.Languages, func(i, j int) bool {
-		a, b := out.Languages[i], out.Languages[j]
+	var out []ABLang
+	for _, arm := range abArms {
+		for lang := range seen {
+			if l := langs[arm+"/"+lang]; l != nil {
+				out = append(out, *l)
+			} else {
+				out = append(out, ABLang{Arm: arm, Lang: lang})
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
 		if a.Arm != b.Arm {
 			return a.Arm < b.Arm
 		}
@@ -289,7 +306,7 @@ func (ab AB) Text() string {
 	var b strings.Builder
 	p := func(format string, a ...any) { fmt.Fprintf(&b, format+"\n", a...) }
 	for _, a := range ab.Arms {
-		p("%-8s %d of %d lanes (%s)", a.Arm, a.Lanes, MinABLanes, reachedText(a.Reached))
+		p("%-8s %d lanes (a decision is forced at %d per arm)", a.Arm, a.Lanes, MaxABLanes)
 		p("  denies %d  warnings %d  overrides %d  dropped for the budget %d  held out %d", a.Denies, a.Warnings, a.Overrides, a.Dropped, a.HeldOut)
 		p("  escapes %d (escape records %d, CI red after a local green %d)", a.Escapes, a.EscapeRecords, a.CIRedAfterGreen)
 		p("  friction: denies %d + overrides %d; time to green n %d%s  p50 %s  p90 %s",
@@ -298,23 +315,23 @@ func (ab AB) Text() string {
 			p("  note: %s lanes ran under different versions: %s", a.Arm, strings.Join(a.Versions, ", "))
 		}
 	}
+	if len(ab.Languages) == 0 {
+		p("  languages: none recorded (no red-green decision named a language)")
+	}
 	for _, l := range ab.Languages {
 		p("  %-8s %-10s %d lanes  denies %d  warnings %d", l.Arm, l.Lang, l.Lanes, l.Denies, l.Warnings)
 	}
 	p("pinned lanes (outside both arms) %d", ab.Pinned)
-	if ab.Decidable {
-		p("both arms have %d lanes or more: the A/B can decide", MinABLanes)
-	} else {
-		p("not decidable yet: each arm needs %d lanes", MinABLanes)
+	p("dropped for the budget: red-green decisions the PreToolUse hook did not finish in time; the lane stays in its arm, the decision is unrecorded")
+	p("decision metrics (enforce minus warn; lower is better; deciding until an interval excludes 0 or lies inside the band):")
+	for _, m := range ab.Metrics {
+		p("  %s", m.text())
+	}
+	p("verdict (%s): %s", abMetrics[0].Name, ab.Verdict)
+	if ab.Verdict == VerdictMaxReached {
+		p("  %s", TooSmall)
 	}
 	return b.String()
-}
-
-func reachedText(ok bool) string {
-	if ok {
-		return "enough"
-	}
-	return "too few"
 }
 
 // noGreenNote says why an arm's time to green has no sample, where it has none: a log

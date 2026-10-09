@@ -84,7 +84,7 @@ figcaption { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
 <header>
 <h1>Report 2026-W41</h1>
 <p class="sub">aphrollo-tools · last 7d up to 2026-10-07T12:00:00Z · 1,234 events. Replay an event by running its <code>aphrollo why &lt;seq&gt;</code> text in the repo.</p>
-<p class="lede">The A/B is not decidable yet: enforce 12 of 30 lanes, warn 31 of 30 lanes. One proposal.</p>
+<p class="lede">The A/B is still deciding: enforce 12 lanes, warn 31 lanes. One proposal.</p>
 <section id="changed">
 <h2>Changed</h2>
 <ul>
@@ -165,8 +165,8 @@ figcaption { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
 
 <section id="ab">
 <h2>A/B and shadow, per arm and language</h2>
-<figure class="bars" aria-label="lanes per A/B arm in the whole log, 30 needed"><figcaption>lanes per A/B arm in the whole log, 30 needed</figcaption><div class="row"><span class="lbl">enforce</span><span class="track"><span class="bar" style="width:40.0%"></span></span><span class="val">12 of 30</span></div><div class="row"><span class="lbl">warn</span><span class="track"><span class="bar" style="width:100.0%"></span></span><span class="val">31 of 30</span></div></figure>
-<p class="note">Not decidable yet: each arm needs 30 lanes in the whole log.</p>
+<figure class="bars" aria-label="lanes per A/B arm in the whole log, 50 at most"><figcaption>lanes per A/B arm in the whole log, 50 at most</figcaption><div class="row"><span class="lbl">enforce</span><span class="track"><span class="bar" style="width:24.0%"></span></span><span class="val">12 of 50</span></div><div class="row"><span class="lbl">warn</span><span class="track"><span class="bar" style="width:62.0%"></span></span><span class="val">31 of 50</span></div></figure>
+<p class="note">Still deciding on escapes per lane; an arm stops at 50 lanes in the whole log.</p>
 <h3>This window</h3><div class="scroll"><table><tr><th>Arm</th><th class="n">Lanes</th><th class="n">Denies</th><th class="n">Warnings</th><th class="n">Overrides</th><th class="n">Escapes</th><th class="n">Held out</th><th class="n">Budget drops</th></tr>
 <tr><td>enforce</td><td class="n">4</td><td class="n">3</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">1</td><td class="n">2</td></tr>
 <tr><td>warn</td><td class="n">6</td><td class="n">0</td><td class="n">5</td><td class="n">0</td><td class="n">0</td><td class="n">0</td><td class="n">0</td></tr>

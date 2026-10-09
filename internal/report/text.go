@@ -83,7 +83,7 @@ func (r Report) Text() string {
 	p("")
 	p("4. A/B and shadow, per arm and language")
 	b.WriteString(indent(r.AB.Text()))
-	p("  cumulative (whole log): %s; %s", abLanes(r.ABTotal), abStatus(r.ABTotal))
+	p("  cumulative (whole log): %s", abLanes(r.ABTotal))
 	p("  shadow: %d fires, %d dropped for the budget", r.Shadow.Fires, r.Shadow.Dropped)
 	for _, l := range r.Shadow.Languages {
 		rate := l.Rate()
@@ -129,13 +129,6 @@ func (r Report) Text() string {
 		}
 	}
 	return b.String()
-}
-
-func abStatus(ab measure.AB) string {
-	if ab.Decidable {
-		return "both arms have the lanes: the A/B can decide"
-	}
-	return "not decidable yet"
 }
 
 func (r Refs) text() string {

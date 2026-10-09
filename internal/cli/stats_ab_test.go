@@ -19,13 +19,13 @@ func abSeed() map[time.Duration]tdd.Event {
 	}
 }
 
-func TestStatsAB_PrintsEachArmWithItsLanesAndWhetherItReachedThirty(t *testing.T) {
+func TestStatsAB_PrintsEachArmWithItsLanesAndTheVerdict(t *testing.T) {
 	repo := statsRepo(t, abSeed())
 	code, out, errOut := runStatsCmd(t, "--repo", repo, "--ab")
 	if code != 0 {
 		t.Fatalf("stats --ab exit = %d, stderr: %s", code, errOut)
 	}
-	for _, want := range []string{"enforce", "warn", "1 of 30 lanes", "warnings 1", "not decidable yet"} {
+	for _, want := range []string{"enforce", "warn", "1 lanes", "warnings 1", "verdict (escapes per lane): deciding"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stats --ab lacks %q:\n%s", want, out)
 		}
@@ -74,3 +74,5 @@ func TestStatsAB_CountsALaneThatRecordedNoArm(t *testing.T) {
 		t.Errorf("lanes in arms = %d, want 1 (calc-split, assigned at read time)", n)
 	}
 }
+
+// ratchet: test_removed TestStatsAB_PrintsEachArmWithItsLanesAndWhetherItReachedThirty: renamed TestStatsAB_PrintsEachArmWithItsLanesAndTheVerdict: the 30-lane rule is replaced by interval verdicts

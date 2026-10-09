@@ -33,17 +33,21 @@ Test cost (merge-gate suite runs recorded: 6, p50 6.8m)
   false positives (wrong denies): 1
 
 4. A/B and shadow, per arm and language
-  enforce  4 of 30 lanes (too few)
+  enforce  4 lanes (a decision is forced at 50 per arm)
     denies 3  warnings 0  overrides 0  dropped for the budget 2  held out 1
     escapes 0 (escape records 0, CI red after a local green 0)
-    friction: denies 3 + overrides 0; time to green n 0  p50 0.0s  p90 0.0s
-  warn     6 of 30 lanes (too few)
+    friction: denies 3 + overrides 0; time to green n 0 (red recorded, no green after it yet)  p50 0.0s  p90 0.0s
+  warn     6 lanes (a decision is forced at 50 per arm)
     denies 0  warnings 5  overrides 0  dropped for the budget 0  held out 0
     escapes 0 (escape records 0, CI red after a local green 0)
-    friction: denies 0 + overrides 0; time to green n 0  p50 0.0s  p90 0.0s
+    friction: denies 0 + overrides 0; time to green n 0 (red recorded, no green after it yet)  p50 0.0s  p90 0.0s
+    languages: none recorded (no red-green decision named a language)
   pinned lanes (outside both arms) 0
-  not decidable yet: each arm needs 30 lanes
-  cumulative (whole log): enforce 12 of 30 lanes, warn 31 of 30 lanes; not decidable yet
+  dropped for the budget: red-green decisions the PreToolUse hook did not finish in time; the lane stays in its arm, the decision is unrecorded
+  decision metrics (enforce minus warn; lower is better; deciding until an interval excludes 0 or lies inside the band):
+    escapes per lane (primary): enforce 0.00 (n 4), warn 0.00 (n 6); no interval under 2 per arm; deciding
+  verdict (escapes per lane): deciding
+  cumulative (whole log): enforce 12 lanes, warn 31 lanes; escapes per lane: deciding
   shadow: 40 fires, 2 dropped for the budget
     go           30 fires  agree 80%  held out 1  budget drops 2
     python       4 fires  agree under 10 fires  held out 0  budget drops 0

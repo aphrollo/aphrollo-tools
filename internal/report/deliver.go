@@ -53,7 +53,7 @@ var ErrRefused = errors.New("refused by the undercover check")
 
 // Deliver opens this week's report as one issue, closes the previous weeks'
 // report issues with a comment linking it, and, the first time both A/B arms
-// have MinABLanes lanes, opens the A/B ready issue. Each step is idempotent: a
+// hold a verdict on the primary metric or reach the maximum lanes, opens the A/B ready issue. Each step is idempotent: a
 // step already done is a [skip] and changes nothing. The issues are listed
 // first and the report is built only when something is to be opened, so a
 // week already filed costs one listing. A listing that fails is an error before
@@ -135,11 +135,14 @@ func Deliver(t Tracker, build func(abReady bool) Report, o DeliverOptions) ([]st
 	case abDone:
 		say("skip", "%s (#%d exists)", abTitle, abIssue.Number)
 	case !rep.ABTotal.Decidable:
-		say("skip", "%s: not reached (%s)", abTitle, abLanes(rep.ABTotal))
+		say("skip", "%s: still deciding (%s)", abTitle, abLanes(rep.ABTotal))
 	default:
-		body := "Both arms of the red-to-green A/B have " + strconv.Itoa(measure.MinABLanes) +
-			" lanes or more: " + abLanes(rep.ABTotal) + ".\n\nThis is the signal to resume: read " +
-			"`aphrollo stats --ab` and the report, then decide enforce or warn.\n"
+		body := "The red-to-green A/B has a verdict on its primary metric (escapes per lane): " + rep.ABTotal.Verdict +
+			" (" + abLanes(rep.ABTotal) + ").\n\n"
+		if rep.ABTotal.Verdict == measure.VerdictMaxReached {
+			body += measure.TooSmall + ".\n\n"
+		}
+		body += "This is the signal to resume: read `aphrollo stats --ab` and the report, then decide enforce or warn.\n"
 		if _, err := open(abTitle, body, nil); err != nil {
 			return out, err
 		}

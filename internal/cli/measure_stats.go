@@ -39,8 +39,14 @@ named earlier, over the window (the one to trend to 0). Read-only.
                    the lane; a rule under 10 fires says so instead of a rate
   --ab             instead: the red-to-green A/B per arm and language: lanes, denies,
                    warnings, overrides, escapes, friction (denies, overrides, time to
-                   green) and whether each arm has the 30 lanes it needs; a pinned
-                   lane is in neither arm
+                   green), then the pre-registered metrics (escapes per lane,
+                   time to green p50, denies per lane): enforce minus warn with a
+                   90% bootstrap interval (fixed seed) and the verdict: deciding,
+                   decided: enforce better, decided: warn better, no meaningful
+                   difference, or max reached (50 lanes an arm). A lane that
+                   recorded no arm gets the one its repo and name hash to; a
+                   <lane>-merge branch counts as its lane; a pinned lane is in
+                   neither arm
   --briefs         instead: the token count of the managed CLAUDE.md block, the
                    tdd skill and each agent brief against the caps (400 for the
                    block and skill, 250 for an agent), over-cap ones marked
