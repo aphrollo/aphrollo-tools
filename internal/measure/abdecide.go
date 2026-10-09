@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"sort"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // MaxABLanes is the lanes an arm may hold before the A/B stops waiting for a decision:
@@ -109,7 +112,8 @@ func bootstrapDiff(a, b []float64, stat func([]float64) float64) (diff, lo, hi f
 		diffs[i] = stat(ra) - stat(rb)
 	}
 	sort.Float64s(diffs)
-	return diff, diffs[abBootstrapDraws/20-1], diffs[abBootstrapDraws*19/20-1]
+	l, h := intervalRanks(abBootstrapDraws)
+	return diff, diffs[l], diffs[h]
 }
 
 // judge is the stop rule: decided when the interval excludes 0 or lies inside the band;
@@ -187,3 +191,76 @@ func (m ABMetric) text() string {
 	return fmt.Sprintf("%s; enforce minus warn %s, 90%% interval [%s, %s]; %s", head,
 		signed(format, m.Diff), signed(format, m.Lo), signed(format, m.Hi), m.Verdict)
 }
+
+// abFallbackVersion is the first release that records the arm of a lane: where a log holds
+// no lane-arm event, the A/B starts at the first event of a binary at or after it.
+const abFallbackVersion = "1.30.1"
+
+// abGateKinds are the events a gate wrote, so the binary that wrote one was running.
+var abGateKinds = map[string]bool{"commit_gate": true, "merge_gate": true, "stage.timing": true, "shadow": true, "lane-arm": true}
+
+// abBegin is when and with which binary the A/B started in a repo.
+type abBegin struct {
+	at      time.Time
+	version string
+	ok      bool
+}
+
+// abStart is the time of the first lane-arm event of the log, with the version that wrote
+// it (the fallback version when that event carries none); failing that, the first event
+// from a binary at or after abFallbackVersion; failing that, no start.
+func abStart(evs []stamped) abBegin {
+	for _, e := range evs {
+		if e.Kind == "lane-arm" {
+			v := binVersion(e.Event)
+			if v == UnknownVersion {
+				v = abFallbackVersion
+			}
+			return abBegin{e.at, v, true}
+		}
+	}
+	for _, e := range evs {
+		if versionAtLeast(binVersion(e.Event), abFallbackVersion) {
+			return abBegin{e.at, abFallbackVersion, true}
+		}
+	}
+	return abBegin{}
+}
+
+// versionAtLeast compares dotted numeric versions; an unparsable or unknown one is below any.
+func versionAtLeast(v, min string) bool {
+	a, b := versionParts(v), versionParts(min)
+	if a == nil || b == nil {
+		return false
+	}
+	for i := range 3 {
+		if a[i] != b[i] {
+			return a[i] > b[i]
+		}
+	}
+	return true
+}
+
+func versionParts(v string) []int {
+	v = strings.TrimPrefix(v, "v")
+	if i := strings.IndexAny(v, "-+"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	out := make([]int, 3)
+	for i, p := range parts {
+		n, err := strconv.Atoi(p)
+		if err != nil {
+			return nil
+		}
+		out[i] = n
+	}
+	return out
+}
+
+// intervalRanks are the 0-based positions of the 5th and 95th percentile (nearest rank)
+// among n sorted draws: the ends of a 90% interval.
+func intervalRanks(n int) (lo, hi int) { return n/20 - 1, n*19/20 - 1 }

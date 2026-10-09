@@ -43,6 +43,7 @@ Test cost (merge-gate suite runs recorded: 6, p50 6.8m)
     friction: denies 0 + overrides 0; time to green n 0 (red recorded, no green after it yet)  p50 0.0s  p90 0.0s
     languages: none recorded (no red-green decision named a language)
   pinned lanes (outside both arms) 0
+  before the A/B started: 0 lanes
   dropped for the budget: red-green decisions the PreToolUse hook did not finish in time; the lane stays in its arm, the decision is unrecorded
   decision metrics (enforce minus warn; lower is better; deciding until an interval excludes 0 or lies inside the band):
     escapes per lane (primary): enforce 0.00 (n 4), warn 0.00 (n 6); no interval under 2 per arm; deciding

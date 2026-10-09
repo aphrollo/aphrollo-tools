@@ -45,6 +45,9 @@ type AB struct {
 	Arms      []ABArm  `json:"arms"`
 	Languages []ABLang `json:"languages"`
 	Pinned    int      `json:"pinned_lanes"`
+	// BeforeStart is the lanes that ran before the A/B started in the repo, or on a binary
+	// without it: the arm never acted there, so they are in neither arm.
+	BeforeStart int `json:"before_start_lanes"`
 	// Metrics are the pre-registered metrics (abMetrics), primary first. Verdict is the
 	// primary metric's; Decidable is whether it is anything but deciding.
 	Metrics   []ABMetric `json:"metrics"`
@@ -63,6 +66,8 @@ type abLaneFacts struct {
 	firstAt            time.Time
 	greenAfter         time.Time
 	greenSeen          bool
+	firstSeen          time.Time // the lane's first event
+	acted              bool      // a gate event of a binary that has the A/B
 	ciCounted          bool
 	langs              map[string][2]int // lang -> denies, warnings
 	versions           versionSet
@@ -84,22 +89,38 @@ func ComputeAB(events []tdd.Event, now time.Time, o Options) AB {
 		return f
 	}
 	canon := mergeLanes(s.evs)
+	start := abStart(s.evs)
 	for _, e := range s.evs {
 		if e.Lane == "" || !s.in(e.at) {
 			continue
 		}
 		lane := canon(e.Lane)
-		get(lane).versions[binVersion(e.Event)] = true
-		foldABEvent(get(lane), e)
+		f := get(lane)
+		f.versions[binVersion(e.Event)] = true
+		if f.firstSeen.IsZero() {
+			f.firstSeen = e.at
+		}
+		if abGateKinds[e.Kind] && versionAtLeast(binVersion(e.Event), start.version) {
+			f.acted = true
+		}
+		foldABEvent(f, e)
 	}
-	if o.RepoKey != "" {
-		for lane, f := range lanes {
-			if f.arm == "" && !abTrunk(lane) {
-				f.arm = tddarm.Of(o.RepoKey, lane) // a pure function of repo and lane: no event needed
-			}
+	before := 0
+	for lane, f := range lanes {
+		if f.arm != "" || f.pinned || abTrunk(lane) {
+			continue
+		}
+		switch {
+		case o.RepoKey == "" || !start.ok:
+		case f.firstSeen.Before(start.at) || !f.acted:
+			before++ // the arm could not act here: in neither arm
+		default:
+			f.arm = tddarm.Of(o.RepoKey, lane) // a pure function of repo and lane: no event needed
 		}
 	}
-	return summariseAB(lanes)
+	out := summariseAB(lanes)
+	out.BeforeStart = before
+	return out
 }
 
 // abTrunk is a lane name that is trunk, which no arm covers (tddarm.Resolve).
@@ -322,6 +343,7 @@ func (ab AB) Text() string {
 		p("  %-8s %-10s %d lanes  denies %d  warnings %d", l.Arm, l.Lang, l.Lanes, l.Denies, l.Warnings)
 	}
 	p("pinned lanes (outside both arms) %d", ab.Pinned)
+	p("before the A/B started: %d lanes", ab.BeforeStart)
 	p("dropped for the budget: red-green decisions the PreToolUse hook did not finish in time; the lane stays in its arm, the decision is unrecorded")
 	p("decision metrics (enforce minus warn; lower is better; deciding until an interval excludes 0 or lies inside the band):")
 	for _, m := range ab.Metrics {

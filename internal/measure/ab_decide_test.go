@@ -147,3 +147,13 @@ func TestComputeAB_AnIntervalWiderThanTheBandIsNotNoMeaningfulDifference(t *test
 		t.Errorf("verdict = %q [%v, %v], want %q", m.Verdict, m.Lo, m.Hi, VerdictDeciding)
 	}
 }
+
+// The 90% interval of 2000 draws runs from the 100th to the 1900th value, 1-based.
+func TestIntervalRanks_AreTheFifthAndNinetyFifthNearestRank(t *testing.T) {
+	if lo, hi := intervalRanks(2000); lo != 99 || hi != 1899 {
+		t.Errorf("ranks = %d, %d, want 99 and 1899", lo, hi)
+	}
+	if lo, hi := intervalRanks(20); lo != 0 || hi != 18 {
+		t.Errorf("ranks of 20 = %d, %d, want 0 and 18", lo, hi)
+	}
+}
