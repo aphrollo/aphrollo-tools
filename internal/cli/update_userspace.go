@@ -19,7 +19,7 @@ import (
 // last: a build or check that fails leaves every installed version, and the
 // version hooks run, exactly as they were. No root and no running image is
 // touched, so this is also how Windows replaces a binary it cannot overwrite.
-func installUserSpace(root, version, tag, tmp string, noInit bool, forwarded []string, stdout, stderr io.Writer) int {
+func installUserSpace(root, version, tag, tmp, repo string, noInit bool, forwarded []string, stdout, stderr io.Writer) int {
 	const prefix = "aphrollo update"
 	if err := os.MkdirAll(root, 0o755); err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", prefix, err)
@@ -50,6 +50,9 @@ func installUserSpace(root, version, tag, tmp string, noInit bool, forwarded []s
 		return 1
 	}
 	fmt.Fprintf(stdout, "%s: install %s\n", prefix, installed)
+	if err := recordUpdateRepo(root, repo); err != nil {
+		fmt.Fprintf(stderr, "%s: could not record %s as the checkout to update from (pass --repo next time): %v\n", prefix, repo, err)
+	}
 	before, _ := userbin.Current(root)
 	if err := userbin.SetCurrent(root, version); err != nil {
 		fmt.Fprintf(stderr, "%s: %v\n", prefix, err)
@@ -138,4 +141,34 @@ func sweepStageDirs(root string) {
 			_ = os.RemoveAll(filepath.Join(root, e.Name()))
 		}
 	}
+}
+
+// updateRepoFile is where a user-space install records the checkout it was built from, so
+// an update run from any directory finds it again.
+const updateRepoFile = "source-repo"
+
+// recordUpdateRepo notes the absolute path of the checkout an install came from.
+func recordUpdateRepo(root, repo string) error {
+	abs, err := filepath.Abs(repo)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(root, updateRepoFile), []byte(abs+"\n"), 0o644)
+}
+
+// defaultUpdateRepo is the checkout `update` works from when --repo is not given: the one
+// the last user-space install was built from, if it still is this module, else ".".
+func defaultUpdateRepo() string {
+	root, err := userbin.Root()
+	if err != nil {
+		return "."
+	}
+	data, err := os.ReadFile(filepath.Join(root, updateRepoFile))
+	if err != nil {
+		return "."
+	}
+	if repo := strings.TrimSpace(string(data)); repo != "" && checkAphrolloModule(repo) == nil {
+		return repo
+	}
+	return "."
 }

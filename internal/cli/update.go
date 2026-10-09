@@ -28,6 +28,9 @@ import (
 // retired with the bootstrap that needed it (#659, #673).
 const updateUsage = `usage: aphrollo update [--repo DIR] [--to VERSION] [--bin PATH] [--remote NAME] [--no-init] [--dry]
 
+With no --repo it works from the aphrollo-tools checkout the last install came
+from (recorded beside the install), else from the current directory.
+
 Fetches <remote>'s tags, finds the newest release tag (v<MAJOR.MINOR.PATCH>),
 builds ./cmd/aphrollo from a detached temporary worktree at that tag (never
 the working tree, which may be behind or dirty) and installs it WITHOUT root
@@ -67,7 +70,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("update", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var (
-		repo    = fs.String("repo", ".", "aphrollo-tools checkout whose remote to fetch from (the build runs in a temporary worktree)")
+		repo    = fs.String("repo", "", "aphrollo-tools checkout whose remote to fetch from (the build runs in a temporary worktree); default: the checkout the last install came from, else .")
 		binPath = fs.String("bin", "", "binary to replace (default: this executable)")
 		noInit  = fs.Bool("no-init", false, "replace the binary only; skip `gate init`")
 		remote  = fs.String("remote", "origin", "remote to fetch and build from")
@@ -86,7 +89,13 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	if err := checkAphrolloModule(*repo); err != nil {
+	if *repo == "" {
+		*repo = defaultUpdateRepo()
+		if err := checkAphrolloModule(*repo); err != nil {
+			fmt.Fprintf(stderr, "aphrollo update: %v: run it in your aphrollo-tools checkout or pass --repo <path>\n", err)
+			return 2
+		}
+	} else if err := checkAphrolloModule(*repo); err != nil {
 		fmt.Fprintf(stderr, "aphrollo update: --repo: %v\n", err)
 		return 2
 	}
@@ -212,7 +221,7 @@ func runUpdate(args []string, stdout, stderr io.Writer) int {
 	}()
 
 	if userSpace {
-		return installUserSpace(root, version, tag, tmp, *noInit, forwarded, stdout, stderr)
+		return installUserSpace(root, version, tag, tmp, *repo, *noInit, forwarded, stdout, stderr)
 	}
 	staged := siblingPath(bin, ".new")
 	_ = os.Remove(staged)
