@@ -800,6 +800,8 @@ mutants_prove_sandbox.go                           mutation
 mutants_prove_sandbox_test.go                      mutation
 mutants_prove_scope.go                             mutation
 mutants_prove_scope_test.go                        mutation
+mutants_prove_setup.go                             mutation
+mutants_prove_setup_test.go                        mutation
 mutants_prove_signal.go                            mutation
 mutants_prove_test.go                              mutation
 mutants_prove_untracked_test.go                    mutation
