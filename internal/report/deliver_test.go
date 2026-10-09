@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
+	"github.com/aphrollo/aphrollo-tools/internal/measure"
 )
 
 // tracker is a Fake that keeps issues in memory, so a second run sees the first's.
@@ -102,7 +103,7 @@ func TestDeliver_DryOpensAndClosesNothing(t *testing.T) {
 	}
 }
 
-func TestDeliver_TheABReadyIssueIsOpenedOnceEverWhenBothArmsReachThirty(t *testing.T) {
+func TestDeliver_TheABReadyIssueIsOpenedOnceEverWhenTheVerdictIsIn(t *testing.T) {
 	tr := newTracker()
 	opts := DeliverOptions{Repo: "aphrollo-tools"}
 	if _, err := dl(tr, decidable(), opts); err != nil {
@@ -125,14 +126,14 @@ func TestDeliver_TheABReadyIssueIsOpenedOnceEverWhenBothArmsReachThirty(t *testi
 	}
 }
 
-func TestDeliver_NoABReadyIssueWhileAnArmIsShort(t *testing.T) {
+func TestDeliver_NoABReadyIssueWhileTheMetricIsStillDeciding(t *testing.T) {
 	tr := newTracker()
 	if _, err := dl(tr, build(nil), DeliverOptions{Repo: "r"}); err != nil {
 		t.Fatal(err)
 	}
 	for _, o := range tr.opened {
 		if strings.HasPrefix(o.Title, "A/B ready") {
-			t.Errorf("opened %q with no arm at 30 lanes", o.Title)
+			t.Errorf("opened %q while deciding", o.Title)
 		}
 	}
 }
@@ -263,3 +264,35 @@ func TestPropose_TheABDecisionIsNotProposedOnceTheReadyIssueExists(t *testing.T)
 		t.Error("red-green proposed again after the A/B ready issue was opened")
 	}
 }
+
+// The A/B ready issue names the verdict it opened on, and at the maximum says the
+// experiment is too small to measure.
+func TestDeliver_TheABReadyIssueNamesTheVerdictItOpenedOn(t *testing.T) {
+	for verdict, want := range map[string]string{
+		measure.VerdictWarnBetter: "decided: warn better",
+		measure.VerdictMaxReached: "too small to measure — decide on friction and cost",
+	} {
+		tr := newTracker()
+		r := decidable()
+		r.ABTotal.Verdict = verdict
+		if _, err := dl(tr, r, DeliverOptions{Repo: "r"}); err != nil {
+			t.Fatal(err)
+		}
+		found := false
+		for _, o := range tr.opened {
+			if o.Title == "A/B ready: r" {
+				found = true
+				if !strings.Contains(o.Body, verdict) || !strings.Contains(o.Body, want) {
+					t.Errorf("body for %q lacks %q:\n%s", verdict, want, o.Body)
+				}
+			}
+		}
+		if !found {
+			t.Errorf("no A/B ready issue for the verdict %q", verdict)
+		}
+	}
+}
+
+// ratchet: test_removed TestDeliver_TheABReadyIssueIsOpenedOnceEverWhenBothArmsReachThirty: renamed TestDeliver_TheABReadyIssueIsOpenedOnceEverWhenTheVerdictIsIn: the issue opens on a verdict, not 30 lanes
+
+// ratchet: test_removed TestDeliver_NoABReadyIssueWhileAnArmIsShort: renamed TestDeliver_NoABReadyIssueWhileTheMetricIsStillDeciding: the issue waits on a verdict, not 30 lanes

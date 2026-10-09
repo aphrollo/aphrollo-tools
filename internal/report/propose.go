@@ -96,7 +96,10 @@ func abLanes(ab measure.AB) string {
 		if i > 0 {
 			s += ", "
 		}
-		s += fmt.Sprintf("%s %d of %d lanes", a.Arm, a.Lanes, measure.MinABLanes)
+		s += fmt.Sprintf("%s %d lanes", a.Arm, a.Lanes)
+	}
+	if ab.Verdict != "" {
+		s += "; escapes per lane: " + ab.Verdict
 	}
 	return s
 }

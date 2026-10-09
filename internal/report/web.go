@@ -224,13 +224,13 @@ func groupProposals(ps []Proposal) []proposalGroup {
 func lede(r Report, groups int) string {
 	var arms []string
 	for _, a := range r.ABTotal.Arms {
-		arms = append(arms, fmt.Sprintf("%s %d of %d lanes", a.Arm, a.Lanes, measure.MinABLanes))
+		arms = append(arms, fmt.Sprintf("%s %d lanes", a.Arm, a.Lanes))
 	}
 	ab := "The A/B has no lanes yet."
 	if len(arms) > 0 {
-		state := "not decidable yet"
+		state := "still deciding"
 		if r.ABTotal.Decidable {
-			state = "both arms can decide"
+			state = "decided: " + r.ABTotal.Verdict
 		}
 		ab = fmt.Sprintf("The A/B is %s: %s.", state, strings.Join(arms, ", "))
 	}
@@ -314,9 +314,9 @@ func charts(r Report) webCharts {
 	c.Escapes = barChart("escapes by class", rows, 0)
 	rows = nil
 	for _, a := range r.ABTotal.Arms {
-		rows = append(rows, barRow{a.Arm, float64(min(a.Lanes, measure.MinABLanes)), fmt.Sprintf("%d of %d", a.Lanes, measure.MinABLanes)})
+		rows = append(rows, barRow{a.Arm, float64(min(a.Lanes, measure.MaxABLanes)), fmt.Sprintf("%d of %d", a.Lanes, measure.MaxABLanes)})
 	}
-	c.AB = barChart(fmt.Sprintf("lanes per A/B arm in the whole log, %d needed", measure.MinABLanes), rows, measure.MinABLanes)
+	c.AB = barChart(fmt.Sprintf("lanes per A/B arm in the whole log, %d at most", measure.MaxABLanes), rows, measure.MaxABLanes)
 	rows = nil
 	for _, b := range r.Tokens.Briefs {
 		rows = append(rows, barRow{b.Name, safeDiv(float64(b.Tokens), float64(b.Cap)) * 100, fmt.Sprintf("%s / %s", num(int64(b.Tokens)), num(int64(b.Cap)))})

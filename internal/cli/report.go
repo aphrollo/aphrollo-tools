@@ -11,6 +11,7 @@ import (
 	"github.com/aphrollo/aphrollo-tools/internal/measure"
 	"github.com/aphrollo/aphrollo-tools/internal/report"
 	"github.com/aphrollo/aphrollo-tools/internal/tdd"
+	"github.com/aphrollo/aphrollo-tools/internal/tddarm"
 )
 
 const reportUsage = `usage: aphrollo report [--repo <path>] [--since <dur>] [--compare-at <date|sha>] [--json] [--by-version] [--issue [--dry]]
@@ -159,7 +160,7 @@ func buildReport(root string, window time.Duration, now, compareAt time.Time, ab
 	events := tdd.ReadEvents(root)
 	return report.Build(report.Input{
 		Events: events, Now: now, Window: window,
-		Repo: repoName(root), Briefs: measure.CheckBriefs(briefs),
+		Repo: repoName(root), RepoKey: tddarm.RepoKey(root), Briefs: measure.CheckBriefs(briefs),
 		Usage: scanUsage(root, window, now, events), CompareAt: compareAt, ABReadyIssued: abReady, ByVersion: byVersion,
 	})
 }

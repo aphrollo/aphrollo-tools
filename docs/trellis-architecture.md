@@ -571,7 +571,7 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 | F30–F31 | 2 | Runs coalesced on the existing trigger; PostToolBatch only if the data supports it; lint moves to the run; Stop and task checks read lane state | Not tested; gate time; tokens |
 | F32–F34 | 3 | `config`: schema, layers, aliases; 44 → 3 environment variables | Misread keys → 0 |
 | F35–F36 | 2 | `laws.Plan`; smells as matcher kinds | Commit refusals the edit check missed → 0 |
-| A1–A3 | 3 | Red→green at PreToolUse in warn, plus the A/B (at least 30 lanes per arm). The rule table goes live: walls scoped to Claude, `secrets`, the shim cut down to its lock plus walls | Escapes and friction per arm; wall implementations 2 → 1 |
+| A1–A3 | 3 | Red→green at PreToolUse in warn, plus the A/B (stops at a decided primary metric or 50 lanes per arm). The rule table goes live: walls scoped to Claude, `secrets`, the shim cut down to its lock plus walls | Escapes and friction per arm; wall implementations 2 → 1 |
 | A4–A5 | 2 | Escape split; holds as guidance; `measure.Decide` in propose mode | Disagreements leave the escape count |
 | A6–A8 | 3 | Intersection closure with per-language paths; pending merges; the allowed merge method with `sha`; `ci wait`; the local adapter of the host port (closure + `git merge --no-ff`, the local queue); the GitHub merge-queue path of `Land` (enqueue bound to head) and `--wait` through it (this repo's `workspace merge` enqueue is lane merge-enqueue, in flight) | Merge p95 at most 5 min; syncs per merge |
 | B1–B2 | 2 | Plugin: native launcher, fetch, sha256 check, keep 3, `.exe` layout, file-level swap, silent stub; the release workflow on hosted runners | Off-here p95 at most 50 ms; SessionStart at most 200 ms |
@@ -591,7 +591,7 @@ Every measure is a pure fold in `measure` over four sources: the events, git his
 
 **Consumers never break.** Until B9 they run aphrollo at a release tag. Each cutover is per repo, pinned, replayed first, and reversible with `trellis eject`.
 
-**Owner pause before B9.** B9 does not start by itself. No repo is cut over until the owner has seen, for that repo, the A/B results of phase A (at least 30 lanes per arm, read per arm and per language), the shadow agreement (`aphrollo stats --shadow`, per rule and per language, with the budget drops) and the replay result, and has said go for that repo. The go is per repo: one repo's go says nothing of the next.
+**Owner pause before B9.** B9 does not start by itself. No repo is cut over until the owner has seen, for that repo, the A/B results of phase A (a decided primary metric or 50 lanes per arm, read per arm and per language), the shadow agreement (`aphrollo stats --shadow`, per rule and per language, with the budget drops) and the replay result, and has said go for that repo. The go is per repo: one repo's go says nothing of the next.
 
 ## 12. Risks and open questions; effort
 

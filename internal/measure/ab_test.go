@@ -134,21 +134,6 @@ func TestComputeAB_TimeToGreenRunsFromTheFirstDecisionToTheNextGreen(t *testing.
 	}
 }
 
-// Whether an arm has reached the lanes the document asks for before the A/B decides.
-func TestComputeAB_AnArmIsDecidableAtThirtyLanes(t *testing.T) {
-	var events []tdd.Event
-	for i := range MinABLanes {
-		events = append(events, abLane(0, fmt.Sprintf("lane/e%d", i), "enforce", "go", "block")...)
-	}
-	for i := range MinABLanes - 1 {
-		events = append(events, abLane(0, fmt.Sprintf("lane/w%d", i), "warn", "go", "warn")...)
-	}
-	ab := computeAB(events, Options{})
-	if e, w := abRow(t, ab, "enforce"), abRow(t, ab, "warn"); !e.Reached || w.Reached || ab.Decidable {
-		t.Errorf("enforce reached=%v warn reached=%v decidable=%v, want true, false, false at %d and %d lanes", e.Reached, w.Reached, ab.Decidable, MinABLanes, MinABLanes-1)
-	}
-}
-
 // Per language, a lane is in each language it had a decision in.
 func TestComputeAB_PerLanguageRowsCountTheLanesAndTheirDecisions(t *testing.T) {
 	events := abCat(
@@ -183,10 +168,10 @@ func TestComputeAB_ADroppedDecisionIsCountedApart(t *testing.T) {
 	}
 }
 
-func TestAB_TextNamesEachArmItsCountsAndWhetherItReachedThirtyLanes(t *testing.T) {
+func TestAB_TextNamesEachArmItsCountsAndTheMaximumLanes(t *testing.T) {
 	events := abCat(abLane(0, "lane/e1", "enforce", "go", "block"), abLane(0, "lane/w1", "warn", "go", "warn"))
 	text := computeAB(events, Options{}).Text()
-	for _, want := range []string{"enforce", "warn", "1 of 30 lanes", "denies", "warnings", "overrides", "escapes", "time to green"} {
+	for _, want := range []string{"enforce", "warn", "1 lanes (a decision is forced at 50 per arm)", "denies", "warnings", "overrides", "escapes", "time to green"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("text lacks %q:\n%s", want, text)
 		}
@@ -247,3 +232,7 @@ func TestComputeAB_LanguagesAreOrderedByArmThenNameAndTheTextIsStable(t *testing
 		}
 	}
 }
+
+// ratchet: test_removed TestComputeAB_AnArmIsDecidableAtThirtyLanes: the 30-lane rule is replaced by the stop rule, covered by the TestComputeAB tests in ab_decide_test.go
+
+// ratchet: test_removed TestAB_TextNamesEachArmItsCountsAndWhetherItReachedThirtyLanes: renamed TestAB_TextNamesEachArmItsCountsAndTheMaximumLanes: arms no longer report reaching 30 lanes

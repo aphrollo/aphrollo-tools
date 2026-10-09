@@ -19,13 +19,13 @@ func abSeed() map[time.Duration]tdd.Event {
 	}
 }
 
-func TestStatsAB_PrintsEachArmWithItsLanesAndWhetherItReachedThirty(t *testing.T) {
+func TestStatsAB_PrintsEachArmWithItsLanesAndTheVerdict(t *testing.T) {
 	repo := statsRepo(t, abSeed())
 	code, out, errOut := runStatsCmd(t, "--repo", repo, "--ab")
 	if code != 0 {
 		t.Fatalf("stats --ab exit = %d, stderr: %s", code, errOut)
 	}
-	for _, want := range []string{"enforce", "warn", "1 of 30 lanes", "warnings 1", "not decidable yet"} {
+	for _, want := range []string{"enforce", "warn", "1 lanes", "warnings 1", "verdict (escapes per lane): deciding"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stats --ab lacks %q:\n%s", want, out)
 		}
@@ -55,3 +55,27 @@ func TestStatsAB_ExcludesTheOtherSections(t *testing.T) {
 		}
 	}
 }
+
+// ariadne's lanes come from a plain `git worktree add` and record no lane-arm event;
+// the read still puts each in its arm, from the repo's key and the lane's name, once
+// the repo's A/B has started (its first lane-arm event, here another lane's).
+func TestStatsAB_CountsALaneThatRecordedNoArm(t *testing.T) {
+	repo := statsRepo(t, map[time.Duration]tdd.Event{
+		2 * time.Hour: {Kind: "lane-arm", Lane: "starter", BinVer: "1.40.0",
+			Detail: map[string]string{"why": "pinned", "mode": "enforce"}},
+		time.Hour: {Kind: "commit_gate", Lane: "calc-split", Verdict: "green", BinVer: "1.40.0"},
+	})
+	code, out, errOut := runStatsCmd(t, "--repo", repo, "--ab", "--json")
+	if code != 0 {
+		t.Fatalf("exit = %d, stderr: %s", code, errOut)
+	}
+	var ab measure.AB
+	if err := json.Unmarshal([]byte(out), &ab); err != nil {
+		t.Fatalf("not an AB readout: %v\n%s", err, out)
+	}
+	if n := ab.Arms[0].Lanes + ab.Arms[1].Lanes; n != 1 {
+		t.Errorf("lanes in arms = %d, want 1 (calc-split, assigned at read time)", n)
+	}
+}
+
+// ratchet: test_removed TestStatsAB_PrintsEachArmWithItsLanesAndWhetherItReachedThirty: renamed TestStatsAB_PrintsEachArmWithItsLanesAndTheVerdict: the 30-lane rule is replaced by interval verdicts

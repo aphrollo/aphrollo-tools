@@ -159,7 +159,7 @@ figcaption { font-size:0.85rem; color:var(--muted); margin-bottom:8px; }
 <section id="ab">
 <h2>A/B and shadow, per arm and language</h2>
 {{.Charts.AB}}
-<p class="note">{{if .R.ABTotal.Decidable}}Both arms have the lanes: the A/B can decide.{{else}}Not decidable yet: each arm needs 30 lanes in the whole log.{{end}}</p>
+<p class="note">{{if .R.ABTotal.Decidable}}Decided on escapes per lane: {{.R.ABTotal.Verdict}}.{{else}}Still deciding on escapes per lane; an arm stops at 50 lanes in the whole log.{{end}}</p>
 {{if .ABInWindow}}<h3>This window</h3><div class="scroll"><table><tr><th>Arm</th><th class="n">Lanes</th><th class="n">Denies</th><th class="n">Warnings</th><th class="n">Overrides</th><th class="n">Escapes</th><th class="n">Held out</th><th class="n">Budget drops</th></tr>
 {{range .R.AB.Arms}}<tr><td>{{.Arm}}</td><td class="n">{{.Lanes}}</td><td class="n">{{.Denies}}</td><td class="n">{{.Warnings}}</td><td class="n">{{.Overrides}}</td><td class="n">{{.Escapes}}</td><td class="n">{{.HeldOut}}</td><td class="n">{{.Dropped}}</td></tr>
 {{end}}</table></div>

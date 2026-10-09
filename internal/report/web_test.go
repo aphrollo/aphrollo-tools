@@ -26,11 +26,11 @@ func webFixture() Report {
 		ShadowWrong: []ShadowWrong{{Rule: "red-green", Fires: 40, Stricter: 8, Wrong: 2, Catches: 1, Open: 5}},
 		Standdowns:  []Standdown{{Matcher: "unknown-matcher-kind:tautology", N: 25, Refs: refs}},
 		Escapes:     Escapes{Rows: []EscapeRow{{Class: "product", Caught: "local test gate (CI job test caught it)", N: 2, Refs: refs}}, FalsePositives: 1},
-		AB: measure.AB{Arms: []measure.ABArm{
+		AB: measure.AB{Verdict: measure.VerdictDeciding, Metrics: []measure.ABMetric{{Name: "escapes per lane", Role: "primary", NEnforce: 4, NWarn: 6, Verdict: measure.VerdictDeciding}}, Arms: []measure.ABArm{
 			{Arm: "enforce", Lanes: 4, Denies: 3, HeldOut: 1, Dropped: 2},
 			{Arm: "warn", Lanes: 6, Warnings: 5},
 		}},
-		ABTotal: measure.AB{Arms: []measure.ABArm{{Arm: "enforce", Lanes: 12}, {Arm: "warn", Lanes: 31, Reached: true}}},
+		ABTotal: measure.AB{Verdict: measure.VerdictDeciding, Arms: []measure.ABArm{{Arm: "enforce", Lanes: 12}, {Arm: "warn", Lanes: 31}}},
 		Shadow: measure.Shadow{Fires: 40, Dropped: 2, Languages: []measure.ShadowLang{
 			{Lang: "go", Fires: 30, Agree: 24, HeldOut: 1, Dropped: 2}, {Lang: "python", Fires: 4},
 		}},
@@ -233,10 +233,10 @@ func TestRenderHTML_LongTablesFoldTheirTailAndDropNoRow(t *testing.T) {
 	}
 }
 
-func TestRenderHTML_ABProgressIsDrawnAgainstTheThirtyLanesNotTheBiggerArm(t *testing.T) {
+func TestRenderHTML_ABProgressIsDrawnAgainstTheFiftyLaneMaximumNotTheBiggerArm(t *testing.T) {
 	page := render(t, webFixture())
 	ab := between(page, `aria-label="lanes per A/B arm`, "</figure>")
-	for _, want := range []string{`style="width:40.0%"`, "12 of 30", `style="width:100.0%"`, "31 of 30"} {
+	for _, want := range []string{`style="width:24.0%"`, "12 of 50", `style="width:62.0%"`, "31 of 50"} {
 		if !strings.Contains(ab, want) {
 			t.Errorf("the A/B chart lacks %q:\n%s", want, ab)
 		}
@@ -381,3 +381,5 @@ func TestRenderHTML_AVersionCellSaysTheVersionBeforeAndTheNoteSaysWhoIsLeftOut(t
 		t.Error("the note does not say which runs the version split leaves out")
 	}
 }
+
+// ratchet: test_removed TestRenderHTML_ABProgressIsDrawnAgainstTheThirtyLanesNotTheBiggerArm: renamed TestRenderHTML_ABProgressIsDrawnAgainstTheFiftyLaneMaximumNotTheBiggerArm: the chart runs to the 50-lane maximum

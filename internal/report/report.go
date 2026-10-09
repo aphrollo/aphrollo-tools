@@ -28,6 +28,8 @@ type Input struct {
 	Window time.Duration
 	// Repo names the repository in the title lines.
 	Repo string
+	// RepoKey is the repo identity the A/B arm hash reads (tddarm.RepoKey).
+	RepoKey string
 	// Briefs are the injected texts measured against their token caps.
 	Briefs []measure.BriefLine
 	// Usage is the session usage scanned from the harness's transcripts, nil to leave the section out; CompareAt, when set, adds its before and after.
@@ -228,13 +230,13 @@ func Build(in Input) Report {
 	r.TestCost = buildTestCost(evs, since, r.Speed)
 	r.Expectations = buildExpectations(evs)
 
-	o := measure.Options{Window: in.Window}
+	o := measure.Options{Window: in.Window, RepoKey: in.RepoKey}
 	raw := make([]tdd.Event, len(evs))
 	for i, e := range evs {
 		raw[i] = e.Event
 	}
 	r.AB = measure.ComputeAB(raw, in.Now, o)
-	r.ABTotal = measure.ComputeAB(raw, in.Now, measure.Options{})
+	r.ABTotal = measure.ComputeAB(raw, in.Now, measure.Options{RepoKey: in.RepoKey})
 	r.Shadow = measure.ComputeShadow(raw, in.Now, o)
 	r.Shadow.Notes = nil
 	for _, s := range r.Shadow.Rules {
