@@ -15,6 +15,7 @@ func shadowWorld() shadow.World {
 		Lane:        LaneOf,
 		ProjectRoot: FindProjectRoot,
 		Edits:       shadowLedger,
+		StateDir:    EventLogDir,
 		Open: func(root string) (*store.Store, error) {
 			return store.Open(EventLogDir(root), store.Options{Config: shadow.Config, Warn: func(string) {}})
 		},
