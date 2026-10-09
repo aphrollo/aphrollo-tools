@@ -3,8 +3,10 @@ package merge
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/depinstall"
 )
@@ -39,16 +41,37 @@ func prGateProvisionNode(laneWorktree, wt string, run SuiteRunner, links *depins
 		// own staged files.
 		rel, _ := filepath.Rel(wt, root)
 		laneRoot := filepath.Join(laneWorktree, rel)
+		nm := filepath.Join(root, depinstall.NodeModules)
 		if depinstall.Reusable(rule, laneRoot, root) {
-			target := filepath.Join(laneRoot, depinstall.NodeModules)
-			if err := links.Make(target, filepath.Join(root, depinstall.NodeModules)); err == nil {
-				fmt.Fprintf(log, "gate %s: %s — %s unchanged, linked the lane's node_modules\n", premergeDisplayName, rel, rule.Marker)
+			// One dependency source per merge: the lane's install serves only
+			// when every package of it stays inside the lane. A package that
+			// resolves into another lane would load beside the rest of the
+			// install as a second copy of a module.
+			if esc := depinstall.Escapes(filepath.Join(laneRoot, depinstall.NodeModules), laneWorktree); len(esc) == 0 {
+				if err := links.Make(filepath.Join(laneRoot, depinstall.NodeModules), nm); err == nil {
+					fmt.Fprintf(log, "gate %s: %s — %s unchanged, linked the lane's node_modules\n", premergeDisplayName, rel, rule.Marker)
+					continue
+				}
+			} else {
+				fmt.Fprintf(log, "gate %s: %s — the lane's node_modules is not self-contained (%s), so it is not linked\n",
+					premergeDisplayName, rel, describeEscapes(esc))
+			}
+		}
+		cacheRoot := prGateDepCacheRoot(laneWorktree)
+		key, keyed := depinstall.CacheKey(rule, root)
+		keyed = keyed && cacheRoot != ""
+		if keyed {
+			if dir, ok := depinstall.Cached(cacheRoot, key); ok && links.Make(dir, nm) == nil {
+				fmt.Fprintf(log, "gate %s: %s — linked the install already made for this %s\n", premergeDisplayName, rel, rule.Marker)
 				continue
 			}
 		}
 		fmt.Fprintf(log, "gate %s: %s — installing with %s\n", premergeDisplayName, rel, strings.Join(rule.Argv, " "))
 		res := run(Runner{Cmd: rule.Argv[0], Args: rule.Argv[1:], Dir: root}, root)
 		if res.Passed {
+			if keyed {
+				keepInstall(cacheRoot, key, nm, links, log, rel)
+			}
 			continue
 		}
 		how := "failed"
@@ -61,4 +84,51 @@ func prGateProvisionNode(laneWorktree, wt string, run SuiteRunner, links *depins
 			rel, strings.Join(rule.Argv, " "), how, strings.TrimSpace(res.Err+"\n"+res.Output))
 	}
 	return nil
+}
+
+// prGateDepCacheRoot is where installs made for a merge are kept, keyed by
+// their lockfile: beside the throwaway checkouts, on the repo's own disk. ""
+// when no such place exists.
+func prGateDepCacheRoot(laneWorktree string) string {
+	parent := prGateCheckoutParent(laneWorktree)
+	if parent == "" {
+		return ""
+	}
+	return filepath.Join(parent, prGateDepCacheName)
+}
+
+// prGateDepCacheName starts with a dot and not with gate-prmerge-, so no sweep
+// takes it for a checkout.
+const prGateDepCacheName = ".depcache"
+
+// prGateDepCacheMaxAge is how long an install unused by any merge is kept.
+const prGateDepCacheMaxAge = 14 * 24 * time.Hour
+
+// keepInstall moves the install just made in the checkout into the cache and
+// links it back, when it is self-contained; an install that is not stays where
+// it is and is used as made. Entries unused past the age are swept.
+func keepInstall(cacheRoot, key, nm string, links *depinstall.Links, log io.Writer, rel string) {
+	dir, ok := depinstall.Store(cacheRoot, key, nm)
+	if !ok {
+		return
+	}
+	if err := links.Make(dir, nm); err != nil {
+		_ = os.Rename(dir, nm) // put it back: the suite needs it where it was
+		fmt.Fprintf(log, "gate %s: %s — the install could not be linked from the cache (%v), kept in the checkout\n", premergeDisplayName, rel, err)
+		return
+	}
+	depinstall.Sweep(cacheRoot, prGateDepCacheMaxAge, time.Now())
+}
+
+// describeEscapes names the packages that resolve outside the lane and where.
+func describeEscapes(esc []depinstall.Escape) string {
+	parts := make([]string, 0, len(esc))
+	for i, e := range esc {
+		if i == 3 {
+			parts = append(parts, fmt.Sprintf("and %d more", len(esc)-3))
+			break
+		}
+		parts = append(parts, e.Name+" -> "+e.Real)
+	}
+	return strings.Join(parts, "; ")
 }
