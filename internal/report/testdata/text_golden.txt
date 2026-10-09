@@ -35,10 +35,12 @@ Test cost (merge-gate suite runs recorded: 6, p50 6.8m)
 4. A/B and shadow, per arm and language
   enforce  4 lanes (a decision is forced at 50 per arm)
     denies 3  warnings 0  overrides 0  dropped for the budget 2  held out 1
+    2 decisions unmeasured of 6 (dropped for the budget, so a red may have gone unseen)
     escapes 0 (escape records 0, CI red after a local green 0)
     friction: denies 3 + overrides 0; time to green n 0 (red recorded, no green after it yet)  p50 0.0s  p90 0.0s
   warn     6 lanes (a decision is forced at 50 per arm)
     denies 0  warnings 5  overrides 0  dropped for the budget 0  held out 0
+    0 decisions unmeasured of 5 (dropped for the budget, so a red may have gone unseen)
     escapes 0 (escape records 0, CI red after a local green 0)
     friction: denies 0 + overrides 0; time to green n 0 (red recorded, no green after it yet)  p50 0.0s  p90 0.0s
     languages: none recorded (no red-green decision named a language)
