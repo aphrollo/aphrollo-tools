@@ -640,6 +640,7 @@ mergecost.go                                        merge
 mergecost_test.go                                   merge
 mergelongpaths_test.go                             precommit
 mergeprune.go                                      merge
+mergeprune_generated_test.go                       merge
 mergeprune_squash.go                               merge
 mergeprune_squash_test.go                          merge
 mergeprune_subject_test.go                         merge

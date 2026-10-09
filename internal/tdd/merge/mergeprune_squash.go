@@ -219,11 +219,20 @@ var ignoredRebuildable = map[string]bool{
 	"node_modules": true, ".venv": true, "venv": true, "env": true, "target": true,
 	"dist": true, "build": true, ".next": true, "__pycache__": true,
 	".pytest_cache": true, "coverage": true,
+	// generated test output: made again by the next run, never work in progress
+	// (playwright's .output and test-results, its html and blob reports, nyc)
+	".output": true, "test-results": true, "playwright-report": true,
+	"blob-report": true, ".nyc_output": true,
 }
 
+// ignoredGeneratedFiles are the file names a test runner writes outside any
+// directory above; a gitignored file of one of these names never keeps a lane.
+var ignoredGeneratedFiles = map[string]bool{".last-run.json": true}
+
 func underRebuildableDir(rel string) bool {
-	for _, part := range strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == '\\' }) {
-		if ignoredRebuildable[part] {
+	parts := strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == '\\' })
+	for i, part := range parts {
+		if ignoredRebuildable[part] || (i == len(parts)-1 && ignoredGeneratedFiles[part]) {
 			return true
 		}
 	}
@@ -273,6 +282,9 @@ func newestUnder(path, wt string, last time.Time) (string, bool) {
 			if underRebuildableDir(rel) {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if ignoredGeneratedFiles[d.Name()] {
 			return nil
 		}
 		if info, err := d.Info(); err == nil && info.ModTime().After(last) {
