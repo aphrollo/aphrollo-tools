@@ -117,3 +117,29 @@ func TestSweep_RemovesOnlyEntriesUnusedPastTheAge(t *testing.T) {
 		t.Error("a fresh entry was swept")
 	}
 }
+
+// The age is a bound on disuse, not a ceiling that includes it: an entry used
+// exactly maxAge ago is kept, and one a moment older goes.
+func TestSweep_KeepsAnEntryExactlyAtTheAge(t *testing.T) {
+	cache := t.TempDir()
+	now := time.Now()
+	for k, age := range map[string]time.Duration{"at": 14 * 24 * time.Hour, "past": 14*24*time.Hour + time.Second} {
+		co := nodeRoot(t, true, nil)
+		if _, ok := Store(cache, k, filepath.Join(co, NodeModules)); !ok {
+			t.Fatalf("%s not stored", k)
+		}
+		when := now.Add(-age)
+		if err := os.Chtimes(filepath.Join(cache, k), when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	Sweep(cache, 14*24*time.Hour, now)
+
+	if _, err := os.Stat(filepath.Join(cache, "at")); err != nil {
+		t.Errorf("an entry exactly at the age was swept: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cache, "past")); err == nil {
+		t.Error("an entry a second past the age survived")
+	}
+}
