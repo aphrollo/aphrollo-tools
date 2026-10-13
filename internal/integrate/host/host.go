@@ -315,17 +315,19 @@ type RunTarget struct {
 
 // WorkflowRun is one run with its jobs.
 type WorkflowRun struct {
-	Attempt    int       `json:"attempt"`
-	Conclusion string    `json:"conclusion"`
-	ID         int64     `json:"databaseId"`
-	Event      string    `json:"event"`
-	HeadBranch string    `json:"headBranch"`
-	HeadSHA    string    `json:"headSha"`
-	Status     string    `json:"status"`
-	URL        string    `json:"url"`
-	Workflow   string    `json:"workflowName"`
-	CreatedAt  time.Time `json:"createdAt"`
-	Jobs       []Job     `json:"jobs"`
+	Attempt    int    `json:"attempt"`
+	Conclusion string `json:"conclusion"`
+	ID         int64  `json:"databaseId"`
+	Event      string `json:"event"`
+	HeadBranch string `json:"headBranch"`
+	HeadSHA    string `json:"headSha"`
+	Status     string `json:"status"`
+	URL        string `json:"url"`
+	Workflow   string `json:"workflowName"`
+	// Title is the run's display title: the commit headline of a push run.
+	Title     string    `json:"displayTitle"`
+	CreatedAt time.Time `json:"createdAt"`
+	Jobs      []Job     `json:"jobs"`
 }
 
 // Job is one job of a run.

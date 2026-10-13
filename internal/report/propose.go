@@ -75,6 +75,11 @@ func propose(r Report) []Proposal {
 		}
 	}
 	out = append(out, r.Expectations.proposals()...)
+	if r.ABTotal.OnOff.Decidable && !r.abReadyIssued {
+		out = append(out, Proposal{Rule: "aphrollo-on-off",
+			Numbers: fmt.Sprintf("on %d lanes, off %d lanes; escapes per lane: %s", r.ABTotal.OnOff.On.Lanes, r.ABTotal.OnOff.Off.Lanes, r.ABTotal.OnOff.Verdict),
+			Change:  "read the on vs off section, then decide whether aphrollo helps: the owner's call"})
+	}
 	if r.ABTotal.Decidable && !r.abReadyIssued {
 		out = append(out, Proposal{Rule: "red-green",
 			Numbers: abLanes(r.ABTotal),

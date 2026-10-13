@@ -47,6 +47,15 @@ named earlier, over the window (the one to trend to 0). Read-only.
                    recorded no arm gets the one its repo and name hash to; a
                    <lane>-merge branch counts as its lane; a pinned lane is in
                    neither arm
+                   With lanes in the off arm (ab-off-share) it adds an on vs off
+                   section: on (enforce and warn) against off, judged the same way
+                   (90% interval, least evidence, stop rule, max 50 lanes a side):
+                   escapes per lane (primary; also the ones an "escape:" issue or a
+                   red run on main blames on a lane), then lead time p50, agent cost
+                   per lane (from the session usage; the report only) and friction
+                   (blocks, gate wait), where an off lane counts 0 by definition;
+                   it reads the tracker and main's runs through gh, and says what it
+                   could not read
   --briefs         instead: the token count of the managed CLAUDE.md block, the
                    tdd skill and each agent brief against the caps (400 for the
                    block and skill, 250 for an agent), over-cap ones marked
@@ -98,11 +107,18 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 	note := horizonNote(*repo)
 	events := tdd.ReadEvents(*repo)
 	opts := measure.Options{Lane: *lane, Window: window, RepoKey: tddarm.RepoKey(*repo)}
+	var attributionNotes []string
+	if *abSection {
+		opts.Host, attributionNotes = hostFacts(*repo, events)
+	}
 	section := func(evs []tdd.Event) (string, any) {
 		now := time.Now().UTC()
 		switch {
 		case *abSection:
 			ab := measure.ComputeAB(evs, now, opts)
+			if ab.OnOff.Active {
+				ab.OnOff.Notes = attributionNotes
+			}
 			return ab.Text(), ab
 		case *shadowSection:
 			s := measure.ComputeShadow(evs, now, opts)

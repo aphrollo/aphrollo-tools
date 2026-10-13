@@ -43,6 +43,10 @@ func runGateMergeHook(name string, stderr io.Writer) int {
 	if root == "" {
 		return 0 // not in a git repo — nothing to gate
 	}
+	if laneOffAt(root) {
+		noteOffLane(root, "")
+		return 0 // a lane with aphrollo off: no stage runs, nothing is recorded but its arm
+	}
 	started := gateClock()
 	// The merge gate runs ONLY the mechanical stage: a git merge never fires
 	// pre-commit, so nothing else has proven the COMBINED tree still

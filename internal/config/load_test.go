@@ -315,3 +315,15 @@ func TestReport_IsOnByDefaultAndARepoTurnsItOffInAphrolloToml(t *testing.T) {
 		t.Error("report = false in aphrollo.toml did not turn it off")
 	}
 }
+
+// The share is a repo's declaration: a user-level file cannot put every repo's lanes off.
+func TestLoad_AbOffShareFromAUserFileCannotDeclareIt(t *testing.T) {
+	f := newFixture(t, "", "ab-off-share = 50\n")
+	cfg := Load(f.opts)
+	if got := cfg.Get("ab-off-share"); got.Value.N != 0 || got.Layer != BuiltIn {
+		t.Errorf("ab-off-share = %+v, want the built-in 0: the key is repo-only", got)
+	}
+	if len(cfg.Diagnostics()) == 0 {
+		t.Errorf("a user-level ab-off-share must be named in the diagnostics")
+	}
+}

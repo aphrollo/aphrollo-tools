@@ -236,3 +236,36 @@ func TestComputeAB_LanguagesAreOrderedByArmThenNameAndTheTextIsStable(t *testing
 // ratchet: test_removed TestComputeAB_AnArmIsDecidableAtThirtyLanes: the 30-lane rule is replaced by the stop rule, covered by the TestComputeAB tests in ab_decide_test.go
 
 // ratchet: test_removed TestAB_TextNamesEachArmItsCountsAndWhetherItReachedThirtyLanes: renamed TestAB_TextNamesEachArmItsCountsAndTheMaximumLanes: arms no longer report reaching 30 lanes
+
+// An escape the tracker or main's CI blames on a lane counts for that lane's arm, beside
+// the records the log holds; a record the issue repeats counts once.
+func TestComputeAB_AnAttributedEscapeCountsForItsLanesArm(t *testing.T) {
+	evs := abCat(abLane(0, "lane/a", "enforce", "go"), abLane(100, "lane/b", "warn", "go"),
+		[]tdd.Event{
+			ev(200, "lane/a", "merge", verdictDetail("ok", "pr", "1", "head", "aaaaaaa")),
+			ev(210, "lane/b", "merge", verdictDetail("ok", "pr", "2", "head", "bbbbbbb")),
+			ev(220, "lane/b", "escape", verdictDetail("escape", "id", "e1")),
+		})
+	o := Options{Host: &HostFacts{
+		Issues:   []EscapeIssue{{Number: 9, Title: "escape: totals", Body: "PR #1"}},
+		MainReds: []RedRun{{At: base.Add(300 * time.Second), SHA: "x", Title: "Add a thing (#1)"}},
+	}}
+	ab := computeAB(evs, o)
+	if got := abRow(t, ab, "enforce"); got.Escapes != 1 || got.AttributedEscapes != 1 {
+		t.Errorf("enforce = %+v, want 1 escape, attributed: the issue and the red run name the same PR", got)
+	}
+	if got := abRow(t, ab, "warn"); got.Escapes != 1 || got.EscapeRecords != 1 {
+		t.Errorf("warn = %+v, want its one record", got)
+	}
+}
+
+// An escape recorded from trunk for a PR counts for the PR's lane's arm.
+func TestComputeAB_ATrunkRecordWithAPRCountsForThePRsLane(t *testing.T) {
+	evs := abCat(abLane(0, "lane/z", "enforce", "go"), []tdd.Event{
+		ev(10, "lane/z", "merge", verdictDetail("ok", "pr", "5", "head", "zzzzzzz")),
+		ev(20, "main", "escape", verdictDetail("escape", "id", "e1", "pr", "5")),
+	})
+	if got := abRow(t, computeAB(evs, Options{}), "enforce"); got.Escapes != 1 {
+		t.Errorf("enforce = %+v, want the trunk record counted for lane/z", got)
+	}
+}

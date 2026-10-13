@@ -39,6 +39,9 @@ type Input struct {
 	ABReadyIssued bool
 	// ByVersion adds a section that reads each binary version of the window on its own.
 	ByVersion bool
+	// Host is what the tracker and CI host say of the escapes (nil when the log holds no off lane), and HostNotes what could not be read to make it.
+	Host      *measure.HostFacts
+	HostNotes []string
 }
 
 // Refs are the event seqs behind a number, so `aphrollo why <seq>` can replay
@@ -230,13 +233,23 @@ func Build(in Input) Report {
 	r.TestCost = buildTestCost(evs, since, r.Speed)
 	r.Expectations = buildExpectations(evs)
 
-	o := measure.Options{Window: in.Window, RepoKey: in.RepoKey}
+	var usage *Usage
+	if in.Usage != nil {
+		u := BuildUsage(*in.Usage, in.Now, in.Window, in.CompareAt)
+		usage = &u
+	}
+	o := measure.Options{Window: in.Window, RepoKey: in.RepoKey, Host: in.Host, LaneCost: laneCost(usage)}
 	raw := make([]tdd.Event, len(evs))
 	for i, e := range evs {
 		raw[i] = e.Event
 	}
 	r.AB = measure.ComputeAB(raw, in.Now, o)
-	r.ABTotal = measure.ComputeAB(raw, in.Now, measure.Options{RepoKey: in.RepoKey})
+	r.ABTotal = measure.ComputeAB(raw, in.Now, measure.Options{RepoKey: in.RepoKey, Host: in.Host, LaneCost: o.LaneCost})
+	for _, ab := range []*measure.AB{&r.AB, &r.ABTotal} {
+		if ab.OnOff.Active {
+			ab.OnOff.Notes = in.HostNotes
+		}
+	}
 	r.Shadow = measure.ComputeShadow(raw, in.Now, o)
 	r.Shadow.Notes = nil
 	for _, s := range r.Shadow.Rules {
@@ -255,10 +268,7 @@ func Build(in Input) Report {
 				Denies: m.Denies.Denies, Overrides: m.Denies.Overrides, AB: measure.ComputeAB(sp.Events, in.Now, o)})
 		}
 	}
-	if in.Usage != nil {
-		u := BuildUsage(*in.Usage, in.Now, in.Window, in.CompareAt)
-		r.Usage = &u
-	}
+	r.Usage = usage
 	return r
 }
 

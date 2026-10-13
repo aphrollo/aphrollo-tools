@@ -890,6 +890,7 @@ notrun_vitest_test.go                              suite
 nowindow_windows_test.go                           postedit
 npmbin.go                                          suite
 npmbin_test.go                                     suite
+offlane_test.go                                    postedit
 pathless.go                                        tddtest
 pathless_test.go                                   tddtest
 pathlock.go                                        core

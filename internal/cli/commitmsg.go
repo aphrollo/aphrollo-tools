@@ -33,7 +33,11 @@ func runGateCommitMsg(args []string, stderr io.Writer) int {
 	if root == "" {
 		root = *repo
 	}
-	res := tdd.CommitMsg(root, msg)
+	judge := tdd.CommitMsg
+	if laneOffAt(root) {
+		judge = tdd.CommitMsgUndercover // an off lane keeps the information boundary, not the house style
+	}
+	res := judge(root, msg)
 	if !res.Blocked {
 		return 0
 	}

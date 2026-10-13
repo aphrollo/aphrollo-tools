@@ -40,6 +40,12 @@ func runPostCommit(stdout, stderr io.Writer) int {
 	// First, and cheap (one git call, one append): the canary's record of every
 	// commit made through this path. It fails open.
 	commitrecord.Record(root)
+	if laneOffAt(root) {
+		// A lane with aphrollo off keeps its lifecycle: the arm and the commit's sha.
+		noteOffLane(root, "")
+		tdd.AppendEvent(tdd.Event{Kind: "commit", Root: root, Detail: map[string]string{"sha": headSHA(root)}})
+		return 0
+	}
 	tdd.PostCommit(root)
 	// The guarded lane sweep's second path (issue #716): a lane landed by
 	// resolving a conflict and concluding with a plain `git commit` never
@@ -64,10 +70,14 @@ func runPostCommit(stdout, stderr io.Writer) int {
 func runPostMerge(stdout, stderr io.Writer) int {
 	// A merge commit fires this hook and never post-commit: the canary's record
 	// of commits made through the real path needs it. Fails open.
-	if root := tdd.RepoRoot("."); root != "" {
+	root := tdd.RepoRoot(".")
+	if root != "" {
 		commitrecord.Record(root)
 	}
 	workspace.PostMergeRecord(".", stderr)
+	if root != "" && laneOffAt(root) {
+		return 0 // a lane with aphrollo off sweeps nothing
+	}
 	tdd.PostMergeSweep(".", stdout, stderr)
 	return 0
 }

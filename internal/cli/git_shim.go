@@ -100,12 +100,17 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 	// checkout -b rather than as the unrecognized verb "cob" (issue #279).
 	classifyRest := rest
 	shellAlias := false
+	offLane := false
 
 	// The primary checkout is merge-only, and the refusal comes before both
 	// the lock and git itself: a branch that already moved cannot be un-moved
 	// by a message.
 	if cwd, err := os.Getwd(); err == nil {
 		workDir := gitWorkingDir(args, cwd)
+		// A lane in the off arm runs git as plain git: none of aphrollo's walls below
+		// is asked, so none logs or consumes anything. The undercover refusal is an
+		// information boundary, not a gate of aphrollo's, and judges every lane.
+		offLane = laneOffAt(workDir)
 		if expanded, isShell, found := resolveAlias(cfg.realGit, workDir, rest); found {
 			shellAlias = isShell
 			if !isShell {
@@ -116,23 +121,27 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 		// --no-verify/-n, or -c core.hooksPath in the global prefix. Refused
 		// outright in the primary checkout; a lane's use is allowed but
 		// logged, so `gate stats` sees every use of the hatch.
-		if hooksBypassDoor(prefix, classifyRest) {
+		if !offLane && hooksBypassDoor(prefix, classifyRest) {
 			if line := hooksBypassRefusalLine(prefix, classifyRest, workDir); line != "" {
 				fmt.Fprintln(stderr, line)
 				return 1
 			}
 			tdd.AppendGateLog("precommit", cwd, tdd.LogToken(strings.Join(args, " ")), "override-no-verify", 0)
 		}
-		if line := primaryRefusalLine(cfg.realGit, classifyRest, workDir, shellAlias); line != "" {
-			fmt.Fprintln(stderr, line)
-			return 1
+		if !offLane {
+			if line := primaryRefusalLine(cfg.realGit, classifyRest, workDir, shellAlias); line != "" {
+				fmt.Fprintln(stderr, line)
+				return 1
+			}
 		}
 		// Same "before the lock, before git runs" placement as the
 		// primary-checkout refusal above: a push that already reached the
 		// remote is not one this stage refused anything about (issue #266).
-		if line := staleBranchRefusalLine(cfg.realGit, rest, workDir); line != "" {
-			fmt.Fprintln(stderr, line)
-			return 1
+		if !offLane {
+			if line := staleBranchRefusalLine(cfg.realGit, rest, workDir); line != "" {
+				fmt.Fprintln(stderr, line)
+				return 1
+			}
 		}
 		if line := undercoverRefusalLine(cfg.realGit, classifyRest, workDir); line != "" {
 			fmt.Fprintln(stderr, line)
@@ -144,24 +153,28 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 		// this one command: the restore is the proof's PROTECTIVE step, and
 		// the shim serves it from the held bytes rather than letting git
 		// restore from the index over the lane's unstaged work.
-		if code, handled := mutationProofRestore(rest, workDir, stderr); handled {
-			return code
+		if !offLane {
+			if code, handled := mutationProofRestore(rest, workDir, stderr); handled {
+				return code
+			}
 		}
 		// The discard wall (#343): same placement again — a `reset --hard`
 		// that already ran cannot be un-run by a refusal printed after it,
 		// and the louder marker's notice (a line with refuse=false, naming
 		// the unstaged work it is about to destroy) is worth nothing after
 		// the destruction either, so both print here.
-		if line, refuse := discardWallRefusal(cfg, rest, workDir); line != "" || refuse {
-			fmt.Fprintln(stderr, line)
-			if refuse {
-				return 1
+		if !offLane {
+			if line, refuse := discardWallRefusal(cfg, rest, workDir); line != "" || refuse {
+				fmt.Fprintln(stderr, line)
+				if refuse {
+					return 1
+				}
 			}
 		}
 		// The shared-stash wall (#384): refs/stash is one ref for the whole
 		// repo, not per-worktree — a pop that already took another lane's
 		// entry cannot be undone by a refusal printed after it either.
-		if line, refuse := stashRefusalLine(cfg.realGit, rest, workDir); refuse {
+		if line, refuse := stashRefusalLine(cfg.realGit, rest, workDir); refuse && !offLane {
 			fmt.Fprintln(stderr, line)
 			return 1
 		}
@@ -237,7 +250,9 @@ func runGitShim(args []string, stdin io.Reader, stdout, stderr io.Writer, cfg gi
 			// to stand in: `git -C <elsewhere> push` carries ITS note to ITS
 			// remote, and reaching this checkout's remote instead is both the
 			// wrong note and a network round trip nobody asked for.
-			pushGateNotes(rest, gitWorkingDir(args, cwd), cfg.realGit, code, stderr)
+			if !offLane {
+				pushGateNotes(rest, gitWorkingDir(args, cwd), cfg.realGit, code, stderr)
+			}
 			return code
 		}
 

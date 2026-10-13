@@ -57,6 +57,26 @@ func CommitMsg(repoRoot, msgPath string) GateResult {
 	// aphrollo.toml too — the same fallback the mutation job uses. Without
 	// it the gate is not merely off in such a repo but UNSETTABLE, and an
 	// installed hook returns clean on every message forever.
+	return undercoverLayer(repoRoot, ws, body)
+}
+
+// CommitMsgUndercover is the undercover layer of CommitMsg alone, for a lane that runs
+// with aphrollo off: house style and the verification-claim check are gates of aphrollo's
+// and are off there, but a tell in a message is an information boundary, kept for everyone.
+func CommitMsgUndercover(repoRoot, msgPath string) GateResult {
+	ws := cargoWorkspaceRoot(repoRoot)
+	if ws == "" {
+		ws = repoRoot
+	}
+	var res GateResult
+	if data, err := os.ReadFile(msgPath); err == nil {
+		res = undercoverLayer(repoRoot, ws, normalizeEOL(string(data)))
+	}
+	return res
+}
+
+// undercoverLayer rejects a message line carrying a tell, and an identity carrying one.
+func undercoverLayer(repoRoot, ws, body string) GateResult {
 	tells, on := undercover.Load(ws)
 	if !on {
 		return GateResult{}
@@ -106,3 +126,6 @@ func repoDenyPatterns(ws string) []*regexp.Regexp {
 	}
 	return out
 }
+
+// normalizeEOL turns CRLF line ends into LF, as CommitMsg does before it judges a message.
+func normalizeEOL(s string) string { return strings.ReplaceAll(s, "\r\n", "\n") }

@@ -171,7 +171,7 @@
       "--limit",
       "20",
       "--json",
-      "databaseId,headSha,conclusion,attempt,createdAt,workflowName"
+      "databaseId,headSha,conclusion,attempt,createdAt,workflowName,displayTitle"
     ],
     "file": "16.out"
   },

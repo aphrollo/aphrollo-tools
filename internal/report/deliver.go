@@ -134,13 +134,23 @@ func Deliver(t Tracker, build func(abReady bool) Report, o DeliverOptions) ([]st
 	switch {
 	case abDone:
 		say("skip", "%s (#%d exists)", abTitle, abIssue.Number)
-	case !rep.ABTotal.Decidable:
+	case !rep.ABTotal.Decidable && !rep.ABTotal.OnOff.Decidable:
 		say("skip", "%s: still deciding (%s)", abTitle, abLanes(rep.ABTotal))
 	default:
-		body := "The red-to-green A/B has a verdict on its primary metric (escapes per lane): " + rep.ABTotal.Verdict +
-			" (" + abLanes(rep.ABTotal) + ").\n\n"
-		if rep.ABTotal.Verdict == measure.VerdictMaxReached {
-			body += measure.TooSmall + ".\n\n"
+		body := ""
+		if rep.ABTotal.Decidable {
+			body += "The red-to-green A/B has a verdict on its primary metric (escapes per lane): " + rep.ABTotal.Verdict +
+				" (" + abLanes(rep.ABTotal) + ").\n\n"
+			if rep.ABTotal.Verdict == measure.VerdictMaxReached {
+				body += measure.TooSmall + ".\n\n"
+			}
+		}
+		if oo := rep.ABTotal.OnOff; oo.Decidable {
+			body += fmt.Sprintf("The on vs off comparison has a verdict on its primary metric (escapes per lane): %s (on %d lanes, off %d lanes).\n\n",
+				oo.Verdict, oo.On.Lanes, oo.Off.Lanes)
+			if oo.Verdict == measure.VerdictMaxReached {
+				body += oo.Advice + ".\n\n"
+			}
 		}
 		body += "This is the signal to resume: read `aphrollo stats --ab` and the report, then decide enforce or warn.\n"
 		if _, err := open(abTitle, body, nil); err != nil {

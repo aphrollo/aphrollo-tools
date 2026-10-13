@@ -13,7 +13,7 @@ import (
 const runFields = "attempt,conclusion,databaseId,event,headBranch,headSha,jobs,status,url,workflowName"
 
 // listFields is the field list asked of `gh run list --json`.
-const listFields = "databaseId,headSha,conclusion,attempt,createdAt,workflowName"
+const listFields = "databaseId,headSha,conclusion,attempt,createdAt,workflowName,displayTitle"
 
 // jsonOf runs gh and decodes its stdout into v, folding gh's own output into
 // any error so a failure names its cause.

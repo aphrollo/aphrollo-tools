@@ -47,6 +47,9 @@ func mutantsBeforePR(wt, base string, skip SkipMutants, stdout, stderr io.Writer
 	if err := skip.validate(); err != nil {
 		return err
 	}
+	if laneIsOff(wt) {
+		return nil // aphrollo is off for this lane: nothing is measured, nothing is said
+	}
 	cfg, err := tdd.ReadMutantsConfig(wt)
 	if err != nil {
 		return fmt.Errorf("mutants before the PR: %w", err)

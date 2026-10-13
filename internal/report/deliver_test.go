@@ -296,3 +296,37 @@ func TestDeliver_TheABReadyIssueNamesTheVerdictItOpenedOn(t *testing.T) {
 // ratchet: test_removed TestDeliver_TheABReadyIssueIsOpenedOnceEverWhenBothArmsReachThirty: renamed TestDeliver_TheABReadyIssueIsOpenedOnceEverWhenTheVerdictIsIn: the issue opens on a verdict, not 30 lanes
 
 // ratchet: test_removed TestDeliver_NoABReadyIssueWhileAnArmIsShort: renamed TestDeliver_NoABReadyIssueWhileTheMetricIsStillDeciding: the issue waits on a verdict, not 30 lanes
+
+// The A/B ready issue covers the on/off comparison too: a verdict there alone opens it, and
+// it names that verdict beside the red-green one.
+func TestDeliver_TheABReadyIssueCoversTheOnOffVerdict(t *testing.T) {
+	tr := newTracker()
+	r := build(nil)
+	r.ABTotal.OnOff = measure.OnOff{Active: true, Decidable: true, Verdict: measure.VerdictOffBetter}
+	if _, err := dl(tr, r, DeliverOptions{Repo: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range tr.opened {
+		if o.Title == "A/B ready: r" {
+			if !strings.Contains(o.Body, "on vs off") || !strings.Contains(o.Body, measure.VerdictOffBetter) {
+				t.Errorf("body does not name the on/off verdict:\n%s", o.Body)
+			}
+			return
+		}
+	}
+	t.Error("no A/B ready issue for a decided on/off comparison")
+}
+
+func TestDeliver_NoABReadyIssueWhileTheOnOffComparisonIsStillDeciding(t *testing.T) {
+	tr := newTracker()
+	r := build(nil)
+	r.ABTotal.OnOff = measure.OnOff{Active: true, Verdict: measure.VerdictDeciding}
+	if _, err := dl(tr, r, DeliverOptions{Repo: "r"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, o := range tr.opened {
+		if strings.HasPrefix(o.Title, "A/B ready") {
+			t.Errorf("opened %q while on/off is still deciding", o.Title)
+		}
+	}
+}

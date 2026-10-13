@@ -429,6 +429,11 @@ func runGate(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aphrollo: reading hook input: %v\n", err)
 		return 1
 	}
+	// A lane in the off arm: the hook answers nothing, and not even its own timing is
+	// recorded; only the always-on walls judge a PreToolUse.
+	if offLaneHook(raw) {
+		return runOffLaneHook(args[0], raw, stdout)
+	}
 	// Who the hook serves, for every event it appends: set once, undone last.
 	defer bindHookActor(raw)()
 	defer recordHookTiming(args[0], raw, time.Now())

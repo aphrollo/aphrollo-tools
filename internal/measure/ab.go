@@ -15,17 +15,20 @@ var abArms = [...]string{"enforce", "warn"}
 
 // ABArm is one arm of the red→green experiment: what its lanes met and what it cost.
 type ABArm struct {
-	Arm             string `json:"arm"`
-	Lanes           int    `json:"lanes"`
-	Denies          int    `json:"denies"`
-	Warnings        int    `json:"warnings"`
-	Overrides       int    `json:"overrides"`
-	Escapes         int    `json:"escapes"`
-	EscapeRecords   int    `json:"escape_records"`
-	CIRedAfterGreen int    `json:"ci_red_after_green"`
-	Dropped         int    `json:"dropped"`
-	HeldOut         int    `json:"held_out"`
-	TimeToGreen     Dist   `json:"time_to_green_secs"`
+	Arm           string `json:"arm"`
+	Lanes         int    `json:"lanes"`
+	Denies        int    `json:"denies"`
+	Warnings      int    `json:"warnings"`
+	Overrides     int    `json:"overrides"`
+	Escapes       int    `json:"escapes"`
+	EscapeRecords int    `json:"escape_records"`
+	// AttributedEscapes are the escapes of Escapes that a tracker issue or a red run on
+	// main blamed on the arm's lanes.
+	AttributedEscapes int  `json:"attributed_escapes"`
+	CIRedAfterGreen   int  `json:"ci_red_after_green"`
+	Dropped           int  `json:"dropped"`
+	HeldOut           int  `json:"held_out"`
+	TimeToGreen       Dist `json:"time_to_green_secs"`
 	// Versions are the binary versions the arm's lanes ran under, listed only when
 	// there is more than one: a mixed arm is a comparison to read with care.
 	Versions []string `json:"versions,omitempty"`
@@ -56,6 +59,9 @@ type AB struct {
 	Metrics   []ABMetric `json:"metrics"`
 	Verdict   string     `json:"verdict"`
 	Decidable bool       `json:"decidable"`
+	// OnOff is the comparison of the lanes that ran with aphrollo on (the enforce and warn
+	// arms) against the lanes that ran with it off; Active only when an off lane exists.
+	OnOff OnOff `json:"on_off"`
 	// DroppedArms are the arms of which more than abDroppedMajority of the red-green
 	// decisions were dropped for the hook's budget. The readout is then deciding, however
 	// the other metrics read: a repo never looks decided on data its hook did not record.
@@ -70,6 +76,12 @@ type abLaneFacts struct {
 	overrides, dropped int
 	heldOut            int
 	records, ciRed     int
+	attributed         int
+	mergeAt            time.Time // the lane's merge
+	gateBlocks         int       // gate runs of the lane that blocked
+	gateSecs           float64   // seconds the agent waited on the lane's gate runs
+	cost               float64   // the lane's agent cost in USD, from the usage the caller joined
+	hasCost            bool
 	firstAt            time.Time
 	greenAfter         time.Time
 	greenSeen          bool
@@ -112,6 +124,21 @@ func ComputeAB(events []tdd.Event, now time.Time, o Options) AB {
 		}
 		foldABEvent(f, e)
 	}
+	// The escapes of a lane: its records, wherever they were recorded from, and what the
+	// tracker and main's CI blame on it (AttributeEscapes).
+	in := AttributionInput{Events: events, In: s.in}
+	if o.Host != nil {
+		in.Issues, in.PRBranch, in.MainReds = o.Host.Issues, o.Host.PRBranch, o.Host.MainReds
+	}
+	for _, a := range AttributeEscapes(in) {
+		if f := lanes[canon(a.Lane)]; f != nil {
+			if a.Source == "record" {
+				f.records++
+			} else {
+				f.attributed++
+			}
+		}
+	}
 	before := 0
 	for lane, f := range lanes {
 		if f.arm != "" || f.pinned || abTrunk(lane) {
@@ -125,7 +152,14 @@ func ComputeAB(events []tdd.Event, now time.Time, o Options) AB {
 			f.arm = tddarm.Of(o.RepoKey, lane) // a pure function of repo and lane: no event needed
 		}
 	}
+	for lane, c := range o.LaneCost {
+		if f := lanes[canon(lane)]; f != nil {
+			f.cost += c
+			f.hasCost = true
+		}
+	}
 	out := summariseAB(lanes)
+	out.OnOff = summariseOnOff(lanes)
 	out.BeforeStart = before
 	return out
 }
@@ -176,9 +210,14 @@ func foldABEvent(f *abLaneFacts, e stamped) {
 		if e.Detail["override"] == "override-red-green-allow" {
 			f.overrides++
 		}
-	case "escape":
-		if e.Verdict != "false-positive" {
-			f.records++
+	case "merge":
+		if e.Verdict == "ok" && f.mergeAt.IsZero() {
+			f.mergeAt = e.at
+		}
+	case "commit_gate_result", "merge_gate_result":
+		f.gateSecs += e.Secs
+		if e.Verdict == "blocked" {
+			f.gateBlocks++
 		}
 	case "ci":
 		if e.Verdict == "red" && f.greenSeen && !f.ciCounted {
@@ -273,7 +312,8 @@ func summariseAB(lanes map[string]*abLaneFacts) AB {
 		a.HeldOut += f.heldOut
 		a.EscapeRecords += f.records
 		a.CIRedAfterGreen += f.ciRed
-		a.Escapes += f.records + f.ciRed
+		a.AttributedEscapes += f.attributed
+		a.Escapes += f.records + f.ciRed + f.attributed
 		if !f.greenAfter.IsZero() {
 			samples[f.arm] = append(samples[f.arm], f.greenAfter.Sub(f.firstAt).Seconds())
 		}
@@ -351,7 +391,7 @@ func (ab AB) Text() string {
 		p("%-8s %d lanes (a decision is forced at %d per arm)", a.Arm, a.Lanes, MaxABLanes)
 		p("  denies %d  warnings %d  overrides %d  dropped for the budget %d  held out %d", a.Denies, a.Warnings, a.Overrides, a.Dropped, a.HeldOut)
 		p("  %d decisions unmeasured of %d (dropped for the budget, so a red may have gone unseen)", a.Dropped, a.decisions())
-		p("  escapes %d (escape records %d, CI red after a local green %d)", a.Escapes, a.EscapeRecords, a.CIRedAfterGreen)
+		p("  escapes %d (escape records %d, CI red after a local green %d%s)", a.Escapes, a.EscapeRecords, a.CIRedAfterGreen, a.attributedNote())
 		p("  friction: denies %d + overrides %d; time to green n %d%s  p50 %s  p90 %s",
 			a.Denies, a.Overrides, a.TimeToGreen.N, a.noGreenNote(), secs(a.TimeToGreen.P50), secs(a.TimeToGreen.P90))
 		if len(a.Versions) > 1 {
@@ -379,6 +419,9 @@ func (ab AB) Text() string {
 	if ab.Advice != "" {
 		p("  %s", ab.Advice)
 	}
+	if ab.OnOff.Active {
+		b.WriteString(ab.OnOff.Text())
+	}
 	return b.String()
 }
 
@@ -404,4 +447,12 @@ func (a ABArm) noGreenNote() string {
 		return fmt.Sprintf(" (not recorded: %d decision(s) dropped for the budget, so a red may have gone unseen)", a.Dropped)
 	}
 	return " (no red occurred: no deny or warning)"
+}
+
+// attributedNote names the escapes blamed from the tracker and main's CI, where there are any.
+func (a ABArm) attributedNote() string {
+	if a.AttributedEscapes == 0 {
+		return ""
+	}
+	return fmt.Sprintf(", blamed from issues and main %d", a.AttributedEscapes)
 }

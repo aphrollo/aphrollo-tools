@@ -215,76 +215,12 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 			return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 		}
 	}
-	choice, err := chooseCI(m.Target.Worktree, m.CI)
-	if err != nil {
-		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
-	}
-	useLocal := choice.mode == tdd.CILocal
-	// verdict is what GitHub's checks said, for the gate to take in place of
-	// re-running them; local CI leaves it nil, as it has no GitHub verdict.
-	var verdict *tdd.CIVerdict
-	if useLocal {
-		fmt.Fprintf(stdout, "ci: local (%s) — GitHub's checks are not read\n", choice.source)
-	} else {
-		recordFirstRunCI(m.Target.Worktree, m.Target.Branch, pr.Number)
-		ci, ciErr := ghCIStatus(m.Target.Worktree, head)
-		if ciErr != nil {
-			return nil, fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
-		}
-		recordSettledCI(m.Target.Worktree, head, pr.Number, ci.State, ci.Cause)
-		switch {
-		case ci.State == "unavailable" && choice.mode == tdd.CIAuto:
-			useLocal = true
-			fmt.Fprintf(stdout, "ci: local (%s) — GitHub's CI is unavailable: %s\n", choice.source, ci.Word())
-		case ci.State == "green":
-			verdict = ciVerdictOf(m.Target.Worktree, pr.Number, head, ci)
-			if ci.AllSkipped() {
-				fmt.Fprintf(stdout, "ci: github (%s) — no check ran on %s (all %d skipped) — the local suite is the proof\n", choice.source, short(head), ci.Skipped)
-			} else {
-				fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(head))
-			}
-		default:
-			return nil, m.refuseGitHubCI(ci, stderr)
-		}
-	}
-	// The escape-closure and pr-closes-check judgment `workspace pr`/`submit`/
-	// `ship` already ran before opening this PR — run again here for a PR
-	// this tool did not itself open (a direct `gh pr create`, a PR from the
-	// web UI), which never went through that local check at all.
-	if err := escapeClosureBeforeMerge(m.Target.Worktree, pr.Number, stderr); err != nil {
-		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
-	}
-	// The local pre-merge gate, on the tree this merge is about to create —
-	// before GitHub creates it. Landing through a PR makes no local merge
-	// commit, so the pre-merge-commit hook never fires and everything it
-	// carries (the mechanical suites, and the mutation measurement a repo
-	// declaring mutants-at-merge is promised) would otherwise be skipped for
-	// this path alone. It runs AFTER the two remote reads above because they
-	// are cheap and this is not: a PR GitHub itself refuses never pays for a
-	// local measurement.
-	//
-	// Local CI, when it is the CI, runs first and in its place of GitHub's
-	// checks: the repo's own workflow on the merge result. The gate below
-	// still judges the merge as before, mutation included where declared.
-	if useLocal {
-		if err := runLocalCI(m.Target, head, pr.Number, stdout, stderr); err != nil {
-			return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
-		}
-	}
-	// A merge queue tests the PR on the branch as it will be then, so the gate it
-	// gets takes a verdict for an older base instead of refusing it as stale.
-	gate := premergeGate
-	if queued {
-		gate = premergeGateQueued
-	}
-	if err := gate(m.Target, head, verdict, stderr); err != nil {
-		if _, stale := tdd.AsStaleCIVerdict(err); stale {
-			// CI is green on this head but judged an older base: the refusal is
-			// already the one line that says what to do, and the PR branch is
-			// never updated from here (the lane rules catch up by rebase only).
+	// A lane with aphrollo off is merged with every local gate skipped and no CI condition
+	// of aphrollo's; GitHub's own refusals (a conflict) still stand.
+	if !laneIsOff(m.Target.Worktree) {
+		if err := m.judgeLocally(pr, head, queued, stdout, stderr); err != nil {
 			return nil, err
 		}
-		return nil, fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
 	}
 	if queued {
 		if useBody {
@@ -306,6 +242,84 @@ func (m *Merge) land(stdout, stderr io.Writer) (*Enqueued, error) {
 		return q, err
 	}
 	return nil, m.landed(pr.Number, pr.URL, m.Method, stdout, stderr)
+}
+
+// judgeLocally is everything a merge proves before GitHub lands the PR when aphrollo is on
+// for the lane: the CI choice, GitHub's checks or the local CI, the escape-closure
+// judgment and the local pre-merge gate on the merge the PR would make.
+func (m *Merge) judgeLocally(pr *PRInfo, head string, queued bool, stdout, stderr io.Writer) error {
+	choice, err := chooseCI(m.Target.Worktree, m.CI)
+	if err != nil {
+		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+	}
+	useLocal := choice.mode == tdd.CILocal
+	// verdict is what GitHub's checks said, for the gate to take in place of
+	// re-running them; local CI leaves it nil, as it has no GitHub verdict.
+	var verdict *tdd.CIVerdict
+	if useLocal {
+		fmt.Fprintf(stdout, "ci: local (%s) — GitHub's checks are not read\n", choice.source)
+	} else {
+		recordFirstRunCI(m.Target.Worktree, m.Target.Branch, pr.Number)
+		ci, ciErr := ghCIStatus(m.Target.Worktree, head)
+		if ciErr != nil {
+			return fmt.Errorf("checking CI status for %s: %w", m.Target.Branch, ciErr)
+		}
+		recordSettledCI(m.Target.Worktree, head, pr.Number, ci.State, ci.Cause)
+		switch {
+		case ci.State == "unavailable" && choice.mode == tdd.CIAuto:
+			useLocal = true
+			fmt.Fprintf(stdout, "ci: local (%s) — GitHub's CI is unavailable: %s\n", choice.source, ci.Word())
+		case ci.State == "green":
+			verdict = ciVerdictOf(m.Target.Worktree, pr.Number, head, ci)
+			if ci.AllSkipped() {
+				fmt.Fprintf(stdout, "ci: github (%s) — no check ran on %s (all %d skipped) — the local suite is the proof\n", choice.source, short(head), ci.Skipped)
+			} else {
+				fmt.Fprintf(stdout, "ci: github (%s) — every check on %s passed\n", choice.source, short(head))
+			}
+		default:
+			return m.refuseGitHubCI(ci, stderr)
+		}
+	}
+	// The escape-closure and pr-closes-check judgment `workspace pr`/`submit`/
+	// `ship` already ran before opening this PR — run again here for a PR
+	// this tool did not itself open (a direct `gh pr create`, a PR from the
+	// web UI), which never went through that local check at all.
+	if err := escapeClosureBeforeMerge(m.Target.Worktree, pr.Number, stderr); err != nil {
+		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+	}
+	// The local pre-merge gate, on the tree this merge is about to create —
+	// before GitHub creates it. Landing through a PR makes no local merge
+	// commit, so the pre-merge-commit hook never fires and everything it
+	// carries (the mechanical suites, and the mutation measurement a repo
+	// declaring mutants-at-merge is promised) would otherwise be skipped for
+	// this path alone. It runs AFTER the two remote reads above because they
+	// are cheap and this is not: a PR GitHub itself refuses never pays for a
+	// local measurement.
+	//
+	// Local CI, when it is the CI, runs first and in its place of GitHub's
+	// checks: the repo's own workflow on the merge result. The gate below
+	// still judges the merge as before, mutation included where declared.
+	if useLocal {
+		if err := runLocalCI(m.Target, head, pr.Number, stdout, stderr); err != nil {
+			return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+		}
+	}
+	// A merge queue tests the PR on the branch as it will be then, so the gate it
+	// gets takes a verdict for an older base instead of refusing it as stale.
+	gate := premergeGate
+	if queued {
+		gate = premergeGateQueued
+	}
+	if err := gate(m.Target, head, verdict, stderr); err != nil {
+		if _, stale := tdd.AsStaleCIVerdict(err); stale {
+			// CI is green on this head but judged an older base: the refusal is
+			// already the one line that says what to do, and the PR branch is
+			// never updated from here (the lane rules catch up by rebase only).
+			return err
+		}
+		return fmt.Errorf("refusing to merge %s: %w", m.Target.Branch, err)
+	}
+	return nil
 }
 
 // landed is what follows GitHub merging the PR, whether this verb merged it

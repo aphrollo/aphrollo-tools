@@ -141,6 +141,9 @@ func RecordEscape(o EscapeOptions, w io.Writer) (EscapeRecord, error) {
 	if url, number, err := openEscapeIssue(o.Repo, r); err == nil {
 		r.Issue, r.Number = url, number
 		updateEscape(r)
+		// The record and the issue it opened are one escape: a reader of the log that
+		// sees both counts it once (measure.AttributeEscapes).
+		AppendEvent(Event{Kind: "escape.issue", Root: o.Repo, Lane: o.Lane, Detail: map[string]string{"id": r.ID, "number": strconv.Itoa(number)}})
 	} else if !errors.Is(err, errNoIssueTarget) {
 		fmt.Fprintf(w, "escape %s: %v\n", r.ID, err)
 	}
