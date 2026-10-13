@@ -96,7 +96,7 @@ var schema = []Key{
 	{Name: "tdd", Kind: tomlsubset.String, Enum: []string{"enforce", "warn", "off"}, Default: str(tddBuiltIn), Layers: inAll, Field: "tdd"},
 	// The share, in percent, of a repo's lanes that run with aphrollo off, as the control
 	// of the on/off comparison. 0 is no off arm: behaviour is unchanged until a repo opts in.
-	{Name: "ab-off-share", Kind: tomlsubset.Int, Min: 0, Max: 100, Default: num(0), Layers: inAll, Field: "ab-off-share"},
+	{Name: "ab-off-share", Kind: tomlsubset.Int, Min: 0, Max: 100, Default: num(0), Layers: inRepo, Field: "ab-off-share"},
 	{Name: "isolation", Kind: tomlsubset.Bool, Default: flag(true), Layers: inAll, Field: "isolation"},
 	{Name: "ci", Kind: tomlsubset.String, Enum: []string{"auto", "local", "github"}, Default: str("auto"), Layers: inAll, Field: "ci"},
 	{Name: "ci.os", Kind: tomlsubset.List, Default: list("linux"), Layers: inRepo, Field: "ci-os"},

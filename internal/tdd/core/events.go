@@ -297,9 +297,24 @@ func headBranch(gitdir string) string {
 	}
 	ref, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "ref: refs/heads/")
 	if !ok {
-		return ""
+		return rebasedBranch(gitdir)
 	}
 	return ref
+}
+
+// rebasedBranch is the branch a rebase in progress in gitdir is rebuilding: HEAD is detached
+// while it runs, and the rebase names the branch in head-name. "" when none is in progress.
+func rebasedBranch(gitdir string) string {
+	for _, dir := range []string{"rebase-merge", "rebase-apply"} {
+		data, err := os.ReadFile(filepath.Join(gitdir, dir, "head-name"))
+		if err != nil {
+			continue
+		}
+		if ref, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "refs/heads/"); ok {
+			return ref
+		}
+	}
+	return ""
 }
 
 // KindShadow is the kind of a record that sets what the trellis kernel would

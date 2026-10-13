@@ -64,13 +64,22 @@ var offLaneEntries = map[string]laneEntry{
 // gitHooks are the git-side entry points `aphrollo gate` accepts; each has a row above.
 var gitHooks = []string{"precommit", "premerge", "premergecommit", "prepush", "commitmsg", "postcommit", "postmerge", "postrewrite"}
 
-// laneOffAt reports whether the lane of the checkout dir stands in is in the off arm.
-// It spawns nothing; the arm is a hash of the repo and the lane's name.
-func laneOffAt(dir string) bool {
-	return dir != "" && tdd.EffectiveTDD(dir).Off()
+// laneOffAt reports whether the lane of the checkout dir stands in is in the off arm, and
+// records the lane's arm at first sight: the record is what keeps the lane in its arm
+// (postedit.EffectiveTDD). It spawns nothing.
+func laneOffAt(dir string) bool { return laneOffFor(dir, "") }
+
+// laneOffFor is laneOffAt for the session or agent actor that asked.
+func laneOffFor(dir, actor string) bool {
+	if dir == "" {
+		return false
+	}
+	m := tdd.EffectiveTDD(dir)
+	tdd.RecordLaneArm(dir, actor, m)
+	return m.Off()
 }
 
-// noteOffLane records, once, that the lane of root is in the off arm: the lane-arm event.
+// noteOffLane records, once, the arm of the lane of root: the lane-arm event.
 func noteOffLane(root, actor string) {
 	tdd.RecordLaneArm(root, actor, tdd.EffectiveTDD(root))
 }
@@ -91,18 +100,14 @@ func offLaneHook(raw []byte) bool {
 		return false
 	}
 	dir := in.Cwd
-	if in.ToolInput.FilePath != "" {
-		dir = filepath.Dir(in.ToolInput.FilePath)
-	}
-	if !laneOffAt(dir) {
-		return false
+	if dir == "" && in.ToolInput.FilePath != "" {
+		dir = filepath.Dir(in.ToolInput.FilePath) // only a fallback: the cwd names the lane the hook serves
 	}
 	actor := in.SessionID
 	if in.AgentID != "" {
 		actor += "/" + in.AgentID
 	}
-	noteOffLane(dir, actor)
-	return true
+	return laneOffFor(dir, actor)
 }
 
 // runOffLaneHook is the answer of a session hook of an off lane: nothing, bar the

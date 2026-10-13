@@ -195,3 +195,59 @@ func TestOffLane_CommitmsgKeepsTheUndercoverLayerAndDropsHouseStyle(t *testing.T
 	}
 	_ = repo
 }
+
+// The hook's cwd decides which lane it serves; the edited file's directory is only the
+// fallback when the payload names no cwd.
+func TestOffLane_TheHooksCwdDecidesBeforeTheEditedFilesDirectory(t *testing.T) {
+	repo := offLaneRepo(t, "100")
+	elsewhere := t.TempDir()
+	withCwd := offPayload(t, map[string]any{"session_id": "s", "cwd": repo, "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": filepath.Join(elsewhere, "x.go")}})
+	if !offLaneHook([]byte(withCwd)) {
+		t.Errorf("a hook whose cwd is an off lane was judged by the directory of its file instead")
+	}
+	noCwd := offPayload(t, map[string]any{"session_id": "s", "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": filepath.Join(repo, "x.go")}})
+	if !offLaneHook([]byte(noCwd)) {
+		t.Errorf("a hook with no cwd did not fall back to its file's directory")
+	}
+}
+
+// Mid-rebase HEAD is detached, and the off lane stays off: silent, its commits in its lane.
+func TestOffLane_StaysSilentMidRebase(t *testing.T) {
+	repo := offLaneRepo(t, "100")
+	gitDir := filepath.Join(repo, ".git")
+	if err := os.MkdirAll(filepath.Join(gitDir, "rebase-merge"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	head, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "rebase-merge", "head-name"), []byte("refs/heads/lane/x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte(strings.Repeat("a", 40)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = head
+	code, out, errOut := driveOffEntry(t, "precommit", repo)
+	assertOffLaneQuiet(t, repo, "precommit mid-rebase", code, out, errOut)
+}
+
+// A lane is recorded at first sight, on or off, because the record is what keeps it in its
+// arm when the share changes later.
+func TestOffLane_AnOnLanesFirstHookRecordsItsArmAndAShareRaisedLaterDoesNotFlipIt(t *testing.T) {
+	repo := offLaneRepo(t, "0")
+	driveOffEntry(t, "pretooluse", repo)
+	arms := eventsOfKind(tdd.ReadEvents(repo), "lane-arm")
+	if len(arms) != 1 || arms[0].Detail["mode"] == "off" {
+		t.Fatalf("lane-arm events = %+v, want one for an on lane", arms)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "aphrollo.toml"), []byte("[aphrollo]\nundercover = true\nab-off-share = 100\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if laneOffAt(repo) {
+		t.Errorf("a lane recorded as on went off when the share was raised")
+	}
+}
