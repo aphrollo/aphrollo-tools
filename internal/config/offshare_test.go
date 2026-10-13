@@ -28,3 +28,11 @@ func TestAbOffShare_ARepoCannotDeclareMoreThanAHundredPercent(t *testing.T) {
 		t.Errorf("an out-of-range ab-off-share must be named in the diagnostics")
 	}
 }
+
+func TestAbOffShare_AHundredPercentIsAccepted(t *testing.T) {
+	repo := repoWith(t, map[string]string{"aphrollo.toml": "[aphrollo]\nab-off-share = 100\n"})
+	cfg := loadRepo(repo)
+	if got := cfg.Get("ab-off-share"); got.Value.N != 100 || len(cfg.Diagnostics()) != 0 {
+		t.Errorf("ab-off-share = %d, diagnostics %v; want 100 and none", got.Value.N, cfg.Diagnostics())
+	}
+}

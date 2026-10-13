@@ -83,3 +83,16 @@ func TestOffBucket_IsIndependentOfTheEnforceWarnArm(t *testing.T) {
 		}
 	}
 }
+
+// A lane is off when its bucket is below the share, not at it: bucket 25 is on at share 25
+// and off at share 26.
+func TestResolveShare_TheShareIsAnExclusiveBound(t *testing.T) {
+	set := setting(config.BuiltIn, "warn")
+	repo, lane := "github.com/aphrollo/aphrollo-tools", "lane/a1-redgreen-warn" // bucket 25
+	if m := ResolveShare(set, repo, lane, 25); m.Arm == ArmOff {
+		t.Errorf("share 25 put a bucket-25 lane off: %+v", m)
+	}
+	if m := ResolveShare(set, repo, lane, 26); m.Arm != ArmOff {
+		t.Errorf("share 26 left a bucket-25 lane on: %+v", m)
+	}
+}
