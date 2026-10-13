@@ -5,7 +5,6 @@ import (
 
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
 	"github.com/aphrollo/aphrollo-tools/internal/measure"
-	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // attributionIssueLimit and attributionRunLimit bound the reads; a tracker with more is
@@ -17,9 +16,10 @@ const (
 
 // GatherAttribution reads, through the host, what the escape attribution needs beyond the
 // event log: the tracker's issues, a PR's head branch, and the failed runs on the trunk.
+// A merge gate that blocked is not among them: it refused an incoming merge.
 // What it cannot read is named in the notes and the attribution goes on without it.
-func GatherAttribution(h host.Host, trunk string, events []tdd.Event) (measure.AttributionInput, []string) {
-	in := measure.AttributionInput{Events: events, MainReds: measure.MainRedsFromEvents(events)}
+func GatherAttribution(h host.Host, trunk string) (*measure.HostFacts, []string) {
+	in := &measure.HostFacts{}
 	var notes []string
 	issues, err := h.ListIssues(host.IssueQuery{State: "all", Limit: attributionIssueLimit, Fields: []string{"number", "title", "body"}})
 	if err != nil {
@@ -47,7 +47,7 @@ func GatherAttribution(h host.Host, trunk string, events []tdd.Event) (measure.A
 	}
 	for _, r := range runs {
 		if r.Conclusion == "failure" {
-			in.MainReds = append(in.MainReds, measure.RedRun{At: r.CreatedAt, Ref: r.URL})
+			in.MainReds = append(in.MainReds, measure.RedRun{At: r.CreatedAt, SHA: r.HeadSHA, Title: r.Title, Ref: r.URL})
 		}
 	}
 	return in, notes

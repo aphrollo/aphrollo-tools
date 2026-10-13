@@ -394,3 +394,28 @@ func TestVerifyClosureJudgesAnIssueNamedTwiceOnlyOnce(t *testing.T) {
 		t.Fatalf("#42 judged %d times, want 1:\n%s", n, out.String())
 	}
 }
+
+// The issue a record opened is written to the event log beside the record, so a reader that
+// sees both counts one escape: the record, and the issue it opened.
+func TestRecordEscape_LogsTheIssueNumberItOpened(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("TRELLIS_DATA", t.TempDir())
+	repo := makeGitHubRepo(t)
+	stubGh(t, "https://github.com/o/r/issues/42")
+
+	var out strings.Builder
+	r, err := RecordEscape(EscapeOptions{Reason: "a clippy warning reached main", Repo: repo}, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var link *Event
+	for _, e := range ReadEvents(repo) {
+		if e.Kind == "escape.issue" {
+			e := e
+			link = &e
+		}
+	}
+	if link == nil || link.Detail["id"] != r.ID || link.Detail["number"] != "42" {
+		t.Fatalf("no escape.issue event naming record %s and issue 42: %+v", r.ID, ReadEvents(repo))
+	}
+}

@@ -14,6 +14,7 @@ func TestBuild_TheOnOffSectionTakesLaneCostFromUsageAndBlamedEscapesFromTheAttri
 	evs := []tdd.Event{
 		evAt(1, 600, "lane-arm", "lane/on-1", "", "arm", "enforce", "why", "assigned", "mode", "enforce"),
 		evAt(2, 500, "lane-arm", "lane/off-1", "", "arm", "off", "why", "assigned", "mode", "off"),
+		evAt(3, 400, "merge", "lane/on-1", "ok", "pr", "1"),
 	}
 	cell := func(lane string) UsageCell {
 		return UsageCell{Day: "2026-10-07", Lane: lane, Session: "s", Model: "claude-sonnet-4-6"}
@@ -23,8 +24,8 @@ func TestBuild_TheOnOffSectionTakesLaneCostFromUsageAndBlamedEscapesFromTheAttri
 		cell("lane/off-1"): {Fresh: 2_000_000, Turns: 1},
 	}}
 	r := Build(Input{Events: evs, Now: now, Window: week, Repo: "aphrollo-tools", Usage: usage,
-		Attribution:      []measure.Attribution{{Lane: "lane/on-1", Source: "issue", Key: "pr:1"}},
-		AttributionNotes: []string{"runs on main not read: boom"}})
+		Host:      &measure.HostFacts{Issues: []measure.EscapeIssue{{Number: 3, Title: "escape: totals", Body: "PR #1"}}},
+		HostNotes: []string{"runs on main not read: boom"}})
 	oo := r.ABTotal.OnOff
 	if !oo.Active || oo.On.Lanes != 1 || oo.Off.Lanes != 1 || oo.On.Escapes != 1 {
 		t.Fatalf("on/off = %+v, want active with one lane a side and one blamed escape on the on side", oo)

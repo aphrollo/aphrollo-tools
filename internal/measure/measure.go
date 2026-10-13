@@ -25,10 +25,9 @@ type Options struct {
 	// the A/B puts a lane that recorded no arm in the arm its name hashes to; "" leaves
 	// such a lane out.
 	RepoKey string
-	// Attribution is the escapes the tracker and main's CI blame on a lane
-	// (AttributeEscapes). The ones the log's own records already count are not counted
-	// again.
-	Attribution []Attribution
+	// Host is what the tracker and the CI host say of the escapes (issues, a PR's head
+	// branch, red runs on main); nil reads the log's own records alone.
+	Host *HostFacts
 	// LaneCost is the agent cost in USD of each lane, joined from the harness's session
 	// usage by the caller; a lane with no entry has no cost sample.
 	LaneCost map[string]float64

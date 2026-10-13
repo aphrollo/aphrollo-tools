@@ -22,19 +22,30 @@ type EscapeIssue struct {
 	Body   string
 }
 
-// RedRun is a red run on the trunk: a CI run or a merge-gate run that failed.
+// RedRun is a red CI run on the trunk, of the commit SHA whose title is Title.
 type RedRun struct {
-	At  time.Time
-	Ref string
+	At    time.Time
+	SHA   string
+	Title string
+	Ref   string
 }
 
-// AttributionInput is everything the sources read. PRBranch maps a PR number to its head
-// branch (the lane), asking the host; nil asks nothing.
+// HostFacts is what the tracker and the CI host say of the escapes, read by the caller:
+// the issues, a PR's head branch (nil asks nothing) and the red runs on the trunk.
+type HostFacts struct {
+	Issues   []EscapeIssue
+	PRBranch func(pr int) (branch string, ok bool)
+	MainReds []RedRun
+}
+
+// AttributionInput is everything the sources read. In keeps the records and red runs of
+// the window; nil keeps all.
 type AttributionInput struct {
 	Events   []tdd.Event
 	Issues   []EscapeIssue
 	PRBranch func(pr int) (branch string, ok bool)
 	MainReds []RedRun
+	In       func(time.Time) bool
 }
 
 // Attribution is one escape and the lane it is blamed on. Key says which escape it is: the
@@ -47,16 +58,21 @@ type Attribution struct {
 
 // mergeFact is a merge the log records.
 type mergeFact struct {
-	at   time.Time
 	lane string
 	pr   string
 	head string
+	sha  string // the commit it made on the trunk, when the log holds it
 }
 
-// attrWorld is the input with its merges read once.
+// attrWorld is the input with its merges read once. merges are those of a lane; outside
+// are the merges the log holds against the trunk itself (made outside the verb), which
+// name no lane but may name the commit a red run is about.
 type attrWorld struct {
-	in     AttributionInput
-	merges []mergeFact // by time
+	in      AttributionInput
+	merges  []mergeFact
+	outside []mergeFact
+	// covered are the issues a record already counted.
+	covered map[int]bool
 }
 
 // attributionSources is the table of sources, in the order that wins a tie.
@@ -69,20 +85,28 @@ var attributionSources = []struct {
 	{"main-red", (*attrWorld).fromMainReds},
 }
 
+func (w *attrWorld) in2(at string) bool {
+	if w.in.In == nil {
+		return true
+	}
+	t, err := time.Parse(time.RFC3339, at)
+	return err == nil && w.in.In(t)
+}
+
 // AttributeEscapes folds the three sources into the escapes of each lane.
 func AttributeEscapes(in AttributionInput) []Attribution {
-	w := &attrWorld{in: in}
+	w := &attrWorld{in: in, covered: map[int]bool{}}
 	for _, e := range in.Events {
 		if e.Kind != "merge" || e.Verdict != "ok" || e.Lane == "" {
 			continue
 		}
-		at, err := time.Parse(time.RFC3339, e.At)
-		if err != nil {
+		m := mergeFact{lane: e.Lane, pr: e.Detail["pr"], head: e.Detail["head"], sha: e.Detail["sha"]}
+		if abTrunk(e.Lane) {
+			w.outside = append(w.outside, m)
 			continue
 		}
-		w.merges = append(w.merges, mergeFact{at: at, lane: e.Lane, pr: e.Detail["pr"], head: e.Detail["head"]})
+		w.merges = append(w.merges, m)
 	}
-	sort.SliceStable(w.merges, func(i, j int) bool { return w.merges[i].at.Before(w.merges[j].at) })
 	seen := map[[2]string]bool{}
 	var out []Attribution
 	for _, src := range attributionSources {
@@ -106,8 +130,8 @@ func AttributeEscapes(in AttributionInput) []Attribution {
 // prKey is the key of an escape that names a PR.
 func prKey(pr string) string { return "pr:" + pr }
 
-// laneOfPR is the lane a PR merged from: the merge the log holds, else the PR's head
-// branch from the host.
+// laneOfPR is the lane a PR merged from: a merge of a lane the log holds, else the PR's
+// head branch from the host. A merge logged against the trunk names no lane.
 func (w *attrWorld) laneOfPR(pr string) (string, bool) {
 	for _, m := range w.merges {
 		if m.pr == pr {
@@ -115,17 +139,28 @@ func (w *attrWorld) laneOfPR(pr string) (string, bool) {
 		}
 	}
 	if n, err := strconv.Atoi(pr); err == nil && w.in.PRBranch != nil {
-		return w.in.PRBranch(n)
+		if b, ok := w.in.PRBranch(n); ok && !abTrunk(b) {
+			return b, true
+		}
 	}
 	return "", false
 }
 
 // fromRecords: `gate escape record` writes an escape event for the lane it ran in, or for
-// the lane of the PR it names when it ran from the trunk.
+// the lane of the PR it names when it ran from the trunk. The issue the record opened is
+// noted, so the issue source does not count it again.
 func (w *attrWorld) fromRecords() []Attribution {
+	issueOf := map[string]int{}
+	for _, e := range w.in.Events {
+		if e.Kind == "escape.issue" {
+			if n, err := strconv.Atoi(e.Detail["number"]); err == nil {
+				issueOf[e.Detail["id"]] = n
+			}
+		}
+	}
 	var out []Attribution
 	for _, e := range w.in.Events {
-		if e.Kind != "escape" || e.Verdict == "false-positive" {
+		if e.Kind != "escape" || e.Verdict == "false-positive" || !w.in2(e.At) {
 			continue
 		}
 		pr := e.Detail["pr"]
@@ -144,6 +179,9 @@ func (w *attrWorld) fromRecords() []Attribution {
 			}
 			lane = l
 		}
+		if n, ok := issueOf[e.Detail["id"]]; ok {
+			w.covered[n] = true
+		}
 		out = append(out, Attribution{Lane: lane, Source: "record", Key: key})
 	}
 	return out
@@ -154,11 +192,12 @@ var (
 	shaRef = regexp.MustCompile(`\b[0-9a-f]{7,40}\b`)
 )
 
-// fromIssues: an issue titled `escape:` names the PR or the merge sha that caused it.
+// fromIssues: an issue titled `escape:` names the PR or the merge sha that caused it. An
+// issue a record already counted is not counted again.
 func (w *attrWorld) fromIssues() []Attribution {
 	var out []Attribution
 	for _, is := range w.in.Issues {
-		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(is.Title)), "escape:") {
+		if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(is.Title)), "escape:") || w.covered[is.Number] {
 			continue
 		}
 		text := is.Title + "\n" + is.Body
@@ -170,12 +209,8 @@ func (w *attrWorld) fromIssues() []Attribution {
 			continue
 		}
 		for _, sha := range shaRef.FindAllString(text, -1) {
-			if m, ok := w.mergeOfSHA(sha); ok {
-				key := "sha:" + m.head
-				if m.pr != "" {
-					key = prKey(m.pr)
-				}
-				out = append(out, Attribution{Lane: m.lane, Source: "issue", Key: key})
+			if a, ok := w.blameSHA(sha, "issue"); ok {
+				out = append(out, a)
 				break
 			}
 		}
@@ -183,53 +218,52 @@ func (w *attrWorld) fromIssues() []Attribution {
 	return out
 }
 
-func (w *attrWorld) mergeOfSHA(sha string) (mergeFact, bool) {
-	for _, m := range w.merges {
-		if m.head != "" && strings.HasPrefix(m.head, sha) {
-			return m, true
-		}
-	}
-	return mergeFact{}, false
+// sameCommit reports whether two shas, either abbreviated, name one commit.
+func sameCommit(a, b string) bool {
+	return len(a) >= 7 && len(b) >= 7 && (strings.HasPrefix(a, b) || strings.HasPrefix(b, a))
 }
 
-// fromMainReds: the first red run on main after a merge, before the next merge, blames the
-// merge's lane. A red before any merge, or the second in one interval, blames no one.
-func (w *attrWorld) fromMainReds() []Attribution {
-	reds := append([]RedRun(nil), w.in.MainReds...)
-	sort.SliceStable(reds, func(i, j int) bool { return reds[i].At.Before(reds[j].At) })
-	blamed := map[int]bool{}
-	var out []Attribution
-	for _, r := range reds {
-		idx := -1
-		for i, m := range w.merges {
-			if !m.at.After(r.At) {
-				idx = i
-			}
-		}
-		if idx < 0 || blamed[idx] {
+// blameSHA is the escape blamed on the merge that made, or whose PR head is, the commit sha.
+func (w *attrWorld) blameSHA(sha, source string) (Attribution, bool) {
+	for _, m := range append(append([]mergeFact(nil), w.merges...), w.outside...) {
+		if !sameCommit(m.head, sha) && !sameCommit(m.sha, sha) {
 			continue
 		}
-		blamed[idx] = true
-		m := w.merges[idx]
-		key := "sha:" + m.head
+		lane, key := m.lane, "sha:"+sha
 		if m.pr != "" {
 			key = prKey(m.pr)
 		}
-		out = append(out, Attribution{Lane: m.lane, Source: "main-red", Key: key})
+		if abTrunk(lane) {
+			l, ok := w.laneOfPR(m.pr)
+			if m.pr == "" || !ok {
+				continue
+			}
+			lane = l
+		}
+		return Attribution{Lane: lane, Source: source, Key: key}, true
 	}
-	return out
+	return Attribution{}, false
 }
 
-// MainRedsFromEvents are the red runs the log itself holds: a merge gate that blocked on
-// the trunk. CI runs on main come from the host and are added by the caller.
-func MainRedsFromEvents(events []tdd.Event) []RedRun {
-	var out []RedRun
-	for _, e := range events {
-		if e.Kind != "merge_gate_result" || e.Verdict != "blocked" || !abTrunk(e.Lane) {
+// fromMainReds: a red CI run on main blames the merge that produced the commit it ran on:
+// found by the commit's sha among the merges the log holds, else by the PR its title names.
+// A red run of a commit no merge explains blames no one. A merge gate that blocked is no
+// red run: it refused an incoming merge, and main stayed as it was.
+func (w *attrWorld) fromMainReds() []Attribution {
+	var out []Attribution
+	for _, r := range w.in.MainReds {
+		if w.in.In != nil && !w.in.In(r.At) {
 			continue
 		}
-		if at, err := time.Parse(time.RFC3339, e.At); err == nil {
-			out = append(out, RedRun{At: at, Ref: "merge-gate"})
+		if a, ok := w.blameSHA(r.SHA, "main-red"); ok {
+			out = append(out, a)
+			continue
+		}
+		if m := prRef.FindStringSubmatch(r.Title); m != nil {
+			pr := m[1] + m[2] + m[3]
+			if lane, ok := w.laneOfPR(pr); ok {
+				out = append(out, Attribution{Lane: lane, Source: "main-red", Key: prKey(pr)})
+			}
 		}
 	}
 	return out

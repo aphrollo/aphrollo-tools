@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/aphrollo/aphrollo-tools/internal/integrate/host"
-	"github.com/aphrollo/aphrollo-tools/internal/tdd"
 )
 
 // The tracker's escape issues, the head branch of a PR and the failed runs on main are
@@ -28,13 +27,13 @@ func TestGatherAttribution_ReadsIssuesPRBranchesAndRedRunsOnMain(t *testing.T) {
 				t.Errorf("RunsOn(%q, %q), want main and push", branch, event)
 			}
 			return []host.WorkflowRun{
-				{Conclusion: "failure", CreatedAt: failedAt, URL: "u1"},
+				{Conclusion: "failure", CreatedAt: failedAt, URL: "u1", HeadSHA: "abc1234", Title: "Add b (#7)"},
 				{Conclusion: "success", CreatedAt: failedAt.Add(time.Hour), URL: "u2"},
 				{Conclusion: "cancelled", CreatedAt: failedAt.Add(2 * time.Hour), URL: "u3"},
 			}, nil
 		},
 	}
-	in, notes := GatherAttribution(f, "main", []tdd.Event{{Kind: "x"}})
+	in, notes := GatherAttribution(f, "main")
 	if len(notes) != 0 {
 		t.Errorf("notes = %v, want none", notes)
 	}
@@ -47,7 +46,7 @@ func TestGatherAttribution_ReadsIssuesPRBranchesAndRedRunsOnMain(t *testing.T) {
 	if _, ok := in.PRBranch(91); ok {
 		t.Errorf("PRBranch(91) found a branch for a PR the host does not know")
 	}
-	if len(in.MainReds) != 1 || !in.MainReds[0].At.Equal(failedAt) {
+	if len(in.MainReds) != 1 || !in.MainReds[0].At.Equal(failedAt) || in.MainReds[0].SHA != "abc1234" || in.MainReds[0].Title != "Add b (#7)" {
 		t.Errorf("main reds = %+v, want the one failed run (a success and a cancelled run are not red)", in.MainReds)
 	}
 }
@@ -59,7 +58,7 @@ func TestGatherAttribution_AnUnreadableHostIsNamedInTheNotes(t *testing.T) {
 		ListIssuesFn: func(host.IssueQuery) ([]host.Issue, error) { return nil, boom },
 		RunsOnFn:     func(string, string, int) ([]host.WorkflowRun, error) { return nil, boom },
 	}
-	_, notes := GatherAttribution(f, "main", nil)
+	_, notes := GatherAttribution(f, "main")
 	if len(notes) != 2 {
 		t.Fatalf("notes = %v, want one for the issues and one for the runs", notes)
 	}

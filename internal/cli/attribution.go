@@ -34,10 +34,10 @@ func hasOffLane(events []tdd.Event) bool {
 	return false
 }
 
-// escapeAttribution is the escapes the tracker's issues and main's red runs blame on a
-// lane, and what it could not read. A log with no off lane has no on/off comparison to
+// hostFacts is what the tracker's issues and main's red runs say of the escapes, and what it
+// could not read. A log with no off lane has no on/off comparison to
 // feed, so it asks the host nothing.
-func escapeAttribution(root string, events []tdd.Event) ([]measure.Attribution, []string) {
+func hostFacts(root string, events []tdd.Event) (*measure.HostFacts, []string) {
 	if !hasOffLane(events) {
 		return nil, nil
 	}
@@ -49,6 +49,5 @@ func escapeAttribution(root string, events []tdd.Event) ([]measure.Attribution, 
 	if trunk == "" {
 		trunk = "main"
 	}
-	in, notes := report.GatherAttribution(h, trunk, events)
-	return measure.AttributeEscapes(in), notes
+	return report.GatherAttribution(h, trunk)
 }

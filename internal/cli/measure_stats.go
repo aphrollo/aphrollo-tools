@@ -109,7 +109,7 @@ func runStats(args []string, stdout, stderr io.Writer) int {
 	opts := measure.Options{Lane: *lane, Window: window, RepoKey: tddarm.RepoKey(*repo)}
 	var attributionNotes []string
 	if *abSection {
-		opts.Attribution, attributionNotes = escapeAttribution(*repo, events)
+		opts.Host, attributionNotes = hostFacts(*repo, events)
 	}
 	section := func(evs []tdd.Event) (string, any) {
 		now := time.Now().UTC()

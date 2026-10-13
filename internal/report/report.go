@@ -39,9 +39,9 @@ type Input struct {
 	ABReadyIssued bool
 	// ByVersion adds a section that reads each binary version of the window on its own.
 	ByVersion bool
-	// Attribution is the escapes the tracker and main's CI blame on a lane (measure.AttributeEscapes), and AttributionNotes what could not be read to make it; both are left empty when the log holds no off lane.
-	Attribution      []measure.Attribution
-	AttributionNotes []string
+	// Host is what the tracker and CI host say of the escapes (nil when the log holds no off lane), and HostNotes what could not be read to make it.
+	Host      *measure.HostFacts
+	HostNotes []string
 }
 
 // Refs are the event seqs behind a number, so `aphrollo why <seq>` can replay
@@ -238,16 +238,16 @@ func Build(in Input) Report {
 		u := BuildUsage(*in.Usage, in.Now, in.Window, in.CompareAt)
 		usage = &u
 	}
-	o := measure.Options{Window: in.Window, RepoKey: in.RepoKey, Attribution: in.Attribution, LaneCost: laneCost(usage)}
+	o := measure.Options{Window: in.Window, RepoKey: in.RepoKey, Host: in.Host, LaneCost: laneCost(usage)}
 	raw := make([]tdd.Event, len(evs))
 	for i, e := range evs {
 		raw[i] = e.Event
 	}
 	r.AB = measure.ComputeAB(raw, in.Now, o)
-	r.ABTotal = measure.ComputeAB(raw, in.Now, measure.Options{RepoKey: in.RepoKey, Attribution: in.Attribution, LaneCost: o.LaneCost})
+	r.ABTotal = measure.ComputeAB(raw, in.Now, measure.Options{RepoKey: in.RepoKey, Host: in.Host, LaneCost: o.LaneCost})
 	for _, ab := range []*measure.AB{&r.AB, &r.ABTotal} {
 		if ab.OnOff.Active {
-			ab.OnOff.Notes = in.AttributionNotes
+			ab.OnOff.Notes = in.HostNotes
 		}
 	}
 	r.Shadow = measure.ComputeShadow(raw, in.Now, o)

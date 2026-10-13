@@ -158,11 +158,11 @@ func buildReport(root string, window time.Duration, now, compareAt time.Time, ab
 		briefs = append(briefs, measure.Brief{Name: b.Name, Subagent: b.Subagent, Bytes: len(b.Text)})
 	}
 	events := tdd.ReadEvents(root)
-	attribution, notes := escapeAttribution(root, events)
+	host, notes := hostFacts(root, events)
 	return report.Build(report.Input{
 		Events: events, Now: now, Window: window,
 		Repo: repoName(root), RepoKey: tddarm.RepoKey(root), Briefs: measure.CheckBriefs(briefs),
 		Usage: scanUsage(root, window, now, events), CompareAt: compareAt, ABReadyIssued: abReady, ByVersion: byVersion,
-		Attribution: attribution, AttributionNotes: notes,
+		Host: host, HostNotes: notes,
 	})
 }

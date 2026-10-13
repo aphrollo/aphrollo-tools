@@ -124,9 +124,19 @@ func ComputeAB(events []tdd.Event, now time.Time, o Options) AB {
 		}
 		foldABEvent(f, e)
 	}
-	for _, a := range o.Attribution {
-		if f := lanes[canon(a.Lane)]; f != nil && a.Source != "record" {
-			f.attributed++
+	// The escapes of a lane: its records, wherever they were recorded from, and what the
+	// tracker and main's CI blame on it (AttributeEscapes).
+	in := AttributionInput{Events: events, In: s.in}
+	if o.Host != nil {
+		in.Issues, in.PRBranch, in.MainReds = o.Host.Issues, o.Host.PRBranch, o.Host.MainReds
+	}
+	for _, a := range AttributeEscapes(in) {
+		if f := lanes[canon(a.Lane)]; f != nil {
+			if a.Source == "record" {
+				f.records++
+			} else {
+				f.attributed++
+			}
 		}
 	}
 	before := 0
@@ -208,10 +218,6 @@ func foldABEvent(f *abLaneFacts, e stamped) {
 		f.gateSecs += e.Secs
 		if e.Verdict == "blocked" {
 			f.gateBlocks++
-		}
-	case "escape":
-		if e.Verdict != "false-positive" {
-			f.records++
 		}
 	case "ci":
 		if e.Verdict == "red" && f.greenSeen && !f.ciCounted {
