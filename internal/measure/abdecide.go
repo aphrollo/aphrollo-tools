@@ -48,6 +48,8 @@ type abMetricDef struct {
 	Format func(float64) string
 	Stat   func([]float64) float64
 	Sample func(*abLaneFacts) (float64, bool)
+	// Note is a caveat the metric's line carries ("" for none).
+	Note string
 }
 
 // abEvidence is the least a metric needs before it may say anything but deciding: lanes in
@@ -72,16 +74,16 @@ func (e abEvidence) short(lanesE, lanesW int, events float64, nE, nW int) string
 // metric first. Adding a metric is a row, not control flow.
 var abMetrics = []abMetricDef{
 	{"escapes per lane", "primary", 0.05, abEvidence{Lanes: 10, Events: 5}, perLane, meanOf,
-		func(f *abLaneFacts) (float64, bool) { return float64(f.records + f.ciRed), true }},
+		func(f *abLaneFacts) (float64, bool) { return float64(f.records + f.ciRed + f.attributed), true }, ""},
 	{"time to green p50", "guardrail", 60, abEvidence{Lanes: 10, N: 10}, secs, medianOf,
 		func(f *abLaneFacts) (float64, bool) {
 			if f.greenAfter.IsZero() {
 				return 0, false
 			}
 			return f.greenAfter.Sub(f.firstAt).Seconds(), true
-		}},
+		}, ""},
 	{"denies per lane", "guardrail", 0.5, abEvidence{Lanes: 10, Events: 5}, perLane, meanOf,
-		func(f *abLaneFacts) (float64, bool) { return float64(f.denies), true }},
+		func(f *abLaneFacts) (float64, bool) { return float64(f.denies), true }, ""},
 }
 
 func perLane(v float64) string { return fmt.Sprintf("%.2f", v) }
@@ -103,6 +105,8 @@ type ABMetric struct {
 	Verdict     string  `json:"verdict"`
 	// Why is what evidence is missing while the verdict is deciding or max reached.
 	Why string `json:"why,omitempty"`
+	// Note is a caveat of the metric, where it has one.
+	Note string `json:"note,omitempty"`
 }
 
 func meanOf(s []float64) float64 {
@@ -165,10 +169,18 @@ func judge(m ABMetric, lanesE, lanesW int, enough bool) string {
 
 // foldMetrics reads every metric of the table off the per-arm lane samples.
 func foldMetrics(lanes map[string][]*abLaneFacts) ([]ABMetric, string, bool) {
+	out := foldMetricsFor(abMetrics, abArms, lanes)
+	primary := out[0].Verdict
+	return out, primary, primary != VerdictDeciding
+}
+
+// foldMetricsFor reads the metrics of a table off two arms' lane samples, the first arm
+// minus the second.
+func foldMetricsFor(defs []abMetricDef, arms [2]string, lanes map[string][]*abLaneFacts) []ABMetric {
 	var out []ABMetric
-	for _, def := range abMetrics {
+	for _, def := range defs {
 		var s [2][]float64
-		for i, arm := range abArms {
+		for i, arm := range arms {
 			for _, f := range lanes[arm] {
 				if v, ok := def.Sample(f); ok {
 					s[i] = append(s[i], v)
@@ -176,7 +188,7 @@ func foldMetrics(lanes map[string][]*abLaneFacts) ([]ABMetric, string, bool) {
 			}
 			sort.Float64s(s[i])
 		}
-		m := ABMetric{Name: def.Name, Role: def.Role, Band: def.Band, NEnforce: len(s[0]), NWarn: len(s[1])}
+		m := ABMetric{Name: def.Name, Role: def.Role, Band: def.Band, NEnforce: len(s[0]), NWarn: len(s[1]), Note: def.Note}
 		if len(s[0]) > 0 {
 			m.Enforce = def.Stat(s[0])
 		}
@@ -193,7 +205,7 @@ func foldMetrics(lanes map[string][]*abLaneFacts) ([]ABMetric, string, bool) {
 		for _, v := range append(append([]float64(nil), s[0]...), s[1]...) {
 			events += v
 		}
-		lE, lW := len(lanes[abArms[0]]), len(lanes[abArms[1]])
+		lE, lW := len(lanes[arms[0]]), len(lanes[arms[1]])
 		if def.Need.Events == 0 {
 			events = 0
 		}
@@ -201,8 +213,7 @@ func foldMetrics(lanes map[string][]*abLaneFacts) ([]ABMetric, string, bool) {
 		m.Verdict = judge(m, lE, lW, m.Why == "")
 		out = append(out, m)
 	}
-	primary := out[0].Verdict
-	return out, primary, primary != VerdictDeciding
+	return out
 }
 
 func signed(f func(float64) string, v float64) string {

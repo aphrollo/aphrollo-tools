@@ -236,3 +236,22 @@ func TestComputeAB_LanguagesAreOrderedByArmThenNameAndTheTextIsStable(t *testing
 // ratchet: test_removed TestComputeAB_AnArmIsDecidableAtThirtyLanes: the 30-lane rule is replaced by the stop rule, covered by the TestComputeAB tests in ab_decide_test.go
 
 // ratchet: test_removed TestAB_TextNamesEachArmItsCountsAndWhetherItReachedThirtyLanes: renamed TestAB_TextNamesEachArmItsCountsAndTheMaximumLanes: arms no longer report reaching 30 lanes
+
+// An escape the tracker or main's CI blames on a lane counts for that lane's arm, beside
+// the records and the CI reds the log holds; a record the attribution repeats counts once.
+func TestComputeAB_AnAttributedEscapeCountsForItsLanesArm(t *testing.T) {
+	evs := abCat(abLane(0, "lane/a", "enforce", "go"), abLane(100, "lane/b", "warn", "go"))
+	o := Options{Attribution: []Attribution{
+		{Lane: "lane/a", Source: "issue", Key: "pr:1"},
+		{Lane: "lane/a", Source: "main-red", Key: "pr:2"},
+		{Lane: "lane/b", Source: "record", Key: "record:e1"}, // the log's own record counts through foldABEvent
+		{Lane: "lane/unknown", Source: "issue", Key: "pr:3"},
+	}}
+	ab := computeAB(evs, o)
+	if got := abRow(t, ab, "enforce"); got.Escapes != 2 || got.AttributedEscapes != 2 {
+		t.Errorf("enforce = %+v, want 2 escapes, both attributed", got)
+	}
+	if got := abRow(t, ab, "warn"); got.Escapes != 0 {
+		t.Errorf("warn = %+v, want 0: a record source is counted from the log, not twice", got)
+	}
+}
