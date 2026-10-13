@@ -45,6 +45,7 @@ var aliasSources = map[string]string{
 	"retro-prompt":           "retro-prompt",
 	"issue-prompt":           "issue-prompt",
 	"report":                 "report",
+	"ab-off-share":           "ab-off-share",
 }
 
 // source is one file's table.
@@ -77,7 +78,7 @@ func (r *reader) aliasFiles(repo string) {
 	}
 	r.aliasUndercover(aph, cargo)
 	r.aliasRequires(aph, cargo)
-	for _, name := range []string{"retro-prompt", "issue-prompt", "report"} {
+	for _, name := range []string{"retro-prompt", "issue-prompt", "report", "ab-off-share"} {
 		for _, s := range []source{cargo, aph} {
 			if v, ok := s.t.Value(name); ok {
 				r.aliasClaim(s, name, v)

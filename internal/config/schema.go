@@ -65,10 +65,12 @@ func (a allowed) has(l Layer) bool {
 // Key is one setting: its name, its type, its default, the layers that may
 // declare it, and where a file spells it.
 type Key struct {
-	Name    string
-	Kind    tomlsubset.Kind
-	Enum    []string
-	Min     int
+	Name string
+	Kind tomlsubset.Kind
+	Enum []string
+	Min  int
+	// Max bounds an integer above; 0 means no bound.
+	Max     int
 	Default tomlsubset.Value
 	Layers  allowed
 	// Table and Field are the key's spelling in a file: a root key has the
@@ -92,6 +94,9 @@ func list(s ...string) tomlsubset.Value {
 
 var schema = []Key{
 	{Name: "tdd", Kind: tomlsubset.String, Enum: []string{"enforce", "warn", "off"}, Default: str(tddBuiltIn), Layers: inAll, Field: "tdd"},
+	// The share, in percent, of a repo's lanes that run with aphrollo off, as the control
+	// of the on/off comparison. 0 is no off arm: behaviour is unchanged until a repo opts in.
+	{Name: "ab-off-share", Kind: tomlsubset.Int, Min: 0, Max: 100, Default: num(0), Layers: inAll, Field: "ab-off-share"},
 	{Name: "isolation", Kind: tomlsubset.Bool, Default: flag(true), Layers: inAll, Field: "isolation"},
 	{Name: "ci", Kind: tomlsubset.String, Enum: []string{"auto", "local", "github"}, Default: str("auto"), Layers: inAll, Field: "ci"},
 	{Name: "ci.os", Kind: tomlsubset.List, Default: list("linux"), Layers: inRepo, Field: "ci-os"},
@@ -230,6 +235,9 @@ func (k Key) Validate(v tomlsubset.Value) (tomlsubset.Value, error) {
 	case tomlsubset.Int:
 		if v.N < k.Min {
 			return v, fmt.Errorf("%d is below the minimum %d", v.N, k.Min)
+		}
+		if k.Max != 0 && v.N > k.Max {
+			return v, fmt.Errorf("%d is above the maximum %d", v.N, k.Max)
 		}
 	}
 	return v, nil

@@ -17,7 +17,8 @@ import (
 // may ask it on every call.
 func EffectiveTDD(dir string) tddarm.Mode {
 	repo := compat.RepoRoot(dir)
-	return tddarm.ResolveIn(config.ForDir(dir).Get("tdd"), repo, LaneOf(repo))
+	cfg := config.ForDir(dir)
+	return tddarm.ResolveInShare(cfg.Get("tdd"), repo, LaneOf(repo), cfg.Get("ab-off-share").Value.N)
 }
 
 // RecordLaneArm writes the event that says which arm a lane is in, the first time the

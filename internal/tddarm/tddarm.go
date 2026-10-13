@@ -20,6 +20,9 @@ import (
 const (
 	ArmEnforce = "enforce"
 	ArmWarn    = "warn"
+	// ArmOff is the control of the on/off comparison: aphrollo runs no hook and no gate in
+	// the lane. It is assigned only when the repo declares an ab-off-share above 0.
+	ArmOff = "off"
 )
 
 // Why a lane runs under the mode it does.
@@ -50,6 +53,45 @@ func Of(repoKey, lane string) string {
 		return ArmWarn
 	}
 	return ArmEnforce
+}
+
+// Off reports whether the lane runs with aphrollo off: in the off arm of the on/off
+// comparison. A lane pinned to tdd = off is not: there only the red-green rule is off.
+func (m Mode) Off() bool { return m.Arm == ArmOff }
+
+// OffBucket is the lane's place, 0 to 99, in the off assignment: FNV-1a over a salt of
+// its own, the repo key and the lane's name, finished with murmur3's mixer so every
+// bit of the hash counts. The salt differs from Of's, so a lane's bucket says nothing of
+// its enforce or warn arm. A lane is off when its bucket is below the repo's share.
+func OffBucket(repoKey, lane string) int {
+	h := uint32(2166136261)
+	for _, b := range []byte("off-arm" + sep + repoKey + sep + lane) {
+		h = (h ^ uint32(b)) * 16777619
+	}
+	return finish(h)
+}
+
+const sep = "\x00"
+
+func finish(h uint32) int {
+	h ^= h >> 16
+	h *= 0x85ebca6b
+	h ^= h >> 13
+	h *= 0xc2b2ae35
+	h ^= h >> 16
+	return int(h % 100)
+}
+
+// ResolveShare is Resolve for a repo that declares an off share, in percent. A pin still
+// wins, and a lane that has none (a trunk branch, no branch) is in no arm; otherwise a
+// lane whose OffBucket is below the share runs with aphrollo off, and the rest are
+// assigned as Resolve assigns them. A share of 0 is Resolve itself.
+func ResolveShare(set config.Setting, repoKey, lane string, share int) Mode {
+	m := Resolve(set, repoKey, lane)
+	if m.Why == WhyAssigned && OffBucket(repoKey, lane) < share {
+		return Mode{TDD: "off", Arm: ArmOff, Why: WhyAssigned}
+	}
+	return m
 }
 
 // Resolve is the mode a lane runs under. set is the `tdd` setting as the config
@@ -149,8 +191,13 @@ func Trunk(root string) string {
 // ResolveIn is Resolve for the lane of the checkout at root: its repo key from the
 // remote, and its trunk, whatever it is called, in no arm.
 func ResolveIn(set config.Setting, root, lane string) Mode {
+	return ResolveInShare(set, root, lane, 0)
+}
+
+// ResolveInShare is ResolveIn for a repo that declares an off share.
+func ResolveInShare(set config.Setting, root, lane string, share int) Mode {
 	if lane != "" && lane == Trunk(root) {
 		lane = ""
 	}
-	return Resolve(set, RepoKey(root), lane)
+	return ResolveShare(set, RepoKey(root), lane, share)
 }

@@ -41,6 +41,8 @@ func CIBinding(p0 string) (string, string) { return merge.CIBinding(p0) }
 
 func CommitMsg(p0 string, p1 string) GateResult { return merge.CommitMsg(p0, p1) }
 
+func CommitMsgUndercover(p0 string, p1 string) GateResult { return merge.CommitMsgUndercover(p0, p1) }
+
 func GatePRMerge(p0 string, p1 string, p2 SuiteRunner, p3 io.Writer) error {
 	return merge.GatePRMerge(p0, p1, p2, p3)
 }
